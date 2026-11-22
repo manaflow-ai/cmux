@@ -5,6 +5,7 @@
 // answers the requests out as one wave, and count the waves before the first frame with rows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,7 +19,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -149,7 +151,10 @@ test("the turn's opener comes with the attach page, not a read after it", async 
   try {
     expect(waves).toBeLessThanOrEqual(2);
     // No `_acpmux/events` read of the turn's prompts: the attach named it.
-    expect(sent.filter((request) => request.method === "_acpmux/events")).toEqual([]);
+    // (The rail's one prompt index read, direct.ts readPromptIndex, is not a read of the opener.)
+    expect(
+      sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true),
+    ).toEqual([]);
   } finally {
     close();
   }
@@ -165,7 +170,7 @@ test("an acpmux that does not name the opener still has it read", async () => {
     if (method === "_acpmux/attach") delete reply.turnOpener;
   });
   try {
-    const reads = sent.filter((request) => request.method === "_acpmux/events");
+    const reads = sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true);
     expect(reads.length).toBe(1);
     expect(reads[0]!.params).toMatchObject({ kinds: ["user_message"], limit: 16 });
   } finally {

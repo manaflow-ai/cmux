@@ -28,9 +28,38 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     /// The page is about to scroll for the selection, and has stopped.
     var autoscrollBegan: () -> Void = {}
     var autoscrollEnded: () -> Void = {}
+    /// The web link that covers a cell (nil: none): a long press on a link offers
+    /// Open Link, the other device and Open in Safari beside Copy, as iOS text does.
+    var linkAt: (TerminalCellPoint) -> URL? = { _ in nil }
+    /// Opens a link the way the menu row says (``TerminalLinkRoute``).
+    var openLink: ((URL, TerminalLinkAction) -> Void)?
+    /// The menu's row for the device Open Link does not open the link on (Open on Mac or
+    /// Open on iPhone), nil for none.
+    var otherLinkDevice: (URL) -> TerminalLinkAction? = { _ in nil }
+    /// The link under the long press that made the selection.
+    private var pressedLink: URL?
 
     private(set) var selection: TerminalTextSelection? {
-        didSet { if selection != oldValue { redraw() } }
+        didSet {
+            guard selection != oldValue else { return }
+            redraw()
+            selectionChanged(selection)
+        }
+    }
+
+    /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
+    var selectionChanged: (TerminalTextSelection?) -> Void = { _ in }
+    /// The handles show (off for Copy Mode's lone cursor cell).
+    var showsHandles = true {
+        didSet { if showsHandles != oldValue { redraw() } }
+    }
+
+    /// Shows `selection` from code (Copy Mode's cursor and visual selection), with no menu.
+    func show(_ selection: TerminalTextSelection?, handles: Bool) {
+        menu?.dismissMenu()
+        pressedLink = nil
+        showsHandles = handles
+        self.selection = selection
     }
 
     /// The view the selection lives in: the scroll view (shell), or the TUI
@@ -82,6 +111,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
 
     func clear() {
         stopAutoscroll()
+        pressedLink = nil
         guard selection != nil else { return }
         selection = nil
         menu?.dismissMenu()
@@ -119,8 +149,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         let start = rectFor(selection.start), end = rectFor(selection.end)
         startHandle.place(caretTop: CGPoint(x: start.minX, y: start.minY), height: start.height)
         endHandle.place(caretTop: CGPoint(x: end.maxX, y: end.minY), height: end.height)
-        startHandle.isHidden = false
-        endHandle.isHidden = false
+        startHandle.isHidden = !showsHandles
+        endHandle.isHidden = !showsHandles
     }
 
     // MARK: Gestures
@@ -131,6 +161,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         switch press.state {
         case .began:
             guard let cell = cellAt(point) else { return }
+            pressedLink = openLink == nil ? nil : linkAt(cell)
+            showsHandles = true
             selection = TerminalTextSelection.word(at: cell, line: rowText(cell.row) ?? "", columns: columns())
             UISelectionFeedbackGenerator().selectionChanged()
         case .changed:
@@ -153,6 +185,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         guard let host, var current = selection else { return }
         if pan.state == .began {
             menu?.dismissMenu()
+            // The selection leaves the word the press found: no more Open Link.
+            pressedLink = nil
             dragging = pan.view === startHandle ? .start : .end
         }
         // Every report moves the handle, the first and last included (a
@@ -264,7 +298,29 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         let all = UIAction(title: String(localized: "Select All"), image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in
             self?.selectAll()
         }
-        return UIMenu(children: [copy, all])
+        guard let link = pressedLink, openLink != nil else { return UIMenu(children: [copy, all]) }
+        let open = UIAction(title: String(localized: "Open Link"), image: UIImage(systemName: "globe")) { [weak self] _ in
+            self?.clear()
+            self?.openLink?(link, .openLink)
+        }
+        let safari = UIAction(title: String(localized: "Open in Safari"), image: UIImage(systemName: "safari")) { [weak self] _ in
+            self?.clear()
+            self?.openLink?(link, .openInSafari)
+        }
+        let other: [UIAction] = switch otherLinkDevice(link) {
+        case .openOnMac?:
+            [UIAction(title: String(localized: "Open on Mac"), image: UIImage(systemName: "desktopcomputer")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnMac)
+            }]
+        case .openOnPhone?:
+            [UIAction(title: String(localized: "Open on iPhone"), image: UIImage(systemName: "iphone")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnPhone)
+            }]
+        default: []
+        }
+        return UIMenu(children: [open] + other + [safari, copy, all])
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {
@@ -280,6 +336,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     func selectAll() {
         let rows = documentRows()
         guard !rows.isEmpty else { return }
+        pressedLink = nil
+        showsHandles = true
         selection = TerminalTextSelection.all(originRow: rows.lowerBound, endRow: rows.upperBound, columns: columns())
         showMenu()
     }

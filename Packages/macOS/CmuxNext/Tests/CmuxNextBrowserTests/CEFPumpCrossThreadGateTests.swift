@@ -47,8 +47,10 @@ import Testing
         return Rig(pump: pump, timer: timer, gate: gate, clock: clock, ledger: ledger)
     }
 
+    /// Every cross-thread wake, whatever thread asked: DEBUG and bench builds name the thread and immediate/delayed in
+    /// the reason (`cross-thread request (<thread>, <immediate|delayed>)`), one row each.
     static func crossThreadWakes(_ ledger: WakeupLedger) -> UInt64 {
-        ledger.snapshot().first { $0.owner == "CEFMessagePump" && $0.reason == "cross-thread request" }?.count ?? 0
+        ledger.snapshot().filter { $0.owner == "CEFMessagePump" && $0.reason.hasPrefix("cross-thread request") }.reduce(0) { $0 + $1.count }
     }
 
     @Test func aDelayedRequestAfterTheArmedFireWakesNothing() {
@@ -66,6 +68,22 @@ import Testing
         #expect(rig.gate.admit(delayMilliseconds: 50, nowNanos: rig.clock.nanos + 20_000_000), "the armed fire is already due")
         #expect(rig.gate.kept == 0)
         #expect(Self.crossThreadWakes(rig.ledger) == 3)
+    }
+
+    /// DEBUG and bench builds name the requesting thread and immediate/delayed (the pump-wakes bench groups by it).
+    @Test func aDebugWakeNamesItsThreadAndKind() async {
+        let rig = Self.rig()
+        let (gate, nanos) = (rig.gate, rig.clock.nanos)
+        await Thread.detachNewThreadAndWait(name: "PumpGateTestThread") {
+            _ = gate.admit(delayMilliseconds: 0, nowNanos: nanos)
+            _ = gate.admit(delayMilliseconds: 5, nowNanos: nanos)  // before the armed +10 ms fire: admitted
+        }
+        let reasons = Set(rig.ledger.snapshot().filter { $0.owner == "CEFMessagePump" && $0.reason.hasPrefix("cross-thread request") }.map(\.reason))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(reasons == ["cross-thread request (PumpGateTestThread, immediate)", "cross-thread request (PumpGateTestThread, delayed)"])
+        #else
+        #expect(reasons == ["cross-thread request"])
+        #endif
     }
 
     /// A kept request still runs when the armed pass reports nothing new (CEF need not report it
@@ -111,5 +129,19 @@ import Testing
         let rig = Self.rig()
         rig.pump.stop()
         #expect(rig.gate.admit(delayMilliseconds: 50, nowNanos: rig.clock.nanos))
+    }
+}
+
+private extension Thread {
+    /// Runs `body` on a new thread named `name` and returns when it ends.
+    static func detachNewThreadAndWait(name: String, _ body: @escaping @Sendable () -> Void) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let thread = Thread {
+                body()
+                done.resume()
+            }
+            thread.name = name
+            thread.start()
+        }
     }
 }

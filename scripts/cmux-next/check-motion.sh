@@ -50,7 +50,7 @@ exempt = (os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep,
 # The MotionGate members (Sources/CmuxNextDesign/Motion): every one decides with a category.
 GATE_MEMBERS = "|".join([
     "animates", "animatesMovement", "animatesPaneLayout", "animatesFades", "animatesLoops", "spring", "duration",
-    "period", "dividerReleaseProjection", "animate", "animateTimed", "animateExit", "transaction", "set",
+    "period", "animate", "animateTimed", "animateExit", "transaction", "set",
     "springAnimation", "scheduledFade", "spinAnimation", "stepAnimation", "framesAnimation", "pulseAnimation",
     "flashAnimation", "passOverAnimation", "crossfadeInPlace", "animation", "attentionAnimation",
     "revealLaunchMark", "concealLaunchMark", "marqueeAnimation", "policy", "sweepAnimation", "agentCursorGlideDuration",
@@ -74,6 +74,7 @@ RULES = [
     ("window animationBehavior outside a motion gate (use gate.animatesMovement ? .x : .none)",
      r"\banimationBehavior\s*=\s*\.(?!none\b)(?![^\n]*\bMotion\.)"),
     ("popover animates outside a motion gate", r"\.animates\s*=(?!\s*false\s*(?:;|}))(?![^\n]*\bMotion\.)"),
+    ("popup entrance animation (open popups in one frame)", r"\bentrance\s*:\s*true\b"),
 ]
 # An .animator() change must run inside a Motion gate's animation group: outside one, AppKit
 # animates it on its own 0.25 s default, which no switch reaches. Heuristic: a gate call that

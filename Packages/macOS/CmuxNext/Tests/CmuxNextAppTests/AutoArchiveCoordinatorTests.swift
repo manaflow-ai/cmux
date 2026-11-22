@@ -1,4 +1,5 @@
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -34,7 +35,8 @@ import Testing
         var policy = AutoArchivePolicy(style: .quiet, idleDays: 3)
         var toasts: [(String, @MainActor () -> Void)] = []
         var cards: [SidebarNoticeCard] = []
-        var answer = true
+        var answer: String? = "archive"
+        var styles: [AutoArchivePolicy.Style] = []
 
         func autoArchiveCandidates() -> [AutoArchivePlanner.Candidate] {
             active.keys.sorted().map { AutoArchivePlanner.Candidate(item: "itm_\($0)", workspace: $0, title: $0.uppercased(), lastActive: active[$0] ?? nil) }
@@ -42,7 +44,11 @@ import Testing
         func autoArchiveShownWorkspaces() -> Set<String> { shown }
         func autoArchivePolicy() -> AutoArchivePolicy { policy }
         func autoArchiveToast(_ message: String, undo: @escaping @MainActor () -> Void) { toasts.append((message, undo)) }
-        func autoArchiveAsk(_ card: SidebarNoticeCard) async -> Bool {
+        func autoArchiveSetStyle(_ style: AutoArchivePolicy.Style) async {
+            styles.append(style)
+            policy.style = style
+        }
+        func autoArchiveAsk(_ card: SidebarNoticeCard) async -> String? {
             cards.append(card)
             return answer
         }
@@ -57,7 +63,7 @@ import Testing
         document = Document(workspaces: ["fresh", "old", "older"])
         host.active = ["fresh": Self.start.addingTimeInterval(-1 * Self.day), "old": Self.start.addingTimeInterval(-4 * Self.day),
                        "older": Self.start.addingTimeInterval(-40 * Self.day)]
-        let defaults = UserDefaults(suiteName: "AutoArchiveCoordinatorTests.\(UUID().uuidString)") ?? UserDefaults()
+        let defaults = UserDefaults(testSuiteName: "AutoArchiveCoordinatorTests.\(UUID().uuidString)") ?? UserDefaults()
         let document = document
         let now = Self.start
         coordinator = AutoArchiveCoordinator(host: host, document: { document }, ledgerStore: AutoArchiveLedgerStore(defaults: defaults),
@@ -84,6 +90,19 @@ import Testing
         #expect(document.sent.isEmpty && host.toasts.isEmpty && host.cards.isEmpty)
     }
 
+    /// Lawrence 18515/18517: the Tidy Up card popping up on its own was annoying. With no
+    /// `workspaces.autoArchive.style` set, a pass neither asks nor archives; Archive Idle Workspaces
+    /// still archives on request.
+    @Test func theDefaultStyleNeverPopsACardOrArchivesOnItsOwn() async throws {
+        host.policy = AutoArchivePolicy(styleName: nil, idleDays: nil)
+        coordinator.runPass()
+        await Task.yield()
+        await Task.yield()
+        #expect(host.cards.isEmpty, "no card on its own")
+        #expect(document.sent.isEmpty && host.toasts.isEmpty)
+        #expect(try coordinator.sweep() == 2, "Archive Idle Workspaces still works")
+    }
+
     @Test func suggestAsksFirstAndArchivesOnArchive() async throws {
         host.policy.style = .suggest
         coordinator.runPass()
@@ -92,9 +111,40 @@ import Testing
         #expect(archived() == ["itm_old", "itm_older"])
     }
 
+    @Test func theCardIsOneQuestionWithArchiveAndAlwaysArchive() async throws {
+        host.policy.style = .suggest
+        host.answer = "always"
+        coordinator.runPass()
+        try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
+        let card = try #require(host.cards.first)
+        #expect(card.title == "2 idle workspaces", "the button says Archive; the title fits the sidebar (a capture cut \"Archive 6 idle workspa…\")")
+        #expect(card.eyebrow == nil && card.detail == nil, "no heading, no paragraph")
+        #expect(card.actions.map(\.id) == ["archive", "always"])
+        #expect(card.actions.map(\.isSwitch) == [false, true], "T3: Always is an inline switch, not a button")
+        #expect(host.styles == [.quiet], "Always Archive turns on automatic archiving")
+        #expect(archived() == ["itm_old", "itm_older"])
+    }
+
+    /// Lawrence 18519 ("grammar", a card reading "1 workspaces look idle"): one idle workspace reads
+    /// in the singular on the card and on the toast; two read in the plural.
+    @Test func oneIdleWorkspaceReadsInTheSingular() async throws {
+        host.active["old"] = .some(Self.start.addingTimeInterval(-1 * Self.day))
+        host.policy.style = .suggest
+        coordinator.runPass()
+        try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
+        #expect(host.cards.first?.title == "1 idle workspace")
+        #expect(host.cards.first?.lines == ["OLDER"])
+        #expect(host.toasts.first?.0 == "Archived 1 idle workspace")
+    }
+
+    @Test func twoIdleWorkspacesReadInThePlural() throws {
+        coordinator.runPass()
+        #expect(host.toasts.first?.0 == "Archived 2 idle workspaces")
+    }
+
     @Test func notNowSnoozesTheCardForADay() async throws {
         host.policy.style = .suggest
-        host.answer = false
+        host.answer = nil
         coordinator.runPass()
         try await waitFor { host.cards.count == 1 }
         await Task.yield()
@@ -137,5 +187,48 @@ import Testing
     func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 where !condition() { await Task.yield() }
         try #require(condition())
+    }
+}
+
+/// Archive Other Workspaces, Archive Workspaces Above and Below (user, 2026-11-05): the rows a person
+/// names archive as one undo step, pinned and already archived rows stay, and the toast's Undo brings
+/// the whole batch back.
+@MainActor @Suite struct BulkArchiveByHandTests {
+    let host = AutoArchiveCoordinatorTests.Host()
+    let document = AutoArchiveCoordinatorTests.Document(workspaces: ["a", "b", "c", "d"])
+    let coordinator: AutoArchiveCoordinator
+
+    init() {
+        let defaults = UserDefaults(testSuiteName: "BulkArchiveByHandTests.\(UUID().uuidString)") ?? UserDefaults()
+        let document = document
+        coordinator = AutoArchiveCoordinator(host: host, document: { document }, ledgerStore: AutoArchiveLedgerStore(defaults: defaults),
+                                             now: { AutoArchiveCoordinatorTests.start })
+    }
+
+    func archived() -> Set<String> { Set(document.records.items.values.filter(\.archived).map(\.id)) }
+
+    @Test func theNamedRowsArchiveInOneStepAndOneUndoBringsThemAllBack() throws {
+        #expect(try coordinator.archive(workspaces: ["b", "c", "d"]) == 3)
+        #expect(archived() == ["itm_b", "itm_c", "itm_d"])
+        #expect(document.sent.count == 1, "one change, one undo step")
+        let toast = try #require(host.toasts.first)
+        #expect(toast.0 == "Archived 3 workspaces", "a hand archive is not called idle")
+        toast.1()
+        #expect(archived().isEmpty, "Undo restores the whole batch")
+    }
+
+    @Test func pinnedAndArchivedRowsStay() throws {
+        document.records.items["itm_b"]?.pinnedInGroup = true
+        document.records.items["itm_c"]?.archived = true
+        #expect(coordinator.archivableItems(workspaces: ["a", "b", "c", "d"]) == ["itm_a", "itm_d"])
+        #expect(try coordinator.archive(workspaces: ["a", "b", "c", "d"]) == 2)
+        #expect(document.sent.first?.items == ["itm_a", "itm_d"])
+        #expect(host.toasts.first?.0 == "Archived 2 workspaces")
+    }
+
+    @Test func nothingToArchiveSendsNothing() throws {
+        document.records.items["itm_a"]?.pinnedInGroup = true
+        #expect(try coordinator.archive(workspaces: ["a", "unplaced-is-skipped"]) == 0)
+        #expect(document.sent.isEmpty && host.toasts.isEmpty)
     }
 }

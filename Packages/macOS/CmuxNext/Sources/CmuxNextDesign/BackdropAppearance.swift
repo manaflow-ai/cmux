@@ -30,7 +30,7 @@ public nonisolated enum BackdropAppearance: String, Hashable, Sendable {
         return 0
     }
 
-    private static func plist(_ path: String, in metadata: CGImageMetadata) -> [String: Any]? {
+    static func plist(_ path: String, in metadata: CGImageMetadata) -> [String: Any]? {
         guard let tag = CGImageMetadataCopyTagWithPath(metadata, nil, path as CFString),
               let value = CGImageMetadataTagCopyValue(tag) as? String, let data = Data(base64Encoded: value) else { return nil }
         return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]

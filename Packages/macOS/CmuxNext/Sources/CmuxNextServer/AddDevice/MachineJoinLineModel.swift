@@ -1,7 +1,7 @@
 public import Foundation
 public import Observation
 
-/// Add Device's "Any machine: one line" way (Labs `labs.machineJoin`): mint a single-use line, show
+/// Add Device's "Any machine" way, signed out (the default way, no Labs switch): mint a single-use line, show
 /// it with a countdown, and flip to joined when a joined machine carrying its `joinTokenId` shows up
 /// in `cmux machine list`.
 ///

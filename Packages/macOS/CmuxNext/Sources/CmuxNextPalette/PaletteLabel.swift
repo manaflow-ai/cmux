@@ -23,6 +23,15 @@ final class PaletteLabel: NSTextField {
     var tone: PaletteTone? = .primary {
         didSet { if tone != oldValue { applyTone() } }
     }
+    /// The Design style this label draws in (`PaletteText.label`).
+    var fontSource: (@MainActor () -> NSFont)?
+
+    /// Takes the current size of the label's style (a text size or density change).
+    func refreshFont() {
+        guard let font = fontSource?(), font != self.font else { return }
+        self.font = font
+        needsLayout = true
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -37,5 +46,13 @@ final class PaletteLabel: NSTextField {
     private func applyTone() {
         guard let tone else { return }
         performWithTheme { textColor = tone.color }
+    }
+}
+
+extension NSView {
+    /// Every `PaletteLabel` below this view takes its style's current size.
+    func refreshPaletteFonts() {
+        (self as? PaletteLabel)?.refreshFont()
+        subviews.forEach { $0.refreshPaletteFonts() }
     }
 }

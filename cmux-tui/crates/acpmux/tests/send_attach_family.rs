@@ -149,9 +149,12 @@ async fn send_message_carries_attachments_to_a_child() {
     let saved_dirs = std::fs::read_dir(&uploads).unwrap().count();
 
     // Text and inline files together past one JSON-RPC message: refused, and nothing more is
-    // saved (`attach::blocks_for` sends such files by reference).
-    let big = vec![acpmux::attach::block("big.bin", &vec![0u8; 8 << 20])];
-    let send = json!({"sessionId": child, "text": "x".repeat(5 << 20), "attachments": big});
+    // saved (`attach::blocks_for` sends such files by reference). Sized from the limit (#29670
+    // raised it from 15 to 31 MiB): half of it as text and half as a file (base64: 4/3 of it)
+    // is about 1.2 times the limit, under what a socket line may carry (64 MiB).
+    let half = acpmux::rpc::MAX_MESSAGE_BYTES / 2;
+    let big = vec![acpmux::attach::block("big.bin", &vec![0u8; half])];
+    let send = json!({"sessionId": child, "text": "x".repeat(half), "attachments": big});
     let r = p.call("_acpmux/subsession/send", send).await;
     let shown: String = r.to_string().chars().take(300).collect();
     assert_eq!(r["error"]["data"]["reason"], "attach.tooLarge", "{shown}");

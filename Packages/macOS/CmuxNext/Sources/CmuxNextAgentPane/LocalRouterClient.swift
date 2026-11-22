@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Network
 
@@ -44,7 +45,8 @@ public nonisolated struct LocalRouterClient: Sendable {
     /// or a short-folder path whose folder another user could control (the
     /// bearer goes over this socket).
     static func endpoint(_ path: String, uid: UInt32 = getuid()) throws -> NWEndpoint {
-        guard path.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes else { throw Failure.socketPathTooLong(path) }
+        let endpoint: NWEndpoint
+        do { endpoint = try NWEndpoint.unixSocket(path: path) } catch { throw Failure.socketPathTooLong(path) }
         let folder = shortFolder(uid: uid)
         if (path as NSString).deletingLastPathComponent == folder {
             var info = stat()
@@ -52,7 +54,7 @@ public nonisolated struct LocalRouterClient: Sendable {
                 throw Failure.untrustedSocketFolder(folder)
             }
         }
-        return .unix(path: path)
+        return endpoint
     }
 
     /// Hands the relay the hosted router's origin and a bearer valid until

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -10,7 +11,7 @@ import WebKit
 /// window waits synchronously for its web process (170-215 ms, #20516), so switching to a warm
 /// Markdown tab was slow. A warm switch must keep the page in the window, hidden, as terminals and
 /// browsers already are.
-@MainActor @Suite(.serialized) struct InternalPageParkingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct InternalPageParkingTests {
     /// Counts the page's window moves (each one is the re-attach the switch must avoid).
     final class WindowMoves: NSView {
         var moves = 0

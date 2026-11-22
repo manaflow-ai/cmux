@@ -78,6 +78,8 @@ pub(super) fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
         "amp" => Some("amp"),
         "copilot" => Some("copilot"),
         "cursor-agent" => Some("cursor"),
+        "hermes" => Some("hermes"),
+        "openclaw" => Some("openclaw"),
         _ => None,
     };
     let package = match (row.channel, row.package.as_deref()) {

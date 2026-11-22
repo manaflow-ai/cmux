@@ -56,9 +56,10 @@ public nonisolated enum CaptureBackdropPattern: Equatable, Sendable {
     }
 }
 
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A capture backdrop: a borderless window of the app that only draws a ``CaptureBackdropPattern``,
 /// ordered just behind its ``target`` window, which a snapshot of the target
-/// (``NSWindow/compositedSnapshotWithOverlays()``) composites behind it. A capture slot shares its
+/// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``) composites behind it. A capture slot shares its
 /// mini's desktop with other slots, and the window server composites only the windows a snapshot
 /// names, so a translucent window or its glass shows nothing behind it in a snapshot; with the
 /// backdrop behind it the window's translucency and the blur of its glass show as on screen. It
@@ -114,7 +115,10 @@ public final class CaptureBackdropPanel: NSPanel {
     }
 }
 
+#endif
+
 extension NSWindow {
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The capture backdrop shown behind this window (``CaptureBackdropPanel``), if any. The window
     /// keeps it, so it goes with the window.
     public var captureBackdrop: CaptureBackdropPanel? {
@@ -153,6 +157,14 @@ extension NSWindow {
         return backdrop.windowNumber
     }
 
+    #else
+    /// A Release build has no capture backdrop (``debug.capture_backdrop`` is DEBUG and bench only): none to skip.
+    static var captureBackdropNumbers: Set<Int> { [] }
+
+    /// A Release build has no capture backdrop: nothing composites behind a window.
+    var captureBackdropNumber: Int? { nil }
+    #endif
+
     /// The windows a snapshot composites, topmost first: `front` (the window and what is over it,
     /// already topmost first), then the backdrop, always last, so it is behind everything else
     /// whatever the window server's on-screen order is.
@@ -162,6 +174,7 @@ extension NSWindow {
     }
 }
 
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Draws a ``CaptureBackdropPattern``, or its image.
 final class CaptureBackdropView: NSView {
     private let pattern: CaptureBackdropPattern
@@ -200,3 +213,4 @@ final class CaptureBackdropView: NSView {
         }
     }
 }
+#endif

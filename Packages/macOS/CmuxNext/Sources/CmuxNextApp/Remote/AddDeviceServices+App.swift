@@ -17,15 +17,14 @@ extension AddDeviceServices {
         AddDeviceServices(
             list: { [weak services] in
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing { return fixture.devices }
+                if let fixture = services?.debugFixtures.addDevice { return fixture.devices }
                 #endif
                 return await services?.devices.read()
             },
             addComputer: { [weak services] address, name in
                 guard let services else { return }
                 let card = services.addMachine
-                card.open(destination: address, name: name, over: NSApp.mainWindow)
-                card.model.perform(.add)
+                card.add(destination: address, name: name, over: NSApp.mainWindow)
                 // task-owner: ends with the enroll this click started
                 Task { @MainActor [weak services] in _ = await card.finished(); await services?.devices.refresh() }
             },
@@ -36,14 +35,12 @@ extension AddDeviceServices {
                 _ = services?.registry.perform("newCloudMachine")
             },
             copy: { CloudPresenter.copy($0) },
-            installTailscale: {
-                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
-            },
-            // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
+            installTailscale: { if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) } },
+            // The default way (the pair code signed in, the line signed out), with no Labs switch.
             machineJoin: { [weak services] in
-                guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
+                guard let services else { return nil }
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing?.join { return fixture }
+                if let fixture = services.debugFixtures.addDevice?.join { return fixture }
                 #endif
                 return MachineJoinService.app(services)
             },
@@ -52,7 +49,13 @@ extension AddDeviceServices {
             copyConcealed: { line in
                 SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
             },
-            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) })
+            signIn: { [weak services] in _ = services?.registry.perform("palette.auth.signIn") },
+            // Signed in, the "Any machine" way hands off to Pair Another Machine (the invite code);
+            // signed out it keeps the ticket line.
+            pairAnotherMachine: { [weak services] in
+                guard let services, services.cloud.auth.isSignedIn else { return nil }
+                return { [weak services] in _ = services?.registry.perform("server.pairAnotherMachine") }
+            })
     }
 }
 
@@ -68,11 +71,13 @@ extension DeviceDirectory {
                                    // acpmux refuses an on from a connection that is not the person.
                                    if on, !line.isPerson { return false }
                                    return await line.call("_acpmux/pair_set", ["id": id, "fullAccess": on]) != nil
-                               })
+                               },
+                               // A removed peer's SSH machine leaves the sidebar too (HQ #4877 break 8).
+                               peerRemoved: { [weak services] peer in await services?.ssh.forgetMachines(reachingPeer: peer) })
     }
 }
 
-/// The one-line join in the app (Labs `labs.machineJoin`): each call is one short run of the bundled
+/// The one-line join in the app (Add Device's default way): each call is one short run of the bundled
 /// `cmux` CLI (`machine add|list|doctor`), handed the signed-in account's cmux access token on stdin
 /// (`--cloud-token-stdin`), never in argv, the environment or a log. The card shows the app's own
 /// words for a failure, never the CLI's stderr.
@@ -81,21 +86,21 @@ extension MachineJoinService {
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
             .map { HostCLI(binary: $0, environment: SSHService.environment) }
         let auth = services.cloud.auth
-        let token: @Sendable () async -> String? = { @MainActor in
-            guard auth.isSignedIn else { return nil }
-            return try? await auth.tokens().access
+        let identity = services.cloud.installIdentity
+        // A cmux access token for the active team: the platform's machine routes refuse the session's.
+        let token: @Sendable () async -> String? = { @MainActor in await auth.machineRoutesToken(identity: identity) }
+        // A signed-in hub command whose exit status is the whole answer (revoke, rotate, remove).
+        let succeeds: @Sendable ([String]) async -> Bool = { args in
+            guard let cli, let access = await token(),
+                  let run = await cli.run(args + ["--json", "--cloud-token-stdin"], secret: access, label: args.prefix(2).joined(separator: " "))
+            else { return false }
+            return run.status == 0
         }
         let machines = services.machines
-        // Every successful list read feeds the Machines section too (Add Device's flip shows the row).
-        // The read takes the store's ticket before it starts, so one that lands after a newer read is
-        // dropped; one that lands after the switch turned off feeds nothing (the store emptied itself).
-        let beginRead = { @MainActor [weak services] () -> Int? in
-            guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
-            return services.joinedMachines.beginRead()
-        }
-        let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int) in
-            guard let services, services.settings?.snapshot.machineJoin == true else { return }
-            services.joinedMachines.finishRead(rows, ticket: ticket)
+        // Every list read feeds the Machines section too, on the store's ticket (a read behind a newer one feeds nothing).
+        let beginRead = { @MainActor [weak services] () -> Int? in services?.joinedMachines.beginRead() }
+        let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int?) in
+            if let ticket { services?.joinedMachines.finishRead(rows, ticket: ticket) }
         }
         return MachineJoinService(
             mint: { name in
@@ -107,8 +112,8 @@ extension MachineJoinService {
                 return .failure(Self.unavailable(run) ? .unavailable : .failed)
             },
             list: {
-                // With the switch off nothing is read: no token, no run.
-                guard let ticket = await beginRead(), let cli, let access = await token(),
+                let ticket = await beginRead()
+                guard let cli, let access = await token(),
                       let run = await cli.run(["machine", "list", "--json", "--cloud-token-stdin"], secret: access, label: "machine list"),
                       run.status == 0, let rows = JoinedMachine.list(from: Data(run.stdout.utf8)) else { return nil }
                 await store(rows, ticket)
@@ -137,19 +142,10 @@ extension MachineJoinService {
                     continuation.onTermination = { _ in follow.cancel() }
                 }
             },
-            revoke: { id in
-                guard let cli, let access = await token(),
-                      let run = await cli.run(["machine", "revoke", id, "--yes", "--json", "--cloud-token-stdin"], secret: access,
-                                              label: "machine revoke") else { return false }
-                return run.status == 0
-            },
+            revoke: { id in await succeeds(["machine", "revoke", id, "--yes"]) },
             // Its output may carry the new credential: only the status is read.
-            rotate: { id in
-                guard let cli, let access = await token(),
-                      let run = await cli.run(["machine", "rotate", id, "--json", "--cloud-token-stdin"], secret: access,
-                                              label: "machine rotate") else { return false }
-                return run.status == 0
-            })
+            rotate: { id in await succeeds(["machine", "rotate", id]) },
+            remove: { id in await succeeds(["device", "remove", "joined:\(id)", "--yes"]) })
     }
 
     /// The platform does not serve the join here (404 `machine.not_found`), or this cmux has no

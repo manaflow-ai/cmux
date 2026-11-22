@@ -47,6 +47,12 @@ class ExpressionTest(unittest.TestCase):
         self.assertIsNone(lm.expression_problem("Zlib OR Apache-2.0 OR MIT", [ZLIB]))
         self.assertIsNotNone(lm.expression_problem("(MIT AND Zlib) OR Apache-2.0", [MIT]))
 
+    def test_an_or_later_term_matches_the_named_versions_text(self) -> None:
+        mpl = "Mozilla Public License Version 2.0\n1. Definitions"
+        self.assertIsNone(lm.expression_problem("MPL-2.0+", [mpl]))
+        self.assertIsNotNone(lm.expression_problem("MPL-2.0+", ["MIT text here"]))
+        self.assertIn("unknown license id", lm.expression_problem("Nope-1.0+", [mpl]) or "")
+
     def test_unknown_id_fails_and_licenseref_needs_a_file(self) -> None:
         problem = lm.expression_problem("NoSuchLicense-1.0", [MIT])
         self.assertIn("unknown license id", problem)

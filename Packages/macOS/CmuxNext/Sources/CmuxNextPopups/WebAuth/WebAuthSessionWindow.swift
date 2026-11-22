@@ -19,6 +19,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let profiles: OffTheRecordProfiles
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
+    /// The app's ``ActiveLookScope``, for the panel's backdrop.
+    private let activeLook: ActiveLookScope?
     /// Orders the panel in (`WindowActivation.show` in the app).
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private let onEnd: (UUID) -> Void
@@ -35,6 +37,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         profiles: OffTheRecordProfiles,
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
+        activeLook: ActiveLookScope?,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void,
         onEnd: @escaping (UUID) -> Void
     ) {
@@ -48,6 +51,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         self.profiles = profiles
         self.signInCallbacks = signInCallbacks
         self.contextMenus = contextMenus
+        self.activeLook = activeLook
         self.present = present
         self.onEnd = onEnd
     }
@@ -77,7 +81,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true)
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, activeLook: activeLook)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel

@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { settleReact } from "./support/domTeardown";
 
 const reply = "The cap is WebKit's.[^1]\n\n[^1]: PreferPageRenderingUpdatesNear60FPSEnabled.";
 
@@ -51,6 +52,7 @@ function installDom(reduce: boolean): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -88,4 +90,36 @@ test("with the system's Reduce Motion, a footnote reference lands on its note in
 
 test("with cmux's animations off, a footnote reference lands on its note in one frame", async () => {
   expect(await followNote({ motionOff: true })).toEqual([{ block: "nearest", behavior: "auto" }]);
+});
+
+// A note inside its own scrolling panel (a capped tool result) inside the transcript: the click
+// must bring it into view in that panel too, as scrollIntoView did before the shared runner.
+test("a footnote inside a scrolling tool panel is revealed in that panel", async () => {
+  const container = installDom(false);
+  const document = container.ownerDocument;
+  const transcript = document.createElement("div");
+  transcript.className = "acpmux-scroll";
+  const panel = document.createElement("div");
+  panel.style.overflowY = "auto";
+  container.append(transcript);
+  transcript.append(panel);
+  const size = (el: HTMLElement, top: () => number, client: number, scroll: number) => {
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: () => client });
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => scroll });
+    el.getBoundingClientRect = () => ({ top: top(), bottom: top() + client, height: client }) as DOMRect;
+  };
+  size(transcript, () => 0, 1000, 1000);
+  size(panel, () => 100, 100, 500);
+  await act(async () => {
+    root = createRoot(panel);
+    root.render(<Markdown>{reply}</Markdown>);
+  });
+  const note = panel.querySelector<HTMLElement>(".cv-footnote")!;
+  note.getBoundingClientRect = () => {
+    const top = 400 - panel.scrollTop;
+    return { top, bottom: top + 20, height: 20 } as DOMRect;
+  };
+  await act(async () => panel.querySelector<HTMLButtonElement>(".cv-fnref button")!.click());
+  expect(panel.scrollTop).toBe(220);
+  expect(transcript.scrollTop).toBe(0);
 });

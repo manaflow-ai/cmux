@@ -71,7 +71,9 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     ("conversation-attachment-read", &["conversation", "hash", "variant", "offset", "length"]),
     // Home: the Mac's Home list (the local owner's rows only, narrowed to the
     // scope) and the person's own pin and unread mark of a conversation in it.
-    ("home-inbox", &["owners"]),
+    // `offset`/`limit` and `ids` window it here, after the narrowing
+    // (``InboxWindow``); the owner never sees them.
+    ("home-inbox", &["owners", "offset", "limit", "ids"]),
     ("conversation-inbox-op", &["conversation", "op"]),
 ];
 
@@ -127,14 +129,34 @@ const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
 
 /// What a forwarded request's reply needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Pending {
     /// `conversation-list`: keep only conversations in scope, and learn them.
     List,
     /// `conversation-search`: keep only hits in scope.
     Search,
-    /// `home-inbox`: keep only the local owner's rows in scope.
-    Inbox,
+    /// `home-inbox`: keep only the local owner's rows in scope, then the
+    /// window the phone asked for, if any.
+    Inbox(Option<InboxWindow>),
+}
+
+/// The most rows one windowed `home-inbox` reply carries.
+pub const HOME_INBOX_WINDOW_MAX: u64 = 500;
+/// The most conversations one `home-inbox` `ids` read names.
+pub const HOME_INBOX_IDS_MAX: usize = 64;
+
+/// A window of the phone's Home list, cut here after the scope narrowed the
+/// owner's rows, so its positions and `total` are the phone's own list
+/// (the owner's list holds conversations the phone never sees). The phone
+/// reads its first screen with `limit` alone, and a row an event names with
+/// `ids` (each row then carries its `index` in the whole list), instead of
+/// every row on every change (cmux-next-ios/design/instant-perf.md,
+/// `home_list_first_screen`, `home_list_one_row_update`). A host without
+/// this refuses the params, and the phone falls back to the whole list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InboxWindow {
+    Range { offset: usize, limit: usize },
+    Ids(Vec<String>),
 }
 
 #[derive(Debug, Default)]
@@ -281,8 +303,20 @@ impl ChiefPolicy {
         {
             return refuse(format!("{command}: {why}"));
         }
-        if command == "home-inbox" && let Err(why) = check_home_inbox(&object) {
-            return refuse(format!("{command}: {why}"));
+        let mut window = None;
+        if command == "home-inbox" {
+            match check_home_inbox(&object) {
+                Ok(asked) => window = asked,
+                Err(why) => return refuse(format!("{command}: {why}")),
+            }
+            if window.is_some() {
+                // The owner reads its whole list; the window is cut from the narrowed reply.
+                let mut stripped = object.clone();
+                for key in ["offset", "limit", "ids"] {
+                    stripped.remove(key);
+                }
+                rewrite = serde_json::to_vec(&Value::Object(stripped)).ok();
+            }
         }
         if command == "conversation-inbox-op" {
             if !object.contains_key("conversation") {
@@ -295,7 +329,7 @@ impl ChiefPolicy {
         let pending = match command {
             "conversation-list" => Some(Pending::List),
             "conversation-search" => Some(Pending::Search),
-            "home-inbox" => Some(Pending::Inbox),
+            "home-inbox" => Some(Pending::Inbox(window)),
             _ => None,
         };
         self.with_scope(|scope| scope.in_flight.insert(key, pending));
@@ -361,22 +395,44 @@ impl ChiefPolicy {
                     .unwrap_or_default();
                 data.insert("hits".into(), Value::Array(kept));
             }
-            Pending::Inbox => {
+            Pending::Inbox(window) => {
                 let allowed = self.with_scope(|scope| scope.allowed.clone());
-                let kept: Vec<Value> = data
-                    .get("rows")
-                    .and_then(Value::as_array)
-                    .map(|all| {
-                        all.iter()
-                            .filter(|row| {
-                                row.get("owner").and_then(Value::as_str).unwrap_or("local") == "local"
-                                    && row.get("id").and_then(Value::as_str).is_some_and(|c| allowed.contains(c))
+                let kept: Vec<Value> = match data.remove("rows") {
+                    Some(Value::Array(all)) => all
+                        .into_iter()
+                        .filter(|row| {
+                            row.get("owner").and_then(Value::as_str).unwrap_or("local") == "local"
+                                && row.get("id").and_then(Value::as_str).is_some_and(|c| allowed.contains(c))
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let total = kept.len();
+                let rows = match window {
+                    None => kept,
+                    Some(InboxWindow::Range { offset, limit }) => {
+                        data.insert("offset".into(), Value::from(offset));
+                        data.insert("total".into(), Value::from(total));
+                        kept.into_iter().skip(offset).take(limit).collect()
+                    }
+                    Some(InboxWindow::Ids(ids)) => {
+                        data.insert("total".into(), Value::from(total));
+                        data.insert("order".into(), Value::from(order_digest(&kept)));
+                        kept.into_iter()
+                            .enumerate()
+                            .filter(|(_, row)| {
+                                row.get("id").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|asked| asked == id))
                             })
-                            .cloned()
+                            .map(|(index, mut row)| {
+                                if let Value::Object(fields) = &mut row {
+                                    fields.insert("index".into(), Value::from(index));
+                                }
+                                row
+                            })
                             .collect()
-                    })
-                    .unwrap_or_default();
-                data.insert("rows".into(), Value::Array(kept));
+                    }
+                };
+                data.insert("rows".into(), Value::Array(rows));
             }
         }
         serde_json::to_vec(&Value::Object(object)).ok()
@@ -490,12 +546,64 @@ fn check_part(part: &Value) -> Result<(), String> {
     }
 }
 
+/// The phone's whole-list order as one digest (FNV-1a 64 over each row id and a newline,
+/// lowercase hex), sent with an `ids` read: a phone that placed rows by their index checks
+/// its list against it, and reads the whole list when two moves crossed.
+fn order_digest(rows: &[Value]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for row in rows {
+        let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
+        for byte in id.bytes().chain(std::iter::once(b'\n')) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    format!("{hash:x}")
+}
+
 /// `home-inbox` asks for the local owner's rows only: the person's Cloud
-/// inbox never crosses the link.
-fn check_home_inbox(object: &Map<String, Value>) -> Result<(), String> {
+/// inbox never crosses the link. It may ask for a window of them: `limit`
+/// (1-500) rows from `offset` (default 0), or the rows of up to 64 plain
+/// conversation ids (`ids`), never both.
+fn check_home_inbox(object: &Map<String, Value>) -> Result<Option<InboxWindow>, String> {
     match object.get("owners").and_then(Value::as_array).map(Vec::as_slice) {
-        Some([only]) if only.as_str() == Some("local") => Ok(()),
-        _ => Err("owners must be [\"local\"]".into()),
+        Some([only]) if only.as_str() == Some("local") => {}
+        _ => return Err("owners must be [\"local\"]".into()),
+    }
+    let number = |key: &str| -> Result<Option<u64>, String> {
+        match object.get(key) {
+            None => Ok(None),
+            Some(value) => value.as_u64().map(Some).ok_or_else(|| format!("{key} is not an unsigned integer")),
+        }
+    };
+    let offset = number("offset")?;
+    let limit = number("limit")?;
+    if let Some(ids) = object.get("ids") {
+        if offset.is_some() || limit.is_some() {
+            return Err("ids takes no offset or limit".into());
+        }
+        let Some(ids) = ids.as_array().filter(|ids| !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX) else {
+            return Err(format!("ids must be 1-{HOME_INBOX_IDS_MAX} conversation ids"));
+        };
+        let ids = ids
+            .iter()
+            .map(|id| id.as_str().filter(|id| plain_id(id, "conv_")).map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or("ids must be plain conversation ids")?;
+        return Ok(Some(InboxWindow::Ids(ids)));
+    }
+    match (offset, limit) {
+        (None, None) => Ok(None),
+        (_, None) => Err("offset needs a limit".into()),
+        (offset, Some(limit)) => {
+            if !(1..=HOME_INBOX_WINDOW_MAX).contains(&limit) {
+                return Err(format!("limit must be 1-{HOME_INBOX_WINDOW_MAX}"));
+            }
+            let offset = usize::try_from(offset.unwrap_or(0)).map_err(|_| "offset is too large")?;
+            // At most 500 by the check above.
+            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+            Ok(Some(InboxWindow::Range { offset, limit }))
+        }
     }
 }
 
@@ -863,6 +971,91 @@ mod tests {
         assert!(!p(
             serde_json::json!([{"id": "user_local", "kind": "human"}, {"id": "agent_../x", "kind": "agent"}])
         ));
+    }
+
+    /// A windowed `home-inbox` (the phone's first screen, or the rows one
+    /// event names) is cut after the scope narrowed the owner's rows: the
+    /// owner gets the plain request, and positions and `total` count only
+    /// the conversations the phone sees.
+    #[test]
+    fn home_inbox_windows_are_cut_after_the_scope() {
+        let policy = listed();
+        let rows = || {
+            serde_json::json!([
+                {"id": OTHER, "owner": "local", "kind": "channel", "name": "Build", "pinned": true},
+                {"id": REMOTE, "owner": "local", "kind": "direct", "name": "Phone", "pinned": false},
+                {"id": CHIEF, "owner": "local", "kind": "chief", "name": "Chief", "pinned": false},
+            ])
+        };
+        let forwarded = |verdict: Verdict| -> Value {
+            match verdict {
+                Verdict::Rewrite(bytes) => serde_json::from_slice(&bytes).unwrap(),
+                other => panic!("not rewritten: {other:?}"),
+            }
+        };
+        let reply = |id: &str| {
+            let reply = serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "rows": rows()}});
+            serde_json::from_slice::<Value>(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap()
+        };
+        let ids = |data: &Value| -> Vec<String> {
+            data["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect()
+        };
+
+        // The first window: the owner reads its whole list, the phone gets one row of two.
+        let sent = forwarded(policy.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "w1", "owners": ["local"], "limit": 1}),
+        )));
+        assert_eq!(sent, serde_json::json!({"cmd": "home-inbox", "id": "w1", "owners": ["local"]}));
+        let first = reply("w1");
+        assert_eq!(ids(&first["data"]), [OTHER]);
+        assert_eq!(first["data"]["total"], 2);
+        assert_eq!(first["data"]["offset"], 0);
+        // The next window starts after the rows the scope dropped.
+        let _ = forwarded(policy.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "w2", "owners": ["local"], "offset": 1, "limit": 5}),
+        )));
+        let next = reply("w2");
+        assert_eq!(ids(&next["data"]), [CHIEF]);
+        assert_eq!(next["data"]["total"], 2);
+
+        // The rows an event names, each at its index in the phone's list; one out of scope never shows.
+        let _ = forwarded(policy.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "w3", "owners": ["local"], "ids": [CHIEF, REMOTE]}),
+        )));
+        let some = reply("w3");
+        assert_eq!(ids(&some["data"]), [CHIEF]);
+        assert_eq!(some["data"]["rows"][0]["index"], 1);
+        assert_eq!(some["data"]["total"], 2);
+        // The order of the phone's whole list, as the phone computes it (MacHomeRows.orderDigest).
+        let digest = |ids: &[&str]| {
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for byte in ids.iter().flat_map(|id| id.bytes().chain(std::iter::once(b'\n'))) {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            format!("{hash:x}")
+        };
+        assert_eq!(some["data"]["order"], digest(&[OTHER, CHIEF]));
+        assert_ne!(some["data"]["order"], digest(&[CHIEF, OTHER]));
+
+        // No window: the whole narrowed list, as before.
+        assert_eq!(
+            policy.evaluate(&line(serde_json::json!({"cmd": "home-inbox", "id": "w4", "owners": ["local"]}))),
+            Verdict::Forward
+        );
+        assert_eq!(reply("w4")["data"].get("total"), None);
+
+        for value in [
+            serde_json::json!({"cmd": "home-inbox", "id": "b1", "owners": ["local"], "limit": 0}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b2", "owners": ["local"], "limit": 501}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b3", "owners": ["local"], "limit": "20"}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b4", "owners": ["local"], "offset": 20}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b5", "owners": ["local"], "ids": []}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b6", "owners": ["local"], "ids": ["../etc"]}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b7", "owners": ["local"], "ids": [CHIEF], "limit": 1}),
+            serde_json::json!({"cmd": "home-inbox", "id": "b8", "owners": ["cloud"], "limit": 1}),
+        ] {
+            refused(&policy, value);
+        }
     }
 
     /// Home on the phone shows the Mac's Home list (`home-inbox`, local

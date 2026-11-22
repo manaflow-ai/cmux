@@ -45,7 +45,7 @@ and are cited by file name only. Do not copy them into the repo.
 | Dark background | #151515 warm gray | #000000 | #000000 | #000000: 2 of 3, OLED, and the brief asks for true black. |
 | Assistant font | Serif (Tiempos-like) | SF Pro | SF Pro | SF Pro `body`. A serif is Claude's brand, not shared language. |
 | User bubble | #2C2C2A gray | #020661 blue tint | #333333 gray | Gray (`bubble` token). No blue. |
-| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | We have no voice mode: a send arrow, disabled at 30% when empty (ChatGPT's own Scheduled composer, `chatgpt-30-scheduled`). There is no mic button: iOS has no API to start dictation, so the keyboard's own mic dictates into the field. |
+| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | Voice mode waveform (Aziz 2026-11-03): a GPT Realtime line to the agent that reads its replies aloud, without code. There is no dictation mic: the keyboard's own mic dictates into the field. |
 | `+` | Sheet with photo strip | Menu | Menu | Menu (2 of 3). Photos opens `PhotosPicker` inline. |
 | Sidebar | Push-aside card | Push-aside card | Full-screen page | Push-aside card (2 of 3), section 3.3. |
 | Settings presentation | Sheet, swipe to dismiss | Full-screen, X only | Sheet | It is a tab in cmux-next-ios (the brief), so no presentation question. Sub-pages push. |
@@ -56,7 +56,7 @@ and are cited by file name only. Do not copy them into the repo.
 
 ### 1.3 cmux-next theming (minimal)
 
-- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it.
+- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it. That is the Default of the user's accent theme: Settings > Appearance > Accent color (`CmuxMobileAccentTheme`, `Accent.swift`) offers Default, Blue, Magenta, Cyan, Green, Yellow and Red, named as the desktop's `appearance.accent`, and every chrome tint (`accent`/`onAccent`, `Color.cmuxMobileAccent`) reads it. Never hard-code a hue in chrome (Leo, 2026-10-31: "I SAID NO BLUE AS A MATTER OF \"THIS PROBABLY NEEDS TO BE THEMED IN THE DESKTOP APP OR EXAMINED\"").
 - Chrome outside the terminal is the AI-app neutral system above (true black / white), not the terminal background. The Ghostty default `#282C34` is not used for app chrome.
 - The terminal screen (section 10) and code syntax colors take the terminal theme: `ThemeTokens.derive` from the active Ghostty theme supplies the terminal background, the composer and key bar tint on that screen, and the syntax palette (ANSI 1 to 6) for code and diffs.
 - Team colors (user-chosen, section 3.4) are the only saturated hues in chrome. Status uses system green, red and yellow.
@@ -86,8 +86,8 @@ Increase Contrast by using the "High contrast" column where given.
 | `label` | `#FFFFFF` | `#000000` | `Color.primary`. |
 | `label2` | `#EBEBF5` @ 60% | `#3C3C43` @ 60% | `Color.secondary` / `.secondaryLabel`. |
 | `label3` | `#EBEBF5` @ 30% | `#3C3C43` @ 30% | Placeholders, gutters, disabled. `.tertiaryLabel`. |
-| `accent` | `#FFFFFF` | `#000000` | Neutral cmux accent. Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
-| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills. |
+| `accent` | `#FFFFFF` | `#000000` | The user's accent (Default shown; hues in `Accent.swift`). Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
+| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills (the same for every accent). |
 | `success` | `#30D158` | `#34C759` | Mac online dots, connected, toggles. |
 | `danger` | `#FF453A` | `#FF3B30` | Destructive, errors, Log out. |
 | `warning` | `#FFD60A` | `#FFCC00` | Permission prompts, scanner corner guides (measured yellow, `chatgpt-08-codex-qr-scan`). |
@@ -331,7 +331,7 @@ TabView(selection: $tab) {
 
 ### 3.3 Team sidebar (push-aside drawer)
 
-Scope: team switching only (Stack Auth teams) plus "Invite to team". No navigation destinations,
+Scope: team switching only (Stack Auth teams) plus Invite. No navigation destinations,
 no recents (that is the tab bar's job).
 
 Geometry (measured ChatGPT 330, Claude 320 on a 440 pt screen):
@@ -384,10 +384,12 @@ Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
 
 Content (top to bottom):
 
-1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
-   (`sidebarTitle`) leading; trailing 44 pt glass circle `plus` → menu: "Create team",
-   "Join with invite link". (Header layout is `chatgpt-03-sidebar`.)
-2. Section label "Teams" (`meta`, `label2`), 20 pt margin, 24 pt above the first row.
+1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
+   (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
+   (Header layout is `chatgpt-03-sidebar`.)
+2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
    - Leading avatar 36 x 36, rounded square radius 10 continuous: team color fill with the
      emoji (22 pt) centered, or the team initial (`headline`, `onAccent`-style white) if no emoji.
@@ -396,21 +398,23 @@ Content (top to bottom):
    - Second line: Mac presence dots: up to 5 dots, each 7 x 7 circle, 4 pt spacing, `success`
      for online and `offline` for offline, online first (stable sort by name within each group),
      then "+N" in `meta` `label2` when more than 5 Macs; then " · 3 of 7 online" is NOT shown
-     (the dots are the summary). No Macs: "No Macs yet" in `meta` `label2`.
+     (the dots are the summary). No Macs: "No Macs" in `meta` `label2`.
    - Selected row: `fillSelected` background, radius 14 continuous, inset 10 pt from the
      sidebar edges (measured `chatgpt-23-sidebar-selected-expanded`).
    - Live updates: presence frames from `TeamHub` animate dot color with `snap`.
    - Context menu (long press): "Change color and emoji" (`paintpalette`), "Invite to team"
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
-4. Row "Invite to team" (`person.badge.plus`, `body`), 48 pt, after the team list. Opens the
-   share sheet with the Stack invitation URL from `POST /v1/teams/:teamId/invites` (show a
-   `ProgressView` in the row while fetching).
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+4. No "Invite to team" row under the list (it read as another team and did not say which
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
+   URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
+   context menu.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
@@ -443,7 +447,7 @@ snapshot test in light and dark at Large and AX3 Dynamic Type.
 | Component | Spec |
 | --- | --- |
 | `GlassCircleButton(symbol:)` | 44 pt, toolbar item where possible; elsewhere `.glassEffect(.regular.interactive(), in: .circle)`. Symbol 17 regular. |
-| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `ProgressView().tint(onAccent)`, width kept. |
+| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `CmuxSpinner(tint: onAccent)` (the shared spinner, on the period every cmux spinner turns at), width kept. |
 | `SecondaryCapsule` | `.buttonStyle(.glass)`, same sizes, `label` text. |
 | `TextCTA` | Plain `label` text button, `cta` font (e.g. "Enter code manually", `chatgpt-11`). |
 | `DestructiveRow` | `danger` text and icon in its own inset group ("Log out"). |
@@ -472,6 +476,11 @@ text, this should be a principle in general."
   the list's text column. Section headers, footers, inline labels ("Loading…", "No Macs
   yet", a Mac's offline line), group and disclosure titles, and icon-less rows on the same
   page start there too. Every title in a list starts at one x.
+- **Grouped lists keep native headers.** In `.insetGrouped` lists (Settings and its
+  pages, Devices) section headers and footers stay at the system position, the cell's
+  content margin where the row icons start, as in iOS Settings. They take no
+  `.cmuxMobileTextColumn()`. User direction, 2026-10-30: "the settings group headers like
+  Connection and Appearance are way too indented in cmux next ios, fix."
 - **Gutter.** Marks hang in a leading gutter before the text column: status and unread dots,
   disclosure chevrons, icons, small avatars, spinners, selection marks (Apple Mail's unread
   dots, iOS Settings' row icons). A group or disclosure row puts its chevron in the gutter
@@ -486,8 +495,8 @@ text, this should be a principle in general."
   - a list with its own glyph size declares its column (`CmuxMobileListColumn(mark:gap:)`,
     e.g. Continue in… 32 + 12, Checkpoints 24 + 12); the Team drawer uses
     `SidebarTeamRow.textLeading` (side margin + 36 pt avatar + 12 pt).
-- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a header, footer or
-  icon-less row in a list with marks takes `.cmuxMobileTextColumn(kind)`. A page whose rows
+- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a plain list's header or
+  footer, and an icon-less row in a list with marks, takes `.cmuxMobileTextColumn(kind)`. A page whose rows
   have no marks keeps the system alignment (its text, headers and footers already share
   the cell margin) and adds no icons to only some rows.
 - **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)
@@ -526,10 +535,11 @@ Layout (expanded or focused), inside a `GlassEffectContainer`:
   "Effort" (Low / Medium / High / Max, Picker). Values come from ACP session config; hide the
   pill when the agent exposes none. (ChatGPT's effort slider, `chatgpt-33`, is a custom
   surface; a menu is native and fits ACP's discrete options.)
-- Mic (36 pt, `fill`): starts system dictation into the field
-  (`UITextInputMode` dictation via the keyboard is the fallback; prefer on-device
-  `SpeechAnalyzer` streaming into the field, live text in `label2` until final).
-- Primary (36 pt): `idle-empty` = `arrow.up` on `fill`, glyph `label3` (disabled);
+- Voice mode (36 pt, `waveform`; Aziz 2026-11-03, replaces the dictation mic): starts a GPT
+  Realtime line to the agent. Its new replies are read aloud without code, diffs or tool calls,
+  what the person says is sent as the next prompt; on while it runs (`onAccent` on `accent`).
+  The keyboard's own mic still dictates into the field.
+- Primary (36 pt): `idle-empty` = voice mode `waveform` (agent chat), else `arrow.up` on `fill`, glyph `label3` (disabled);
   `idle-text` = `arrow.up` on `accent`, glyph `onAccent`; `running` = `stop.fill` on `accent`;
   `queued` (text while running) = `arrow.up` on `accent` with a 2 pt `label2` ring; long-press
   → menu "Queue (send after this turn)" / "Steer now (interrupt)" (Codex "Follow-up behavior:
@@ -756,6 +766,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
@@ -811,8 +826,8 @@ When the agent requests permission (ACP `session/request_permission`):
 
 ### 6.6 Questions (AskUserQuestion / ACP elicitation)
 
-- `QuestionCard`: `surface` radius 20, padding 16; header `questionmark.bubble` + question text
-  (`headline`); optional `rowSubtitle` context.
+- `QuestionCard`: `surface` radius 20, padding 16; header row: the item's header (caption, uppercased) and "1 of N",
+  no icon; then the question text (`headline`); optional `rowSubtitle` context.
 - Single choice: options as 48 h rows inside the card, radius 14, `fill`; selected:
   `fillSelected` + trailing `checkmark` (`label`). Multi-select: trailing `circle` /
   `checkmark.circle.fill`. Last row "Other..." expands an inline text field.
@@ -879,8 +894,9 @@ pulsing (new content below).
 | Alert style (mode change notice) | `claude-04-new-session-alert` |
 
 No reference exists for tool rows, permission and question cards, or plans: compare against
-Claude's and Codex's own mobile session views when captured (TapKit only with explicit
-permission), and against Cursor iOS / T3 Code App Store screenshots.
+Claude's and Codex's own mobile session views when captured (from the user's real phone only
+when the user explicitly asks and the phone is connected), and against Cursor iOS / T3 Code
+App Store screenshots.
 
 ---
 
@@ -965,6 +981,12 @@ permission requests, errors, PR events.
   Errors (4.1 `Chip`). Chips mirror the filter menu.
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
+- Needs you pinned: open questions and permission requests (and terminal agents waiting for input)
+  lead the list, newest first among them, then every other event newest first, as the Mac's Feed
+  pins its open requests. An ask that closes drops to its place in time, and its push leaves
+  Notification Center (`NeedsYouNotices`). The open count is the Feed tab's badge; no app icon
+  badge (HIG Notifications: a badge counts unread notifications, and a badge set to zero clears
+  the app's notifications from Notification Center).
 - Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell
@@ -1197,8 +1219,11 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   is opened until it has newer activity. Copy says "is waiting": the Mac does not say
   whether it is a permission or a question.
 - Tap: a needs-you workspace opens on its waiting tab, which shows the pending permission or
-  question card; otherwise the last tab used on this device, else the Mac's active tab
-  (`Workspace.activeTabID`), else the first. Offline: no push; an alert "<Mac> is offline"
+  question card; otherwise the tab left on screen there in this launch (back to the list and
+  in again lands where you were; Leo 2026-11-14), else the active tab of the layout's
+  top-left pane, else the Mac's active tab (`Workspace.activeTabID`), else the first
+  (`WorkspaceOpeningTab`). An open that names a tab (a notification, link, Feed card, row
+  menu or search result) opens that tab. Offline: no push; an alert "<Mac> is offline"
   with last seen.
 - Hold a row: a menu headed "<Mac> · <branch or directory>" ("· Offline"): one item per tab
   (opens that tab; an agent tab is titled with its task, as on the row, with the agent as

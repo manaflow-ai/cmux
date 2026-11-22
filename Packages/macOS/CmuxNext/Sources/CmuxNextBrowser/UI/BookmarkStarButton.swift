@@ -17,7 +17,8 @@ public enum BookmarkStarState: Hashable, Sendable {
 /// it has the keyboard) asks the host to bookmark the page or edit its
 /// bookmark; the host anchors the edit bubble at this view.
 final class BookmarkStarButton: NSView, PointerHoverReporting {
-    private let image = NSImageView()
+    /// The star, its ink in the middle of the plate on whole pixels (`InkCenteredGlyphView`).
+    private let image = InkCenteredGlyphView()
     /// Where the pointer is now (`OmnibarPointer`).
     private var hover: PointerHover?
     private var isHovered: Bool { hover?.isHovering ?? false }
@@ -27,36 +28,57 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
+            applyImage()
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             setAccessibilityLabel(label)
             needsDisplay = true
         }
     }
 
+    /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
+    private let density = DensityBinding()
+
+    /// The star draws at `OmnibarStyle.starIconSize`, its ink centered on the plate on whole pixels (`InkCenteredGlyphView`).
+    private func applyImage(size: CGFloat = OmnibarStyle.starIconSize) {
+        image.glyph = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = OmnibarStyle.starPlateCornerRadius(side: OmnibarStyle.starPlateSize)
+        // Helium's plate has circular corners.
+        layer?.cornerCurve = .circular
         translatesAutoresizingMaskIntoConstraints = false
-        image.translatesAutoresizingMaskIntoConstraints = false
-        image.imageScaling = .scaleNone
+        image.autoresizingMask = [.width, .height]
         addSubview(image)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            heightAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            image.centerXAnchor.constraint(equalTo: centerXAnchor),
-            image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Helium's plate: the bar's height less its edge inset on each side, 24 pt at Compact.
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.starPlateSize },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.starPlateSize },
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
         hover = PointerHover(self) { [weak self] _ in self?.paintFill(animated: true) }
+        density.update { [weak self] in
+            guard let self else { return }
+            // Read the size even while hidden, so the loop keeps following it.
+            let size = OmnibarStyle.starIconSize
+            if state != .hidden { applyImage(size: size) }
+        }
+        density.start()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
+        layer?.cornerRadius = OmnibarStyle.starPlateCornerRadius(side: min(bounds.width, bounds.height))
+        image.frame = bounds
+    }
 
     /// The badge takes the whole press (not its image or label) and the first
     /// one in a browser window that is not key: one click acts, as Chrome's
@@ -74,11 +96,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         onPress?(self)
     }
 
-    /// The pointing hand over the star, as over every clickable control (`OmnibarPointer`); its
-    /// rect sits above the bar's arrow rects in the key window.
-    override func resetCursorRects() {
-        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
-    }
+    /// The star registers no cursor rect of its own: the bar's arrow shows over it
+    /// (`OmnibarPointer`), as over every clickable control.
+    override func resetCursorRects() {}
 
     /// The rects `resetCursorRects` registered, while non-nil (tests).
     var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
@@ -117,7 +137,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     private func paintFill(animated: Bool) {
         guard let layer else { return }
         performWithTheme {
-            ChromeHover.paint(layer, isHovered ? OmnibarStyle.chipHoverFill : nil, animated: animated && window != nil)
+            ChromeHover.paint(layer, isHovered ? OmnibarStyle.starHoverFill(isDark: themeScope.tokens.isDark) : nil, animated: animated && window != nil)
         }
     }
 }

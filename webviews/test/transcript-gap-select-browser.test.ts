@@ -147,8 +147,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           })),
           dir: "rtl",
           // RTL inherits the document; a local LTR line must keep its own endpoints.
+          // Specific enough to win over a reply's kept room (conversation.css `.acpmux-row--reply-room`).
           css:
-            '.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
+            'article.acpmux-row.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
             (lineDirection === "ltr" ? ".cv-md p { direction: ltr; }" : ""),
         });
         try {
@@ -168,6 +169,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               };
             };
             const column = document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+            const below = document.querySelector('[data-row-id="lower"]')!.getBoundingClientRect();
             const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
             return {
               upper: line("upper"),
@@ -179,6 +181,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                   .getBoundingClientRect();
                 return { top: rect.top, bottom: rect.bottom };
               })(),
+              // The row's bottom edge and the next row's top: the stack's placed gap lies between them.
+              rowBottom: column.bottom,
+              nextTop: below.top,
               xs: [
                 (view.left + column.left) / 2,
                 (column.left + column.right) / 2,
@@ -189,7 +194,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           expect(box.upper.direction).toBe(lineDirection);
           expect(box.lower.direction).toBe(lineDirection);
           expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
-          expect(box.gap.bottom - box.gap.top).toBe(64);
+          // The gap target spans the row's 64px bottom padding and the gap the stack places under the
+          // row (design/grid.md 5.5), down to the next row.
+          expect(box.gap.top).toBeCloseTo(box.rowBottom - 64, 1);
+          expect(box.gap.bottom).toBeCloseTo(box.nextTop, 1);
           expect(box.gap.bottom).toBeLessThanOrEqual(box.lower.top);
           expect(box.gap.top - box.upper.bottom).toBeLessThan(box.lower.top - box.gap.top);
           expect(box.lower.top - box.gap.bottom).toBeLessThan(box.gap.bottom - box.upper.bottom);
@@ -227,10 +235,13 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const page = await open(name, above, below);
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
-          const nearestRow = box.gapY - box.upper.bottom <= box.lower.top - box.gapY ? "upper" : "lower";
+          // Mouse events use integer CSS pixels in WebKit; measure the point we actually send.
+          const gapY = Math.round(box.gapY);
+          const distance = { upper: gapY - box.upper.bottom, lower: box.lower.top - gapY };
+          const nearest = Math.min(distance.upper, distance.lower);
           // Consecutive tool rows can have zero row padding: their content owns the center.
           for (const x of [...(box.hasRowPadding ? [box.center] : []), box.left, box.right]) {
-            await drag(page, { x, y: box.gapY }, box.after);
+            await drag(page, { x, y: gapY }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
               const s = getSelection()!;
@@ -240,12 +251,15 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: s.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             // Restart from an existing selection, then a plain gap click must clear it.
-            await drag(page, { x, y: box.gapY }, box.lower);
+            await drag(page, { x, y: gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
-            await page.mouse.click(x, box.gapY);
+            await page.mouse.click(x, gapY);
             expect(await selected(page)).toBe("");
           }
           await page.close();
@@ -253,31 +267,41 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {
           const page = await open(name, above, below);
           // Integration-fixture spacing only: leave real row renderers and controls intact while
-          // making a positive gap outside both article boxes. Production does not use this margin.
-          await page.addStyleTag({
-            content: '[data-row-id="lower"], [data-row-id="after"] { margin-top: 32px; }',
+          // adding a positive gap outside both article boxes without replacing fractional placement.
+          await page.evaluate(() => {
+            for (const id of ["lower", "after"]) {
+              const row = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+              row.style.marginTop = `${(Number.parseFloat(row.style.marginTop) || 0) + 32}px`;
+            }
           });
           await paint(page);
           const box = await geometry(page);
           expect(box.lowerRowTop - box.upperRowBottom).toBeGreaterThanOrEqual(32);
-          const midpoint = (box.upperRowBottom + box.lowerRowTop) / 2;
+          const midpoint = Math.round((box.upperRowBottom + box.lowerRowTop) / 2);
           expect(midpoint).toBeGreaterThan(box.upperRowBottom);
           expect(midpoint).toBeLessThan(box.lowerRowTop);
-          const nearestRow = midpoint - box.upper.bottom <= box.lower.top - midpoint ? "upper" : "lower";
+          const distance = { upper: midpoint - box.upper.bottom, lower: box.lower.top - midpoint };
+          const nearest = Math.min(distance.upper, distance.lower);
           for (const x of [box.center, box.left, box.right]) {
             // The press belongs to empty transcript space, never to a tool disclosure or another
             // row control. Those surfaces keep their ownership in the existing control regression.
+            // A row's own gap target (VirtualTranscript.tsx `.acpmux-row__gap`, spanning the placed
+            // gap under it: a prompt's is the 32px turn gap) is that empty space too.
             expect(
               await page.evaluate(
                 ({ x, y }) => {
                   const target = document.elementFromPoint(x, y);
-                  return Boolean(
-                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") && !target.closest(".acpmux-row"),
+                  const empty = Boolean(
+                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") &&
+                    (!target.closest(".acpmux-row") || target.matches('[data-transcript-gap="row"]')),
                   );
+                  if (empty) return "empty";
+                  const row = target?.closest(".acpmux-row")?.getAttribute("data-row-id");
+                  return `${target?.tagName.toLowerCase()}.${String(target?.className).replace(/\s+/g, ".")} in ${row} at ${x},${y}`;
                 },
                 { x, y: midpoint },
               ),
-            ).toBe(true);
+            ).toBe("empty");
             await drag(page, { x, y: midpoint }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
@@ -288,8 +312,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: selection.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             await drag(page, { x, y: midpoint }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
             await page.mouse.click(x, midpoint);
@@ -405,7 +432,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         wrap.id = "selection-controls";
         wrap.style.cssText = "position:relative;z-index:2;padding:8px";
         wrap.innerHTML =
-          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
+          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div>';
         row.querySelector(".cv-tools")!.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
@@ -424,7 +451,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         '[draggable="true"]',
         "#custom-control",
         ".acpmux-edited-title--toggle",
-        ".acpmux-turn-preview-frame",
       ]) {
         const control = page.locator(`#selection-controls ${selector}`);
         const box = (await control.boundingBox())!;

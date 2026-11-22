@@ -19,14 +19,31 @@ extension AppServices {
     @discardableResult
     func revealTab(_ id: String, intent: WindowActivation.Intent = .raise) -> Bool {
         let located = locateTabOnAnyMachine(id)
-        // A `tab_` link names a tab the strip may know by its first id.
-        let tabID = located?.0.id ?? id
         guard let paneModel = located?.1,
-              let workspace = daemon(for: paneModel).store.workspace(containing: paneModel.handle),
-              let window = windows.reveal(workspaceID: workspace.id) else { return false }
-        window.state.selection.select(tabID, in: paneModel.id)
-        window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
-        paneController(for: paneModel)?.select(StripTabID(tabID))
+              let workspace = daemon(for: paneModel).store.workspace(containing: paneModel.handle) else { return false }
+        // A `tab_` link names a tab the strip may know by its first id.
+        return showRevealed(located?.0.id ?? id, in: paneModel, workspaceID: workspace.id, intent: intent)
+    }
+
+    /// Shows tab `id` on the named machine, refusing a same-id tab on another machine.
+    @discardableResult
+    func revealTab(_ id: String, onMachine machineID: String, intent: WindowActivation.Intent = .raise) -> Bool {
+        guard let daemon = machines.daemons.first(where: { $0.machineID == machineID }),
+              let tab = daemon.store.tab(idOrResource: id),
+              let pane = daemon.store.pane(holding: tab),
+              let workspace = daemon.store.workspace(containing: pane.handle),
+              machines.workspace(id: workspace.id)?.1 === daemon else { return false }
+        return showRevealed(tab.id, in: pane, workspaceID: workspace.id, intent: intent)
+    }
+
+    /// Shows `tabID` in `pane`; a changed tab is timed here (`debug.tab_switch`): the jump moves the strip before `select`.
+    private func showRevealed(_ tabID: String, in pane: PaneModel, workspaceID: String, intent: WindowActivation.Intent) -> Bool {
+        guard let window = windows.reveal(workspaceID: workspaceID) else { return false }
+        let controller = paneController(for: pane), id = StripTabID(tabID)
+        if let controller, controller.stripModel.selectedID != id, ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(controller) }
+        window.state.selection.jump(to: tabID, in: pane.id, byPerson: ActionRunScope.isPersonsAction())
+        window.focus.send(.selectTab(pane: pane.id, tab: tabID, workspace: workspaceID, source: .intent))
+        controller?.select(id)
         if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }
         return true
     }
@@ -35,12 +52,7 @@ extension AppServices {
     /// or its `pane_` resource id when the model was first seen without one
     /// (its id is then `pane:<handle>`).
     func pane(id: String) -> PaneModel? {
-        for (workspace, _) in machines.allWorkspaces {
-            for screen in workspace.screens {
-                if let pane = screen.panes.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) { return pane }
-            }
-        }
-        return nil
+        machines.daemons.lazy.compactMap { $0.store.pane(idOrResource: id) }.first
     }
 }
 

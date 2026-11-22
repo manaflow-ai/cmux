@@ -20,3 +20,24 @@ export async function openFork(
   if (selected && host.selected() === selected) host.focus();
   return selected;
 }
+
+/// Asks the app host to open chat `session` (a fork, a started Continue In…) in a tab of its own at
+/// `placement` (AgentForkDestination: right, left, up, down, columnRight, columnLeft, row, tab,
+/// workspace, window); false when the host opens none. Every placement opens the same way: the
+/// forking page hands this chat's tail over first (tailCache.ts; a fork's own rows went over with its
+/// fork reply, forkTail.ts), and its `chat.tail` reaches the host before `chat.openTab`, so the new
+/// tab, wherever it opens, draws the fork on the frame it shows.
+export function openInOwnTab(
+  client: { handOverCurrentTail(): void },
+  callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  session: string,
+  placement?: string,
+): Promise<boolean> {
+  // The new tab draws this chat from the host's tail, and this page keeps it selected, so nothing
+  // else hands it over (tailCache.ts).
+  client.handOverCurrentTail();
+  return callNative("chat.openTab", { sessionId: session, placement: placement ?? "tab" }).then(
+    () => true,
+    () => false,
+  );
+}

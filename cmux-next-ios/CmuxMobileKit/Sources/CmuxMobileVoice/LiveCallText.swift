@@ -40,6 +40,9 @@ enum LiveCallText {
     static var failModel: String { String(localized: "chiefLive.fail.model", defaultValue: "This voice model isn’t available to your key", bundle: .module) }
     static var failRefused: String { String(localized: "chiefLive.fail.refused", defaultValue: "OpenAI couldn’t start the call", bundle: .module) }
     static var failNetwork: String { String(localized: "chiefLive.fail.network", defaultValue: "Couldn’t connect", bundle: .module) }
+    /// No status code for the person (the call's log keeps it).
+    static var failServerDetail: String { String(localized: "chiefLive.fail.serverDetail", defaultValue: "OpenAI had a server error. Try again in a moment.", bundle: .module) }
+    static func requestID(_ id: String) -> String { String(localized: "chiefLive.requestID", defaultValue: "Request ID: \(id)", bundle: .module) }
     static var failDropped: String { String(localized: "chiefLive.fail.dropped", defaultValue: "The call dropped", bundle: .module) }
     static var failDroppedDetail: String { String(localized: "chiefLive.fail.droppedDetail", defaultValue: "The connection to OpenAI was lost. Try again when you have a better connection.", bundle: .module) }
 }

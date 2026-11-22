@@ -11,6 +11,8 @@ nonisolated public struct UpdateCardPresentation: Equatable, Sendable {
     public var showsProgress = false
     public var progress: Double?
     public var actions: [UpdateCardAction] = []
+    /// The control on the card's right, vertically centred (a running download's cancel), or nil.
+    public var trailing: UpdateCardAction?
     /// Changelog lines under the detail (a found update; cx-lntk).
     public var lines: [String] = []
     public var dismissible = true
@@ -36,7 +38,7 @@ extension UpdateCard {
             case .downloading:
                 return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.downloading,
                                               detail: transfer.bytesText ?? UpdaterStrings.keepsRunning, showsProgress: true,
-                                              progress: transfer.fraction, dismissible: false)
+                                              progress: transfer.fraction, trailing: .cancelDownload, dismissible: false)
             case .preparing:
                 return UpdateCardPresentation(symbol: "shippingbox", title: UpdaterStrings.preparing,
                                               detail: UpdaterStrings.preparingDetail, showsProgress: true,

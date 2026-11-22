@@ -33,6 +33,18 @@ public struct DaemonEndpoint: Hashable, Sendable {
 /// guard daemon.supports(DaemonCapability.tabDrag.rawValue) else { return }
 /// ```
 public enum DaemonCapability: String, CaseIterable, Sendable {
+    /// The minimum handshake surface served by the Native guest owner. Keep
+    /// this separate from ``required``: Native does not implement the GUI's
+    /// viewport/layout/attachment controls.
+    public static let nativeRemoteRequired: [String] = [
+        workspaceRegistry.rawValue,
+        "layout-delta-v1",
+        sessionIdentity.rawValue,
+        conversationTabs.rawValue,
+        agentSessionTabs.rawValue,
+        agentSessionStart.rawValue,
+        agentSessionAttach.rawValue,
+    ]
     /// The GUI refuses a daemon without these (`DaemonCompatibility.missingRequired`).
     case workspaceRegistry = "workspace-registry-v1"
     case viewportSplits = "viewport-splits-v1"
@@ -70,6 +82,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `ack-tab-notifications` reports `refused` items, and the
     /// `feed-local-*` commands let the app hand items to the cloud owner.
     case feedLocalOwner = "feed-local-owner-v1"
+    /// The daemon's feed client (plans/cmux-next/feed-page.md 2): the routed `feed.*` ops the
+    /// Feed page and the app read and act through, and the `feed-view-changed` and
+    /// `feed-reports-changed` events.
+    case feedClient = "feed-client-v1"
     case tabGroups = "tab-groups-v1"
     case savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -119,15 +135,36 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case splitClientKeys = "split-client-keys-v1"
     /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
     case splitClientSplitID = "split-client-split-id-v1"
+    /// `split {around}` and a conversation or browser tab's `split {around}`: the new pane wraps that whole
+    /// split, whose last pane is `pane` (Insert New at a divider).
+    case splitAround = "split-around-v1"
+    /// `set-divider-visible {split, visible}`, and a screen's `hidden_dividers`: a split's divider
+    /// drawn or not, kept with the layout.
+    case splitDividerVisibility = "split-divider-visibility-v1"
+    /// `split {before: true}`: the new pane opens before its target on the split axis in the one split (Split Left,
+    /// Split Up), so the app shows it there in the key's turn and sends no `swap-pane`.
+    case splitBefore = "split-before-v1"
     /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
     /// ``splitClientKeys`` on `split`.
     case rowClientKeys = "row-client-keys-v1"
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
+    /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
+    /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
+    case frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
+    /// `create-workspace {first_tab}`: a workspace and its first browser tab in one request (a new
+    /// browser workspace never holds a terminal first).
+    case workspaceFirstTab = "workspace-first-tab-v1"
+    /// `new-frontend-browser-tab {workspace}`: a browser tab sent to a workspace itself, not to a pane.
+    case frontendBrowserTabWorkspace = "frontend-browser-tab-workspace-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
+    /// `cancel-creating-input {terminal_id}`: the connection that asked for a terminal drops the input
+    /// the daemon queued for it and has it refuse the rest, while the creation goes on (the person
+    /// closed its pane before it started, ``CancelCreatingInputRequest``).
+    case creatingInputCancel = "creating-input-cancel-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -135,6 +172,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `terminal-resume-command`: a person's resume command for one terminal,
     /// typed on the new prompt when the daemon respawns it.
     case resumeCommand = "resume-command"
+    /// `terminal-last-command`: the newest command a live shell finished,
+    /// for Run Last Command Again.
+    case terminalLastCommand = "terminal-last-command-v1"
     /// The owner's reaper runs now (started with a reap grace, as the app
     /// starts it), so a detached terminal ends after the grace period. An
     /// owner started without a grace does not serve it.
@@ -156,6 +196,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case closeWorkspaceIfEmpty = "close-workspace-if-empty-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     case browserHostProvider = "browser-host-provider-v1"
+    /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
+    case remoteHost = "remote-host-v1"
+    /// `computer-use-*`: cmux Computer Use (the worker's endpoint for acpmux, the person's policy, saved approvals).
+    case computerUse = "computer-use-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -207,6 +251,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
     /// and `columns[].dock`: the agent chat column.
     case dockColumnRole = "dock-column-role-v1"
+    /// Split Down of a pane in the agent chat dock adds a pane below it there (#29848);
+    /// every other new pane in the dock is still refused.
+    case dockColumnSplitDown = "dock-column-split-down-v1"
     /// Pinned dock columns (the Home dock): `set-column-dock` takes `pinned`,
     /// and the daemon keeps a pinned column's first tab and refuses other
     /// tabs into it unless its `allow_tabs` is on (`dock-column-pinned`).
@@ -222,13 +269,16 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// place left or right in one commit. Without it only a one-pane column
     /// moves, through `swap-pane`.
     case columnMove = "column-move-v1"
-    /// `new-pane-right {side: "left"}`: New Column Left opens the column before the pane's
-    /// column. Without it New Column Left is refused.
     case columnLeft = "column-left-v1"
+    /// Floating panes: `float-pane` and `Screen.floating`. Without it no pane floats.
+    case floatingPanes = "floating-panes-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     case tabColumnRespawn = "tab-column-respawn-v1"
+    /// `move-tab-to-column` `pane_id`: the new column's pane takes the
+    /// client-minted public id, so the dock shows in the input's turn.
+    case tabColumnClientPane = "tab-column-client-pane-v1"
     /// `restart-tab`: a terminal tab whose shell ended restarts under the
     /// same terminal id (Unix daemons).
     case tabRestart = "tab-restart-v1"
@@ -241,6 +291,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case tabPark = "tab-park-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     case detachedTerminals = "detached-terminals-v1"
+    /// `create-terminal {create_workspace}`: a workspace and its first terminal in one request.
+    case createTerminalWorkspace = "create-terminal-workspace-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
     /// Per-terminal themes in personal state (`set-personal-terminal`).
@@ -254,12 +306,27 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// The daemon history module (react-pages.md H3): page visits, the merged read model,
     /// removal with restore ids, and `history-changed`.
     case history = "history-v1"
+    /// `history.clear` takes `until_ms`, the end of a clear that waited in the app's write queue
+    /// (react-pages.md H3); without it the daemon clears until its own now.
+    case historyClearUntil = "history-clear-until-v1"
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     case localConversations = "local-conversations-v1"
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
+    /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
+    /// once when it shows again (SWITCH FRAMES SF-5).
+    case attachVisibility = "attach-visibility-v1"
+    /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
+    /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
+    /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
+    case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// Opt into the authenticated screen-device UUID replay and lifecycle events.
+    case screenDeviceIdentity = "screen-device-identity-v1"
+    /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
+    /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
+    case treeSelectionDeltas = "tree-selection-deltas-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -283,10 +350,21 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     case agentSessionTabs = "agent-session-tabs-v1"
+    /// Canonical conversation kinds in closed history; live support alone is insufficient.
+    case closedConversationTabs = "closed-conversation-tabs-v1"
     /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     case agentSessionAttach = "agent-session-attach-v1"
+    /// Ordered ACP prompt blocks, including image and file content, on an owning connection.
+    case agentSessionContent = "agent-session-content-v1"
+    /// The `mobile-chat-*` relay the Mac's mobile host offers a phone (cmux-tui mobile_chat.rs).
+    case cloudChatRelay = "cloud_chat_relay.v1"
+    /// `agent-session-fork`: fork an attached chat through its latest completed turn.
+    case agentSessionFork = "agent-session-fork-v1"
+    /// `agent-session-side`: New side chat and `/side [prompt]` of an attached chat, run on that
+    /// machine in the chat's folder (cmux-tui agent_session_side.rs).
+    case agentSessionSide = "agent-session-side-v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -295,6 +373,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
     /// the app asks to update that machine's cmux-tui, never starts on this Mac.
     case agentSessionStart = "agent-session-start-v1"
+    /// `agent-session-start` accepts an omitted cwd and creates a Cloud chat folder.
+    case agentSessionStartNoCwd = "agent-session-start-no-cwd-v1"
     /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
     /// Trust answer for a folder there, recorded in that machine's acpmux.
     case agentSessionTrust = "agent-session-trust-v1"
@@ -302,23 +382,51 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
-    /// `agent-session-start` takes `vm_kind`: the Cloud API's `vmKind` for this app on its link to
-    /// that machine. A Cloud VM's daemon then starts a chat only on `vm_kind: "owner"`, never on
-    /// its own `owner` record (the agents there keep sudo).
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
-    /// `agent-session-start` takes an optional model for the first session/new request.
     case agentSessionStartModel = "agent-session-start-model-v1"
-    /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
-    /// records folder trust only on `vm_kind: "owner"`.
+    case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
+    /// `mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only.
+    case agentSessionStartMode = "agent-session-start-mode-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
+    /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
+    /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
+    case agentSessionFolders = "agent-session-folders-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
-    /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event:
-    /// who is in an attached chat (chat multiplayer, hq#4389). Without it a chat of that machine
-    /// shows no one else, and the person's typing and view stay on this Mac.
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
+    /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
+    case agentSessionSettings = "agent-session-settings-v1"
+    /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
+    /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
+    case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-share-changed` on subscribe: a chat's link shares or invites changed, so an
+    /// open Invite People sheet reads its rows again (a later join, a departure, an expiry). A daemon
+    /// without it leaves the sheet as it was read.
+    case agentSessionShareEvents = "agent-session-share-events-v1"
+    /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
+    /// store): its agent's sign-in runs on that machine itself, gated there as a start is
+    /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
+    case agentSessionLoginMachine = "agent-session-login-machine-v1"
+    /// Owner-only context inventory and cmux-added overrides for an attached session.
+    case agentSessionContext = "agent-session-context-v1"
+    /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
+    /// into the running turn (a link guest's is still held for the owner).
+    case agentSessionSteer = "agent-session-steer-v1"
+    /// `agent-session-queue-approve` / `-queue-decline`: the owner runs or drops a prompt held for
+    /// them (a link guest's) on a chat on that machine.
+    case agentSessionQueueDecision = "agent-session-queue-decision-v1"
+    /// A Cloud team member's chat verbs on a teammate's team machine (`agent-session-team-list`
+    /// and the attach verbs, stamped with the member the link token names).
+    case agentSessionMember = "agent-session-member-v1"
+    /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
+    /// `_acpmux/btw` on the tab's own session (owner only).
+    case agentSessionBtw = "agent-session-btw-v1"
+    /// `max_bytes` on `agent-session-attach` and `-events`: a chat page's byte budget, passed to
+    /// that machine's acpmux. Without it a page gets acpmux's 1 MiB default (hq#14027).
+    case agentSessionPageBytes = "agent-session-page-bytes-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -423,6 +531,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     case keybindings = "keybindings-v1"
+    /// `settings.edit` (with `settings.snapshot`): cmux-next.json owned by the daemon (cmux-config);
+    /// the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).
+    /// v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes.
+    case settingsEdit = "settings-edit-v2"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
     /// icon values naming a stored asset on workspace, screen, room and profile icons.
     case iconAssets = "icon-assets-v1"
@@ -453,8 +565,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     case terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
-    /// The Kitty image replay after a plain READY (S3k).
-    case terminalSnapshotImages = "terminal-snapshot-images-v1"
     /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
@@ -475,6 +585,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentCLIAppProvider = "agent-cli-app-provider-v1"
     /// Agent inventory invalidation events for app providers (`AppProviderSession`).
     case agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// A provider tells readable app subscribers its family changed (`AppProviderSession.changed(family:)`).
+    case appProviderChanged = "app-provider-changed-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     case agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
     /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
@@ -486,6 +598,29 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// A workspace `layout.bulk` also closes the chosen workspaces with no tab, in the same commit,
+    /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
+    /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
+    case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
+    /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
+    case browserImport = "browser-import-v1"
+    /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
+    case classicImport = "classic-import-v1"
+    /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
+    /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
+    case diffCommentsSend = "diff-comments-send-v1"
+    /// `git.fingerprint`: digits that stay while one scope's diff stays, made from the changed
+    /// files with no patch. The diff tab asks them every few seconds; a session host without the
+    /// read gets no request for it (DiffPageProvider+Git.swift).
+    case gitFingerprint = "git-fingerprint-v1"
+    /// `set-layout-sizes`: the values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) are one commit, every value or none. Without it each value goes
+    /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
+    case layoutSizesBatch = "layout-sizes-batch-v1"
+    /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
+    /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
+    case languagePacks = "language-packs-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -507,36 +642,36 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
             return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
-             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
+             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
-             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
+             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
+             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
-             .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
+             .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
+             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
-             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
-             .agentSessionChildren, .agentSessionPresence, .pageTabs,
-             .pageTabRoute, .appScreens,
+             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
+             .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
              .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
              .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,
              .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices, .browserFit,
-             .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
+             .browserFitWidth, .keybindings, .settingsEdit, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
-             .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
-             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
+             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks:
             return .optional
         }
     }
@@ -583,25 +718,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
-    /// `agentSessionPresence` only from the connection that draws an attached chat's presence
-    /// (`AgentSessionAttachClient`), never from every connection.
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
-
-    /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes `SidebarMirror.isLinked` from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
-        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(Self.sidebarDoc.rawValue) ? [Self.placementShift.rawValue] : []
-        let shell = resolvesShellIntegration ? [Self.terminalFrontendShellIntegration.rawValue] : []
-        return advertised + shell + document
-    }
 
     private static func names(_ capabilities: [DaemonCapability]) -> [String] { capabilities.map(\.rawValue) }
     private static func names(in tier: Tier) -> [String] { names(allCases.filter { $0.tier == tier }) }

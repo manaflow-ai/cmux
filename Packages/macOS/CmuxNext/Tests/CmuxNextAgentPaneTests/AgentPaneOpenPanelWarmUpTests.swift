@@ -3,6 +3,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 
 /// The agent composer's + > Attach files or images is a page `<input type="file">` that
 /// `PageOpenPanel` answers with the app's panel made ahead (`MadeAheadOpenPanel`). A new panel per
@@ -10,7 +11,7 @@ import Testing
 /// bench, 2026-10-21); the panel made ahead shows it in 45 to 95 ms. So a chat that reaches a
 /// window starts the warm-up, as Home's transcript does; a process that never ran the app's event
 /// loop (this test host) still makes no panel.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentPaneOpenPanelWarmUpTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct AgentPaneOpenPanelWarmUpTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
@@ -30,7 +31,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let checks = shared.warmChecks
         window.contentView = view
         #expect(shared.isWarming, "a chat in a window did not start the picker's warm-up")

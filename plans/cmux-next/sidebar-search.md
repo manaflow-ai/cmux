@@ -38,13 +38,31 @@ characters are scarce). Its page reuses the providers the other pages already ha
 | Commands | `RegistryPaletteProvider` | every catalog action (same rows as Cmd-Shift-P) |
 | Apps | `sources.extraProviders` | installed apps and their commands |
 | Browser History, Recently Closed, Command History, Agent Sessions | App contributions: the history store by kind (`HistoryPalettePages.searchContributions`), one section each | page visits (title, URL), closed tabs/screens/workspaces, terminal commands, agent sessions; the location trail is left out (the open tabs are listed themselves) |
-| Agent chats | App contribution: `agentPane.searchChats` page providers | acpmux chats from the Recents feed (open or not) |
+| Agent chats | App contribution: the `agentPane.searchChats` page's own query (`queryResults`, `PaletteContributedAnswers`) | acpmux searches its own index for each typed query (open chats or not); the Chats & agents scope also lists the newest before typing. Its rows show in the order acpmux ranked them, not through the ranker |
 
 New code is only composition: `PaletteSources.searchContributions` (a list of the App's
 pages that join Search, each under its own section) and `PaletteController.searchPage()`.
 Every provider still returns its candidate set once; the palette's `PaletteSearcher` ranks
-off the main actor per keystroke, as it does for every page. Nothing new runs on the main
-thread per keystroke, and the search page opens from the last snapshot in the first frame.
+off the main actor per keystroke, as it does for every page, and the search page opens from the
+last snapshot in the first frame.
+
+A contributed page that answers its own queries (agent chats, `PaletteContributedAnswers`) is
+asked once per typed query instead, in a later main-thread turn than the key's (its choice history
+is encoded off the main thread, and acpmux's request on the connection's queue). Each answer that
+lands is joined to the ranked rows on the main thread (one delivery and one frame per answer).
+- Search: the chats show after the best ranked section, with every row the ranked rows leave under
+  the 400-row page and at least their best 10 (taken from the weakest ranked rows when the page is
+  full). A cut answer ends with a row that says how many more chats match and opens the Agent Chats
+  page with the same query. Return runs the best ranked row of the current query; with no ranked row
+  it waits for the chats answer.
+- Chats & agents: the chats lead the page, and its rows are not final until acpmux answers, so Return
+  runs the best chat as the chats page does.
+- No timer: every request ends with rows, with none (acpmux refused it, its index is not ready
+  (`ready: false`), it is not connected, or no chat matches), or when the query moves on. An empty end
+  takes an older query's chats off and the rows stop waiting. When acpmux connects or its index
+  fills the window, the shown query is asked again.
+- An older query's chats stay on screen only as stand-ins until the new answer replaces them: no key,
+  click or Return selects them.
 
 A contributed row keeps its own section when it has one (Search Tabs' "Open" / "Closed");
 otherwise it takes the contribution's section (its page title). Providers are shown only

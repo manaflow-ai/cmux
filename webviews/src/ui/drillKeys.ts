@@ -40,7 +40,8 @@ export const DRILL_WIDGET_CHORDS = ["Meta+ArrowUp", "Control+n", "Control+p"] as
  * end and the start of the text, so they still move the caret inside a query.
  */
 export function drillKeyAction(event: DrillKey, state: DrillKeyState): DrillAction {
-  const plain = !event.metaKey && !event.altKey;
+  const plain = !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
+  const controlText = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
   const caretAtEnd = state.caretStart === state.query.length && state.caretEnd === state.caretStart;
   const caretAtStart = state.caretStart === 0 && state.caretEnd === 0;
   const forward = state.dir === "rtl" ? "ArrowLeft" : "ArrowRight";
@@ -52,9 +53,9 @@ export function drillKeyAction(event: DrillKey, state: DrillKeyState): DrillActi
       if (event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) return { kind: "up" };
       return plain ? { kind: "move", delta: -1 } : null;
     case "n":
-      return event.ctrlKey && plain ? { kind: "move", delta: 1 } : null;
+      return controlText ? { kind: "move", delta: 1 } : null;
     case "p":
-      return event.ctrlKey && plain ? { kind: "move", delta: -1 } : null;
+      return controlText ? { kind: "move", delta: -1 } : null;
     case "PageDown":
       return plain && !event.ctrlKey ? { kind: "move", delta: 10 } : null;
     case "PageUp":
@@ -74,7 +75,7 @@ export function drillKeyAction(event: DrillKey, state: DrillKeyState): DrillActi
     case "Enter":
       return plain && !event.ctrlKey ? { kind: "choose" } : null;
     case "Escape":
-      return state.query === "" ? { kind: "cancel" } : { kind: "clear" };
+      return plain ? (state.query === "" ? { kind: "cancel" } : { kind: "clear" }) : null;
     default:
       return null;
   }

@@ -53,7 +53,7 @@ extension KeyRouter {
     /// The toolbar badge reads "Esc again to exit" on the armed tab only.
     private func showFocusModeExitArmed(_ armed: String?, previous: String?) {
         guard armed != previous else { return }
-        if let previous { services?.cache.existingBrowser(previous)?.chrome.focusModeExitArmed = false }
-        if let armed { services?.cache.existingBrowser(armed)?.chrome.focusModeExitArmed = true }
+        if let previous { services?.cache.existingBrowser(previous)?.state.focusModeExitArmed = false }
+        if let armed { services?.cache.existingBrowser(armed)?.state.focusModeExitArmed = true }
     }
 }

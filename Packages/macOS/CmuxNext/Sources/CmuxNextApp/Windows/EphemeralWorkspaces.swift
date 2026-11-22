@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // Incognito workspaces on a daemon with state resources are `ephemeral`
 // (state-ownership.md 2): created with `workspace.create {ephemeral: true}`,
@@ -16,6 +17,12 @@ enum EphemeralWorkspaces {
     /// True when `workspaceID` is flagged ephemeral by its daemon.
     static func isEphemeral(_ workspaceID: String, _ manager: WindowManager) -> Bool {
         manager.services.machines.workspace(id: workspaceID)?.0.ephemeral == true
+    }
+
+    /// The workspaces `daemon` flags ephemeral. Membership observes them (`observeMembership`): a flag can land
+    /// after reconcile placed its workspace in a normal window, and the ledger drops it then (#31039).
+    static func ephemeralIDs(_ daemon: DaemonService) -> Set<String> {
+        Set(daemon.store.workspaces.lazy.filter(\.ephemeral).map(\.id))
     }
 
     /// The local daemon has said whether it serves state resources.
@@ -39,15 +46,16 @@ enum EphemeralWorkspaces {
             }
             guard let connection = daemon.connection else { return }
             do {
-                let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
-                guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
+                guard let (workspace, tab) = try await daemon.createdWorkspace(on: connection, ephemeral: true, focus: true, placed: {
+                    manager.reconcileMembership(); return manager.registry.members(of: windowID) }) else { return } // past its bound: this window's
                 if let space, let key = workspace.key { try await manager.pinToIncognitoSpace(key, space, on: daemon) }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
-                let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
-                guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return }
+                manager.recordIncognitoWorkspaces() // the ledger has it now, not at the next membership sync
+                guard let pane = daemon.store.pane(containing: tab.surface) else { return }
                 _ = try await browserTabs.open(choice, in: pane.handle, on: daemon, url: address, incognito: true)
                 try await connection.closeTab(tab.surface)
+            } catch is WorkspaceCreateUnanswered {
+                manager.services.registry.refuse(RefusalStrings.incognitoUnanswered)
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
             }
@@ -71,6 +79,8 @@ enum EphemeralWorkspaces {
             _ = manager.incognitoProfile()
             result[id] = window
         }
+        // A workspace another client made ephemeral: the ledger updates as soon as the app knows the flag.
+        if !result.isEmpty { manager.recordIncognitoWorkspaces() }
         return result
     }
 

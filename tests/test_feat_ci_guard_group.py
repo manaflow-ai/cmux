@@ -8,6 +8,7 @@ for the branch: test_preflight_trust.py errored in all five tests there unseen (
 """
 import os
 from pathlib import Path
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,17 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import docs_only_paths  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -28,17 +40,23 @@ def covers_feat(trigger) -> bool:
     if trigger is None:
         return True
     branches = (trigger or {}).get("branches")
-    return not (trigger or {}).get("paths") and (branches is None or "feat-cmux-next" in branches)
+    # The docs-only block (scripts/ci/docs_only_paths.py) still covers every change the group can judge.
+    paths = (trigger or {}).get("paths")
+    unfiltered = not paths or [str(p) for p in paths] == list(docs_only_paths.DOCS_ONLY_PATHS)
+    return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
 def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    condition = str(job.get("if", ""))
+    # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
+    condition = str(job.get("if", "")).replace("github.event.pull_request.base.ref != 'feat-cmux-next' ||", "")
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
-        if "scripts/ci/guards-local.sh" in command and "--group" not in command and "--list" not in command:
+        # No --group runs the fast set (the ci group) plus the groups --feat-routes picks.
+        if (any("scripts/ci/guards-local.sh" in line and "--list" not in line for line in command.splitlines())
+                and ("--group" not in command or "--group ci " in command)):
             return True
     return False
 
@@ -115,7 +133,7 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
     to feat-cmux-next runs every routed group, judged against the previous tip, so the red shows on the push
     that caused it. The "Changed files" step writes no routing list for a push, and keeps the base."""
 
-    def run_step(self, event: str) -> tuple[bool, str]:
+    def run_step(self, event: str, changed: str = "Packages/x.swift") -> tuple[bool, str]:
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         step = next(s for s in workflow["jobs"]["ci-guard-group"]["steps"] if s.get("name") == "Changed files")
         with tempfile.TemporaryDirectory(prefix="guard-push-") as temp:
@@ -132,11 +150,15 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
+            # The step runs the checkout's router; it is in the base, so the push does not change it.
+            (repo / "scripts/ci").mkdir(parents=True)
+            for script in ("detect_linux_guard_changes.py", "workflow_guard_groups.py", "workload_entrypoints.py"):
+                shutil.copy(ROOT / "scripts/ci" / script, repo / "scripts/ci" / script)
             git("add", "-A")
             git("commit", "--quiet", "-m", "base")
             before = git("rev-parse", "HEAD")
-            (repo / "Packages").mkdir()
-            (repo / "Packages" / "x.swift").write_text("x\n", encoding="utf-8")
+            (repo / changed).parent.mkdir(parents=True, exist_ok=True)
+            (repo / changed).write_text("x\n", encoding="utf-8")
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
@@ -160,8 +182,51 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
         self.assertFalse(listed, "a push must run every routed group (no changed-files list)")
 
     def test_a_pull_request_is_routed_by_its_changed_files(self):
-        listed, _ = self.run_step("pull_request")
+        listed, outputs = self.run_step("pull_request")
         self.assertTrue(listed)
+        self.assertNotIn("tip=", outputs)
+
+    def test_a_product_push_is_judged_against_the_previous_tip(self):
+        _, outputs = self.run_step("push")
+        self.assertIn("tip=false", outputs)
+
+
+class APushThatTouchesTheGuardsIsJudgedAtItsTip(unittest.TestCase):
+    """Judged only against the previous tip, a guard red that persists stays green on every later push: the
+    workflow guard profile sat red on 18 steps of feat-cmux-next, unseen, until #31366. A push that touches what the
+    guards read (.github/, tests/, scripts/ci/) is judged at its tip, with no base comparison, so the red shows."""
+
+    def test_the_router_picks_the_tip_for_guard_inputs_only(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import detect_linux_guard_changes as router  # noqa: PLC0415
+        for paths, tip in (
+            ([".github/workflows/cmux-next-guards.yml"], True),
+            (["tests/test_x.py"], True),
+            (["scripts/ci/run_ci_guards.py"], True),
+            ([".github/runners.json"], True),
+            (["Packages/x.swift", "tests/test_x.py"], True),
+            ([], True),
+            (["Packages/x.swift"], False),
+            (["webviews/src/a.ts", "scripts/build.sh", "docs/x.md"], False),
+        ):
+            with self.subTest(paths=paths):
+                self.assertIs(router.feat_push_judges_tip(paths), tip)
+
+    def test_the_changed_files_step_says_tip_for_a_guard_push(self):
+        for changed in (".github/workflows/x.yml", "tests/test_x.py", "scripts/ci/x.py"):
+            with self.subTest(changed=changed):
+                listed, outputs = APushRunsEveryRoutedGroup.run_step(
+                    APushRunsEveryRoutedGroup("test_a_push_writes_no_routing_list_but_keeps_its_base"), "push", changed)
+                self.assertFalse(listed)
+                self.assertIn("tip=true", outputs)
+
+    def test_a_tip_push_skips_the_base_and_fails_on_every_red(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["ci-guard-group"]["steps"]}
+        self.assertIn("steps.changes.outputs.tip != 'true'", steps["Checkout the base"]["if"])
+        run = steps["Run the ci guard group and the routed groups"]
+        self.assertEqual(run["env"]["GUARDS_AT_TIP"], "${{ steps.changes.outputs.tip }}")
+        self.assertIn('python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"', run["run"])
 
 
 class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
@@ -184,10 +249,12 @@ class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
         self.assertIn("GITHUB_PATH", runs)
 
 
-class TheGuardGroupRunsOnThe32VcpuSize(unittest.TestCase):
+class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
     """The job runs every routed guard group twice (the head, then the base) with a worker per core, and runs on
     every feat-cmux-next pull request and push. On 4 vCPU with 8 workers it took 175-359 s (runs 39873974117,
-    39873712114). Leo, 2026-10-21: "IF WE HAVE 256 OF 32 THEN JUST USE 32." So it takes the 32 vCPU size, with
+    39873712114), and on 32 vCPU 3.3 min mean, 4.9 p90 (2026-10-30/31), so the 32 vCPU size bought nothing. Leo,
+    2026-11-01: "we should have resized a long-ass time ago." It takes the size .github/runners.json linux_sizes
+    measured for it, with
     the Blacksmith outage guard the compile jobs use (tests/test_ci_linux_compile_runners.py), and as many workers
     as the runner has cores."""
 
@@ -195,22 +262,32 @@ class TheGuardGroupRunsOnThe32VcpuSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_32_vcpu_and_follows_the_outage_switch(self):
+    def test_the_job_runs_on_the_persistent_linux_pool(self):
+        # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
+        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        self.assertEqual(self.job()["if"],
+                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                         "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         self.assertEqual(
-            self.job()["runs-on"],
+            workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
+            " || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
-        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
+        # The head (one call for a pull request and a push), then the base.
         self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
-                self.assertIn('--jobs "$(nproc)"', call)
+                # getconf, not nproc: a mini (macOS) has no GNU coreutils.
+                self.assertIn('--jobs "$(getconf _NPROCESSORS_ONLN)"', call)
                 self.assertNotIn("--jobs 8", call)
 
 

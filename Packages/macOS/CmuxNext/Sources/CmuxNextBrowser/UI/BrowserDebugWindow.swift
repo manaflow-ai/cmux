@@ -41,7 +41,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.install(kind: .browserDebug, content: chrome, scope: .app)
+        window.install(kind: .browserDebug, content: chrome, scope: .app, activeLook: nil) // no app window owns it (a dev hook)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)

@@ -5,7 +5,10 @@
 //! or its short alias `apps.<verb>`.
 //!
 //! - `catalog.list` and `catalog.get`: the catalog packages, never
-//!   `cmux/app-store` itself; first-party apps are `hide_only`.
+//!   `cmux/app-store` itself; first-party apps are `hide_only`. Each listing
+//!   names its shelf ([`Shelf`]): Discover shows the store shelf, the SDK
+//!   examples show only to developers, and `cmux ext dev` apps only under
+//!   Installed.
 //! - `installed.list`: the installed apps with their state and grants.
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
@@ -22,6 +25,7 @@
 //! feat-cmux-next-apps-store; they move to the IR crate (with schemars) when
 //! it lands.
 
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -44,6 +48,50 @@ struct CatalogListParams {
     cursor: Option<String>,
     /// 1 to 200; default 50.
     limit: Option<u32>,
+    /// Only listings on this shelf; every shelf when absent.
+    shelf: Option<Shelf>,
+    /// Developer mode is on (`app.internalDeveloperMode`; the page router
+    /// fills it from settings): the page offers the Examples shelf.
+    developer: Option<bool>,
+}
+
+/// Where a listing belongs in the App Store, decided from where its package
+/// came from so the page, the CLI and MCP agree (Leo, 2026-11-16: "idk if we
+/// want to ship THOSE as standard apps").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Shelf {
+    /// Discover: the first-party apps cmux ships as default apps (Cloud,
+    /// CodeRouter), cmux's own store apps (the `cmux/` packages the build
+    /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
+    /// marker: the clock, weather, calendar and to-do widgets), and later a
+    /// cloud catalog's listings.
+    Store,
+    /// SDK examples and samples shipped next to cmux (`CMUX_APPS_DIRS`,
+    /// `apps/`) under any other publisher: templates for `cmux ext new`,
+    /// listed under Examples only with developer mode or once the person runs
+    /// `cmux ext dev`.
+    Example,
+    /// The person's own `cmux ext dev` apps (`local/...`): Installed shows
+    /// them as Local (dev); Discover never lists them.
+    Local,
+}
+
+/// The publisher prefix of cmux's own packages.
+const FIRST_PARTY_PUBLISHER: &str = "cmux/";
+
+impl Shelf {
+    pub(crate) fn of(package: &Package) -> Self {
+        match package.source {
+            Source::Default | Source::User => Self::Store,
+            // A first-party STORE app is built into the same folder as the
+            // samples; its `cmux/` publisher puts it on Discover (Leo,
+            // 2026-11-20: "JUST ADD SHIT").
+            Source::Bundled if package.id.starts_with(FIRST_PARTY_PUBLISHER) => Self::Store,
+            Source::Bundled => Self::Example,
+            Source::Local => Self::Local,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +103,14 @@ struct CatalogGetParams {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstalledListParams {}
+
+/// `apps.local.reload`: one local app, or every one when `app` is absent.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalReloadParams {
+    #[serde(default)]
+    app: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,6 +135,9 @@ pub(crate) struct CatalogListResult {
     next_cursor: Option<String>,
     /// The install mirror revision the install fields reflect.
     revision: u64,
+    /// Whether the page offers the Examples shelf: developer mode is on, or
+    /// the person has a `cmux ext dev` app.
+    examples: bool,
 }
 
 /// One store row.
@@ -88,6 +147,9 @@ pub(crate) struct Listing {
     app: String,
     name: String,
     summary: String,
+    /// One line on what the person gets (manifest `tagline`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tagline: Option<String>,
     publisher: String,
     tier: Tier,
     version: String,
@@ -95,6 +157,7 @@ pub(crate) struct Listing {
     categories: Vec<String>,
     /// First-party apps offer Hide and Show only.
     hide_only: bool,
+    shelf: Shelf,
     install: Option<InstallState>,
 }
 
@@ -107,12 +170,126 @@ enum IconRef {
     Symbol(String),
 }
 
-/// `catalog.get`: the listing plus the scopes the app asks for.
+/// `catalog.get`: the listing plus its screenshots, the places the app shows
+/// up, the scopes it asks for and, for an app with a `deploy` block, where it
+/// runs.
 #[derive(Debug, Serialize)]
 pub(crate) struct AppDetail {
     #[serde(flatten)]
     listing: Listing,
+    /// Package paths; the page loads each through `asset.get`.
+    screenshots: Vec<String>,
+    contributes: Vec<Contribution>,
     scopes: Vec<ScopeRow>,
+    /// Absent for an app with no `deploy` block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deploy: Option<DeployFacts>,
+}
+
+/// What a listing says about an app's server (`deploy`, deploy.rs): the
+/// machine kinds it may run on (`self-hosted`, `cloud-vm`, ...) and whose
+/// instance it is (`user`, `team`). The image and port stay out of the
+/// listing; the consent card names the one machine an install uses.
+#[derive(Debug, Serialize)]
+struct DeployFacts {
+    targets: Vec<String>,
+    tenancy: Vec<String>,
+}
+
+/// One place the app shows up: an interface it implements (`section`,
+/// `statusItem`, `pane`, `newTab`, `sessionInfo`) or a palette command
+/// (`command`). `title` is the interface's en title, else the app name; a
+/// command's is its palette title.
+#[derive(Debug, Serialize)]
+struct Contribution {
+    kind: &'static str,
+    title: String,
+}
+
+/// The interfaces a listing names, in the order the page shows them.
+const CONTRIBUTION_KINDS: [(&str, &str); 5] = [
+    ("cmux.section/1", "section"),
+    ("cmux.status/1", "statusItem"),
+    ("cmux.pane/1", "pane"),
+    ("cmux.newtab/1", "newTab"),
+    ("cmux.session.info.section/1", "sessionInfo"),
+];
+
+/// Where `package` shows up. Reads the catalog fragment from disk, so it
+/// runs outside the supervisor lock.
+fn contributions(package: &Package) -> Vec<Contribution> {
+    let m = &package.manifest;
+    let name = m.get("name").map(text).unwrap_or_default();
+    let mut rows: Vec<Contribution> = CONTRIBUTION_KINDS
+        .iter()
+        .filter_map(|&(interface, kind)| {
+            let implementation = m.get("implements")?.get(interface)?;
+            let title = implementation.get("title").map(text).filter(|t| !t.is_empty());
+            Some(Contribution { kind, title: title.unwrap_or_else(|| name.clone()) })
+        })
+        .collect();
+    if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
+        rows.extend(widget_contributions(widget, &name));
+    }
+    rows.extend(package.palette_commands().iter().map(|command| Contribution {
+        kind: "command",
+        title: command.get("title").map(text).unwrap_or_default(),
+    }));
+    rows
+}
+
+/// A widget (`cmux.widget/1`) shows up once per place in `options.places`:
+/// `newtab` (kind `newTab`) and `sidebar` (kind `sidebarWidget`). With no
+/// `places` it shows up in both; a place this daemon does not know is
+/// skipped.
+fn widget_contributions(widget: &Value, name: &str) -> Vec<Contribution> {
+    if !widget.is_object() {
+        return Vec::new();
+    }
+    let title = widget.get("title").map(text).filter(|t| !t.is_empty());
+    let title = title.unwrap_or_else(|| name.to_string());
+    let Some(places) = widget.pointer("/options/places").and_then(Value::as_array) else {
+        return ["newTab", "sidebarWidget"]
+            .into_iter()
+            .map(|kind| Contribution { kind, title: title.clone() })
+            .collect();
+    };
+    let mut kinds: Vec<&'static str> = Vec::new();
+    for place in places.iter().filter_map(Value::as_str) {
+        let kind = match place {
+            "newtab" => "newTab",
+            "sidebar" => "sidebarWidget",
+            _ => continue,
+        };
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    kinds.into_iter().map(|kind| Contribution { kind, title: title.clone() }).collect()
+}
+
+fn screenshots(manifest: &Value) -> Vec<String> {
+    manifest
+        .get("screenshots")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|path| path.as_str().map(str::to_string))
+        .collect()
+}
+
+fn deploy_facts(manifest: &Value) -> Option<DeployFacts> {
+    let deploy = manifest["deploy"].as_object()?;
+    let strings = |field: &str| -> Vec<String> {
+        deploy
+            .get(field)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect()
+    };
+    Some(DeployFacts { targets: strings("targets"), tenancy: strings("tenancy") })
 }
 
 #[derive(Debug, Serialize)]
@@ -133,6 +310,17 @@ struct InstallState {
     source: Source,
     version: Option<String>,
     update: Option<String>,
+    /// Why the app is not running when it should: `off: safe mode`, or
+    /// `failed: <reason>` (apps/safe_mode.rs). Absent when nothing holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_state: Option<String>,
+    /// `apps.rollback` can restore the last version that loaded and
+    /// mounted (apps/rollback.rs).
+    can_rollback: bool,
+    /// The budget ladder's step (apps/budget.rs): `normal`, `slowed` (a
+    /// mount over its op-batch rate gets 1 batch a second) or `paused`
+    /// (`apps.resume` starts it again).
+    budget: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +337,8 @@ struct InstalledApp {
     hide_only: bool,
     state: InstallState,
     grants: Vec<String>,
+    /// The deployed instance (`deploy.rs`), null for an app with none.
+    instance: Value,
 }
 
 /// `set`, `install` and `uninstall` answer the app's new state.
@@ -195,6 +385,9 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
         source: record.source,
         version: package.filter(|_| record.installed).map(|p| p.version.clone()),
         update: None,
+        run_state: None,
+        can_rollback: false,
+        budget: "normal",
     }
 }
 
@@ -211,6 +404,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
         app: package.id.clone(),
         name: text(&m["name"]),
         summary: text(&m["description"]),
+        tagline: m.get("tagline").map(text).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
         tier: package.tier,
         version: package.version.clone(),
@@ -222,7 +416,18 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect(),
         hide_only: package.tier == Tier::FirstParty,
+        shelf: Shelf::of(package),
         install: record.map(|r| state(r, Some(package))),
+    }
+}
+
+/// Fills the run facts of `app` (safe mode, a failed host, rollback).
+fn annotate(inner: &super::supervisor::Inner, app: &str, state: Option<&mut InstallState>) {
+    if let Some(state) = state {
+        let (run_state, can_rollback) = Supervisor::run_facts(inner, app);
+        state.run_state = run_state;
+        state.can_rollback = can_rollback;
+        state.budget = Supervisor::budget_step_locked(inner, app).as_str();
     }
 }
 
@@ -234,6 +439,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
+        instance: Value::Null,
     }
 }
 
@@ -261,7 +467,8 @@ fn matches(package: &Package, query: &str) -> bool {
 }
 
 /// Whether App Store op `op` changes the install mirror (`set`, `install`,
-/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`): the wire admits
+/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`), or the person's widget
+/// layout (`widgets.layout.edit`): the wire admits
 /// it only from the verified cmux app connection (Gate A2), whatever origin
 /// it claims.
 pub(crate) fn store_op_mutates(op: &str) -> bool {
@@ -273,6 +480,8 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
+            | "apps.widgets.layout.edit"
+            | "apps.community.synced.put"
     )
 }
 
@@ -287,6 +496,13 @@ impl Supervisor {
         origin: Origin,
     ) -> Result<Value, ApiError> {
         match op.strip_prefix("cmux.").unwrap_or(op) {
+            // The Community source (community.rs): `{source: "community"}`.
+            "apps.catalog.list" | "apps.catalog.get" if super::community::wants(&args) => {
+                self.community_call(op, args)
+            }
+            "apps.community.installs" | "apps.community.synced.put" => {
+                self.community_call(op, args)
+            }
             "apps.catalog.list" => params(args).and_then(|p| to_value(self.catalog_list(p)?)),
             "apps.catalog.get" => params(args).and_then(|p| to_value(self.catalog_get(p)?)),
             "apps.installed.list" => {
@@ -294,11 +510,17 @@ impl Supervisor {
             }
             "apps.set" => params(args).and_then(|p| self.store_set(client, p, origin)),
             "apps.install" => {
-                params(args).and_then(|p| self.store_install(client, p, origin, true))
+                params(args).and_then(|p| self.store_install_deploy(client, p, origin))
             }
             "apps.uninstall" => {
-                params(args).and_then(|p| self.store_install(client, p, origin, false))
+                params(args).and_then(|p| self.store_install(client, p, origin, false, false))
             }
+            "apps.rollback" => params(args).and_then(|p| self.rollback(p, origin)),
+            "apps.resume" => params(args).and_then(|p| self.resume(p, origin)),
+            // The app's Reload Custom Views (palette, an error card's Reload):
+            // the same forced read as `apps-reload` (`cmux ext reload`).
+            "apps.local.reload" => params::<LocalReloadParams>(args)
+                .and_then(|p| self.reload_local_now(p.app.as_deref())),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),
@@ -318,6 +540,7 @@ impl Supervisor {
             .values()
             .filter(|package| package.id != APP_STORE)
             .filter(|package| p.tier.is_none_or(|tier| package.tier == tier))
+            .filter(|package| p.shelf.is_none_or(|shelf| Shelf::of(package) == shelf))
             .filter(|package| {
                 p.category.as_deref().is_none_or(|category| {
                     package.manifest["categories"]
@@ -331,12 +554,21 @@ impl Supervisor {
             .iter()
             .skip(offset)
             .take(limit)
-            .map(|package| listing(package, inner.mirror.apps.get(&package.id)))
+            .map(|package| {
+                let mut row = listing(package, inner.mirror.apps.get(&package.id));
+                annotate(&inner, &package.id, row.install.as_mut());
+                row
+            })
             .collect();
         // A cursor is a wire value: never overflow on it.
         let end = offset.saturating_add(limit);
         let next_cursor = (end < rows.len()).then(|| end.to_string());
-        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision })
+        // Offered only when there are examples to show.
+        let packages = || inner.catalog.packages.values();
+        let has_examples = packages().any(|p| Shelf::of(p) == Shelf::Example);
+        let has_local = packages().any(|p| p.source == Source::Local);
+        let examples = has_examples && (p.developer == Some(true) || has_local);
+        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision, examples })
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
@@ -358,7 +590,18 @@ impl Supervisor {
                 });
             }
         }
-        Ok(AppDetail { listing: listing(package, inner.mirror.apps.get(&p.app)), scopes })
+        let mut listing = listing(package, inner.mirror.apps.get(&p.app));
+        annotate(&inner, &p.app, listing.install.as_mut());
+        let package = package.clone();
+        // The catalog fragment is a file read: never under the supervisor lock.
+        drop(inner);
+        Ok(AppDetail {
+            listing,
+            screenshots: screenshots(&package.manifest),
+            contributes: contributions(&package),
+            scopes,
+            deploy: deploy_facts(&package.manifest),
+        })
     }
 
     fn installed_list(&self) -> InstalledListResult {
@@ -368,7 +611,12 @@ impl Supervisor {
             .apps
             .iter()
             .filter(|(_, record)| record.installed)
-            .map(|(app, record)| installed_app(app, record, inner.catalog.packages.get(app)))
+            .map(|(app, record)| {
+                let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+                annotate(&inner, app, Some(&mut row.state));
+                row.instance = self.instance_json(app);
+                row
+            })
             .collect();
         InstalledListResult { revision: inner.mirror.revision, apps }
     }
@@ -379,10 +627,10 @@ impl Supervisor {
         let inner = self.inner.lock().unwrap();
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
-        let result = SetResult {
-            revision: inner.mirror.revision,
-            app: installed_app(app, record, inner.catalog.packages.get(app)),
-        };
+        let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+        annotate(&inner, app, Some(&mut row.state));
+        row.instance = self.instance_json(app);
+        let result = SetResult { revision: inner.mirror.revision, app: row };
         to_value(result)
     }
 
@@ -406,6 +654,7 @@ impl Supervisor {
         p: AppRef,
         origin: Origin,
         install: bool,
+        grant_optional: bool,
     ) -> Result<Value, ApiError> {
         if origin != Origin::User {
             let verb = if install { "installing" } else { "removing" };
@@ -430,9 +679,77 @@ impl Supervisor {
             app: p.app.clone(),
             origin,
             installed: Some(install),
+            grant_optional: install && grant_optional,
             ..SetOp::default()
         };
         self.set(client, op)?;
-        self.set_result(&p.app)
+        if !install {
+            self.deploy_remove(&p.app);
+        }
+        let placed = if install { self.place_installed_widget(&p.app) } else { None };
+        let mut result = self.set_result(&p.app)?;
+        if let (Some(placed), Some(object)) = (placed, result.as_object_mut()) {
+            object.insert("widget".into(), placed);
+        }
+        Ok(result)
+    }
+
+    /// `cmux.apps.install`, with an optional `deploy {target}` (install =
+    /// deploy + pin, `deploy.rs`): the target is checked against the manifest
+    /// before anything installs; the install commits, then the runner starts
+    /// off the request and the answer carries the instance as `deploying`.
+    fn store_install_deploy(
+        &self,
+        client: u64,
+        p: super::deploy::InstallParams,
+        origin: Origin,
+    ) -> Result<Value, ApiError> {
+        let checked = match &p.deploy {
+            Some(request) if origin == Origin::User => Some(self.deploy_checked(&p.app, request)?),
+            _ => None,
+        };
+        let key = p.idempotency_key.clone();
+        let mut result = self.store_install(
+            client,
+            AppRef { app: p.app.clone(), idempotency_key: key.clone() },
+            origin,
+            true,
+            // The consent card listed the optional scopes too: grant them.
+            p.grant_optional.unwrap_or(false),
+        )?;
+        if let Some((target, spec)) = checked {
+            result.set("instance", self.deploy_start(&p.app, &key, target, spec));
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn kinds(widget: Value) -> Vec<(&'static str, String)> {
+        widget_contributions(&widget, "Clock")
+            .into_iter()
+            .map(|row| (row.kind, row.title))
+            .collect()
+    }
+
+    /// A widget shows up once per place it names, in both places when it
+    /// names none; a place cmux does not know is skipped, not an error.
+    #[test]
+    fn a_widget_shows_up_once_per_place() {
+        let clock = |kind| (kind, "Clock".to_string());
+        let sidebar = json!({ "options": { "places": ["sidebar"], "sizes": ["small"] } });
+        assert_eq!(kinds(sidebar), [clock("sidebarWidget")]);
+        assert_eq!(kinds(json!({})), [clock("newTab"), clock("sidebarWidget")]);
+        let titled = json!({
+            "title": { "en": "World Clock", "ja": "世界時計" },
+            "options": { "places": ["newtab", "sidebar", "newtab", "dock"] },
+        });
+        let world = |kind| (kind, "World Clock".to_string());
+        assert_eq!(kinds(titled), [world("newTab"), world("sidebarWidget")]);
+        assert!(kinds(Value::Null).is_empty());
     }
 }

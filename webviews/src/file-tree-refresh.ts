@@ -36,6 +36,45 @@ export type PierreFileTreeSelectionModel = {
   selectOnlyPath?: (path: string) => void;
 };
 
+type PathFolder = { entries: (PathFolder | string)[]; folders: Map<string, PathFolder> };
+
+/**
+ * `paths` in folder order: each folder's files and subfolders together, in the order each first
+ * appears, so the list stays as close to the diff's order as a tree allows. The tree's presorted
+ * input (`preparePresortedFileTreeInput`) needs this: it starts a folder anew wherever its path
+ * shows up again after another folder, so the diff's order (tracked edits, then new files) gave
+ * `src/server/` twice, and the tree could not find the files under either copy.
+ * A row the tree appends later (`model.batch` add) lands in the same place.
+ */
+export function folderOrderedPaths(paths: readonly string[]): string[] {
+  const root: PathFolder = { entries: [], folders: new Map() };
+  for (const path of paths) {
+    let folder = root;
+    let start = 0;
+    for (let slash = path.indexOf("/"); slash >= 0; slash = path.indexOf("/", start)) {
+      const name = path.slice(start, slash);
+      start = slash + 1;
+      let next = folder.folders.get(name);
+      if (next == null) {
+        next = { entries: [], folders: new Map() };
+        folder.folders.set(name, next);
+        folder.entries.push(next);
+      }
+      folder = next;
+    }
+    folder.entries.push(path);
+  }
+  const ordered: string[] = [];
+  const visit = (folder: PathFolder) => {
+    for (const entry of folder.entries) {
+      if (typeof entry === "string") ordered.push(entry);
+      else visit(entry);
+    }
+  };
+  visit(root);
+  return ordered;
+}
+
 export function planPierreFileTreeRefresh(
   previousSource: FileTreeRefreshSource | null | undefined,
   source: FileTreeRefreshSource,
@@ -86,23 +125,34 @@ export function selectPierreFileTreePath(model: PierreFileTreeSelectionModel, se
   if (!selectedPath) {
     return;
   }
-  if (typeof model.selectOnlyPath === "function") {
-    model.selectOnlyPath(selectedPath);
-  } else {
-    // An item handle's select() adds to the selection: drop the row the
-    // viewer followed before, so one row stays highlighted.
-    for (const path of model.getSelectedPaths?.() ?? []) {
-      if (path !== selectedPath) {
-        model.getItem?.(path)?.deselect?.();
-      }
-    }
-    model.getItem?.(selectedPath)?.select();
-  }
+  selectOnlyPierreFileTreePath(model, selectedPath);
   // The tree's focused row is model state (DOM focus stays where it is): the
   // keyboard starts from the file in view, and the indent guide under its
   // folder shows as in the classic list.
   model.focusPath?.(selectedPath);
   model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
+}
+
+/**
+ * Makes `selectedPath` the tree's only selected row (none when it is empty), without moving the
+ * tree's focus or scrolling it. A folder row's click selects the folder as it toggles it; the
+ * diff tab puts the highlight back on the file the viewer shows, so a folder never keeps one.
+ */
+export function selectOnlyPierreFileTreePath(model: PierreFileTreeSelectionModel, selectedPath: string): void {
+  if (selectedPath && typeof model.selectOnlyPath === "function") {
+    model.selectOnlyPath(selectedPath);
+    return;
+  }
+  // An item handle's select() adds to the selection: drop the rows selected before, so one row
+  // stays highlighted.
+  for (const path of model.getSelectedPaths?.() ?? []) {
+    if (path !== selectedPath) {
+      model.getItem?.(path)?.deselect?.();
+    }
+  }
+  if (selectedPath) {
+    model.getItem?.(selectedPath)?.select();
+  }
 }
 
 function isPathPrefix(previousSource: FileTreeRefreshSource, nextSource: FileTreeRefreshSource): boolean {

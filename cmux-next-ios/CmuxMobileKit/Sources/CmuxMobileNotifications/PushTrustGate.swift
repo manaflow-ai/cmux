@@ -18,16 +18,25 @@ public struct PushTrustGate: Sendable {
 
     public let trust: PushTrust?
     public let keys: PushKeys?
+    /// True only for the currently authenticated account. The explicit
+    /// initializer defaults to true for synthetic/test payloads.
+    public let authorized: Bool
 
-    public init(trust: PushTrust?, keys: PushKeys?) {
+    public init(trust: PushTrust?, keys: PushKeys?, authorized: Bool = true) {
         self.trust = trust
         self.keys = keys
+        self.authorized = authorized
     }
 
-    /// This build's keys and trust record.
+    /// This build's keys and trust record, scoped to the signed-in account
+    /// mirrored into the service extension's shared Keychain.
     public static func current() -> PushTrustGate {
         let keys = PushKeys.current()
-        return PushTrustGate(trust: keys?.trust(), keys: keys)
+        let trust = keys?.trust()
+        // A build signed without the shared keychain has no marker and no
+        // retained keys either: it keeps the unsealed behavior it had before.
+        let active = keys.map { PushActiveAccount(store: $0.store).permits(trust) } ?? true
+        return PushTrustGate(trust: active ? trust : nil, keys: active ? keys : nil, authorized: active)
     }
 
     /// What iOS shows for a notification: a sealed box acts only under the banner and
@@ -61,6 +70,7 @@ public struct PushTrustGate: Sendable {
     /// acts only when what is shown is what the box says (`Shown`); nil `shown` (a caller
     /// with no delivered content) never lets a box act.
     public func verdict(userInfo: [AnyHashable: Any], shown: Shown?, now: Date = Date()) -> Verdict {
+        guard authorized else { return .refused }
         if let sealedObject = userInfo[Self.sealedKey] as? [String: Any],
            let sealed = SealedPush(userInfo: [PushPayload.userInfoKey: sealedObject]) {
             guard let keys, let payload = try? sealed.open(trust: trust, keys: keys) else { return .refused }

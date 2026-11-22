@@ -28,17 +28,19 @@ Do not start a checkout the task does not need, and never twice for one ask.
 
 | Plan | Price | What it adds |
 | --- | --- | --- |
+| `plus` | $15/mo | 1 Cloud VM, up to 8 vCPU / 16 GB, no hour cap; paid model router |
 | `pro` | $50/mo | 5 Cloud VMs at once, up to 8 vCPU / 16 GB; paid model router; Chief credits |
-| `max` | $200/mo | 20 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
+| `max` | $200/mo | 5 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
 | `team` | $60/seat/mo | Pro for every member of a team; needs `--team ID` of a team the user administers |
 
 Pick the cheapest plan that unblocks the task: the plan a refusal names
-(`details.plan`, or `(plan: …)` in its message), else `pro`; `team` only when
+(`details.plan`, or `(plan: …)` in its message), else `pro` (`plus` only when
+the user asks for the cheapest plan with one machine); `team` only when
 the user works in a shared team.
 
 ## How
 
-1. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
+1. Run `cmux billing checkout --plan <plus|pro|max|team> [--team ID] --json`.
    The app asks cmux.com for a Stripe Checkout page bound to the user's
    account and opens it: a cmux browser tab when the cmux browser is signed
    in to Stripe Link (one-click pay), else the default browser. The result
@@ -49,8 +51,9 @@ the user works in a shared team.
    on top of the dialog.
 2. Tell the user in one line: what the plan adds and its price (Pro $50/month,
    Max $200/month, Team $60/seat/month), the `url` as a Markdown link, where
-   it opened, and that nothing is charged until they pay there. For example:
-   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Pay on Stripe](URL)
+   it opened, and that nothing is charged until they pay there. Call it the
+   checkout page; never name the payment provider to the user. For example:
+   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Open checkout](URL)
    (open on the right); nothing is charged until you pay, and I start the
    build as soon as Pro is on." `flow: portal` means they already pay for a
    plan and the page switches it; `already_active` means there is nothing to
@@ -62,6 +65,9 @@ the user works in a shared team.
    wakes you, run `cmux billing status --json`: once the plan is on, retry
    the blocked step yourself and say so; if not, sleep again (at most a few
    times a day). Never wait for the user to say they paid.
+5. A checkout link the Cloud Chief answered with (`automation.plan.required`
+   with `checkout`) needs no sleep from you: when the user pays, the Cloud
+   Chief is told and redoes its blocked job itself.
 
 ## Errors
 
@@ -75,7 +81,8 @@ the user works in a shared team.
 ## Never
 
 - Never say you bought, paid for or upgraded anything: the user does that on
-  the Stripe page.
-- Never ask for or type card numbers, and never fill the Stripe page.
+  the checkout page.
+- Never ask for or type card numbers, and never fill the checkout page.
+- Never name the payment provider in what you tell the user.
 - `cmux billing portal` opens billing management (change plan, cards,
   invoices, cancel) when the user asks for it.

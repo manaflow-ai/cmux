@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Darwin
 import Foundation
@@ -188,7 +189,7 @@ final class AppRunMarker {
     /// Chromium shuts down. Returns once `quitting` is on disk, or false
     /// after `timeout` (the quit goes on either way).
     @discardableResult
-    func markQuitting(timeout: Duration = .milliseconds(500)) async -> Bool {
+    func markQuitting(timeout: Duration) async -> Bool {
         if marker.quitting != true {
             marker.quitting = true
             writeMarker()
@@ -218,10 +219,23 @@ final class AppRunMarker {
     /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
-            logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+        let ticket = file.submit(encoding: Self.encoding(marker))
+        if ticket != 0 { lastTicket = ticket }
+    }
+
+    /// The marker's bytes, made when the file asks for them: the context's footprint (a `task_info` that waits for
+    /// the kernel's VM map) is read then, so the snapshot taken on the main actor never reads it.
+    nonisolated static func encoding(_ marker: PreviousRun, footprint: @escaping @Sendable () -> Int = { CrashContext.footprintMegabytes() },
+                                     logger: Logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")) -> RunMarkerFile.Encode {
+        {
+            var marker = marker
+            marker.context?.footprintMegabytes = footprint()
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            do { return try encoder.encode(marker) } catch {
+                logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
         }
     }
 
@@ -237,7 +251,7 @@ final class AppRunMarker {
            let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
             run.signal = number
         }
-        if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
+        if let exception { run.exception = RecordedException.read(from: exception) }
         return run
     }
 }

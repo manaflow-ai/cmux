@@ -1,0 +1,3 @@
+/* The guest page's document (main.tsx only; the gallery frames GuestPage in its own). */
+html,body,#root{height:100%;margin:0}
+body{background:var(--agent-page-bg);color:var(--agent-text)}

@@ -36,8 +36,8 @@ extension SidebarItemRowView {
             let side = Metrics.smallIconSize + Metrics.space1
             // A row: at its trailing end; a tile or icon: on its top leading corner, as on an iPhone.
             let iconOnly = style.isIconOnly || style == .favorite
-            let x = iconOnly ? 0 : bounds.width - SidebarStyle.horizontalInset * 2 - side
-            removeButton.frame = NSRect(x: x, y: iconOnly ? 0 : (bounds.height - side) / 2, width: side, height: side)
+            removeButton.frame = iconOnly ? NSRect(x: 0, y: 0, width: side, height: side)
+                : SidebarStyle.trailingColumnFrame(rowWidth: bounds.width - SidebarStyle.horizontalInset, centerY: bounds.midY, side: side)
             removeButton.label = Strings.removeItem(info.title)
         }
         guard bounds.size != wiggleSize, let layer else { return }

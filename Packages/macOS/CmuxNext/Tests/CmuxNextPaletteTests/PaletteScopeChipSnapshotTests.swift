@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextPalette
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// light and dark, into a PNG (`CMUX_CHIP_SNAPSHOT_PATH`, else `.build/chip-snapshot.png` in the package).
 /// It checks only that the picture is drawn; the colors are checked by `PaletteScopeChipContrastTests`.
 @MainActor
-@Suite
+@Suite(.closesItsWindows)
 struct PaletteScopeChipSnapshotTests {
     static let before = (top: PaletteScopeChipInk(text: .primary, icon: .secondary, fill: .selection, outlined: false),
                          back: PaletteScopeChipInk(text: .tertiary, icon: .tertiary, fill: .halfSelection, outlined: false))

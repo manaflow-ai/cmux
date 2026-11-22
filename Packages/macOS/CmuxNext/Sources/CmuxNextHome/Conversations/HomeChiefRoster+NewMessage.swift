@@ -1,21 +1,11 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 public import Foundation
 
-/// The Chiefs as New Message's list under To: shows them: the main Chief
-/// first, and each row tagged where it runs as the Home list tags it
-/// ("Chief · Main · Cloud", "Chief · This Mac"), so two Chiefs named alike tell apart.
+/// The Chiefs as New Message's list under To: shows them: each row tagged where it runs as the
+/// Home list tags it ("Chief · Main · Cloud", "Chief · This Mac"), so two Chiefs named alike tell
+/// apart (the main Chief comes first: ``HomeChiefRoster/mainFirst(_:rows:)``).
 extension HomeChiefRoster {
-    /// `contacts` with the main Chief first (before a list's limit can cut it).
-    /// - Parameters:
-    ///   - contacts: New Message's contacts.
-    ///   - rows: The inbox rows (the main Chief's conversation names its participant).
-    /// - Returns: The same contacts, the main Chief moved to the front.
-    public func mainFirst(_ contacts: [HomeContact], rows: [InboxRow]) -> [HomeContact] {
-        guard let main, let row = rows.first(where: { $0.id == main }) else { return contacts }
-        let isMain = { (contact: HomeContact) in row.summary.participants.contains { $0.id == contact.id } }
-        return contacts.filter(isMain) + contacts.filter { !isMain($0) }
-    }
-
     /// How New Message's list draws `recipient`: a Chief's avatar and its tag; others draw initials.
     /// - Parameters:
     ///   - recipient: The suggestion.

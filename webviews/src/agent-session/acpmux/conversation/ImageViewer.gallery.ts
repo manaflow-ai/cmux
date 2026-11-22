@@ -3,6 +3,7 @@
 // the pane, with arrows through every image of the chat). The opened viewer's states are play
 // steps on the same reply.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
@@ -25,6 +26,55 @@ const replyImages = () =>
     ],
     { title: "Make sample images for the docs" },
   );
+
+// A pasted screenshot's name (imageLabel.ts) in a one-tab pane whose native tab row floats over the page's top
+// (header/tabRow.ts). The viewer opens below the row, its name inside its own bar, and the image draws at full
+// opacity over a light backdrop (Leo, 2026-11-05: "this screenshot preview has too much opacity and the file
+// nameis also way at the top").
+const screenshotName = "Screenshot · 1568×674";
+const pastedScreenshot = () =>
+  chat(
+    [
+      user("What does this chart say?", 8),
+      assistant(["The builds dip midweek.", image(screenshotName, sampleChart())].join("\n\n"), 7),
+      summary(7, { status: "completed" }),
+    ],
+    { title: "Read the build chart" },
+  );
+const ROW = 38;
+const underTabRow: Play = async (ctx) => {
+  const { setTabRow } = await import("../header/tabRow");
+  setTabRow({ height: ROW, trailingInset: 0, soloTab: true });
+  // The row's layout settles before the click, so the click's step measures only the viewer opening.
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-stage[data-solo-tab] > .acpmux-scroll .acpmux-row"));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await ctx.click({ role: "button", name: screenshotName });
+  await ctx.waitFor(() => ctx.find({ role: "dialog", name: screenshotName }));
+  const doc = ctx.document;
+  const view = doc.defaultView!;
+  const viewer = doc.querySelector<HTMLElement>(".acpmux-image-viewer")!;
+  const bar = doc.querySelector<HTMLElement>(".acpmux-image-viewer-bar")!.getBoundingClientRect();
+  const title = doc.querySelector<HTMLElement>(".acpmux-image-viewer-title")!.getBoundingClientRect();
+  const frame = viewer.getBoundingClientRect();
+  if (frame.top < ROW) throw new Error(`The viewer starts at ${frame.top}px, under the ${ROW}px tab row`);
+  if (title.top < ROW || title.top < frame.top || title.bottom > bar.bottom)
+    throw new Error(
+      `The image's name (${title.top}-${title.bottom}px) is not inside the viewer's bar below the tab row`,
+    );
+  const img = doc.querySelector<HTMLImageElement>(".acpmux-image-viewer-image")!;
+  for (let node: HTMLElement | null = img; node; node = node.parentElement) {
+    const style = view.getComputedStyle(node);
+    if (Number(style.opacity) !== 1 || style.filter !== "none")
+      throw new Error(
+        `The image is dimmed by ${node.className || node.tagName} (opacity ${style.opacity}, filter ${style.filter})`,
+      );
+  }
+  // The backdrop is light: the surface mix leaves the pane showing through. Chromium computes the mix as
+  // `color(srgb r g b / a)`, other engines as `rgba(r, g, b, a)`; no alpha is opaque.
+  const background = view.getComputedStyle(viewer).backgroundColor;
+  const alpha = Number(/(?:\/|,\s*[\d.]+\s*,\s*[\d.]+\s*,)\s*([\d.]+)\s*\)$/.exec(background)?.[1] ?? 1);
+  if (alpha > 0.8) throw new Error(`The viewer's backdrop is ${alpha} opaque (${background})`);
+};
 
 export default agentPaneEntry({
   id: "agent-pane.image-viewer",
@@ -95,6 +145,11 @@ export default agentPaneEntry({
             ctx.document.activeElement === ctx.document.querySelector("button[data-open-image]"),
         );
       },
+    },
+    "pasted-screenshot-under-tab-row": {
+      note: "Play: a one-tab pane's row floats over the page; the screenshot opens below it, its name in the viewer's bar, the image at full opacity.",
+      snapshot: pastedScreenshot(),
+      play: underTabRow,
     },
     "across-turns": {
       note: "Images in two replies: the viewer's arrows go through both.",

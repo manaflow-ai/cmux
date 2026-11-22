@@ -59,6 +59,13 @@ public enum ConversationTranscriptMetrics {
     public static let nonContiguousSpace: CGFloat = 10
     public static let smallSpace: CGFloat = 6
     public static let mediumSpace: CGFloat = 10
+    /// Around a thread block, on top of `nonContiguousSpace`: above its quote
+    /// and under its last reply. ChatKit's `selfReplyTranscriptSpace` is 24;
+    /// simulator Messages 27.0 (Large text) draws 31.33 pt from the bubble
+    /// above to the quote's outline and 32.33 pt from the block's last bubble
+    /// to the next one.
+    public static let replyBlockSpaceAbove: CGFloat = 22
+    public static let replyBlockSpaceBelow: CGFloat = 67.0 / 3
     public static let mediumLargeSpace: CGFloat = 16
 
     /// The caption 2 line spacing (line height plus leading) at Large, 13 pt

@@ -47,6 +47,16 @@ public struct TerminalFontScale {
         return abs(scale - 1) < 0.001 ? nil : scale
     }
 
+    /// True for scales within the rounding ``apply(_:)`` does (0.01 points), so a view that applied its tab
+    /// record's scale writes nothing back.
+    public nonisolated static func sameScale(_ a: Double?, _ b: Double?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case let (a?, b?): abs(a - b) < 0.001
+        default: false
+        }
+    }
+
     /// Sets the view's font to `scale` of the configured size (nil: the
     /// configured size). Returns false when Ghostty refused it.
     @discardableResult

@@ -176,6 +176,18 @@ describe("path picker key model", () => {
     expect(pickerKeyAction({ key: "Backspace" }, { ...state, query: "cmux", caretStart: 4, caretEnd: 4 })).toBeNull();
   });
 
+  test("modified arrows, Return and Escape stay with text editing or the app", () => {
+    // The only widget-specific modifier chords are Cmd-Up and Ctrl-N/P.
+    for (const key of ["ArrowUp", "ArrowDown", "Enter", "Escape", "PageUp", "PageDown", "Backspace"]) {
+      expect(pickerKeyAction({ key, ctrlKey: true }, state)).toBeNull();
+      expect(pickerKeyAction({ key, shiftKey: true }, state)).toBeNull();
+    }
+    expect(pickerKeyAction({ key: "ArrowUp", metaKey: true }, state)).toEqual({ kind: "up" });
+    expect(pickerKeyAction({ key: "n", ctrlKey: true }, state)).toEqual({ kind: "move", delta: 1 });
+    expect(pickerKeyAction({ key: "p", ctrlKey: true }, state)).toEqual({ kind: "move", delta: -1 });
+    expect(pickerKeyAction({ key: "n", ctrlKey: true, shiftKey: true }, state)).toBeNull();
+  });
+
   test("large listings support paging and edges without stealing query Home and End", () => {
     expect(pickerKeyAction({ key: "PageDown" }, state)).toEqual({ kind: "move", delta: 10 });
     expect(pickerKeyAction({ key: "PageUp" }, state)).toEqual({ kind: "move", delta: -10 });

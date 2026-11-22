@@ -21,6 +21,11 @@ pub(crate) enum StartGrant {
     Preset,
     /// The caller session's own mode.
     Inherit,
+    /// The full-access mode a start that names no mode gets here anyway: the
+    /// person's start level (`agents.defaultPermissionMode`) is full access
+    /// (`Hub::names_start_level`, cmux#37392), or Claude Code's own Auto under
+    /// a start level that covers it (`Hub::plain_own_start_is`).
+    StartLevel,
 }
 
 impl Hub {
@@ -63,7 +68,7 @@ impl Hub {
             };
             if !kept {
                 m.preset_mode_approval = None;
-                let family = crate::web_modes::family_of(&m);
+                let family = self.trusted_mode_family(&m);
                 let mode = crate::web_modes::mode_of(&m);
                 if !self.web_modes().config_value_asks(&family, None, mode.as_deref()) {
                     forget_mode(&mut m);
@@ -133,9 +138,10 @@ fn forget_mode(m: &mut crate::store::SessionMeta) {
             .and_then(Value::as_str)
             .is_some_and(|id| id != "modeId" && crate::web_modes::MODE_FIELDS.contains(&id))
     };
-    if let Some(opts) = m.config_options.as_mut().and_then(Value::as_array_mut) {
-        for o in opts.iter_mut().filter(|o| mode_like(o)) {
-            o["currentValue"] = Value::Null;
-        }
+    if let Some(opts) = m.config_options.as_mut() {
+        opts.update_matching(
+            |o| mode_like(o) && o.get("currentValue") != Some(&Value::Null),
+            |o| o["currentValue"] = Value::Null,
+        );
     }
 }

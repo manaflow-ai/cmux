@@ -26,14 +26,32 @@ extension CmuxSidebarView {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// The host's motion gate for movement (cmux-next: `Motion.animatesMovement`, so the
-    /// animation speed `off` and the motion settings also apply); nil: only Reduce Motion
-    /// decides. Read when a movement starts.
-    public static var movementGate: (@MainActor () -> Bool)?
+    /// The host's hooks (movement gate, tooltip); set once, before the list's first frame.
+    public static var host = CmuxSidebarHost()
+
+    /// The host's motion gate for movement: ``CmuxSidebarHost/movementGate``.
+    public static var movementGate: (@MainActor () -> Bool)? {
+        get { host.movementGate }
+        set { host.movementGate = newValue }
+    }
 
     /// Movement (the pin drag's lift, slides and landing) animates: not Reduce Motion, and the
     /// host's gate allows it. When false the change applies in one frame.
     static var animatesMovement: Bool { !reducesMotion && (movementGate?() ?? true) }
+
+    /// Whether anything in the list animates; false (the default) shows every change at once.
+    ///
+    /// The user asked on 2026-11-03 (msg 20105) for no animation in the Home chat list: rows that move or
+    /// appear, the typing bubble's pop, fade and pulse, the swipe, and the tile and pin drags. A Chief's
+    /// avatar never shows its state (the user, 2026-11-04: "no special things besides unread"). Only a test of that motion turns it on; the gates above still apply then.
+    public var animates: Bool {
+        get { controller.animates }
+        set {
+            guard newValue != controller.animates else { return }
+            controller.animates = newValue
+            applyReduceMotion()
+        }
+    }
 
     /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at
     /// once on the main thread (a test's pin change applies before it returns), else on the main
@@ -59,7 +77,7 @@ extension CmuxSidebarView {
     func applyReduceMotion() {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
-            if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
+            if let bubble = layer as? SidebarTypingLayer { bubble.still = !controller.animates; bubble.animate() }
             layers += layer.sublayers ?? []
         }
     }

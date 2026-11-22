@@ -127,6 +127,17 @@ export function loadTurn(turn: number, opts: { diffLines?: number; logLines?: nu
   return steps;
 }
 
+/// A light finished turn: a one-line prompt, a one-line reply and the turnSummary produced by
+/// turn_result: three model rows. The renders-per-delta bench opens exact lengths with these.
+export function lightTurn(turn: number): LoadStep[] {
+  return [
+    { mux: "user_message", msg: { text: `Turn ${turn}: one short question` } },
+    { mux: "turn_started" },
+    { update: text(`Turn ${turn}: one short answer.`) },
+    { mux: "turn_result", msg: { status: "completed" } },
+  ];
+}
+
 /// The text a streamed turn sends, cut into `chunk`-character deltas by the caller.
 export function streamedReply(turn: number, paragraphs: number): string {
   return Array.from({ length: paragraphs }, (_, index) =>

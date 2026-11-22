@@ -1,4 +1,5 @@
-//! Per-chat consent. Removing or narrowing a share closes existing links.
+//! Per-chat consent on a tailnet host. Removing or narrowing a share closes existing links. A cmux
+//! Cloud machine's shares live on the cmux platform instead (`platform_shares.rs`).
 use std::io::{BufRead as _, IsTerminal as _, Read as _, Write as _};
 
 use anyhow::bail;
@@ -28,6 +29,11 @@ pub(crate) struct Share {
     /// recorded before this field) matches nothing.
     #[serde(default)]
     pub session: String,
+    /// The teammate's verified cmux user id (`user_...`), when known. Only a share that has one
+    /// moves to the cmux platform on a Cloud machine (`platform_shares::move_local`): a tailnet
+    /// login is never matched to a teammate by display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
 }
 
 /// What a share names on the daemon: its boot and the surface's current agent session.
@@ -39,7 +45,23 @@ pub(super) struct Chat {
 
 pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     let text = &crate::localization::catalog().host_share;
-    let flags = Flags::parse(args, if verb == "share" { &["role"] } else { &[] }, &["json"])?;
+    let role: &[&str] = if verb == "share" { &["role"] } else { &[] };
+    let with_value: Vec<&str> =
+        role.iter().copied().chain(["machine", "platform", "team", "cloud-token-file"]).collect();
+    let flags = Flags::parse(args, &with_value, &["json", "all", "cloud-token-stdin"])?;
+    // A Cloud machine's shares live on the cmux platform (platform_shares.rs).
+    #[cfg(unix)]
+    let own = crate::machine_secrets::this_machine_id();
+    #[cfg(not(unix))]
+    let own = None;
+    // A local share the platform does not hold keeps this path (platform_shares::stays_local).
+    if let Some(target) = super::platform_shares::target(flags.value("machine"), own)? {
+        if !super::platform_shares::stays_local(verb, &flags, &config::load()?, &target) {
+            return super::platform_shares::run(verb, &flags, &target);
+        }
+    } else if super::platform_shares::CLOUD_FLAGS.iter().any(|name| flags.has(name)) {
+        return Err(super::usage(text.cloud_flags));
+    }
     let config = config::load()?;
     if verb == "shares" {
         if !flags.positional.is_empty() {
@@ -120,6 +142,7 @@ pub(super) fn applied(
             shared_at: grant::now_rfc3339(),
             generation: consented.generation.clone(),
             session: consented.session.clone(),
+            person: None,
         });
     }
     Ok(config)
@@ -153,9 +176,19 @@ pub(super) fn allowable(config: &config::Config, login: &str) -> anyhow::Result<
     Ok(())
 }
 
+/// The running daemon's boot id, or `None` when it cannot be read.
+pub(super) fn generation(config: &config::Config) -> Option<String> {
+    let identify = daemon(config, &json!({"cmd": "identify"})).ok()?;
+    identify
+        .pointer("/data/generation")
+        .and_then(serde_json::Value::as_str)
+        .filter(|g| !g.is_empty())
+        .map(str::to_owned)
+}
+
 /// The daemon's boot and the surface's current agent session, over the same-user socket. A
 /// surface that is not an agent chat with a session cannot be shared.
-fn chat(config: &config::Config, surface: u64) -> anyhow::Result<Chat> {
+pub(super) fn chat(config: &config::Config, surface: u64) -> anyhow::Result<Chat> {
     let text = &crate::localization::catalog().host_share;
     let identify = daemon(config, &json!({"cmd": "identify"}))?;
     let generation = identify["data"]["generation"].as_str().unwrap_or_default();

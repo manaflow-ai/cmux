@@ -1,0 +1,39 @@
+{
+  "about": "Classic Cloud route guard (tests/test_classic_cloud_routes.py). NEXT code (the paths below) adds no call to classic Cloud: /api/vm, /api/runs, or cmux.com / cmux-staging.vercel.app as the Cloud API base; new Cloud work goes to cmux-platform. Each entry is a call NEXT still makes: {file, pattern, count: exact number of matches, reason}. The list only shrinks: removing a call means lowering its count (drop the entry at 0). A new entry or a raised count needs a reason starting \"keep: \" that says why (a move from Swift to Rust, say); existing calls are \"debt: \".",
+  "paths": {
+    "include": [
+      "Packages/macOS/CmuxNext/Sources/",
+      "cmux-tui/",
+      "webviews/src/"
+    ],
+    "exclude": [
+      "cmux-tui/vendor/"
+    ]
+  },
+  "entries": [
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/classic_runs.rs",
+      "pattern": "segments:/api/runs",
+      "count": 3,
+      "reason": "keep: an incognito send's sandboxed Run, which classic Cloud runs with no chat in the app so its prompt and reply never show outside the incognito window (#39022 review F1), and the drain of a Run a person started before the daemon ran Runs (its wait and cancel, for a Run the daemon never made, so an upgrade never drops its result or strands its VM); goes once a daemon Run can start an incognito chat"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: moved from CloudConfiguration.swift (#35284 deleted the Swift staging and production origins); the approved-host check for a backend client-config's credential origins, so it may name the staging sign-in, teams and billing origin; not a call; step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: the staging sign-in, teams and billing origin NEXT development builds still use until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux.com",
+      "count": 1,
+      "reason": "keep: the production sign-in, teams and billing origin NEXT still uses until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    }
+  ]
+}

@@ -22,9 +22,36 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod command_stats;
+pub(crate) use command_stats::{
+    ClientKind, CommandStats, ConnectionKind, answered_later, line_is_named,
+};
+pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
+mod disk_usage;
+mod long_connections;
+mod terminal_lane;
+mod terminal_seats;
 pub use connection_leases::{ConnectionLease, PeerClosed};
+pub use disk_usage::{
+    DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
+    REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
+};
+#[cfg(test)]
+pub(crate) use disk_usage::{journal_bytes_by_kind, read_segments_for_test};
+pub use long_connections::LongConnectionsFull;
+pub use terminal_seats::{
+    HostSeat, HostSeating, KeptHost, KeptHostSeat, KeptSeatClass, KeptSeatClassNow, SeatedTerminal,
+    TerminalSeat,
+};
+mod hook_queue;
+pub(crate) mod request_log;
 mod write_path;
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
+    JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -155,11 +182,63 @@ struct Holder {
     since: Instant,
 }
 
-#[derive(Default)]
+/// Octave buckets of a per-site histogram: bucket `i` (i > 0) holds samples
+/// from 2^(i-1) to 2^i - 1 us, the last one everything above.
+const SITE_OCTAVES: usize = 32;
+
+/// Sites each `locks` list of `server-stats` reports.
+const DETAIL_SITES: usize = 20;
+
+/// Power-of-two histogram of one site: 256 bytes, updated under the
+/// `sites` table lock that the release already takes, so a site costs no
+/// allocation after its first acquisition.
+#[derive(Clone, Copy, Default)]
+struct OctaveHistogram {
+    counts: [u64; SITE_OCTAVES],
+    total_us: u64,
+    max_us: u64,
+}
+
+impl OctaveHistogram {
+    fn record(&mut self, value_us: u64) {
+        // Bucket i > 0 holds 2^(i-1)..2^i - 1; the last one everything above.
+        let octave = u64::BITS.saturating_sub(value_us.leading_zeros()) as usize;
+        if let Some(count) = self.counts.get_mut(octave.min(SITE_OCTAVES.saturating_sub(1))) {
+            *count = count.saturating_add(1);
+        }
+        self.total_us = self.total_us.saturating_add(value_us);
+        self.max_us = self.max_us.max(value_us);
+    }
+
+    /// The upper bound of the bucket that holds the 99th percentile sample,
+    /// at most twice the true value and never above the largest sample.
+    fn p99_us(&self) -> u64 {
+        let count = self.counts.iter().fold(0u64, |sum, bucket| sum.saturating_add(*bucket));
+        if count == 0 {
+            return 0;
+        }
+        let rank = count.saturating_mul(99).div_ceil(100).max(1);
+        let mut seen = 0u64;
+        for (octave, bucket) in self.counts.iter().enumerate() {
+            seen = seen.saturating_add(*bucket);
+            if seen >= rank {
+                let upper = 1u64
+                    .checked_shl(u32::try_from(octave).unwrap_or(u32::MAX))
+                    .map_or(u64::MAX, |bound| bound.saturating_sub(1));
+                return upper.min(self.max_us);
+            }
+        }
+        self.max_us
+    }
+}
+
+#[derive(Clone, Copy, Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
     hold_max_us: u64,
+    hold: OctaveHistogram,
+    wait: OctaveHistogram,
 }
 
 #[derive(Clone, Copy)]
@@ -181,11 +260,24 @@ pub struct LockStats {
     holder: Mutex<Option<Holder>>,
     last_stall: Mutex<Option<Stall>>,
     sites: Mutex<HashMap<LockSite, SiteStats>>,
+    /// The lock's name and the session's slow request log, which gets a line for
+    /// each hold of [`LOCK_STALL_THRESHOLD`] or more (`report_long_holds`).
+    long_holds: std::sync::OnceLock<(&'static str, std::sync::Arc<request_log::RequestLog>)>,
 }
 
 impl LockStats {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// From now on, a hold of this lock (`name`) of [`LOCK_STALL_THRESHOLD`] or more gets a
+    /// line in `log` with the holder's site.
+    pub(crate) fn report_long_holds(
+        &self,
+        name: &'static str,
+        log: std::sync::Arc<request_log::RequestLog>,
+    ) {
+        let _ = self.long_holds.set((name, log));
     }
 
     /// Call before blocking. Returns the site holding the lock at that moment
@@ -196,6 +288,9 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        if waited >= LOCK_CONTENDED_THRESHOLD {
+            request_log::add_lock_wait(waited);
+        }
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -226,31 +321,98 @@ impl LockStats {
         }
     }
 
-    pub fn released(&self, site: LockSite, held: Duration) {
+    /// Call when the holder at `site` releases, after holding for `held`
+    /// and having waited `waited` to acquire.
+    pub fn released(&self, site: LockSite, held: Duration, waited: Duration) {
         self.hold.record_duration(held);
         *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let held_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX);
+        let waited_us = u64::try_from(waited.as_micros()).unwrap_or(u64::MAX);
         let mut sites = self.sites.lock().unwrap_or_else(|e| e.into_inner());
         let entry = sites.entry(site).or_default();
-        entry.acquisitions += 1;
+        entry.acquisitions = entry.acquisitions.saturating_add(1);
         entry.hold_total_us = entry.hold_total_us.saturating_add(held_us);
         entry.hold_max_us = entry.hold_max_us.max(held_us);
+        entry.hold.record(held_us);
+        entry.wait.record(waited_us);
+        drop(sites);
+        if held >= LOCK_STALL_THRESHOLD
+            && let Some((name, log)) = self.long_holds.get()
+        {
+            log.long_hold(name, site, held, waited);
+        }
+    }
+
+    fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
+        self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| LockHolderSnapshot {
+            site: site_label(holder.site),
+            held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    fn last_stall_snapshot(&self) -> Option<LockStallSnapshot> {
+        self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| LockStallSnapshot {
+            waiter: site_label(stall.waiter),
+            blocker: stall.blocker.map(site_label),
+            waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// Every site's hold and wait record, the `server-stats` `locks`
+    /// section: the [`DETAIL_SITES`] sites with the most total hold time,
+    /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
+    pub fn detail(&self) -> LockDetailSnapshot {
+        // Copy the raw records out, then format the labels after the unlock:
+        // every release of this lock takes the `sites` mutex.
+        let raw: Vec<(LockSite, SiteStats)> = self
+            .sites
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (*site, *stats))
+            .collect();
+        let all: Vec<LockSiteDetail> = raw
+            .iter()
+            .map(|(site, stats)| LockSiteDetail {
+                site: site_label(site),
+                acquisitions: stats.acquisitions,
+                hold_total_us: stats.hold_total_us,
+                hold_max_us: stats.hold_max_us,
+                hold_p99_us: stats.hold.p99_us(),
+                wait_total_us: stats.wait.total_us,
+                wait_max_us: stats.wait.max_us,
+                wait_p99_us: stats.wait.p99_us(),
+            })
+            .collect();
+        let sites = all.len() as u64;
+        let mut by_hold_total = all.clone();
+        by_hold_total
+            .sort_by(|a, b| b.hold_total_us.cmp(&a.hold_total_us).then(a.site.cmp(&b.site)));
+        by_hold_total.truncate(DETAIL_SITES);
+        let mut by_hold_p99 = all;
+        by_hold_p99.sort_by(|a, b| {
+            b.hold_p99_us
+                .cmp(&a.hold_p99_us)
+                .then(b.hold_max_us.cmp(&a.hold_max_us))
+                .then(a.site.cmp(&b.site))
+        });
+        by_hold_p99.truncate(DETAIL_SITES);
+        LockDetailSnapshot {
+            wait_us: self.wait.snapshot(),
+            hold_us: self.hold.snapshot(),
+            contended_acquisitions: self.contended.load(Ordering::Relaxed),
+            stalls: self.stalls.load(Ordering::Relaxed),
+            holder: self.holder_snapshot(),
+            last_stall: self.last_stall_snapshot(),
+            sites,
+            by_hold_total,
+            by_hold_p99,
+        }
     }
 
     pub fn snapshot(&self) -> LockStatsSnapshot {
-        let holder = self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| {
-            LockHolderSnapshot {
-                site: site_label(holder.site),
-                held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
-            }
-        });
-        let last_stall = self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| {
-            LockStallSnapshot {
-                waiter: site_label(stall.waiter),
-                blocker: stall.blocker.map(site_label),
-                waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
-            }
-        });
+        let holder = self.holder_snapshot();
+        let last_stall = self.last_stall_snapshot();
         let mut top_sites: Vec<LockSiteSnapshot> = self
             .sites
             .lock()
@@ -312,6 +474,47 @@ pub struct LockSiteSnapshot {
     pub hold_max_us: u64,
 }
 
+/// One lock's full site record (`server-stats` `locks`).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LockDetailSnapshot {
+    pub wait_us: HistogramSnapshot,
+    pub hold_us: HistogramSnapshot,
+    /// Acquisitions that waited at least 1 ms.
+    pub contended_acquisitions: u64,
+    /// Acquisitions that waited at least [`LOCK_STALL_THRESHOLD`].
+    pub stalls: u64,
+    pub holder: Option<LockHolderSnapshot>,
+    pub last_stall: Option<LockStallSnapshot>,
+    /// Distinct sites that released the lock since start.
+    pub sites: u64,
+    /// At most twenty sites, by total hold time.
+    pub by_hold_total: Vec<LockSiteDetail>,
+    /// At most twenty sites, by 99th percentile hold.
+    pub by_hold_p99: Vec<LockSiteDetail>,
+}
+
+/// One site's acquisitions of a lock. The p99 values are power-of-two
+/// bucket bounds: at most twice the true value, never above the maximum.
+#[derive(Clone, Debug, Serialize)]
+pub struct LockSiteDetail {
+    pub site: String,
+    pub acquisitions: u64,
+    pub hold_total_us: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub wait_total_us: u64,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+}
+
+/// The `server-stats` `locks` section: the workspace registry lock and the
+/// mux state lock, each with its top sites.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LocksSnapshot {
+    pub registry: LockDetailSnapshot,
+    pub state: LockDetailSnapshot,
+}
+
 const WRITER_IDLE: u8 = 0;
 const WRITER_WAITING_LOCK: u8 = 1;
 const WRITER_COMMITTING: u8 = 2;
@@ -340,6 +543,9 @@ pub struct JournalWriterStats {
     terminal_queued: AtomicUsize,
     durable_queued: AtomicUsize,
     phase: Mutex<WriterPhaseState>,
+    /// Set by the first commit that passed its deadline or dropped a record, cleared by the next
+    /// committed batch: what went late and since when.
+    late_commit: Mutex<Option<(String, Instant)>>,
 }
 
 impl Default for JournalWriterStats {
@@ -357,6 +563,7 @@ impl Default for JournalWriterStats {
             terminal_queued: AtomicUsize::new(0),
             durable_queued: AtomicUsize::new(0),
             phase: Mutex::new(WriterPhaseState { code: WRITER_IDLE, since: Instant::now() }),
+            late_commit: Mutex::new(None),
         }
     }
 }
@@ -373,6 +580,11 @@ impl JournalWriterStats {
     /// never observe a depth below the events it removes.
     pub(crate) fn enqueued(&self, lane: JournalLane) {
         self.queued(lane).fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Events of `lane` that producers queued and the writer has not drained.
+    pub(crate) fn queued_depth(&self, lane: JournalLane) -> usize {
+        self.queued(lane).load(Ordering::Relaxed)
     }
 
     /// Undo [`Self::enqueued`] when the channel refused the event.
@@ -393,6 +605,8 @@ impl JournalWriterStats {
         self.terminal_events.fetch_add(terminal_events as u64, Ordering::Relaxed);
         self.durable_events.fetch_add(durable_events as u64, Ordering::Relaxed);
         self.batch_size.record((terminal_events + durable_events) as u64);
+        // A batch committed in time: the journal is not late any more.
+        self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     pub fn commit_finished(&self, lock_wait: Duration, commit: Duration) {
@@ -402,6 +616,15 @@ impl JournalWriterStats {
 
     pub fn commit_failed(&self) {
         self.commit_failures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A commit went late (it passed its deadline, or the writer dropped a record). The first one
+    /// since the last committed batch is kept.
+    pub fn commit_late(&self, detail: String) {
+        self.late_commit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(|| (detail, Instant::now()));
     }
 
     pub fn deadline_expired(&self) {
@@ -432,6 +655,12 @@ impl JournalWriterStats {
         let phase_for_us =
             u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
         drop(phase_state);
+        let late_commit = self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(
+            |(detail, since)| LateCommitSnapshot {
+                detail: detail.clone(),
+                for_us: u64::try_from(since.elapsed().as_micros()).unwrap_or(u64::MAX),
+            },
+        );
         JournalWriterSnapshot {
             batches: self.batches.load(Ordering::Relaxed),
             terminal_events: self.terminal_events.load(Ordering::Relaxed),
@@ -446,6 +675,7 @@ impl JournalWriterStats {
             durable_queued: self.durable_queued.load(Ordering::Relaxed),
             phase,
             phase_for_us,
+            late_commit,
         }
     }
 }
@@ -475,6 +705,19 @@ pub struct JournalWriterSnapshot {
     pub durable_queued: usize,
     pub phase: WriterPhase,
     pub phase_for_us: u64,
+    /// The journal is late: a commit passed its deadline (its waiters got a timeout) or the
+    /// writer dropped a record. Absent while the last batch committed in time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_commit: Option<LateCommitSnapshot>,
+}
+
+/// `server-stats` `journal_writer.late_commit`.
+#[derive(Clone, Debug, Serialize)]
+pub struct LateCommitSnapshot {
+    /// The first late commit's error text.
+    pub detail: String,
+    /// Microseconds since that commit.
+    pub for_us: u64,
 }
 
 /// Connection admission on the control socket.
@@ -490,11 +733,82 @@ pub struct ConnectionStats {
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
-    /// The admitted connections whose client can be watched for a hang-up.
+    /// The requests by command name and client kind, and the connections by client kind
+    /// (`server-stats` section `commands`).
+    commands: std::sync::Arc<CommandStats>,
+    /// The admitted connections that are open (`open_leases`).
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// The process sessions of the session's terminals, and the hosts that
+    /// start one (`terminal_seats`).
+    terminal_seats: terminal_seats::TerminalSeats,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane), with each
+    /// terminal's fair share (`try_claim_terminal`). A hung-up terminal
+    /// connection gives this slot back with its main one
+    /// (`connection_leases`).
+    terminal_lane: terminal_lane::TerminalLane,
+    /// The terminals' connections that hold a stream, a wait or a follow.
+    /// They are in neither `active` nor `terminal_lane`
+    /// (`long_connections`).
+    long: long_connections::LongConnections,
+    /// The socket these connections come in on, once a server attached the
+    /// session to it.
+    socket: std::sync::OnceLock<std::path::PathBuf>,
+    /// The session's slow request log (`request_log`), once the session's folder is known.
+    request_log: std::sync::OnceLock<std::sync::Arc<request_log::RequestLog>>,
 }
 
 impl ConnectionStats {
+    /// The request counters of the session (`diagnostics/command_stats.rs`).
+    pub(crate) fn commands(&self) -> &std::sync::Arc<CommandStats> {
+        &self.commands
+    }
+
+    /// Opens the session's slow request log in `directory`, once, with `clock` as its wall
+    /// clock; the log, if there is one.
+    pub(crate) fn open_request_log(
+        &self,
+        directory: &std::path::Path,
+        clock: request_log::Clock,
+    ) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        if self.request_log.get().is_none()
+            && let Some(log) = request_log::RequestLog::open(directory, clock)
+        {
+            let _ = self.request_log.set(log);
+        }
+        self.request_log.get()
+    }
+
+    /// The session's slow request log, when it is open.
+    pub(crate) fn request_log(&self) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        self.request_log.get()
+    }
+
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    ///
+    /// `client`: the terminal the connection comes from (its process session),
+    /// for its fair share of the lane (`TerminalLane::claim`).
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        let mut claimed = self.terminal_lane.claim(limit, client);
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self.terminal_lane.claim(limit, client);
+        }
+        if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    pub fn release_terminal(&self, client: Option<u32>) {
+        self.terminal_lane.release(client);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     /// At the limit it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`): a connection thread parked on the registry lock
@@ -527,6 +841,15 @@ impl ConnectionStats {
 
     pub fn active(&self) -> u64 {
         self.active.load(Ordering::Acquire)
+    }
+
+    /// Records the socket the session serves (the first one wins).
+    pub fn note_socket(&self, path: &std::path::Path) {
+        let _ = self.socket.set(path.to_path_buf());
+    }
+
+    pub fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.get().map(std::path::PathBuf::as_path)
     }
 
     pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
@@ -573,6 +896,23 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `locks` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locks: Option<LocksSnapshot>,
+    /// Present only when the request names `hook_queue` in `include` and the
+    /// session serves a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<HookQueueSnapshot>,
+    /// Present only when the request names `disk` in `include` and the
+    /// session keeps its registry on disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `commands` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<CommandStatsSnapshot>,
+    /// Present only when the request names `journal_followers` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

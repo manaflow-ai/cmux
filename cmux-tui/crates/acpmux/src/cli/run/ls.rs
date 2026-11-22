@@ -6,29 +6,37 @@
 //! (`ls_pages.rs`), and `--cursor` reads one. A listing never starts a daemon
 //! (`daemon/running.rs`).
 
-use anyhow::Result;
+use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
+
+use acpmux_book::index::Summary;
+use acpmux_client::wire::ListView;
+use anyhow::{Result, anyhow};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::ls_pages::{self, PAGE_ROWS, Plan, Step};
 use crate::cli::errors;
+use crate::cli::list_read::{self, Via};
 use crate::cli::ls_table::{self, View};
-use crate::cli::output::print_json;
 use crate::cli::select::{self, parse_fields, project_fields, text_field};
+use crate::client::Client;
 use crate::daemon::connect_running;
 use crate::rpc::method;
 
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
 #[derive(clap::Args, Debug, Clone)]
 pub struct LsArgs {
-    /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/glob` for one
+    /// Only sessions whose handle, ID, or name matches (a name glob: `*`, `?`; `host/glob` for one
     /// peer's), or with this session id (bare, or a peer's `host/id`).
     #[arg(value_name = "PATTERN")]
     patterns: Vec<String>,
     /// The same as a PATTERN (repeatable): `--name 'review-*'`.
     #[arg(long = "name", value_name = "PATTERN")]
     name_patterns: Vec<String>,
-    /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+    /// Include tool inventories in JSON rows (otherwise read `session info SESSION`); a peer's
+    /// rows' are read from each session's peer.
     #[arg(long)]
     with_tools: bool,
     /// Only sessions in this state: running, ready, idle, closed, waiting.
@@ -61,8 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
-    /// Only sessions on this host: a peer's name, or this machine's (`local` too).
-    #[arg(long, value_name = "HOST")]
+    /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
+    /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
+    /// after its own sessions passes `--machine local`.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     host: Option<String>,
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
@@ -71,9 +81,167 @@ pub struct LsArgs {
     /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
+    /// Only the leaders: each live session other live sessions report to (their tag
+    /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
+    /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
+    #[arg(long, conflicts_with_all = [
+        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+    ])]
+    leads: bool,
+    /// Only the archived chats (the chat menu's Archive, `acpmux archive`, or the setting
+    /// `agents.chats.archiveInactive`), the newest archive first, with when each was archived and
+    /// by whom; `--json` rows carry `archivedAt` and `archivedBy` (`ls_archived.rs`).
+    #[arg(long, conflicts_with = "leads")]
+    archived: bool,
+}
+
+/// The v1 list `ls` pages when its daemon has no list surface or rows by key (`list_read.rs`).
+const V1_PAGES: &str = method::MUX_SESSIONS;
+
+/// `ls --cursor C`: one v1 page, a v1 read kept. It moves before the v1 list is deleted.
+const CURSOR_PAGE: &str = method::MUX_SESSIONS;
+
+/// A one-shot listing must leave a stalled joined route with an actionable error. The per-step
+/// bound catches a request that never gets a reply, while the total bound covers paging and the
+/// optional relay/SSH recovery reads together.
+const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
+pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+
+#[derive(Clone)]
+struct ListBudget {
+    deadline: tokio::time::Instant,
+    machine: String,
+    route: &'static str,
+}
+
+impl ListBudget {
+    fn new(machine: Option<&str>) -> Self {
+        let machine = machine.filter(|name| !name.trim().is_empty()).unwrap_or("local");
+        let remote = !machine.eq_ignore_ascii_case("local")
+            && !crate::pairing::machine_name().eq_ignore_ascii_case(machine);
+        Self {
+            deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
+            machine: machine.to_owned(),
+            route: if remote { "hub/carrier" } else { "local daemon" },
+        }
+    }
+}
+
+async fn bounded_step<T>(
+    budget: &ListBudget,
+    step: &str,
+    future: impl Future<Output = T>,
+) -> Result<T> {
+    let remaining = budget
+        .deadline
+        .saturating_duration_since(tokio::time::Instant::now())
+        .min(LS_STEP_DEADLINE);
+    if remaining.is_zero() {
+        return Err(timeout_error(budget, step, LS_TOTAL_DEADLINE));
+    }
+    tokio::time::timeout(remaining, future)
+        .await
+        .map_err(|_| timeout_error(budget, step, remaining))
+}
+
+async fn bounded_total<T>(
+    budget: &ListBudget,
+    step: &str,
+    future: impl Future<Output = T>,
+) -> Result<T> {
+    let remaining = budget.deadline.saturating_duration_since(tokio::time::Instant::now());
+    if remaining.is_zero() {
+        return Err(timeout_error(budget, step, LS_TOTAL_DEADLINE));
+    }
+    tokio::time::timeout(remaining, future)
+        .await
+        .map_err(|_| timeout_error(budget, step, LS_TOTAL_DEADLINE))
+}
+
+fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
+    anyhow!(
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?}; retry after the machine reconnects",
+        budget.machine,
+        budget.route,
+        step,
+        waited
+    )
+}
+
+async fn request_bounded(
+    client: &Client,
+    method: &str,
+    params: Value,
+    budget: Option<&ListBudget>,
+) -> Result<Value> {
+    match budget {
+        Some(budget) => bounded_step(budget, "request", client.request(method, params)).await?,
+        None => client.request(method, params).await,
+    }
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
+    // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
+    // a host with no sessions).
+    let budget = ListBudget::new(args.host.as_deref());
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
+    let via = Via::daemon();
+    let (out, scope) = bounded_total(
+        &budget,
+        "read",
+        scoped_output_with_budget(
+            args,
+            json_out,
+            &client,
+            via,
+            crate::store::now_ms(),
+            Some(&budget),
+        ),
+    )
+    .await??;
+    // The scope line goes to stderr, never stdout: a script reading the JSON reads the same
+    // bytes with it or without it.
+    if let Some(line) = scope {
+        eprintln!("{line}");
+    }
+    print!("{out}");
+    Ok(())
+}
+
+/// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
+/// pages, with ages as of `now`. The tests read it; `run` takes [`scoped_output`]'s line too.
+#[cfg(test)]
+pub(crate) async fn output(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+) -> Result<String> {
+    Ok(scoped_output(args, json_out, client, via, now).await?.0)
+}
+
+/// [`output`] (stdout), and the line `ls` writes to stderr when the rows it lists come from
+/// more than this machine ([`scope_line`]).
+#[cfg(test)]
+pub(crate) async fn scoped_output(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+) -> Result<(String, Option<String>)> {
+    scoped_output_with_budget(args, json_out, client, via, now, None).await
+}
+
+async fn scoped_output_with_budget(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+    budget: Option<&ListBudget>,
+) -> Result<(String, Option<String>)> {
     let LsArgs {
         mut patterns,
         name_patterns,
@@ -89,7 +257,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         host,
         all,
         wide,
+        leads,
+        archived,
     } = args;
+    // The leaders need every live row: the sessions that report are read with them.
+    let live = live || leads;
     patterns.extend(name_patterns);
     let named = !patterns.is_empty();
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
@@ -103,12 +275,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         || tag.is_some()
         || selected
         || named
-        || cursor.is_some();
-    // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
-    // a host with no sessions).
-    let client = connect_running().await?;
+        || cursor.is_some()
+        || archived;
     // The text view says which peers are down; read alongside the list.
-    let peers = (!json_out && fields.is_none()).then(|| {
+    let mut peers = (budget.is_none() && !json_out && fields.is_none()).then(|| {
         let client = client.clone();
         tokio::spawn(async move { client.request(method::MUX_STATUS, json!({})).await })
     });
@@ -123,9 +293,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
     // compact one shows the rows as they are. Every page asks; the daemon reads at most once
     // in 5 s, so the pages after the first take the rows that read left.
-    let usage = wide
-        || json_out
-        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+    let usage = shows_usage(wide, json_out, fields.as_deref());
     if usage {
         params.set("usage", json!(true));
     }
@@ -151,7 +319,8 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         };
         let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
         let name_ok = !named || select::name_matches(s, &patterns);
-        status_ok && (!pending || pend) && tag_ok && name_ok && rows.keeps(s)
+        let archive_ok = !archived || super::ls_archived::archived(s);
+        status_ok && (!pending || pend) && tag_ok && name_ok && archive_ok && rows.keeps(s)
     };
     let step = |s: &Value| {
         // Newest first: a row older than `--since` ends the read.
@@ -166,29 +335,226 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // `--cursor` reads one page (of `--limit` rows); `--limit` alone, the newest rows up to it;
     // neither, every page.
     let paged = cursor.is_some() || limit.is_some();
+    let want = if cursor.is_some() {
+        None
+    } else {
+        limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
+    };
     let plan = Plan {
         size: cursor.is_some().then_some(limit).flatten().unwrap_or(PAGE_ROWS),
-        want: if cursor.is_some() {
-            None
-        } else {
-            limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
-        },
+        want,
         one: cursor.is_some(),
         // A filter only this side applies thins the pages: asking for just the rows still
         // wanted could then take a request per row.
         exact: !named
+            && !archived
             && tag.is_none()
             && !pending
             && (status.is_none() || daemon_status.is_some())
             && (host.is_none() || rows.local_only()),
     };
-    let fetch = |page: Value| {
-        let client = client.clone();
-        async move { client.request(method::MUX_SESSIONS, page).await }
+    let cursor = cursor.filter(|c| !c.is_empty());
+    let one_page = cursor.is_some();
+    // The compact view: closed rows are hidden and counted, so only the live view is read and
+    // the count comes from `_acpmux/status`.
+    let compact = !json_out && fields.is_none() && !filtered && !all;
+    let live_status = status.as_deref().is_some_and(|s| s != "closed");
+    // The v1 list a `--limit` read's `nextCursor` speaks of holds closed rows unless a daemon
+    // filter drops them: such a read walks the whole view to know.
+    let daemon_live = live || daemon_status.is_some_and(|s| s != "closed");
+    let view = if daemon_live || (want.is_none() && (pending || live_status || compact)) {
+        ListView::Live
+    } else {
+        ListView::All
     };
-    let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
+    let walks_all = view == ListView::All;
+    let mut status_read = None;
+    if (compact || walks_all)
+        && let Some(read) = peers.take()
+    {
+        status_read = Some(read.await.ok().and_then(Result::ok));
+    }
+    if walks_all && status_read.is_none() {
+        status_read =
+            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+    }
+    let closed_listed = status_read
+        .as_ref()
+        .and_then(|status| status.as_ref()?.get("closedListed")?.as_u64())
+        .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
+    // `--cursor` is a v1 read kept; it moves before the v1 list is deleted. The compact view
+    // needs the closed count: a status without it means the v1 path. A walk of the whole view
+    // reads v1 while another machine's closed row is listed (decision 213).
+    let known_peers =
+        status_read.as_ref().and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
+    let remote_closed =
+        walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
+    let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
+        match budget {
+            Some(budget) => {
+                bounded_step(budget, "request", via.open_knowing(client, known_peers.as_deref()))
+                    .await??
+            }
+            None => via.open_knowing(client, known_peers.as_deref()).await?,
+        }
+    } else {
+        None
+    };
+    let (read, closed) = match source {
+        Some(mut source) => {
+            let may_keep = |s: &Summary| {
+                let peer = (s.origin != "local").then_some(s.origin.as_str());
+                (!live || !list_read::closed(s))
+                    && (status.as_deref() != Some("closed") || list_read::closed(s))
+                    && (!live_status || !list_read::closed(s))
+                    && (!(pending || status.as_deref() == Some("waiting")) || list_read::pending(s))
+                    && rows.keeps(&json!({"peer": peer}))
+                    && (!named
+                        || list_read::name_probe(s)
+                            .is_none_or(|probe| select::name_matches(&probe, &patterns)))
+            };
+            let lists = |s: &Summary| {
+                if (live && list_read::closed(s)) || (rows.local_only() && s.origin != "local") {
+                    return Some(false);
+                }
+                match daemon_status {
+                    None => Some(true),
+                    Some("closed") => Some(list_read::closed(s)),
+                    Some(_) if list_read::closed(s) => Some(false),
+                    Some(_) => None,
+                }
+            };
+            let lists_row = |r: &Value| {
+                (!live || is_live(r))
+                    && daemon_status.is_none_or(|st| r["status"].as_str() == Some(st))
+                    && (!rows.local_only() || r["peer"].as_str().is_none())
+            };
+            let form = list_read::Form {
+                view,
+                may_keep: &may_keep,
+                keeps: &keeps,
+                cutoff,
+                want: want.map(|n| list_read::Want {
+                    rows: n,
+                    lists: &lists,
+                    lists_row: &lists_row,
+                }),
+                with_tools,
+                usage,
+            };
+            let fetched = match budget {
+                Some(budget) => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        bounded_step(budget, "read", source.read(form)),
+                    )
+                    .await??
+                }
+                None => {
+                    crate::cli::slow_notice::noted("the session list", source.read(form)).await?
+                }
+            };
+            let closed = if compact { closed_listed.unwrap_or(0) } else { 0 };
+            (ls_pages::Pages { rows: fetched.rows, next: fetched.next }, closed)
+        }
+        None => {
+            let list = if one_page { CURSOR_PAGE } else { V1_PAGES };
+            let fetch = |page: Value| {
+                let client = client.clone();
+                let budget = budget.cloned();
+                async move { request_bounded(&client, list, page, budget.as_ref()).await }
+            };
+            let read = match budget {
+                Some(budget) => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        bounded_step(
+                            budget,
+                            "read",
+                            ls_pages::read(params, cursor, plan, step, fetch),
+                        ),
+                    )
+                    .await??
+                }
+                None => {
+                    crate::cli::slow_notice::noted(
+                        "the session list",
+                        ls_pages::read(params, cursor, plan, step, fetch),
+                    )
+                    .await?
+                }
+            };
+            (read, 0)
+        }
+    };
     let mut sessions = read.rows;
-    if selected {
+    // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
+    // the views that print them.
+    if with_tools && (json_out || fields.is_some()) {
+        let unread = super::ls_tools::fill(&mut sessions, |key| {
+            let client = client.clone();
+            let budget = budget.cloned();
+            async move {
+                let params = json!({"sessionId": key, "waitLogs": false});
+                request_bounded(&client, method::MUX_INFO, params, budget.as_ref()).await
+            }
+        })
+        .await;
+        if unread > 0 {
+            eprintln!(
+                "acpmux: the tools of {unread} peer session(s) could not be read; they are listed without them"
+            );
+        }
+    }
+    // A host with no peer that reaches the other machines (an agent VM) lists theirs through its
+    // send relay's `lsArgv` (`send_relay.rs`), so `HOST/NAME` is found before it is sent to. Not
+    // for one page (`--cursor`) or this machine alone.
+    let mut merged = 0;
+    if !one_page && !rows.local_only() {
+        let far: Vec<Value> = crate::cli::send_relay::relay_rows_with_deadline(
+            false,
+            budget.map(|budget| budget.deadline),
+        )
+        .await
+        .into_iter()
+        .filter(|s| {
+            keeps(s)
+                && cutoff
+                    .is_none_or(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at)
+        })
+        .collect();
+        merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+        // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
+        // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
+        // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
+        let known = request_bounded(client, "_acpmux/peers", json!({}), budget).await.ok();
+        let peers = known
+            .as_ref()
+            .and_then(|s| s.get("peers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        if !hosts.is_empty() {
+            let far: Vec<Value> = far
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
+            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &hosts, far).max(1);
+        }
+    }
+    if leads {
+        sessions = super::ls_leads::leaders(&sessions);
+    }
+    if archived {
+        sessions = super::ls_archived::rows(sessions);
+    }
+    if (selected || merged > 0) && !leads && !archived {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -202,6 +568,13 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                 })
         });
     }
+    if merged > 0
+        && let Some(limit) = limit
+    {
+        sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    }
+    // Read before `--fields` drops `peer`.
+    let scope = scope_line(&sessions);
     if let Some(fields) = fields.as_deref() {
         sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
     }
@@ -211,42 +584,156 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     if let Some(next) = read.next.filter(|_| paged) {
         v.set("nextCursor", next);
     }
+    let mut out = String::new();
     if json_out {
-        print_json(&v);
-        return Ok(());
+        out.push_str(&serde_json::to_string_pretty(&v).unwrap_or_default());
+        out.push('\n');
+        return Ok((out, scope));
     }
     let sessions = match v.get_mut("sessions") {
         Some(Value::Array(rows)) => std::mem::take(rows),
         _ => Vec::new(),
     };
     if let Some(fields) = fields.as_deref() {
-        println!("{}", fields.join("\t"));
+        out.push_str(&fields.join("\t"));
+        out.push('\n');
         for session in sessions {
-            println!(
-                "{}",
-                fields
-                    .iter()
-                    .map(|field| text_field(select::field(&session, field)))
-                    .collect::<Vec<_>>()
-                    .join("\t")
-            );
+            let cells: Vec<String> =
+                fields.iter().map(|field| text_field(select::field(&session, field))).collect();
+            out.push_str(&cells.join("\t"));
+            out.push('\n');
         }
-        return Ok(());
+        return Ok((out, scope));
     }
-    let peers = match peers {
-        Some(read) => match read.await {
-            Ok(Ok(status)) => status.get("peers").and_then(Value::as_array).cloned(),
-            _ => None,
-        },
-        None => None,
+    if leads {
+        out.push_str(&super::ls_leads::render(&sessions));
+        return Ok((out, scope));
+    }
+    if archived {
+        out.push_str(&super::ls_archived::render(&sessions, now));
+        return Ok((out, scope));
+    }
+    let status = match (status_read, peers) {
+        (Some(read), _) => read,
+        (None, Some(read)) => read.await.ok().and_then(Result::ok),
+        (None, None) => None,
     };
+    let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
-    let now = crate::store::now_ms();
-    print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
-    Ok(())
+    let pauses = ls_table::registry_pauses();
+    out.push_str(&ls_table::render_counted(
+        &sessions,
+        closed,
+        peers.as_deref(),
+        view,
+        filtered,
+        now,
+        &pauses,
+    ));
+    for line in status.as_ref().map(crate::shadow_admission::ls_lines).unwrap_or_default() {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    if let Some(line) = status.as_ref().and_then(outbox_line) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    Ok((out, scope))
 }
 
-pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
+/// The stderr line `acpmux ls` adds when `rows` come from more than this machine. A listing
+/// is every machine's sessions, and a script that reads it as its own sends to the fleet (a
+/// boot hook's recovery prompt reached other lanes' sessions, 2026-11-20). None when every row
+/// is this machine's (no `peer`). The machines count this one when it lists a row.
+pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
+    let mut machines = std::collections::BTreeSet::new();
+    let mut local = false;
+    for row in rows {
+        match row.get("peer").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+            Some(peer) => {
+                machines.insert(peer.to_ascii_lowercase());
+            }
+            None => local = true,
+        }
+    }
+    if machines.is_empty() {
+        return None;
+    }
+    let n = rows.len();
+    let m = machines.len() + usize::from(local);
+    let sessions = if n == 1 { "session" } else { "sessions" };
+    let on = if m == 1 { "machine" } else { "machines" };
+    let here = if local { "" } else { ", none of them this one" };
+    Some(format!("ls: {n} {sessions} on {m} {on}{here}; --machine local lists only this one"))
+}
+
+/// The line `acpmux ls` ends with while messages wait in this daemon's outbox (`hub/outbox.rs`).
+fn outbox_line(status: &Value) -> Option<String> {
+    let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
+    let s = if n == 1 { "" } else { "s" };
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
+}
+
+#[cfg(test)]
+mod outbox_line_tests {
+    use super::*;
+
+    #[test]
+    fn ls_ends_with_the_messages_still_queued() {
+        assert_eq!(outbox_line(&json!({"outboxPending": 0})), None);
+        assert_eq!(outbox_line(&json!({})), None);
+        assert_eq!(
+            outbox_line(&json!({"outboxPending": 2})).as_deref(),
+            Some("2 messages queued here, not delivered yet (acpmux send --status)")
+        );
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_step_names_machine_route_and_step() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_STEP_DEADLINE,
+            machine: "joined-vm".to_owned(),
+            route: "hub/carrier",
+        };
+        let pending = tokio::spawn(async move {
+            bounded_step(&budget, "handshake", std::future::pending::<()>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(LS_STEP_DEADLINE).await;
+        let error = pending.await.unwrap().unwrap_err().to_string();
+        assert!(error.contains("joined-vm"));
+        assert!(error.contains("hub/carrier"));
+        assert!(error.contains("handshake step stalled"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_listing_names_the_total_read_bound() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
+            machine: "joined-vm".to_owned(),
+            route: "hub/carrier",
+        };
+        let pending = tokio::spawn(async move {
+            bounded_total(&budget, "read", std::future::pending::<()>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(LS_TOTAL_DEADLINE).await;
+        let error = pending.await.unwrap().unwrap_err().to_string();
+        assert!(error.contains("joined-vm"));
+        assert!(error.contains("hub/carrier"));
+        assert!(error.contains("read step stalled after 15s"));
+    }
+}
+
+pub(crate) fn parse_duration_ms(text: &str) -> Result<u64> {
     let mut rest = text.trim();
     let mut total = 0u64;
     if rest.is_empty() {
@@ -294,6 +781,14 @@ pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
         rest = rest.get(unit_len..).unwrap_or("");
     }
     Ok(total)
+}
+
+/// A projected listing reads usage only if that projection includes it.
+fn shows_usage(wide: bool, json_out: bool, fields: Option<&[String]>) -> bool {
+    match fields {
+        Some(fields) => fields.iter().any(|f| f == "usageStats" || f.starts_with("usageStats.")),
+        None => wide || json_out,
+    }
 }
 
 /// The rows `--live` and `--host` keep.
@@ -361,6 +856,17 @@ mod tests {
     }
 
     #[test]
+    fn projected_listings_only_refresh_usage_when_they_show_it() {
+        let plain = vec!["sessionId".to_owned(), "name".to_owned(), "status".to_owned()];
+        assert!(!shows_usage(false, true, Some(&plain)));
+        assert!(!shows_usage(true, false, Some(&plain)));
+        assert!(shows_usage(false, false, Some(&["usageStats.cost".to_owned()])));
+        assert!(shows_usage(false, true, None));
+        assert!(shows_usage(true, false, None));
+        assert!(!shows_usage(false, false, None));
+    }
+
+    #[test]
     fn ls_selection_parses_duration_and_projects_fields() {
         assert_eq!(parse_duration_ms("1h30m").unwrap(), 5_400_000);
         assert!(parse_duration_ms("oops").is_err());
@@ -369,6 +875,29 @@ mod tests {
         assert_eq!(
             project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
             json!({"name": "one", "status": "idle"})
+        );
+    }
+
+    #[test]
+    fn scope_line_names_the_machines_only_when_a_row_is_remote() {
+        let local = [json!({"name": "a"}), json!({"name": "b", "peer": ""})];
+        assert_eq!(scope_line(&local), None);
+        assert_eq!(scope_line(&[]), None);
+        let mixed = [
+            json!({"name": "a"}),
+            json!({"peer": "hb"}),
+            json!({"peer": "HB"}),
+            json!({"peer": "far"}),
+        ];
+        assert_eq!(
+            scope_line(&mixed).as_deref(),
+            Some("ls: 4 sessions on 3 machines; --machine local lists only this one")
+        );
+        assert_eq!(
+            scope_line(&[json!({"peer": "far"})]).as_deref(),
+            Some(
+                "ls: 1 session on 1 machine, none of them this one; --machine local lists only this one"
+            )
         );
     }
 

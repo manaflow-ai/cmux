@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
@@ -12,7 +13,7 @@ import Testing
 /// window's art and tint (`WindowBackdrop.dragsOnGlass`), not a flat theme card; a lifted sidebar row
 /// is the overlay glass (`DragLiftView`) and its ghost keeps it; a window opened for a torn-off
 /// workspace or tab gets the same backdrop as the window it left.
-@MainActor @Suite(.serialized) struct DragGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DragGlassTests {
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
     /// `appearance.backgroundOpacity` 0.65 and `backgroundBlur` "frosted" make it.
     func translucent<T>(_ body: () throws -> T) rethrows -> T {
@@ -50,6 +51,36 @@ import Testing
         #expect(!DragLiftView(content: NSView(), count: 1, material: .opaque).isGlass)
     }
 
+    /// Leo 2026-10-23: "they don't need to be solid when you pick them up". In a translucent window
+    /// a lifted sidebar card draws no material of its own (no Liquid Glass, no blur, no fill), so it
+    /// shows the window's own material as the rows around it do; clear Liquid Glass still frosted it
+    /// (ask-116775fd17 capture: card spread 9 over a sidebar at 40). An opaque window keeps the card.
+    @Test(arguments: [OverlayMaterial.liquidGlass, .vibrancy])
+    func aLiftedSidebarCardStandsOnATranslucentWindow(material: OverlayMaterial) {
+        let saved = ReduceTransparency.shared.override
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = saved }
+        translucent {
+            let lift = DragLiftView(content: NSView(), count: 1, material: material)
+            lift.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
+            lift.layout()
+            #expect(lift.background.drawsNoMaterial)
+            #expect(lift.isGlass, "the ghost out of the window still supplies the glass")
+            let views = Self.descendants(lift.background)
+            #expect(!views.contains { $0 is GlassPanelView || $0 is NSVisualEffectView }, "the card frosts the window under it")
+            #expect(views.allSatisfy { $0.layer?.backgroundColor == nil || $0.layer?.backgroundColor?.alpha == 0 },
+                    "the card paints a fill of its own")
+        }
+        let opaque = DragLiftView(content: NSView(), count: 1, material: material)
+        opaque.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
+        opaque.layout()
+        #expect(!opaque.background.drawsNoMaterial, "an opaque window keeps the overlay surface")
+    }
+
+    private static func descendants(_ view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants($0) }
+    }
+
     @Test func aLiftedTabLetsTheWindowsGlassReadThrough() throws {
         try translucent {
             let cell = TabCell(item: TabItem(id: TabID("t"), title: "New Tab"))
@@ -62,6 +93,7 @@ import Testing
     @Test func theDragGhostStandsOnGlassFromItsFirstFrame() throws {
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: true)
+        defer { ghost.panel.closeAfterTest() }
         ghost.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let root = try #require(ghost.panel.contentView)
         let glass = try #require(root.subviews.first { $0 is GlassPanelView })
@@ -70,6 +102,7 @@ import Testing
 
         let solid = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
+        defer { solid.panel.closeAfterTest() }
         solid.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let solidGlass = try #require(solid.panel.contentView?.subviews.first { $0 is GlassPanelView })
         #expect(solidGlass.alphaValue == 0, "an opaque window's tab image carries its own card")
@@ -150,6 +183,7 @@ import Testing
                                                  image: nil, imageOnGlass: onGlass)
                 #expect(session.beginWorkspaces(handoff, from: controller))
                 let ghost = try #require(session.drag?.ghost)
+                defer { ghost.panel.closeAfterTest() }
                 #expect(ghost.onGlass == onGlass, "the ghost stands on the glass its image was drawn for")
                 session.finish(commit: false)
                 session.finishLanding()
@@ -170,7 +204,7 @@ import Testing
                                       backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let room = ThemeScope(level: .room)
-                window.install(kind: .main, content: root, scope: room)
+                window.install(kind: .main, content: root, scope: room, activeLook: nil)
                 return (window, root, room)
             }
             let (main, mainRoot, _) = open()

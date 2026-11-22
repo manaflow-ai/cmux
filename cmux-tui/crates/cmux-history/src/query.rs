@@ -122,20 +122,27 @@ pub fn matches(haystack: &str, tokens: &[String]) -> bool {
 }
 
 /// The text the search matches: title, detail and machine, then the kind's
-/// own fields (Swift `HistoryEntry.searchText`), joined by spaces.
+/// own fields (Swift `HistoryEntry.searchText`; a closed chat adds its session
+/// id and harness), joined by spaces.
 pub fn search_text(entry: &HistoryEntry) -> String {
     let mut parts: Vec<&str> = vec![entry.title.as_str()];
     parts.extend(entry.detail.as_deref());
     parts.extend(entry.machine.as_deref());
-    let own: [Option<&str>; 3] = match entry.kind {
-        HistoryKind::Page => [entry.url.as_deref(), None, None],
+    let own: [Option<&str>; 4] = match entry.kind {
+        HistoryKind::Page => [entry.url.as_deref(), None, None, None],
         HistoryKind::Location => {
-            [entry.workspace.as_deref(), entry.url.as_deref(), entry.cwd.as_deref()]
+            [entry.workspace.as_deref(), entry.url.as_deref(), entry.cwd.as_deref(), None]
         }
-        HistoryKind::Closed => [entry.url.as_deref(), entry.cwd.as_deref(), None],
-        HistoryKind::Command => [entry.command.as_deref(), entry.cwd.as_deref(), None],
+        // A closed chat's session id and harness (Swift `searchText` of `.closed`).
+        HistoryKind::Closed => [
+            entry.url.as_deref(),
+            entry.cwd.as_deref(),
+            entry.session_id.as_deref(),
+            entry.provider.as_deref(),
+        ],
+        HistoryKind::Command => [entry.command.as_deref(), entry.cwd.as_deref(), None, None],
         HistoryKind::Agent => {
-            [entry.provider.as_deref(), entry.session_id.as_deref(), entry.cwd.as_deref()]
+            [entry.provider.as_deref(), entry.session_id.as_deref(), entry.cwd.as_deref(), None]
         }
     };
     parts.extend(own.into_iter().flatten());

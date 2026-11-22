@@ -44,19 +44,26 @@ public final class SettingsAgentIntegrations: PageProvider {
     private(set) var loading = false
     /// `unavailable` (this build carries no CLI) or `failed` (status did not answer).
     private(set) var problem: String?
-    @ObservationIgnored private let cli: @MainActor () -> URL?
+    @ObservationIgnored private let cli: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)
     @ObservationIgnored private var generation = 0
+    /// Settings > Agents > Agents on This Mac beside it (``SettingsAgentTools``): its ops reach it through this host.
+    @ObservationIgnored private let agentTools: SettingsAgentTools?
 
-    public init(cli: @escaping @MainActor () -> URL?,
+    public init(cli: @escaping @MainActor () async -> URL?, agentTools: (any AgentToolsSource)? = nil,
                 runCLI: @escaping @Sendable (URL, [String]) async throws -> (Int32, Data, Data) = SettingsAgentIntegrations.run) {
         self.cli = cli
         self.runCLI = runCLI
+        self.agentTools = agentTools.map(SettingsAgentTools.init(source:))
     }
 
-    /// `cmux.settings.integrations.state` and `.run`; any other op is not this card's.
+    /// `cmux.settings.integrations.state` and `.run`, and the cmux Tools card's `cmux.settings.agentTools.*`;
+    /// any other op is not this card's.
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
+        case "cmux.settings.agentTools.state", "cmux.settings.agentTools.run":
+            guard let agentTools else { throw PageError(code: "cmux.page.unavailable", message: "no agent tools") }
+            return try await agentTools.call(op, params: params, context: context)
         case "cmux.settings.integrations.state": return state
         case "cmux.settings.integrations.run": return try await run(params, context: context)
         default: throw PageError.unknownOp(op)
@@ -102,7 +109,7 @@ public final class SettingsAgentIntegrations: PageProvider {
             if action != "remove", row.state == "conflict" || row.state == "unavailable" {
                 throw PageError.invalidParams("\(id) has a file cmux did not create in the way")
             }
-            guard let cli = cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
+            guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
             let verb = action == "remove" ? "uninstall" : "install"
             let reply = try? await runCLI(cli, ["--json", "agent", "hook", verb, id])
             let refusal = reply.map { Self.refusal(of: id, $0) } ?? .kind("noAnswer")
@@ -121,7 +128,7 @@ public final class SettingsAgentIntegrations: PageProvider {
 
     /// Reads `agent hook status` again; only the newest read writes the rows.
     func refresh() async {
-        guard let cli = cli() else {
+        guard let cli = await cli() else {
             rows = []
             problem = "unavailable"
             return

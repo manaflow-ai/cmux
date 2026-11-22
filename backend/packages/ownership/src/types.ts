@@ -10,11 +10,20 @@ export interface Principal {
   readonly identity: string
   readonly user?: string
   readonly team?: string
+  /**
+   * The user's role in `team` (owner, admin, member), set only by the Worker from TeamDO's
+   * `memberRole` (`principalForOwner`); the personal team's user is `owner`. Owners that scope
+   * actions inside a team (SchedulerDO's private automations and editors) read it; a frame or
+   * params never carries it, and a principal without it is treated as a member.
+   */
+  readonly team_role?: string
   readonly install?: string
   readonly agent?: string
   /** Automation principals only (built by the API Worker): the run that is calling. */
   readonly run?: string
   readonly grant?: string
+  /** Install authority incarnation, resolved by UserDO for owner socket and network fences. */
+  readonly install_authority?: string
   /**
    * How the connection authenticated: a human session or an install token.
    * `system` is built only inside a Durable Object for its own internal ops
@@ -32,6 +41,12 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /**
+   * The dev build space the request came from (`dev:<slug>`, apps/api build-space.ts); absent for nightly and
+   * stable. Set only by the Worker: from the request's space, and for an install token only when the token was minted
+   * in that same space. Shared owners (TeamDO) keep what is per build, such as the host directory, apart by it.
+   */
+  readonly build_space?: string
   /** A VM install's one machine (kind vm, made at bind), resolved by UserDO with the grant. */
   readonly bound_machine?: string
   /**
@@ -113,7 +128,7 @@ export interface EventFrame {
    * the row writes. A mirror applies them instead of replaying the reducer, so it needs
    * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
    */
-  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> } | undefined
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
@@ -211,7 +226,7 @@ export interface ReduceContext {
    * Read-only rows of a row-backed domain. The engine and mirrors always pass it (empty for
    * JSON-only domains); hand-built test contexts for JSON domains may omit it.
    */
-  readonly rows?: RowReader
+  readonly rows?: RowReader | undefined
   /**
    * The request's idempotency key: present on the owner and in a client's preview of its own
    * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).

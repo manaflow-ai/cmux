@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextControl
 
 /// `debug.hover_sweep` (R131): the pointer moves across the focused pane's
 /// tabs (`tabs`: indices, default 0,1,2,1,0) through the strip's real

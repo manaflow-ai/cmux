@@ -108,6 +108,10 @@ struct Source {
     rebound: Option<String>,
     /// `agent-session-attach` calls (each marks the chat seen).
     attached: usize,
+    /// Serves `agent-transfer-continues-v1` (else an older daemon).
+    continues: bool,
+    /// The `interrupt` of each begin, in order.
+    interrupts: Vec<Value>,
 }
 
 impl Source {
@@ -131,11 +135,15 @@ impl Source {
             };
         }
         match cmd {
+            "identify" if self.continues => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-continues-v1"]})),
+            "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
                 Reply::Data(json!({"session": session}))
             }
             "agent-transfer-begin" => {
+                self.interrupts.push(request["interrupt"].clone());
                 if self.committed.is_some() {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
                 }
@@ -511,6 +519,27 @@ mod agent_move {
                 < world.first("source:agent-transfer-commit")
         );
         assert_eq!(world.count("target:agent-transfer-receive-abort"), 0);
+    }
+
+    #[test]
+    fn a_running_turn_is_stopped_only_on_a_source_that_continues_it() {
+        // An older source would stop the turn for good: the begin asks for no Stop there.
+        let older = World::new(Target::default());
+        let (code, answer) = older.run_move_with(&["--interrupt"]);
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(older.source.lock().unwrap().interrupts, [json!(false)]);
+        // One whose acpmux continues the turn where the chat lands gets the Stop.
+        let current = World::new(Target::default());
+        current.source.lock().unwrap().continues = true;
+        let (code, answer) = current.run_move_with(&["--interrupt"]);
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(current.source.lock().unwrap().interrupts, [json!(true)]);
+        // Without `--interrupt`, never.
+        let plain = World::new(Target::default());
+        plain.source.lock().unwrap().continues = true;
+        let (code, answer) = plain.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(plain.source.lock().unwrap().interrupts, [json!(false)]);
     }
 
     #[test]

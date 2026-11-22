@@ -1,6 +1,6 @@
 // The composer's paste gallery states (agent-pane.composer: image-attached, image-pasted-unnamed,
-// image-failed, quick-image-attached, pdf-attached) paste a file into the prompt; text-pasted pastes
-// a huge text. Each must reach its state with no page error: a stage that throws while it plays is
+// image-failed, quick-image-attached, pdf-attached) paste a file into the prompt; text-pasted,
+// text-pasted-inline and text-pasted-again paste a text over the chip limit (pastedText.ts). Each must reach its state with no page error: a stage that throws while it plays is
 // a broken gallery entry, even when its picture still looks right. (Their play checks' layout-shift
 // limits are another matter.)
 //
@@ -24,6 +24,8 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
     "quick-image-attached",
     "pdf-attached",
     "text-pasted",
+    "text-pasted-inline",
+    "text-pasted-again",
   ];
   setDefaultTimeout(240_000);
   try {
@@ -74,8 +76,20 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
         }
       }
       const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady);
+      // A text paste's play waits for its chip: a paste under the chip limit never makes one, and
+      // the play reports the wait that did not hold as its error (src/gallery/play.ts).
+      let playError: string | undefined;
+      if (variant.startsWith("text-pasted")) {
+        await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+          timeout: 60_000,
+        });
+        playError = await page.evaluate(
+          () => (window as unknown as { cmuxGalleryPlayReport?: { error?: string } }).cmuxGalleryPlayReport?.error,
+        );
+      }
       await page.close();
       expect(errors).toEqual([]);
       expect(ready).toBe("1");
+      expect(playError).toBeUndefined();
     });
 });

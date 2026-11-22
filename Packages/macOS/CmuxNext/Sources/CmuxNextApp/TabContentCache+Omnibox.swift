@@ -10,7 +10,6 @@ extension TabContentCache {
         engine.remote.fetcher = URLSessionSuggestFetcher()
         engine.intranetProbe = Self.makeIntranetProbe()
         engine.apply(omniboxConfiguration)
-        engine.openTabs = { [weak self] in self?.openTabRows(incognito: false, profile: profile) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
         onSuggestionEngineCreated?(engine, profile)
         return engine
@@ -24,7 +23,6 @@ extension TabContentCache {
         engine.remote.isPrivate = true
         if engine.intranetProbe == nil { engine.intranetProbe = Self.makeIntranetProbe() }
         engine.apply(omniboxConfiguration)
-        engine.openTabs = { [weak self] in self?.openTabRows(incognito: true, profile: .default) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
         return engine
     }
@@ -46,14 +44,4 @@ extension TabContentCache {
         [suggestionEngine, incognitoMemory.suggestions] + profileHistories.values.map(\.suggestions)
     }
 
-    /// Live pages of one profile (or of incognito) with a loaded URL.
-    func openTabRows(incognito: Bool, profile: BrowserProfileID) -> [OmniboxTabRow] {
-        browsers.compactMap { key, entry in
-            let page = entry.tab
-            let offTheRecord = cef.stores.offTheRecord.isOffTheRecord(page.profileID)
-            guard offTheRecord == incognito, incognito || page.profileID == profile,
-                  let url = page.state.url, !BrowserNewTabPage.isNewTabPage(url) else { return nil }
-            return OmniboxTabRow(key: key, url: url, title: page.state.title)
-        }.sorted { $0.key < $1.key }
-    }
 }

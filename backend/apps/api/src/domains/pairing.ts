@@ -19,8 +19,9 @@ export const codeFromRandom = (bytes: Uint8Array): string => {
   return out
 }
 
-/** Accepts `7kq4-m2xd`, spaces and the usual look-alikes (O->0, I/L->1); refuses anything else. */
-export const normalizeCode = (input: string): string | null => {
+/** Canonical symbols with dashes, spaces and the usual look-alikes (O->0, I/L->1) folded; null on anything else. */
+const canonicalSymbols = (input: string): string | null => {
+  if (input.length > 64) return null
   let out = ""
   for (const raw of input.toUpperCase()) {
     if (raw === "-" || raw === " ") continue
@@ -28,10 +29,43 @@ export const normalizeCode = (input: string): string | null => {
     if (!CROCKFORD.includes(c)) return null
     out += c
   }
-  return out.length === 8 ? out : null
+  return out
+}
+
+/** Accepts `7kq4-m2xd`, spaces and the usual look-alikes (O->0, I/L->1); refuses anything else. */
+export const normalizeCode = (input: string): string | null => {
+  const out = canonicalSymbols(input)
+  return out !== null && out.length === 8 ? out : null
 }
 
 export const displayCode = (code: string): string => `${code.slice(0, 4)}-${code.slice(4)}`
+
+/**
+ * Invite codes (the reverse flow: a signed-in device shows the code, the new machine types it):
+ * 10 Crockford symbols, 50 bits, shown `ABCDE-12345`. `/v1/pair/begin` has no account, only a
+ * per-IP limit, so an invite needs more entropy than the 8-symbol server code a signed-in user
+ * guesses against a per-user budget. The lengths differ, so neither ever parses as the other.
+ */
+export const INVITE_LEN = 10
+
+/** 10 Crockford base32 symbols from the top 50 bits of 7 random bytes. */
+export const inviteFromRandom = (bytes: Uint8Array): string => {
+  if (bytes.length !== 7) throw new Error("invite code needs 7 random bytes")
+  let bits = 0n
+  for (const b of bytes) bits = (bits << 8n) | BigInt(b)
+  bits >>= 6n
+  let out = ""
+  for (let i = INVITE_LEN - 1; i >= 0; i--) out += CROCKFORD[Number((bits >> BigInt(i * 5)) & 31n)]
+  return out
+}
+
+/** Like normalizeCode, for a 10-symbol invite. */
+export const normalizeInvite = (input: string): string | null => {
+  const out = canonicalSymbols(input)
+  return out !== null && out.length === INVITE_LEN ? out : null
+}
+
+export const displayInvite = (invite: string): string => `${invite.slice(0, 5)}-${invite.slice(5)}`
 
 /** The message a server signs to prove it holds the install key it asks to pair. */
 export const beginProofMessage = (environment: string, thumbprint: string, wgPublicKey: string, issuedAt: number): string =>

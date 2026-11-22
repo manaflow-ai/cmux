@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 import ImageIO
 import Testing
 
 /// Own fixture windows only: before and three chip layouts, in both appearance modes.
-@MainActor @Suite(.serialized) struct AAHomeStarterGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAHomeStarterGalleryTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         _ = NSApplication.shared
@@ -34,7 +35,7 @@ import Testing
                                       fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator,
                                       attention: Palette.attention, danger: Palette.danger, done: Palette.highlight)
                 }
-                panel.hero.setAvatar(picture: nil, text: "🫡")
+                panel.hero.setAvatar(picture: nil, text: nil, name: "Chief")
                 panel.setShortcuts(terminal: "⌘T", agent: "⇧⌘N", switching: nil)
                 if let look {
                     panel.starters.look = look

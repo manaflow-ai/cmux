@@ -2,9 +2,10 @@ import AppKit
 import CoreText
 import os
 
-/// The one way chrome code gets a UI font (`Typography.system`): the default design is the bundled
-/// UI font, Inter (`BundledFonts`), the monospaced designs the system's. ``system(_:size:weight:)``
-/// makes each (design, size, weight) font once and keeps it for the process.
+/// The one way chrome code gets a UI font (`Typography.system`): every design is the system's, SF Pro
+/// for the default (Lawrence 2026-11-07: "default fonts on cmux for everything should be macos default,
+/// not inter"). ``system(_:size:weight:)`` makes each (design, size, weight) font once and keeps it for
+/// the process.
 ///
 /// Why: AppKit's monospaced system font constructors
 /// (`monospacedSystemFont`, `monospacedDigitSystemFont`) are imported as
@@ -62,11 +63,19 @@ enum CheckedFont {
 
     private static func fresh(_ design: Typography.Design, size: CGFloat, weight: NSFont.Weight) -> NSFont {
         switch design {
-        // The UI font, Inter (`BundledFonts`, Leo 2026-10-21); the system font when it is missing.
-        case .default: BundledFonts.uiFont(size: size, weight: weight) ?? .systemFont(ofSize: size, weight: weight)
+        case .default: .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
+        case .rounded: designed(.rounded, size: size, weight: weight)
+        case .serif: designed(.serif, size: size, weight: weight)
         }
+    }
+
+    /// The system font in one of its other designs; the default design where the system has none.
+    private static func designed(_ design: NSFontDescriptor.SystemDesign, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(design) else { return base }
+        return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
     /// `font` as an optional, so a null reference from a non-optional

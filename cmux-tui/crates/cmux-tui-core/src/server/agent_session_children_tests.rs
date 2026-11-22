@@ -20,14 +20,17 @@ const PEER_CHILD: &str = "acp_peer_child";
 /// The fake acpmux's `_acpmux/sessions` answer, newest first.
 fn machine_sessions() -> Value {
     json!({"sessions": [
-        {"sessionId": GRANDCHILD, "startedBy": CHILD, "spawnedBy": null, "depth": 2},
-        {"sessionId": UNRELATED, "startedBy": null, "spawnedBy": null},
+        {"sessionId": GRANDCHILD, "startedBy": CHILD, "spawnedBy": null, "depth": 2,
+         "updatedAt": 70},
+        {"sessionId": UNRELATED, "startedBy": null, "spawnedBy": null, "updatedAt": 60},
         {"sessionId": CHILD, "startedBy": SESSION, "spawnedBy": SESSION, "depth": 1,
-         "status": "running"},
-        {"sessionId": UNRELATED_CHILD, "startedBy": UNRELATED, "spawnedBy": UNRELATED},
-        {"sessionId": PEER_CHILD, "startedBy": SESSION, "peer": "mac"},
-        {"sessionId": SPAWNED, "startedBy": null, "spawnedBy": SESSION},
-        {"sessionId": SESSION, "name": "sub", "startedBy": null, "spawnedBy": null},
+         "status": "running", "updatedAt": 50},
+        {"sessionId": UNRELATED_CHILD, "startedBy": UNRELATED, "spawnedBy": UNRELATED,
+         "updatedAt": 40},
+        {"sessionId": PEER_CHILD, "startedBy": SESSION, "peer": "mac", "updatedAt": 30},
+        {"sessionId": SPAWNED, "startedBy": null, "spawnedBy": SESSION, "updatedAt": 20},
+        {"sessionId": SESSION, "name": "sub", "startedBy": null, "spawnedBy": null,
+         "updatedAt": 10},
     ]})
 }
 
@@ -89,6 +92,203 @@ fn session_children_lists_exactly_the_attached_sessions_descendants() {
     let child = &reply["data"]["sessions"][1];
     assert_eq!(child["status"], json!("running"), "the summary as acpmux gave it");
     assert_eq!(child["startedBy"], json!(SESSION));
+}
+
+/// A list past acpmux's largest reply comes in pages, in no time order: a descendant
+/// only the second page names is still listed, and the list is newest first.
+#[test]
+fn session_children_reads_every_page_of_a_list_too_big_for_one_reply() {
+    let fixture = Fixture { sessions_pages: true, ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("children-pages", fixture);
+    let mux = mux_with(&fake, "asa-children-pages");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-pages");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+
+    let reply = children(&mut client, surface);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(fake.frame()["params"], json!({}));
+    let rest = fake.frame();
+    assert_eq!(rest["method"], json!("_acpmux/sessions"));
+    assert_eq!(rest["params"], json!({"cursor": "c1"}));
+    assert_eq!(listed(&reply), [GRANDCHILD, CHILD, SPAWNED]);
+}
+
+/// The attach's watch list past acpmux's largest reply comes in pages too: a child
+/// only the second page names is followed, so its changes reach the client even
+/// when they no longer name its parent.
+#[test]
+fn session_children_follows_a_child_only_a_later_watch_page_names() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        watch_pages: true,
+        ..Fixture::default()
+    };
+    let mut fake = FakeAcpmux::start_with("children-watch-pages", fixture);
+    let mux = mux_with(&fake, "asa-children-watch-pages");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-watch-pages");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let rest = fake.frame();
+    assert_eq!(rest["method"], json!("_acpmux/sessions"));
+    assert_eq!(rest["params"], json!({"localOnly": true, "cursor": "w1"}), "the list's params");
+    let _ = client.event(WAIT).expect("the early record");
+
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": CHILD, "kind": "status", "recordKind": "status", "seq": 4,
+               "session": {"sessionId": CHILD, "status": "idle"}}),
+    );
+    let change = client.event(WAIT).expect("the followed child's change");
+    assert_eq!(change["event"], json!("agent-session-changed"), "{change}");
+    assert_eq!(change["change"]["sessionId"], json!(CHILD));
+}
+
+/// The attach turns its watch on with a one-row page and reads only this machine's own sessions
+/// for the descendants: a peer's session is never one. Asked whole, the watch answered every
+/// peer's sessions too, 31 MB on a Mac that mirrors ~10,000 of them, on every attach.
+#[test]
+fn an_attach_reads_its_descendants_from_this_machines_own_list_not_a_whole_watch() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        ..Fixture::default()
+    };
+    let mut fake = FakeAcpmux::start_with("children-own-list", fixture);
+    let mux = mux_with(&fake, "asa-children-own-list");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-own-list");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let (mut watch, mut own) = (None, None);
+    while watch.is_none() || own.is_none() {
+        let frame = fake.raw_frame();
+        match frame["method"].as_str() {
+            Some("_acpmux/watch") => watch = Some(frame),
+            Some("_acpmux/sessions") => own = Some(frame),
+            _ => {}
+        }
+    }
+    let (watch, own) = (watch.unwrap(), own.unwrap());
+    assert_eq!(
+        watch["params"]["limit"],
+        json!(1),
+        "a whole watch lists every peer's sessions: {watch}"
+    );
+    assert_eq!(own["params"]["localOnly"], json!(true), "{own}");
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": CHILD, "kind": "status", "recordKind": "status", "seq": 4,
+               "session": {"sessionId": CHILD, "status": "idle"}}),
+    );
+    let change = client.event(WAIT).expect("the followed child's change");
+    assert_eq!(change["change"]["sessionId"], json!(CHILD), "{change}");
+}
+
+/// One attach of [`SESSION`] against `fixture`, which then follows [`CHILD`]'s change: what it
+/// read from the fake's session lists, and every frame it sent acpmux.
+fn attach_reads(label: &str, fixture: Fixture) -> (ListReads, Vec<Value>) {
+    let reads = fixture.list_reads.clone();
+    let mut fake = FakeAcpmux::start_with(label, fixture);
+    let mux = mux_with(&fake, &format!("asa-{label}"));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, label);
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": CHILD, "kind": "status", "recordKind": "status", "seq": 4,
+               "session": {"sessionId": CHILD, "status": "idle"}}),
+    );
+    let change = client.event(WAIT).expect("the followed child's change");
+    assert_eq!(change["change"]["sessionId"], json!(CHILD), "{change}");
+    let mut frames = Vec::new();
+    while let Some(frame) = fake.next_frame(Duration::from_millis(200)) {
+        frames.push(frame);
+    }
+    let reads = *reads.lock().unwrap();
+    (reads, frames)
+}
+
+/// The session lists among `frames`: `_acpmux/watch` and `_acpmux/sessions`.
+fn list_frames(frames: &[Value]) -> Vec<&Value> {
+    frames
+        .iter()
+        .filter(|f| matches!(f["method"].as_str(), Some("_acpmux/watch" | "_acpmux/sessions")))
+        .collect()
+}
+
+/// An acpmux from before `session-list-filters-v1` ignores `localOnly` and answers every peer's
+/// sessions: the attach sends it no such filter and reads that list once, from one whole watch,
+/// and still follows only this machine's descendants (a peer's session is never one).
+#[test]
+fn an_attach_against_an_acpmux_without_list_filters_sends_no_local_only_and_reads_the_list_once() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        old_list_filters: true,
+        peer_rows: 10_000,
+        ..Fixture::default()
+    };
+    let (reads, frames) = attach_reads("children-old-acpmux", fixture);
+    eprintln!(
+        "peer-summary reads, acpmux without session-list-filters-v1, 10,000 peer sessions: \
+         {} rows, {} bytes, {} list calls",
+        reads.rows,
+        reads.bytes,
+        list_frames(&frames).len()
+    );
+    for frame in &frames {
+        assert!(frame["params"].get("localOnly").is_none(), "an older acpmux ignores it: {frame}");
+    }
+    let lists = list_frames(&frames);
+    assert_eq!(lists.len(), 1, "one read of the list: {lists:?}");
+    assert_eq!(lists[0]["method"], json!("_acpmux/watch"), "{}", lists[0]);
+    assert!(lists[0]["params"]["limit"].is_null(), "a whole watch: {}", lists[0]);
+    assert_eq!(reads.rows, 10_002, "the list once: this machine's 2 rows and the peers' 10,000");
+}
+
+/// An acpmux with `session-list-filters-v1` is still asked for this machine's own list
+/// (`localOnly`), after a one-row watch: the peers' sessions are never read.
+#[test]
+fn an_attach_against_an_acpmux_with_list_filters_reads_only_this_machines_rows() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        peer_rows: 10_000,
+        ..Fixture::default()
+    };
+    let (reads, frames) = attach_reads("children-new-acpmux", fixture);
+    eprintln!(
+        "peer-summary reads, acpmux with session-list-filters-v1, 10,000 peer sessions: \
+         {} rows, {} bytes, {} list calls",
+        reads.rows,
+        reads.bytes,
+        list_frames(&frames).len()
+    );
+    let lists = list_frames(&frames);
+    assert_eq!(lists.len(), 2, "{lists:?}");
+    assert_eq!(lists[0]["method"], json!("_acpmux/watch"));
+    assert_eq!(lists[0]["params"]["limit"], json!(1), "{}", lists[0]);
+    assert_eq!(lists[1]["method"], json!("_acpmux/sessions"));
+    assert_eq!(lists[1]["params"]["localOnly"], json!(true), "{}", lists[1]);
+    assert_eq!(reads.rows, 2, "this machine's 2 rows only");
+}
+
+/// A watch list that cannot be read whole (a bad page, or one after the first that fails)
+/// would follow only some of the session's descendants: the attach is refused, and the
+/// client attaches again.
+#[test]
+fn an_attach_whose_watch_list_cannot_be_read_whole_is_refused() {
+    for (name, fixture) in [
+        ("cw-bad", Fixture { watch_pages: true, watch_bad_page: true, ..Fixture::default() }),
+        ("cw-fail", Fixture { watch_pages: true, watch_page_error: true, ..Fixture::default() }),
+    ] {
+        let fake = FakeAcpmux::start_with(name, fixture);
+        let mux = mux_with(&fake, &format!("asa-{name}"));
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut client = Client::connect(&mux, name);
+        assert_code(&attach(&mut client, surface), "agent_session.bad_list");
+    }
 }
 
 #[test]

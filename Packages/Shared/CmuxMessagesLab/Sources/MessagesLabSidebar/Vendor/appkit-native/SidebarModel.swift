@@ -164,6 +164,9 @@ enum SidebarStrings {
     static var showAlerts: String { s("sidebar.menu.showAlerts", "Show Alerts") }
     static var delete: String { s("sidebar.menu.delete", "Delete Conversation…") }
     static var noResults: String { s("sidebar.noResults", "No Results") }
+    /// cmux: the empty list under the Unread filter, and its button that shows every chat again.
+    static var noUnread: String { s("sidebar.noUnread", "No Unread Chats") }
+    static var showAll: String { s("sidebar.showAll", "Show All") }
     static var conversations: String { s("sidebar.list", "Conversations") }
     static var pinned: String { s("sidebar.pinned", "Pinned") }
     static var typing: String { s("sidebar.typing", "Typing") }
@@ -232,8 +235,13 @@ struct SidebarMetrics: Equatable {
     static let preferredWidth: CGFloat = 320
     /// Narrowest useful width: the compact list (avatar only) with its margins.
     static let minimumWidth: CGFloat = 76
-    /// Below this the list is compact: avatars only, pinned avatars in one column, no names.
+    /// Below this the list is compact: one column of big avatars with the name under each, pinned
+    /// or not (Messages' narrow sidebar; the user, 2026-11-03, msg 20149).
     static let compactBelow: CGFloat = 180
+    /// cmux: the compact list's avatar grows with the width up to this, as Messages' narrow list.
+    static let compactMaxAvatar: CGFloat = 56
+    /// cmux: the compact avatar's least margin each side.
+    static let compactSideInset: CGFloat = 12
     /// A pinned column needs this much width: 3 columns from 260 pt, 2 from 180 pt.
     static let minTileWidth: CGFloat = 80
     /// The pinned avatar at the column-count changes (no size jump between layouts).
@@ -284,12 +292,22 @@ struct SidebarMetrics: Equatable {
     var width: CGFloat
 
     /// The row avatar's x: the measured column, or centered in the compact list.
-    var rowAvatarX: CGFloat { compact ? ((width - Self.avatar) / 2).rounded() : Self.avatarX }
-    var dotCenterX: CGFloat { compact ? max(Self.dotDiameter / 2 + 1, rowAvatarX - 9) : Self.dotCenterX }
+    var rowAvatarX: CGFloat { compact ? ((width - compactAvatar) / 2).rounded() : Self.avatarX }
+    /// The compact list's avatar, pinned or not: 52 pt in the narrowest list, up to 56 pt.
+    var compactAvatar: CGFloat {
+        min(Self.compactMaxAvatar, max(Self.avatar, (width - 2 * Self.compactSideInset).rounded(.down)))
+    }
+    /// A row's height: the measured row, or in the compact list a tile's (avatar and name under it).
+    var listRowHeight: CGFloat { compact ? tileHeight : Self.rowHeight }
+    /// A row's avatar in the row's own coordinates (`rowHeight`: the row's height).
+    func rowAvatar(rowHeight: CGFloat) -> CGRect {
+        if compact { return CGRect(x: rowAvatarX, y: Self.pinTopPad, width: compactAvatar, height: compactAvatar) }
+        return CGRect(x: rowAvatarX, y: ((rowHeight - Self.avatar) / 2).rounded(), width: Self.avatar, height: Self.avatar)
+    }
     /// The row text's width (name, preview) at this list width.
     var textWidth: CGFloat { max(0, width - Self.textX - Self.textRightInset) }
 
-    /// Avatar-only rows and a one-column pinned list without names.
+    /// One column of big avatars with names under them, pinned and unpinned alike.
     var compact: Bool { width < Self.compactBelow }
     /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
     var columns: Int {
@@ -302,13 +320,13 @@ struct SidebarMetrics: Equatable {
     /// compact list it is the row avatar: pinned and unpinned avatars are one size there.
     var pinAvatar: CGFloat {
         let fit = (tileWidth - 2 * Self.pinAvatarSideInset).rounded()
-        if compact { return Self.avatar }
+        if compact { return compactAvatar }
         return columns == Self.pinColumns ? min(Self.pinMaxAvatar, max(Self.pinMinAvatar, fit)) : Self.pinMinAvatar
     }
-    /// A row's height in the compact list, so pinned and unpinned avatars keep one rhythm.
+    /// A tile's height: the avatar and the name under it. In the compact list every row is this tall,
+    /// so pinned and unpinned avatars keep one rhythm.
     var tileHeight: CGFloat {
-        compact ? Self.rowHeight
-            : Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
+        Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
     }
     func pinnedHeight(count: Int) -> CGFloat {
         guard count > 0 else { return 0 }

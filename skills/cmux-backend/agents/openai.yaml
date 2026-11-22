@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Backend"
-  short_description: "Use Effect and Postgres-backed Cloud VM rules for backend work."
-  default_prompt: "Use this skill when editing cmux backend TypeScript, Vercel route handlers, Effect services, Cloud VM lifecycle code, provider integrations, database migrations, or pricing gates."
+  short_description: "New cloud backend code goes to manaflow-ai/cmux-platform; rules for the backend code still here."
+  default_prompt: "Use this skill before writing cloud backend code (it goes to manaflow-ai/cmux-platform) and when editing cmux backend TypeScript, Vercel route handlers, Effect services, Cloud VM lifecycle code, provider integrations, database migrations, or pricing gates."

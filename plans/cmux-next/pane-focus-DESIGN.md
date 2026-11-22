@@ -21,7 +21,7 @@ A key typed by the user reaches a text input only when every link holds:
 | L6 element | the DOM (web views only) | the page's primary input: Monaco's text area, Settings' search, Home Channels' composer |
 
 L1 to L5 have one owner each (focus.md): the reducer, plus one memory above it in
-`FocusCoordinator`, `OmnibarFocusMemory`, which brings a browser tab's address bar back (P20). L6 had none: `makeFirstResponder(webView)` makes
+`FocusCoordinator`, the machine's address bar memory (cmux-focus-core `omnibar_memory`), which brings a browser tab's address bar back (P20). L6 had none: `makeFirstResponder(webView)` makes
 WebKit restore the element that had focus in that document before, and when there is none
 (a page that just loaded, or a page whose focused element went away), nothing in the page
 has focus. Keys then go to `<body>`, and typing goes nowhere.

@@ -85,7 +85,23 @@ unpack() { # <extension> <archive>
 }
 
 restore_key() { # <key>; returns 0 when the directory was restored
-  local candidate="$1" work extension
+  local candidate="$1" work extension target
+  # nightly_build_state.py links workspace cache paths to a persistent runner
+  # directory. Preserve that link and its populated contents: replacing it
+  # would silently move a multi-GiB cache back into the ephemeral workspace.
+  if [[ -L "$dir" ]]; then
+    target="$(python3 - "$dir" <<'PY2'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY2
+)"
+    if [[ -n "$(find "$target" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+      echo "r2-cache: preserving populated symlink target $target"
+      return 1
+    fi
+    dir="$target"
+  fi
   work="$(mktemp -d)"
   for extension in tar.zst tar.gz; do
     if [[ "$extension" == "tar.zst" ]] && ! command -v zstd >/dev/null 2>&1; then

@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Testing
 
 /// Click by Hint with a control outside the content view (cx-a64bb: the staged update card in
 /// the sidebar). Its frame clipped to the content is a null rect, whose infinite origin trapped
 /// the dedupe key; the hint walk now leaves the control out and labels the rest.
 @MainActor
+@Suite(.closesItsWindows)
 struct WindowHintOffscreenTargetTests {
     @Test func aControlOutsideTheContentIsLeftOutWithoutCrashing() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),

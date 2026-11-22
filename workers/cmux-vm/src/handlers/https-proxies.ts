@@ -19,7 +19,7 @@ export const replaceVmHttpsProxy = (vmId: string, hostname: string, payload: Rep
     return yield* idempotent(caller.value, key, ["replaceVmHttpsProxy", vm.value, evidence.fingerprint],
       () => Effect.gen(function* () {
         const result = yield* upstream.replaceVmHttpsProxy(vm, { ...proofs, network }).pipe(
-          Effect.mapError((error) => error.status === 404 ? missing() : unavailable()),
+          Effect.mapError((error) => error.status === 404 ? missing() : unavailable(error)),
         );
         if (result === "missing") return yield* Effect.fail(missing());
         if (result === "ambiguous") return yield* Effect.fail(conflict("More than one HTTPS proxy rule matches this VM and hostname"));

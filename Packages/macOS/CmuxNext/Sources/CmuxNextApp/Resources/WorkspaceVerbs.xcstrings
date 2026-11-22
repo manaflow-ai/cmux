@@ -2489,6 +2489,137 @@
           }
         }
       }
+    },
+    "workspaceVerbs.refusal.anchorElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the anchor must be another workspace in the same sidebar section"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor muss ein anderer Arbeitsbereich im selben Seitenleistenabschnitt sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor doit être un autre espace de travail de la même section de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون anchor مساحة عمل أخرى في قسم الشريط الجانبي نفسه"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor debe ser otro espacio de trabajo de la misma sección de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor 必須是同一側邊欄區段中的另一個工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor 必须是同一侧边栏分区中的另一个工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor는 같은 사이드바 섹션의 다른 작업 공간이어야 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor は同じサイドバーセクション内の別のワークスペースである必要があります"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor mora biti drugi radni prostor u istom odjeljku bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor skal være et andet arbejdsområde i samme sidepanelsektion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor deve essere un altro spazio di lavoro nella stessa sezione della barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor ត្រូវតែជាកន្លែងធ្វើការផ្សេងទៀតក្នុងផ្នែករបារចំហៀងដដែល"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor må være et annet arbeidsområde i samme sidefeltseksjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor musi być innym obszarem roboczym w tej samej sekcji paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor deve ser outro espaço de trabalho na mesma seção da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor должен быть другой рабочей областью в том же разделе боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor ต้องเป็นพื้นที่ทำงานอื่นในส่วนเดียวกันของแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor, aynı kenar çubuğu bölümündeki başka bir çalışma alanı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor має бути іншим робочим простором у тому самому розділі бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "anchor phải là một không gian làm việc khác trong cùng phần của thanh bên"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

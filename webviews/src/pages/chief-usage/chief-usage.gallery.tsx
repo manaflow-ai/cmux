@@ -62,6 +62,7 @@ export default componentEntry<Props>({
   load: async () => ChiefUsageGallery,
   styles: async () => {
     await import("../shared/pageBase.css");
+    await import("../../ui/ui.css");
     await import("./styles.css");
   },
   variants: {

@@ -9,16 +9,12 @@
 // Next, Previous, Open in the app that plays, then Hide Now Playing (`tabs.newTabNowPlaying` off,
 // with an Undo in its place) and Now Playing Settings…. Items the source cannot do are disabled.
 // The bars and the progress line hold still under prefers-reduced-motion (screen.css).
-import React, { useEffect, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { useState } from "react";
+import { ContextMenu } from "../../../ui/ContextMenu";
+import { usePageNow } from "../../../ui/pageClock";
 import { type NowPlayingTrack, progress, useNowPlaying } from "./nowPlaying";
-import { type NewTabTranslate, useNt } from "./strings";
-
-/// The transport controls, and the menu's page actions: `open` brings the app that plays forward,
-/// `hide` turns the New Tab player off (`tabs.newTabNowPlaying`), `show` undoes that, and
-/// `settings` opens Settings at that row.
-export type NowPlayingCommand = "playPause" | "previous" | "next" | "open" | "hide" | "show" | "settings";
-
+import { useNt } from "./strings";
+import { type NowPlayingCommand, nowPlayingMenuItems } from "./nowPlayingPlayerModel";
 function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note" }) {
   const paths = {
     play: "M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z",
@@ -34,40 +30,11 @@ function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note"
   );
 }
 
-/// The played share now, again each second while it plays (one timer, only while shown and playing).
+/// The played share now, again each second while it plays, on the page's shared second clock
+/// (no timer while the page is hidden or the track is paused).
 function useProgress(track: NowPlayingTrack): number | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!track.playing || track.duration === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [track.playing, track.duration, track.positionDate]);
+  const now = usePageNow(track.playing && track.duration !== undefined);
   return progress(track, Math.max(now, track.positionDate));
-}
-
-/// The card's right-click menu, in the order of the transport row, then the page's own items.
-export function nowPlayingMenuItems(
-  track: NowPlayingTrack,
-  nt: NewTabTranslate,
-  onCommand: (command: NowPlayingCommand) => void,
-): ContextMenuItem[] {
-  const { labels } = track;
-  const items: ContextMenuItem[] = [
-    { id: "playPause", label: track.playing ? labels.pause : labels.play, onSelect: () => onCommand("playPause") },
-    { id: "next", label: labels.next, disabled: !track.canNext, onSelect: () => onCommand("next") },
-    { id: "previous", label: labels.previous, disabled: !track.canPrevious, onSelect: () => onCommand("previous") },
-  ];
-  if (track.source)
-    items.push({
-      id: "open",
-      label: nt("nowPlaying.openIn", { app: track.source }),
-      onSelect: () => onCommand("open"),
-    });
-  items.push(
-    { id: "hide", label: nt("nowPlaying.hide"), separatorBefore: true, onSelect: () => onCommand("hide") },
-    { id: "settings", label: nt("nowPlaying.settings"), onSelect: () => onCommand("settings") },
-  );
-  return items;
 }
 
 export function NowPlayingCard({
@@ -111,7 +78,7 @@ export function NowPlayingCard({
           </div>
           {played !== null && (
             <div className="nt-player-track" aria-hidden="true">
-              <div className="nt-player-played" style={{ width: `${(played * 100).toFixed(2)}%` }} />
+              <div className="nt-player-played" style={{ transform: `scaleX(${played})` }} />
             </div>
           )}
           <div className="nt-player-controls">

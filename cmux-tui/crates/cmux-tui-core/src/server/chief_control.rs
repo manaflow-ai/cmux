@@ -1,6 +1,7 @@
-//! `chief.engine.get`, `chief.engine.set`, `chief.stop` and
-//! `chief.automation.list|update` (the Chief's automations, issue 25573):
-//! the owner's control of the Chief brain on `cmux.protocol/2`. Like `chief-inspect`, the
+//! `chief.engine.get`, `chief.engine.set`, `chief.stop`, `chief.continue`,
+//! `chief.retry` and `chief.automation.list|update` (the Chief's automations,
+//! issue 25573): the owner's
+//! control of the Chief brain on `cmux.protocol/2`. Like `chief-inspect`, the
 //! daemon forwards one line to the brain host's tools socket
 //! (`CMUX_TUI_CHIEF_TOOLS_SOCKET`) and answers its JSON; the brain owns the
 //! engine file and the turn. Owner only (risk: owner): a registered Unix
@@ -30,7 +31,8 @@ use crate::conversation_store::LOCAL_USER;
 use crate::resource_router::ParsedResourceRequest;
 
 /// Advertised in identify when this daemon runs Chief brains
-/// (`CMUX_TUI_CHIEF_BRAINS`): `chief.engine.*` and `chief.stop` take `chief`.
+/// (`CMUX_TUI_CHIEF_BRAINS`): `chief.engine.*`, `chief.stop`, `chief.continue`
+/// and `chief.retry` take `chief`.
 /// The default Chief's brain is still the app's (not the daemon's).
 pub(super) const CAPABILITY: &str = "chief-brains-v1";
 
@@ -48,6 +50,8 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::ChiefStop
             | ResourceOperation::ChiefAutomationList
             | ResourceOperation::ChiefAutomationUpdate
+            | ResourceOperation::ChiefContinue
+            | ResourceOperation::ChiefRetry
     )
 }
 
@@ -74,6 +78,9 @@ pub(super) fn handle_with(
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if let Err(error) = require_owner(mux, client) {
+        return send_resource_response(writer, id, operation, Err(error));
+    }
+    if let Err(error) = validate_fields(operation, &request.fields) {
         return send_resource_response(writer, id, operation, Err(error));
     }
     let route = match target(mux, operation, &request.fields, socket) {
@@ -116,6 +123,28 @@ pub(super) fn handle_with(
                 json!({"message": "cannot start the Chief control request"}),
             )),
         )
+}
+
+/// `chief.retry` must name the person's message to re-answer. Validate this
+/// at the socket boundary so malformed requests never reach the brain (and a
+/// missing id cannot accidentally be interpreted as "retry the last one").
+fn validate_fields(
+    operation: ResourceOperation,
+    fields: &serde_json::Map<String, Value>,
+) -> Result<(), ResourceError> {
+    if operation != ResourceOperation::ChiefRetry {
+        return Ok(());
+    }
+    match fields.get("message") {
+        Some(Value::String(message)) if !message.trim().is_empty() => Ok(()),
+        Some(Value::String(_)) => {
+            Err(ResourceError::validation_invalid(Some("message"), "message must not be empty"))
+        }
+        Some(_) => {
+            Err(ResourceError::validation_invalid(Some("message"), "message must be a string"))
+        }
+        None => Err(ResourceError::validation_invalid(Some("message"), "message is required")),
+    }
 }
 
 /// Where a request goes: the default Chief's brain (the configured socket, or
@@ -295,6 +324,8 @@ pub(super) fn tool_line(
                 "classifier_model",
                 "classifier_prompt",
                 "reactions_can_wake",
+                // The Chief turns' permission mode (optchat-chief engine.rs, cmux#37392).
+                "permission_mode",
             ] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
@@ -312,9 +343,18 @@ pub(super) fn tool_line(
             }
             line
         }
+        ResourceOperation::ChiefContinue => json!({"tool": "continue"}),
+        ResourceOperation::ChiefRetry => {
+            let mut line = json!({"tool": "retry"});
+            if let Some(value) = fields.get("message") {
+                line["message"] = value.clone();
+            }
+            line
+        }
         _ => {
             let mut line = json!({"tool": "stop"});
-            for key in ["name", "all", "restart"] {
+            // `start`: Start now on a queued agent in Home (the brain's chief.stop {start}).
+            for key in ["name", "all", "restart", "start"] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());
                 }
@@ -349,7 +389,7 @@ pub(super) fn result(
                 json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});
             // A named or stop-all stop's subagents and note, a restart's
             // restarted and errors (the brain's own words).
-            for key in ["subagents", "note", "restarted", "errors"] {
+            for key in ["subagents", "note", "restarted", "errors", "started"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
                     value.insert(key, v.clone());
                 }

@@ -126,11 +126,15 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
     assert_eq!(
         written,
         vec![
+            "agent-session-teleport".to_owned(),
             "chief-auth-escalation".to_owned(),
             "chief-cloud-machines".to_owned(),
+            "chief-teleport".to_owned(),
             "cmux-adoption".to_owned(),
             "cmux-setup".to_owned(),
+            "cmux-views".to_owned(),
             "paid-plans".to_owned(),
+            "whats-new".to_owned(),
         ]
     );
     // Every Chief signs in to GitHub by default (chief-github-DESIGN.md): the device code, a fresh one when it

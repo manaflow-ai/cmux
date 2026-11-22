@@ -32,7 +32,7 @@ final class AppPaletteGoToSource: PaletteGoToSource {
             pane.newTerminalTab(cwd: url.path)
         case .web(let url):
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey),
-                                              arguments: ["url": .string(url.absoluteString)], origin: .user)
+                                              arguments: ["url": .string(url.absoluteString)], origin: .user).onMachine(pane.daemon.machineID)
             _ = services.registry.perform(.openBrowser, invocation: invocation)
         }
     }
@@ -46,5 +46,10 @@ final class AppPaletteGoToSource: PaletteGoToSource {
             ? AgentPaneSeed(cwd: target.workingDirectory, draft: text)
             : AgentPaneSeed(cwd: target.workingDirectory, prompt: text, promptBy: .person)
         _ = pane.openAgentTab(seed: AgentPaneSeedSource(seed))
+    }
+
+    func askAgent(prompt: String) {
+        guard let pane else { return services?.registry.refuse(MiscHandlerStrings.noPane) ?? () }
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: baseDirectory(), prompt: prompt, promptBy: .person)))
     }
 }

@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -13,14 +14,32 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
+        // `-CmuxMobileTerminalDemoLight`: a light terminal theme (the Mac's
+        // Solarized Light), set before the terminal engine reads its colors,
+        // for this launch only: the next test's launch keeps its own theme.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoLight") {
+            CmuxMobileMacTheme.shared.apply(CmuxMobileMacAppearance(theme: .init(
+                background: "#fdf6e3", foreground: "#657b83",
+                palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
+                accent: "blue")), keep: false)
+        }
         let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
+    /// (its grid, a mirror reset and a replay, a round trip later:
+    /// `-CmuxMobileTerminalDemoMacMs`, default 60).
+    private static var macResize: Duration? {
+        guard CommandLine.arguments.contains("-CmuxMobileTerminalDemoMac") else { return nil }
+        let ms = UserDefaults.standard.integer(forKey: "CmuxMobileTerminalDemoMacMs")
+        return .milliseconds(ms > 0 ? ms : 60)
+    }
 
     /// `-CmuxMobileTerminalDemoEmbedded`: the workspace tab page (TabsKit chrome
     /// insets, UIKit-presented Files and Links) instead of the standalone screen.
@@ -36,9 +55,24 @@ public struct TerminalDemoRoot: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) {
+            // The driver's last step, for UI tests (`kbtui`).
+            Text(model.demoNote)
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("debug.terminal-demo")
+        }
         .task {
-            // The host grid demo is a still: no scripted phases.
-            guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
+            // The host grid demo is a still: no scripted phases. Its page's
+            // layout goes in the step label, for UI tests.
+            guard TerminalHostGridDemoSession.requestedSpec == nil else {
+                for _ in 0..<20 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(250))
+                    model.demoNote = "hostgrid " + (model.controller?.debugState ?? "-")
+                }
+                return
+            }
             let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
                 .split(separator: ",").map(String.init)
             await TerminalDemoDriver(model: model).run(phases: phases)
@@ -47,8 +81,12 @@ public struct TerminalDemoRoot: View {
 }
 
 @MainActor
-struct TerminalDemoDriver {
+final class TerminalDemoDriver {
     let model: TerminalModel
+    private var stepLog: [String] = []
+    private var stepResizes = 0
+
+    init(model: TerminalModel) { self.model = model }
     let clock = ContinuousClock()
 
     private func wait(_ seconds: Double) async {
@@ -110,6 +148,13 @@ struct TerminalDemoDriver {
             await wait(1)
             mark("state " + (model.controller?.debugState ?? "-"))
         }
+        // Opt-in only (not in `all`): the keyboard reversed mid-animation.
+        if selected.contains("kbinterrupt") { await keyboardInterrupt() }
+        if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
+        if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("scrollbench") { await scrollBench() }
+        if selected.contains("historyfling") { await historyFling() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -174,6 +219,90 @@ struct TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// Leo, 2026-11-21: "terminals are indeed fast now... but only the bare
+    /// ones. this claude code cli is often slow to scroll up and down". The
+    /// same flings over a bare shell's scrollback, then while the mock's
+    /// inline Claude Code screen redraws (`claudeinline`), then with its
+    /// clear-and-reprint as well. Each case marks the fling frames'
+    /// intervals: `bench CASE frames=N p50=.. p95=.. max=.. hitches=..`.
+    private func scrollBench() async {
+        let cases: [(name: String, command: String?)] = [
+            ("bare", nil),
+            ("claude-inline", "claudeinline 50"),
+            ("claude-inline-reprint", "claudeinline 50 20"),
+            // A long session: 3,000 transcript rows, all reprinted every 2 s.
+            ("claude-inline-long", "claudeinline 50 40 3000"),
+            // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
+            ("claude-full", "claudefull 50"),
+        ]
+        model.composerText = "stream 600 1"
+        model.send()
+        await wait(4)
+        var results: [String] = []
+        for (name, command) in cases {
+            if let command {
+                model.composerText = command
+                model.send()
+                await wait(3)
+            }
+            let full = name == "claude-full"
+            if !full { model.scrollToBottom() }
+            await wait(1)
+            let mock = model.session as? MockTerminalSession
+            let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
+            let sampler = FrameSampler()
+            sampler.start()
+            for _ in 0..<3 {
+                if full {
+                    model.controller?.tuiFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiFling(velocity: -3000)
+                } else {
+                    model.controller?.fling(velocity: -5000)
+                    await wait(1.6)
+                    model.controller?.fling(velocity: 5000)
+                }
+                await wait(1.6)
+            }
+            var line = "bench \(name) " + sampler.stop()
+            if full, let mock {
+                line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
+            }
+            mark(line)
+            results.append(line)
+            model.demoNote = results.joined(separator: " | ")
+            if command != nil {
+                model.sendControl("c")
+                await wait(1)
+            }
+        }
+        model.scrollToBottom()
+        model.demoNote = "scrollbench done | " + results.joined(separator: " | ")
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
+    /// down from ios". A Mac terminal attaches with its latest rows first; a
+    /// reader's first fling up slows into the top of them and asks for the
+    /// older rows, which come back as a reset and a replay of the whole
+    /// window. The fling runs to its end and the older rows come after it:
+    /// `historyfling done stopped=N fetches=N top=ROW`.
+    private func historyFling() async {
+        model.composerText = "historywindow 150 2000 60"
+        model.send()
+        await wait(3)
+        model.scrollToBottom()
+        await wait(1.5)
+        let before = model.controller?.flingsStoppedByReset ?? 0
+        mark("fling up into the top of the rows held")
+        model.controller?.flingToNearTop()
+        await wait(6)
+        let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
+        let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
+        model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
+    }
+
     private func keyboard() async {
         mark("keyboard show (composer)")
         model.toggleKeyboard()
@@ -197,6 +326,181 @@ struct TerminalDemoDriver {
         mark("keyboard hide")
         model.toggleKeyboard()
         await wait(1.5)
+    }
+
+    /// `kbinterrupt`: the keyboard key and then the terminal 0.1 s apart (the
+    /// keyboard is still moving), the same calls a tap on each makes; then the
+    /// keyboard key twice 0.1 s apart. Each second action reverses the first
+    /// from where the keyboard is, never after it settles.
+    /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
+    /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
+    /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
+    /// `-CmuxMobileTerminalDemoTUI htop` runs htop (it reports the mouse)
+    /// instead of vim.
+    /// `kbclaude` (opt-in): the same with the mock Claude Code screen (its
+    /// header box on the first rows, the cursor in its input box at the
+    /// bottom), whose header stays pinned above the keyboard.
+    private func keyboardOverTUI(command: String? = nil) async {
+        let program = command ?? (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md")
+        model.controller?.surface.sendText(program, pressReturn: true)
+        // Past the resize settle (250 ms), so every size before the toggles is counted.
+        await wait(2.5)
+        guard model.isTUI else {
+            note("done.notui")
+            return
+        }
+        let before = model.ptyResizesSent
+        note("tui.rz\(before)")
+        // Keyboard down, vim settled: the UI test's first screenshot. Each
+        // step outlasts the keyboard's animation, the 250 ms resize settle and
+        // the UI test's screenshot on a slow simulator host: a toggle before
+        // the last one settled reverses it and sends no resize.
+        await wait(2.5)
+        // `-CmuxMobileTerminalDemoToggle` picks how the keyboard moves:
+        // `key` (the keyboard key, the default), `tap` (a tap on the
+        // terminal shows it; the key hides it), `system` (shown by the key,
+        // hidden from outside our code: the terminal resigns, as a swipe or
+        // the system does, so only will-hide claims the rows), `reverse`
+        // (shown, then hidden 80 ms later, before the Mac answers),
+        // `double` (shown, hidden and shown again 100 ms apart) and `send`
+        // (the composer shows it, a message is sent from it, the key hides it).
+        let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
+        for round in 0..<5 {
+            switch mode {
+            case "tap":
+                note("show\(round)")
+                model.controller?.debugTapTerminal()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "send":
+                // Leo's flow (ask-b8451d6e4b): the composer takes the keyboard,
+                // a message goes from it to the app, and the keyboard key
+                // then puts the keyboard away.
+                note("show\(round)")
+                model.focusComposer()
+                await wait(1.5)
+                await type("jj")
+                model.send()
+                await wait(0.6)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "system":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                _ = model.controller?.surface.resignFirstResponder()
+            case "reverse":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.08)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "double":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            default:
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            }
+            await wait(2.5)
+        }
+        await wait(0.5)
+        note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `kbshell` (opt-in): the primary screen, then the keyboard key pressed
+    /// to show and hide the keyboard five times. A shell never resizes for
+    /// the keyboard (R1-1); `demoNote` ends at `done.rz<before>-<after>`.
+    /// `-CmuxMobileTerminalDemoShell` picks what the screen shows:
+    /// `prompt` (the default), `follow` (a long build log, at its end),
+    /// `reading` (the same log, scrolled up), `stream` (numbered rows
+    /// streaming through the toggles) or `inline` (an inline agent's box on
+    /// the primary screen, like Codex CLI).
+    private func keyboardOverShell() async {
+        let scenario = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoShell") ?? "prompt"
+        switch scenario {
+        case "follow", "reading":
+            model.composerText = "cargo build"
+            model.send()
+            await wait(6)
+            if scenario == "reading" {
+                model.controller?.fling(velocity: -3500)
+                await wait(2.5)
+            }
+        case "stream":
+            model.composerText = "stream 3000 30"
+            model.send()
+            await wait(1.5)
+        case "inline":
+            model.composerText = "codex 14"
+            model.send()
+            await wait(2)
+        default:
+            await wait(1)
+        }
+        let before = model.ptyResizesSent
+        note("shell.rz\(before)")
+        await wait(1.6)
+        for round in 0..<5 {
+            note("show\(round)")
+            model.toggleKeyboard()
+            await wait(2.5)
+            note("hide\(round)")
+            model.toggleKeyboard()
+            await wait(2.5)
+        }
+        await wait(0.5)
+        note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    private func note(_ label: String) {
+        mark(label)
+        // Each toggle step's PTY resizes, kept as a cumulative log: a UI test
+        // that misses a label (its probe reads the latest one) still reads
+        // every step at the end (`done...steps=show0:1,hide0:1,...`).
+        if let last = stepLog.last, last.hasSuffix(":") {
+            stepLog[stepLog.count - 1] += "\(model.ptyResizesSent - stepResizes)"
+        }
+        if label.range(of: #"^(show|hide)\d+$"#, options: .regularExpression) != nil {
+            stepLog.append(label + ":")
+            stepResizes = model.ptyResizesSent
+        }
+        model.demoNote = label.hasPrefix("done.") ? label + ".steps=" + stepLog.joined(separator: ",") : label
+    }
+
+    private func keyboardInterrupt() async {
+        model.controller?.focusTerminal()
+        await wait(1.5)
+        for round in 1...3 {
+            mark("kbinterrupt hide \(round)")
+            model.toggleKeyboard()
+            await wait(0.1)
+            mark("kbinterrupt terminal \(round)")
+            model.controller?.focusTerminal()
+            await wait(1.5)
+        }
+        model.toggleKeyboard()
+        await wait(1.5)
+        for round in 1...2 {
+            mark("kbinterrupt show \(round)")
+            model.toggleKeyboard()
+            await wait(0.1)
+            mark("kbinterrupt key \(round)")
+            model.toggleKeyboard()
+            await wait(1.5)
+        }
     }
 
     private func tui() async {
@@ -311,6 +615,39 @@ struct TerminalDemoDriver {
         }
         model.showArtifacts = false
         await wait(1)
+    }
+}
+/// Frame intervals from a display link at the screen's top rate, for
+/// `scrollBench` (works without `-CmuxMobileFrameLog`).
+@MainActor
+private final class FrameSampler: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
+        last = link.timestamp
+    }
+
+    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        let sorted = intervals.sorted()
+        guard !sorted.isEmpty else { return "frames=0" }
+        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
+        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
+        let hitches = sorted.filter { $0 > frame * 1.5 }.count
+        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
     }
 }
 #endif

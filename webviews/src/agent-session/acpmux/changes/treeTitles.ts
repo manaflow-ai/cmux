@@ -1,7 +1,7 @@
-// Long names in the changes tree: clipped at the right edge with a fade (no ellipsis, no middle
+// Long names in the changes tree and the diff tab's files tree: clipped at the right edge with a fade (no ellipsis, no middle
 // truncation that keeps the extension), the +N -M counts always whole, and on hover or keyboard
 // focus the name scrolls once to show its end (the tabs' and workspaces' marquee: ui/titleFade.ts).
-// Pierre renders the rows; diffTheme.ts lays its name out as one unclipped line inside the content
+// Pierre renders the rows; TREE_TITLE_CSS lays its name out as one unclipped line inside the content
 // section, and this layer measures which names are clipped (one read pass, then one write pass,
 // after each change of rows) and runs the marquee on the hovered or focused one.
 import { MOTION_SPRINGS, springCurve } from "../../../files-panel-motion";
@@ -13,10 +13,44 @@ import { isAgentMotionOff } from "../../shared/motion";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';
-/** Padding before the first glyph that the marquee fades glyphs across (diffTheme.ts `--cmux-title-lead`). */
+/** Padding before the first glyph that the marquee fades glyphs across (TREE_TITLE_CSS `--cmux-title-lead`). */
 export const TITLE_LEAD_PX = 4;
-/** Gap between a name and its +N -M counts that the fade reaches into (diffTheme.ts `--cmux-title-tail`). */
+/** Gap between a name and its +N -M counts that the fade reaches into (TREE_TITLE_CSS `--cmux-title-tail`). */
 export const TITLE_TAIL_PX = 6;
+/**
+ * The rows' CSS for `attachTreeTitles`, in a tree's `unsafeCSS`: the changes view's tree
+ * (diffTheme.ts) and the diff tab's files tree (pierre-options.ts). It turns off Pierre's middle
+ * truncation, whose marker paints a solid block over the hidden letters (a dark box over glass).
+ */
+export const TREE_TITLE_CSS = /* css */ `
+/* Long names: one unclipped line inside the content section, which clips
+   it with a fade at its end (no ellipsis, no middle truncation keeping the extension); the counts
+   never shrink. --cmux-title-lead is padding left of the first glyph, inside the section, that a
+   marquee fades glyphs across; the negative margin keeps the name where Pierre puts it.
+   --cmux-title-tail is the gap before the counts, also inside the section, so the fade ends at
+   the counts (or the row's end) and the name uses all the room there is. */
+[data-type="item"] [data-item-section="content"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  margin-inline-start: calc(-1 * var(--cmux-title-lead, 0px));
+  padding-inline-start: var(--cmux-title-lead, 0px);
+  padding-inline-end: var(--cmux-title-tail, 0px);
+}
+[data-type="item"] [data-item-section="content"] > * { width: max-content; min-width: max-content; max-width: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-group-container] > div { flex: none; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-container] { overflow: visible; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-grid] { display: block; }
+[data-type="item"] [data-item-section="content"] :is([data-truncate-content="overflow"], [data-truncate-marker-cell], [data-truncate-fill]) { display: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-content="visible"] { white-space: pre; }
+[data-type="item"] [data-item-section="content"][data-cmux-clipped] {
+  -webkit-mask-image: var(--cmux-title-mask);
+  mask-image: var(--cmux-title-mask);
+}
+[data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; }
+`;
 /** The marquee is ambient: it never holds a gallery step (gallery/frame/experimentRunner.ts). */
 const MARQUEE_ID = "cmux-ambient:marquee";
 

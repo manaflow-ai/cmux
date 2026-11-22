@@ -88,6 +88,47 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   and would make a debug build hold the identity key phones pin for the
   release build.
 
+## Build spaces (API 0.16.0)
+
+Two dev builds of the app and Mac host (say tags `a` and `b`), signed in as the
+same person, never see or touch each other's data on the service, and never see
+nightly or stable data. Each build is in a **build space**:
+
+- A dev build sends `X-Cmux-Build-Space: dev:<slug>` on every HTTP request and
+  on the signaling WebSocket upgrade. `<slug>` is the dev tag's slug
+  (`scripts/lib/mobile-attach.sh`: lowercase letters, digits and inner dashes,
+  at most 64), so the value matches
+  `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`. `dev:default` is refused:
+  `default` is the stable instance's reserved tag.
+- Stable and nightly builds send nothing: the stable space `""`, where every
+  row and hub that predates build spaces stays.
+- A malformed value is refused with `400 build_space.invalid` before anything
+  else; it never falls back to the stable space.
+- Only the dev, test and local Workers (`ENVIRONMENT` `dev`, `test`, `local`)
+  serve dev spaces. Every other Worker, production included, and one whose
+  environment is missing or misspelled, refuses them with
+  `403 build_space.not_allowed`: production holds only stable data, so a dev
+  build pointed at it fails on its first request instead of reading or writing
+  a person's real devices. Dev builds use the dev Worker or a local one.
+
+What a space scopes: the device registry (`/v1/devices`, `/v1/me/devices`,
+`/v1/me/macs`, `/v1/teams/:teamId/macs`, bootstrap), push registrations and
+notify targets, team prefs, the reply mailbox, and the user hub. A device id
+held by another space is never found (404). Each build keeps its own id, and a
+device id is one install of one build, so `POST /v1/devices` of an id the
+caller holds in another space moves that device, with its push registration,
+into the caller's space: the other space's hub drops it (presence `removed`,
+its socket closed with 4002) and it is listed only in the new space. This is
+how a dev build that registered before build spaces (its row is in stable) or
+whose dev tag changed keeps working. An id another user holds in another space
+is refused with `409 build_space.device_conflict` and left alone. A
+dev space's hub is named `dev:<slug>|user:<owner key>`; the stable hub keeps
+`user:<owner key>`, so presence, `hello`, signaling admission and turn push
+coalescing never cross spaces. `DELETE /v1/me` from a dev build purges only its
+space; from a stable build it purges every space (the account is deleted).
+Cloud attention pushes go only to stable phones. Wire shapes do not change:
+no response carries the space.
+
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
 The production Worker `cmux-mobile-api-prod` accepts only the production Stack
@@ -103,13 +144,16 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob),
+`build_space.invalid` (400), `build_space.not_allowed` (403) and
+`build_space.device_conflict` (409) ("Build spaces", 0.16.0), `store.schema_outdated` (503, 0.16.0: the
+Worker was deployed before its database migration; the message names it), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?, machineId?, siblingDeviceIds?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,machineId?,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`). `machineId` (added 2026-10-21, "Machine id" above; every Mac list, `hello` and `presence` carries it, and omits the key for a Mac that has none) is a Mac's only: 32 lowercase hex digits, else `400`; omitted keeps the stored one. `siblingDeviceIds` (with `machineId`, at most 16 UUIDs) are the device ids of other cmux builds found on the same Mac (their `device-id` files): each that is a Mac of the caller with no machine id yet gets this one, so a deleted build's record is listed as that computer's; another owner's device, a phone or a Mac that reported its own machine id is never changed |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
@@ -119,9 +163,10 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
+| `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
 | `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the caller's hub runs (since 0.10.0 the hub is the caller's, whatever `teamId` names; the caller must still be a member of it), and the region a hub created by this request would get (`null` when unknown) |
 
@@ -200,8 +245,8 @@ device: a newer connection closes the older with code 4000 `replaced` (no
 offline presence in between); a Mac re-registered into another team is
 closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
-- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId}}` (`machineId` added 2026-10-21; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId,quietMs?}]}` (the user's own Macs in the socket's team; `quietMs`: "Mac freshness" below)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId,quietMs?}}` (`machineId` added 2026-10-21; `quietMs` added 2026-11-21, "Mac freshness" below; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
@@ -364,6 +409,75 @@ is bound to the two devices of its first admitted signal. Since 0.10.0 the hub i
 user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
 (never `offline`, which would confirm it exists).
 
+### Mac freshness (added 2026-11-21, backward compatible)
+
+`online` says the Mac's signaling socket is open. A Mac that sleeps keeps it
+half open, so `online` can stay true for minutes. Every Mac listing (`hello`,
+`presence`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, and so
+`POST /v1/me/bootstrap`) now also carries `quietMs` for an online Mac: how
+many ms ago the hub last heard that socket, from its connect or its last
+application `ping` ("Connection setup"). The hub keeps the ping's time
+without waking, so this costs nothing per ping.
+
+- `quietMs` is relative to the hub's clock when it answered, so the phone's
+  clock does not matter. Absent when the Mac is offline, and from a hub that
+  predates it. Clients that do not know it ignore it.
+- The Mac host pings every 15 s. A Mac with `quietMs` under 18000 (the
+  link's `FRESH_WITHIN`, the hub's `FRESH_MS`) is awake: dial it now. One
+  past it is online but probably asleep.
+- A `presence` frame is sent only when a Mac connects, disconnects, or
+  changes its registration, never per ping. So `quietMs` in a frame is its
+  age at send time; it says nothing about later silence. The phone reads a
+  fresh listing (the next `hello` or Mac route) to learn it again.
+- The hub's `online` and its rules for closing sockets do not change.
+
+### Link stats (`link_stat`; added 2026-11-21, backward compatible)
+
+The phone reports which path its link to a Mac takes and how it performs,
+on its signaling socket, so production can see path, RTT, loss and setup
+time (`cmux-mobile-link/src/link_stat.rs`). Phone to service only; nothing
+is forwarded, and the service never answers it.
+
+```json
+{"type":"link_stat","v":1,"transport":"wireguard","path":"turn-tls","reason":"first",
+ "setupMs":812,"marks":{"signaling_open":120,"dial_start":130,"link_ready":700,"first_pong":812},
+ "rtt":{"n":3,"p50":41,"p95":77,"max":80},"pings":3,"lost":0,"switches":1,
+ "net":"cellular","upS":2,"lib":"0.1.0"}
+```
+
+- `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
+  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+- `reason`: `first` (once the link's first ping is answered, or 5 s after it
+  came up), `periodic` (every 60 s while up), `path` (the path changed; at
+  most one per 10 s, a change inside that only counts in `switches`), `end`
+  (the link closed; `end` is then `app`, `keepalive`, `transport` or `other`).
+- `setupMs` and `marks` (first stat only): ms from the app's `connect` to the
+  first pong (else `link_ready`), and the dial's step marks from a fixed list.
+- `rtt`: the link's ping round trips since the last stat (nearest-rank p50 and
+  p95, max; absent with no sample). `pings`: pings sent since the last stat;
+  `lost`: pings neither answered nor waiting, counted once (a pong that comes
+  after its ping was counted lost does not take it back). `switches`: path
+  changes since the link came up. `net`: `cellular` or `other` (the app's last
+  `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
+  It names no user, device, session or address.
+
+The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
+socket's text rate limit, and drops silently (no error frame: a session-less
+error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
+one within 5 s of the socket's last (an `end` stat excepted). It writes one
+Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
+against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
+`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
+hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
+reads them back.
+
+A Worker older than the frame answers it `{"type":"error","code":"bad_request",
+"message":"unknown frame type"}` without `sessionId`. The phone takes that
+answer, within 30 s of a stat it sent, as the refusal of the stat: it never
+reaches a dial, and that socket sends no more stats.
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data
@@ -391,6 +505,18 @@ pings every 15 s and closes the link (`keepalive timed out`) only when
 nothing at all, not a pong and no other frame, arrived for 20 s after a
 ping. (Before, a ping queued behind megabytes of data on a slow relay and a
 healthy link closed during a 10 MiB transfer.)
+
+Align Keepalives (phone Settings → Transport, off by default; no wire
+change): the phone sends every keepalive on the beats of one grid
+(multiples of the period since the Unix epoch, `cmux-mobile-link`
+`keepalive.rs`), so the radio wakes once for all of them. The link pings on
+every 10 s beat whether or not the last pong came, and its WireGuard tunnel
+sends no persistent keepalive (the ping is a tunnel datagram as often, on the
+same routes); the 20 s timeout above is unchanged. The signaling and presence
+sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
+and the app's heartbeat probes a link with no traffic (only pings and pongs)
+on its 2.5 s foreground or 10 s background beat. No interval is longer than
+before.
 
 ### Lanes (added with the input lane; backward compatible)
 
@@ -546,6 +672,56 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+  A phone that opens it with `{"compression":"deflate"}` (CMUX-563) gets each
+  message of 16 KiB or more from the Mac as one envelope instead of text:
+  `0x00`, the text length (u32 big-endian), the deflate length (u32 big-endian),
+  then the raw deflate (RFC 1951) of the JSON text; smaller messages stay text.
+  JSON never starts with `0x00`, and the lengths say where the envelope ends
+  among the frames and bound its inflate (hostd `link_deflate.rs`, phone
+  `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+  The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
+  newest page, and the phone is ready with it; the rest comes from
+  `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
+- `cloud-directory` (link protocol 2): no arguments; one JSON data frame
+  `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
+  followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
+  Mac's `phone.cloudDesktop` setting; `status` is the machine's Cloud status
+  (`running`, `paused`, `starting`, ...); `ran` says it has run at least once;
+  `linked` says the Mac holds its live carrier, so a Cloud chat can open on it.
+  A machine that is asleep (no live carrier, `linked` false) is listed too, for the
+  Chief's Computer card only; the Cloud chats list leaves it out. An older Mac sends
+  none of these fields: the phone reads `paid`, `desktops` and `ran` as false,
+  `status` as unknown and `linked` as true (it listed only linked machines).
+  Hostd obtains this list from the signed-in Mac app's authenticated owner
+  CloudLinkSession objects. Carrier paths and ownership markers are never sent
+  to the phone; conflicting duplicate machine/team entries are omitted.
+- `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
+  resolves exactly one current owner link from the app. This socket is already
+  the Cloud app server's daemon carrier; no second `link.dial` or service hello
+  is sent. Rust hostd requires `identify.data.capabilities` to advertise
+  `cloud-mobile-chat-v1` before marking its connection with that capability.
+  A successful `set-client-info` reply alone is insufficient. It discovers the VM's stored
+  agent tabs, and translates the phone's ACP requests to scoped native
+  `agent-session-*` commands. ACP pages and records keep their original sequence
+  numbers. Text prompts answer on durable acceptance; cancel and history paging
+  are supported. Approval answers, mode changes and arbitrary daemon commands
+  are refused. Every prompt first refreshes the session summary and requires
+  Claude `default`/`plan` or Codex `ask`, plus enforcement policy `ask`; missing
+  or unknown fields fail closed. This preflight supplements the required VM
+  implementation: authenticated owner checks and an atomic asking-mode floor
+  through dispatch, queued prompts and the active turn. It cannot replace that
+  enforcement or prove the actual Codex bridge profile from a mode name.
+  `session/new` starts a chat on the machine: hostd reads `list-workspaces`,
+  takes the active ordinary workspace (`kind` `normal`; else the first; it sends
+  `create-workspace` when there is none), creates a `registry:<registry_id>`
+  agent tab there with `new-conversation-tab`, then sends `agent-session-start
+  {surface, harness:"claude", vm_kind:"owner"}` with a 90 s deadline. The
+  phone's params may hold only `cwd` (ignored: the machine makes the chat's
+  folder), an empty `mcpServers`, and `_meta.acpmux` with only `harness`
+  `claude` and `policy` `ask`; anything else is refused with -32602. On success the phone
+  gets `_acpmux/session_changed` (`kind: "created"`) and then `{sessionId}`; a
+  refused or timed-out start closes the empty tab. The Mac shows the same tab, since it lives
+  in the machine's own store.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.
@@ -663,7 +839,43 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   forward Delete and Command/Control shortcuts go to the page directly as
   `key` events (with the Mac's edit commands: Option-arrows by word,
   Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
-  pastes the phone's clipboard. Under
+  pastes the phone's clipboard.
+  **Page asks** (2026-10-26, remote-tab-protocol.md section 4, as the Mac's
+  viewer answers them): a link that opens a new tab or window
+  (`rb.open_tab {request, url, disposition}`: `target=_blank`, `window.open`)
+  becomes a phone browser tab in the page's
+  pane (daemon `new-browser-tab {url, pane}`, so only `http(s)` and
+  `about:blank` open), shown unless `disposition` is `background_tab`, and the
+  phone answers `rb.open_tab.result {request, tab}` or `{request, refused}`. A
+  long press sends a secondary click at that spot (pointer `button` 2) and
+  shows the host's `rb.menu.show` of kind `context` as the system menu; rows
+  whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out. Rows that open
+  a tab stay (2026-11-01): the browser host forwards the tabs Chromium opens
+  through `OpenURLFromTab` (Open Link in New Tab or Window, Open Image in New
+  Tab, Search for, Cmd-click) as `rb.open_tab`, like the page's own popups
+  (`OnBeforePopup`). View Page Source stays off the phone's menu: the host
+  answers it with an `rb.open_tab` of the page's `view-source:` address, which
+  the Mac's viewer opens but `new-browser-tab` refuses from a phone (http and
+  https only). The pick goes back as `rb.menu.result
+  {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
+  or one that arrives with no long press waiting (after 1.5 s), as `{choice:
+  "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
+  in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
+  (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
+  answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
+  `rb.dialog.cancel` close the sheet or alert with no answer (the host sends
+  `rb.dialog.cancel` when Chromium resets its dialogs, when the frame that
+  asked goes away, as when the page removes the iframe whose alert shows, and
+  when the tab closes); a new stream
+  session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
+  color and datalist pickers) are not shown on the phone yet. The page menu's
+  Hard Reload sends `rb.history reload_no_cache`. Find… (page menu, Cmd-F;
+  Cmd-G and Shift-Cmd-G step) shows the system find bar: each query sends
+  `rb.find {query, forward: true, match_case: false, next: false}`, Next and
+  Previous `{next: true, forward}`, and the host's `rb.find.result {matches,
+  active}` sets the bar's count; Done sends `rb.find.stop {keep_selection:
+  true}`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -687,6 +899,55 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
+- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
+  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
+  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
+  Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
+  16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
+  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
+  the accent is the same at launch and offline. Since 2026-11-13 a
+  frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
+  applied Ghostty config's value for each terminal theme key
+  (`appearance.rs` `TERMINAL_KEYS`: background, foreground, every palette entry, cursor,
+  selection, bold, contrast, faint and cursor opacity, palette generation, blending,
+  colorspace, search colors). hostd drops any other key and any value that is not a plain
+  color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
+  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
+  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
+  `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
+  phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
+  `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`,
+  `blocks`), "hue"?: appearance.hue (0...1, 0.5 keeps the theme's), "saturation"?:
+  appearance.saturation (0...2, 1 keeps it), "glass_transparency"?:
+  appearance.glassTransparency (0...1), "sidebar_surface"?: appearance.sidebarSurface
+  (`same` | `separate`), "terminal_font"?: {"family"?, "size"?} (the face and points the
+  terminals draw in: terminal.fontFamily and terminal.fontSize over the Ghostty config's;
+  size 4...96), "chat"?: {"sent"?, "sent_text"?, "received"?, "received_text"?}
+  (home.bubbleColors.*, `#rrggbb`), "groups"?: {"palette"?: sidebar.groupPalette (`glass`,
+  `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial`), "gradient"?:
+  sidebar.groupGradient (`sunset`, `aurora`, `lagoon`, `twoTone`)}}`. The Mac app sends the
+  same object on its stdin line (`MobileHostAppearance.Look`); hostd (`appearance.rs`
+  `sanitize_look`) checks each field on its own and drops a bad one (an unknown value, a
+  number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
+  over 120 characters) while the rest and the theme still serve; a nested object with
+  nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
+  bytes an older Mac sends. The phone does not draw these yet. Since 2026-11-17 a frame
+  may also carry `"chat"`, what the phone's agent chat shows, resolved by hostd
+  (`appearance.rs` `chat_look`): `{"background", "foreground", "background_opacity",
+  "wallpaper"?: the `wallpaper` id, "bubbles"?: look's `chat` colors}`. `background_opacity`
+  is how much of `background` covers the picture: the window's tint with a picture (the
+  Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
+  colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
+  keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
+  on; the rest of its chrome stays stock.
+- `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
+  or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
+  `not_found` when it shows none. Machines need the View grant for both. The phone
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
+  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -709,9 +970,28 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
+  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
+  and drive authenticated owner Cloud machines through the Mac carrier.
+  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
+  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
+- `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
+  string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
+  then `[::1]`. Data frames are the connection's bytes in each direction;
+  either side closing ends it. The phone opens one channel per connection a
+  native browser tab makes to its own `127.0.0.1:<port>` / `[::1]:<port>`
+  (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
+  origin. Nothing listening: `unavailable` "Nothing is listening on port N on
+  this Mac."; a missing or bad port: `bad_request`; an older Mac:
+  `unknown_service`, and the phone keeps that tab mirrored. The phone never
+  names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
-  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
+  `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
+  (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
+  view only: hostd sends the source no input from the phone.
+  `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
   tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,
@@ -781,6 +1061,16 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+`bundle_id` (string; added 2026-11-17) is the phone app's bundle id as the
+phone states it in its `auth` args (`bundleId`, 1 to 155 ASCII letters,
+digits, `.` and `-`; the phone app sends `Bundle.main.bundleIdentifier`). hostd
+forwards it for phones only and drops a malformed one without refusing the
+link. It is a claim, not a proof: the app reads it only to auto-approve its own
+tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
+to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
+auto-approve"). An older phone sends none, an older hostd forwards none, and
+the app then asks as before.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
@@ -814,7 +1104,13 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   (and opens it at launch and on foreground, before any Mac is asked for);
   a dial reuses it. Signaling sockets send a WebSocket ping every 15 s and
   close after 40 s without any inbound frame, so a kept socket is never a
-  dead TCP connection. A reused socket that does not answer a ping within
+  dead TCP connection. Since 0.15.0 each keepalive also sends the text frame
+  `ping`, which the hub answers with `pong` without waking (a hibernation
+  auto-response) and whose time it keeps: it tells a Mac that is awake from
+  one that slept with its socket half open ("Connectivity incidents"). An
+  older Worker answers `ping` with a session-less `bad_request` error frame:
+  the reader counts the pings it sent and swallows one such answer per ping,
+  so it never fails a dial in flight; `pong` is dropped the same way. A reused socket that does not answer a ping within
   2.5 s while a dial runs is replaced and the dial redone.
 - `GET /v1/ice` is cached for half its `ttl` (60 s when it lists no TURN
   server) by the phone and by `cmux-mobile-host`, which refreshes it in the
@@ -912,24 +1208,63 @@ Mechanisms, phone first, then the Mac:
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
   The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it. Coming back claims at once:
+  with no debounce, before iOS suspends it (2026-11-12, Leo: "if I do
+  completely switch away, I want to be gone. I want to leave it. And if I
+  come back, I don't want to see the stretched out version"), so the Mac's
+  pane gets its own size back. Coming back (`willEnterForeground`) claims
+  at once, and the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. The claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+  The release goes out at once on the attach channel, never behind a request
+  of the session's still waiting for its answer (that answer comes back
+  behind the terminal's output, and iOS may suspend the app first); the
+  daemon runs one connection's requests in order, so it still lands after
+  any size sent before it (2026-11-12).
+- **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
+  for another tab, the grid or a sheet, or the app going to the background)
+  makes the Mac replay its own grid to the hidden page, and the claim makes it
+  replay the phone's again. The page draws neither round trip: while it is released, a
+  grid other than its claimed one, and every byte after it, is held. When the
+  claim brings the phone's grid back, the held events are dropped (the replay
+  after a grid change is whole) and the screen gets a reset and the replay's
+  alternate screen state. When the Mac is already at the phone's grid, the
+  stream ends, more than 8 MB is held, or the claim is not answered with the
+  phone's grid within 1.5 s of being attached (the Mac's policy keeps its own
+  grid), the held events show in order. The page keeps its last frame at its
+  own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
+  resize back... then i go to it again and it resize again").
+  On screen too, the page never draws a grid it did not ask for while its
+  claim may still bring its own back (Aziz, 2026-11-12: "ensure that the
+  phone never sees a terminal size that it doesn't want to see even if it
+  receives it"): a grid other than its claimed one (its lease ended over a
+  slow link, a reattach replayed the Mac's grid) starts the same hold, the
+  phone sends its size again at once, and the hold shows what it has only
+  when the Mac keeps its grid past 1.5 s (its policy keeps that grid). The
+  Mac's later grid changes then show as they come, until the phone's grid is
+  back or the page claims again.
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
   bare close as a dropped link and hold the grid.
-- **Size lease (phone and daemon, `size-lease-v1`).** The phone lists
-  `size-lease-v1` in `set-client-info` `capabilities`; when `identify` lists
-  it, the phone sends its claimed size again every 15 s while it claims (a
-  same-size `resize-surface` renews the lease and never resizes the PTY). A
-  size not refreshed for 45 s is released by the daemon; a connection that
+- **Size lease (phone and daemon, `size-lease-v2`, `size-lease-v1`).** The
+  phone lists both in `set-client-info` `capabilities`. When `identify` lists
+  `size-lease-v2`, the phone sends its claimed size again every 2 s while it
+  claims and the daemon releases a size not refreshed for 8 s; with only
+  `size-lease-v1`, every 15 s and 45 s. A same-size `resize-surface` renews
+  the lease and never resizes the PTY, and a refresh goes out at once, never
+  behind an unanswered request, so a slow link does not let the lease run
+  out while the phone is on screen. With the short lease, a phone that went
+  away without a release (suspended before it left, a dead link, a crash)
+  gives the Mac its grid back within 8 s; a connection that
   ended without releasing ends the departed-view hold its own departure set
   at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
 - **Departed-view hold (daemon).** A phone's connection that ends without a
   release (the link dropped) keeps the grid from growing for 30 s, so a link
   blip that reattaches finds the grid it left (termqa V2-5); capped by the
-  lease as above, and ended at once by a phone back with a size.
+  lease as above (8 s under `size-lease-v2`), and ended at once by a phone
+  back with a size.
 - **Release on purpose (cmux-mobile-host).** The Mac releases a phone's sizes
   itself, sending `release-surface-size` for every terminal the channel
   attached to or sized and waiting up to 500 ms for the answers before it
@@ -942,7 +1277,7 @@ Mechanisms, phone first, then the Mac:
 
 The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
 server) has no release of its own: a phone on that path relies on its own
-release and the daemon's size lease.
+release and the daemon's size lease (8 s under `size-lease-v2`).
 
 | Path | Mechanism | Mac pane restored within |
 | --- | --- | --- |
@@ -954,17 +1289,17 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
-| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
+| App to the background, screen locked | `didEnterBackground` → release at once (never behind an unanswered request), inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip; 8 s if the release never leaves the phone |
+| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 8 s (45 s under `size-lease-v1`) |
 | Killed by iOS in the background | already released on entering it | one round trip |
-| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
-| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
+| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 8 s (45 s under `size-lease-v1`); a reattach inside it keeps the phone's grid, and a later one never draws the Mac's grid first |
+| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 8 s (30 s under `size-lease-v1`); else the Mac's grid until it does |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
-| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 45 s |
+| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 8 s (45 s under `size-lease-v1`) |
 | The Mac's cmux-tui daemon restarts | new daemon, no phone participant until it reattaches | at once |
 | iPhone connections turned off on the Mac | hostd SIGTERM → release | 0.7 s |
 | The owner removes the phone on the Mac | link closed `removed` → hostd releases | 0.5 s |
-| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 45 s worst case |
+| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 8 s worst case (45 s under `size-lease-v1`) |
 | Tab cooled out of the warm set, tab closed | session stop → release, then close; else hostd releases on the close frame | one round trip |
 | Grid card of a tab not started | `read-screen` only, never attaches | never claims |
 | Grid card of a started tab | its page is not interactive → release | 1 s + RTT |
@@ -973,6 +1308,40 @@ release and the daemon's size lease.
 | Older phone without `size-lease-v1` | no lease: hostd releases on its close frame, the keepalive + 30 s hold on a drop | 65 s on a drop |
 
 Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.
+
+## Terminal history window (`attach-replay-history-window-v1`; added 2026-11-14)
+
+The Mac keeps a terminal's scrollback; the phone's mirror holds the screen and
+a bounded part of it (cmux-tui `spec/commands.md`, `attach-surface`).
+
+- Attach: the screen alone (`replay_history_rows: 0`,
+  `attach-replay-history-rows-v1`, as before).
+- Scrolling up to the oldest row held: an attach with 2,000 more of the
+  newest rows, up to 10,000. Past them, an attach with a 4,000-row window
+  (`replay_history_rows: 4000, replay_history_start: S`): the Mac sends rows
+  `[S, S+4000)` and the screen, and says how many rows it left out above
+  (`history_rows_omitted`) and between the window and the screen
+  (`history_rows_skipped`). Each step moves the window 1,500 rows up, down to
+  row 0, the oldest row the Mac keeps. The phone never holds more than 10,000
+  history rows, however long the Mac's history is.
+- Scrolling down to the window's last row: the window moves 1,500 rows down.
+  Within 4,000 rows of the screen the Mac sends the rows from `S` down to the
+  screen (no `history_rows_skipped`), and the phone holds the newest rows
+  again. Scrolling up from the screen to the window brings the newest 10,000
+  rows at once.
+- Each such attach replaces the last one; the screen puts the reader back on
+  their rows by text (`TerminalReadingMark`), which a step of 1,500 rows keeps
+  within the 2,000-row search.
+- Resize: the phone declares the capability in `set-client-info`, so each
+  `resized` replay holds the screen and the newest `replay_history_rows` rows
+  of the reflowed terminal (a window becomes the newest 4,000 rows), with
+  `history_rows_omitted`, instead of the whole history.
+
+Compatibility: a daemon without the capability gets no
+`replay_history_start` (the newest rows grow as before, then the whole
+history); a Mac app whose lane refuses the field gets the same attach without
+it; a phone that does not declare the capability keeps getting whole
+`resized` replays.
 
 ## Push notifications (API 0.13.0)
 
@@ -1005,6 +1374,16 @@ The answer adds `wants`: the kinds any phone of the owner that has not muted
 this Mac still wants, so the host skips kinds nobody wants. It sends a
 skipped kind again 15 s after the answer, so a phone that turns a kind on
 gets it within about that.
+
+When some send failed, the answer also carries `failures`: one
+`{environment, status, reason}` per failed send, where `environment` is the
+phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
+(0 when no answer came) and `reason` is APNs' reason word
+(`BadEnvironmentKeyInToken`, `TopicDisallowed`, `InvalidProviderToken`, ...),
+`network` when no answer came, or `unknown` for any other body. It never
+carries the device token, the topic or an error's text. Without a failure the
+field is absent, so the rest of the answer is unchanged. Sends APNs reports as
+gone count in `dropped`, not here.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an
@@ -1056,11 +1435,14 @@ APNs.
   characters), only the ids, `kind`, `state` and texts cut to 20 characters
   stay.
 - Banner text: question "<Agent> asks" / the question; permission "<Agent>
-  needs permission" / the title; completed "<Agent> finished" / the last
-  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
-  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
-  "<title>: <body>" (a program never chooses the banner's title). Subtitle
-  "<workspace or place> · <Mac>".
+  wants to act on <Mac>" / the title, as the Mac's approval prompt for a
+  streaming device ("<device> wants to control this Mac"); completed
+  "<Agent> finished" / the last `tail` line; failed "<Agent> stopped with an
+  error" / `body` or the last line; chief "Chief" / `body`; terminal
+  "Terminal · <workspace>" / "<title>: <body>" (a program never chooses the
+  banner's title). Subtitle "<workspace or place> · <Mac>"; for a permission
+  only "<workspace or place>" (the Mac is in the title). The phone writes the
+  same text for a sealed push (`PushBanner`, `ApprovalBanner`).
 - `previews: false` (the phone turned Show previews off): the 0.11 banner
   text ("Claude has a question", body the Mac's name) and no subtitle; the
   `cmuxMobile` fields stay, so the buttons still work after unlock.
@@ -1086,6 +1468,16 @@ isOther?, options: [{label, description?}]}]}` while the agent waits on it
 answers it on that Mac by typing into the terminal (`send`) while
 `read-screen` shows the question; see SECURITY.md "Answering a terminal
 agent's question from the phone".
+
+A Claude Code terminal's approval (its PermissionRequest hook, for any tool but
+AskUserQuestion and ExitPlanMode) rides the same way: the `list-notifications`
+row carries `approval` `{harness: "claude", tool, command?, target?,
+description?}` while the agent waits on it (memory only; cmux-tui
+`agent_hook_live_approval`, `session.journal.append` `live_approval`). The
+Feed shows it as a permission card with Allow once (types `1`) and Deny
+(Escape), sent only after its own `list-notifications` request still carries
+it and `read-screen` shows its dialog at the bottom of the screen; see SECURITY.md "Answering a terminal agent's
+approval from the phone".
 
 ### Phone actions
 
@@ -1155,9 +1547,10 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
 `sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
-phones; `box` is base64url of at most 3072 characters (hostd trims the content
-to fit, and skips a phone whose box still would not). When every paired phone
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). One request
+carries at most 20 boxes (a bound on its body, not on phones); `box` is
+base64url of at most 3072 characters (hostd trims the content to fit, and
+skips a phone whose box still would not). When every paired phone
 has a push key the Mac sends no content fields, also when one box failed or
 its identity key has not arrived (those phones get the generic banner from
 the ids alone); a phone without a push key gets the v2 payload built from the
@@ -1171,6 +1564,26 @@ key, fills in the v2 content, category and thread, and keeps the v3 object
 (`cmuxMobileSealed`) beside them; the app opens that box again before any
 button acts. If it can't open it, the generic banner and no buttons stay. A
 push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+#### More than 20 phones: a lead and batches (API 0.16.0)
+
+There is no cap on how many phones get a push. The Worker sends a notify to
+every push registration of the Mac's owner that wants the kind and has not
+muted the Mac. A Mac with more than 20 boxes splits one event:
+
+- The **lead** is the notify as above with the first 20 boxes, plus
+  `batchedPhones: ["<phone device id>", ...]` (at most 10000), the phones
+  whose boxes come in batches. The Worker sends the lead to every target but
+  those phones. A Worker that takes batches answers with `batches: true`.
+- Each **batch** carries the routing ids, the next at most 20 boxes and
+  `batch: n` (1, 2, ...; at most 500). The Worker sends it only to the targets
+  it has a box for, never checks the turn-end window again (the lead did),
+  and counts it in its own rate bucket (`<mac>:batch:<n>`), so a phone past
+  the first 20 gets pushes at the same rate as the rest.
+- hostd posts the batches after the lead, and only when the lead's answer
+  has `batches: true` and no `coalesced: true`: an older Worker ignores
+  `batch` and would push a batch to every phone again. A malformed `batch`
+  or `batchedPhones` is refused (400), never dropped.
 
 ### Reply mailbox
 
@@ -1273,7 +1686,7 @@ priority order but makes the policy per Mac instead of per terminal.
 
 | Setting value | Shown as | Engine policy the daemon applies |
 | --- | --- | --- |
-| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid, except that while a phone or tablet shows the terminal the grid is never narrower than it (a narrower Mac pane clips at the right; rows stay the minimum). An agent's split does not shrink it until the person uses that Mac pane (docs/shared-terminal-sizing.md, "Agent layout changes") |
 | `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
 | `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
 | `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |
@@ -1365,7 +1778,7 @@ app process without `client-hello`, so a phone on that path can read the
 policy but not change it. That splice has no size release of its own
 ("Terminal size claims"): under the default Fit the smallest viewer, a phone
 on it that was killed keeps the Mac's pane at its size until the size lease
-ends (45 s).
+ends (8 s under `size-lease-v2`, 45 s under `size-lease-v1`).
 
 `get-host-size-policy` answers the policy in effect: before the daemon's
 settings owner has read the settings file (only at startup, before it
@@ -1414,3 +1827,92 @@ to a phone: it changes the Mac-wide preference only.
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
   It never reflows the host's output to its own width.
+
+## Connectivity incidents (API 0.15.0)
+
+A cmux team member's phone tells the team's Slack when it suffers a major connectivity incident. The
+phone decides what is major; the service decides who is heard.
+
+### What the phone reports (`ConnectivityIncidentDetector`, CmuxMobileLive)
+
+Only when the signed-in account's connectivity audience is the team (`ConnectivityAudience`: an email on
+`manaflow.ai`, `manaflow.com` or `cmux.com`, or a subdomain). Everyone else's phone never checks or sends.
+
+- `mac_unreachable`: a Mac the service says is online has not connected for 30 s of qualifying time (the
+  app in front, the phone on a network, no network change since). Before it reports, the phone fetches
+  `https://captive.apple.com/hotspot-detect.html` and `GET /v1/health` at once: if the internet does not
+  answer, the phone itself is offline, nothing is sent, and the 30 s start again from that check.
+  `serviceReachable` says whether the cmux service answered.
+- `link_unstable`: three drops of a live link (its stream ended or a probe went unanswered) in five minutes,
+  each back within 20 s while the Mac stayed online, not counting drops in the 10 s after the app came to
+  the front or the network changed. A drop where the Mac itself went away (presence offline), or that
+  turned into an unreachable stretch, is not instability. The same reachability check gates it, and it is
+  reported only once the link is up again (the Mac is then awake; one that went to sleep never
+  reconnects). The service holds it (`mac_restarted`) when one of the Mac's last signaling connects falls
+  inside its window: a host that crashed and came back within a second never shows the Mac offline; the
+  phone then forgets it and its cooldown. At most one per Mac per 30 minutes. If the Mac stops answering
+  for 30 s while it is open, it ends (`became_unreachable`) and an unreachable incident takes over.
+- Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
+  the background or without a network, sign-out.
+- A Mac that goes offline in the middle of an incident (or while drops are being counted) gets 60 s to come
+  back (a host restarting): back and connected, the incident resolves; still offline, it ends as
+  `mac_offline` at the moment the Mac left. Drops counted before the blink still count.
+
+Each incident is reported `open`, then exactly once more: `resolved` (the Mac reconnected, or the link
+stayed up 10 minutes) or `ended` with `endReason` (`app_backgrounded`, `network_lost`, `mac_offline`,
+`link_closed`, `signed_out`, `app_relaunched`). Reports wait in a file in Application Support and are sent
+in order, each retried (5 s, 30 s, 2 min, 10 min, then every 30 min) until the service accepts it or
+refuses it with a 400, 403, 409 or 413 (a 404, a service that predates the route, is retried); a report older than a week is dropped. Only a team account checks; the end of an incident already reported is always sent, even after the audience changed, and sign-out sends the ends (as `signed_out`) before the token goes. A launch ends what the last one left open
+as `app_relaunched`, at the time it was last seen.
+
+### The report
+
+```json
+{"id":"<uuid>","kind":"mac_unreachable","state":"open","startedAt":"<iso>","observedAt":"<iso>",
+ "durationMs":31000,"mac":{"id":"<device id>","name":"Studio"},"attempts":6,"lastError":"…",
+ "transport":"wireguard","serviceReachable":true,"network":"wifi",
+ "app":{"version":"1.2.0","build":"450","config":"TestFlight","simulator":false},
+ "device":{"model":"iPhone17,4","os":"27.2"},"simulations":["block_udp"],"drops":3,"endReason":"…"}
+```
+
+### What the service does (`src/connectivity-alerts.ts`)
+
+- Looks up the caller's primary email in Stack (never from the body). Unverified or not on a team domain:
+  `403`. Agent and service accounts (`cmux-agent-*@…`, `CONNECTIVITY_ALERT_EXCLUDED_EMAILS`), simulator
+  builds, Debug builds and reports with a developer network simulation on go to the test channel
+  (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
+  `CONNECTIVITY_ALERT_CHANNEL`.
+- For `mac_unreachable`, asks the caller's own hub whether the Mac was awake when the phone saw the incident
+  (`observedAt`, never later than now; `TeamHub.macLiveness`): it sent an application `ping` after the link
+  stopped working (`startedAt`) and within 45 s of that moment. An awake host pings every 15 s through the
+  30 s stretch; one that froze or slept as the link stopped cannot. (`link_unstable` is not judged by
+  pings: the phone reports it only while its link to the Mac is up; it is held only for a host restart,
+  above.) The hub
+  keeps each Mac socket's last ping, and the last one of a socket that closed or was replaced, so a report
+  delivered late is judged as it was (a Mac that woke and reconnected since does not count as awake then).
+  A Mac that sleeps keeps its socket half open, so presence still says online, but its pings stop: such an
+  incident (`mac_asleep`), one whose Mac is not connected and did not ping then (`mac_offline`), and one
+  whose Mac never pinged (a dark wake's connect, or a host that predates the pings:
+  `mac_liveness_unknown`) are kept but never posted, start or end. A phone that could not reach the cmux
+  service (`serviceReachable:false`) is always posted. Rollout: until a Mac runs a build with the pings,
+  its incidents are held.
+- One Durable Object (`ConnectivityAlertDesk`) stores each incident under its own key for a week (at most 100
+  per reporter) before answering, and keeps an ordered outbox of Slack calls sent after the answer. A start
+  posts one message; its end edits that message and replies in its thread. A resend of a state already seen
+  is a no-op. The same reporter's next incident for the same Mac (either kind) within 30 minutes goes in the
+  first one's thread as its own "Again:" reply, which its end edits in place.
+- An incident whose end never comes (the app was closed for good or removed) is closed after 3 hours: its
+  message is edited to say no end arrived from the phone. An end that comes later still edits it.
+- Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm
+  (5 s, 30 s, 2 min, 10 min, then every 30 min) for as long as the incident is kept. Any other Slack error
+  drops that call (logged), so one bad call never holds up the alerts behind it.
+- At most 5 new incidents per reporter and 20 overall per hour (both routes share one channel, so they share
+  the limits), thread replies included. Each
+  held-back incident is counted once; the next post (whatever its state) says how many were held back
+  since the last post, and if none comes within the hour the desk posts that count (and whose) on its own.
+  An end whose start was held back is posted whole later. One open incident per Mac at a time.
+- The verdict uses the phone's own `observedAt - startedAt` with the server's clock, so a phone clock that
+  runs fast or slow does not change it. A Mac outage that two or more
+  teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
+  service is flagged as a likely service outage.
+- 10 reports a minute per user (`INCIDENT_LIMIT`).

@@ -18,8 +18,8 @@
 //!   answers `host.error` `apps.socket_dir_unsafe`. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
 //! - `cmux.credential.relay` as a `host.request` answers `host.error`
-//!   `unavailable`: the relay is served for the server's `relay.op` and
-//!   `relay.session` lines (`relay.rs`), which the scope
+//!   `unavailable`: the relay is served for the server's `relay.op`,
+//!   `relay.session` and `relay.carrier` lines (`relay.rs`), which the scope
 //!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
@@ -28,6 +28,9 @@ use serde_json::{Value, json};
 use super::mirror::Tier;
 use super::servers::line;
 use super::supervisor::{Inner, Supervisor};
+
+/// The largest `team.event` line `apps-team-event` passes on.
+pub(crate) const TEAM_EVENT_MAX_BYTES: usize = 64 * 1024;
 
 /// Why the link details could not be given.
 pub(super) enum HostLinkError {
@@ -119,6 +122,43 @@ impl Supervisor {
             }
             op => (error("apps.op.unknown", &format!("the host has no op {op}"), false), None),
         }
+    }
+
+    /// `apps-team-event {event, data}` (the verified app only): one Cloud event
+    /// the app received pushed (a machine's state socket, cmux-platform
+    /// MachineState), sent as `{"type":"team.event","event","data"}` to every
+    /// running first-party server that holds the credential relay scope (the
+    /// Cloud server, which applies it to its machine projection). Only
+    /// `cloud.` events of at most [`TEAM_EVENT_MAX_BYTES`]. Answers
+    /// `{servers: N}`.
+    pub(crate) fn team_event(&self, event: &str, data: &Value) -> Result<Value, super::ApiError> {
+        if !event.starts_with("cloud.") || event.len() > 128 {
+            return Err(super::ApiError::new(
+                "validation.invalid",
+                "a team event is a cloud.* event",
+            ));
+        }
+        let frame = json!({ "type": "team.event", "event": event, "data": data });
+        let bytes = line(&frame);
+        if bytes.len() > TEAM_EVENT_MAX_BYTES {
+            return Err(super::ApiError::new("validation.invalid", "the team event is too large"));
+        }
+        let servers: Vec<std::sync::Arc<super::servers::ServerProcess>> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .servers
+                .iter()
+                .filter(|(app, server)| {
+                    !server.stopping
+                        && Self::host_op_allowed(&inner, app, super::relay::RELAY_SCOPE_OP)
+                })
+                .map(|(_, server)| server.process.clone())
+                .collect()
+        };
+        for process in &servers {
+            process.send(bytes.clone());
+        }
+        Ok(json!({ "servers": servers.len() }))
     }
 
     /// Stops `app`'s server after its socket folder failed a check (cx-wmd8x).

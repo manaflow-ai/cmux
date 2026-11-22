@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the page host (Localizable.xcstrings): the native confirmation sheet.
 nonisolated enum PageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var installTitle: String { t("pages.confirm.installTitle", "Install “%@”?") }
@@ -20,6 +20,8 @@ nonisolated enum PageStrings {
     static var cancel: String { t("pages.confirm.cancel", "Cancel") }
     static var asksFor: String { t("pages.confirm.asksFor", "It asks for:") }
     static var opensWeb: String { t("pages.confirm.opensWeb", "It opens these web addresses:") }
+    /// Install = deploy + pin: the machine the app's server will run on (`%@` is the target).
+    static var deploysTo: String { t("pages.confirm.deploysTo", "It runs its server on %@ and opens it as a pane.") }
 
     static var sandboxOff: String { t("pages.confirm.apps.sandboxOff", "Turn off the sandbox for “%@”?") }
     static var sandboxOn: String { t("pages.confirm.apps.sandboxOn", "Turn on the sandbox for “%@”?") }
@@ -32,7 +34,9 @@ nonisolated enum PageStrings {
     static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }
     static var cloudSignIn: String { t("pages.confirm.cloud.signIn", "Sign in to cmux Cloud?") }
     static var cloudSignOut: String { t("pages.confirm.cloud.signOut", "Sign out of cmux Cloud?") }
-    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Connect to “%@”?") }
+    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Open “%@”") }
+    static var cloudMachine: String { t("pages.confirm.cloud.machine", "Cloud machine") }
+    static var cloudConnectDetail: String { t("pages.confirm.cloud.connectDetail", "Connect opens this machine in cmux so you can see what is running.") }
 
     static func risk(_ risk: String) -> String {
         switch risk {

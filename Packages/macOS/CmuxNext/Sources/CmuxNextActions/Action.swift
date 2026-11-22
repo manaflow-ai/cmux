@@ -92,6 +92,11 @@ public struct Action: Identifiable {
     /// Whether a toggle is on for the focused object, read without refusing
     /// anything; the palette row then shows a check. Nil for a plain row.
     public var paletteState: (@MainActor () -> Bool)?
+    /// Whether `paletteState` is an on/off setting's (a cmux.json key or a Debug switch that a run
+    /// flips), so its palette row flips in place like a Settings row
+    /// (`ActionTargetTitles.setPaletteSettingState`). A preset or choice with a state (Density: Compact)
+    /// is not: its run picks one value and closes the palette.
+    public var paletteStateIsSetting = false
     /// Why the palette row cannot run for the focused object, read without refusing anything; the
     /// row is then disabled with it. Nil (or nil returned) for a row that runs.
     public var paletteUnavailableReason: (@MainActor () -> String?)?
@@ -105,6 +110,10 @@ public struct Action: Identifiable {
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
+    /// Whether every menu leaves this row out now: the menu bar and right-click menus (the space
+    /// rows while the person has one space, ``ActionTargetVisibility/hideFromMenus(_:in:when:)``).
+    /// The palette, keys, the CLI and MCP still offer the action.
+    public var menuHidden: (@MainActor () -> Bool)?
     /// The index the registry's run timing records this action's runs under, interned when it was
     /// registered (``ActionRunTiming/intern(_:)``); 0 before.
     public internal(set) var timingIndex: UInt32 = 0

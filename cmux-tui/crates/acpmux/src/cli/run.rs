@@ -11,23 +11,30 @@ use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
+mod board;
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
-mod fanout;
+pub(crate) mod fanout;
 pub(crate) mod launch;
-mod ls;
+pub(crate) mod ls;
+mod ls_archived;
+mod ls_leads;
 mod ls_pages;
+mod ls_tools;
 pub use ls::LsArgs;
 mod parent;
 mod send_async;
 mod session_move;
 mod standard;
-mod transfer;
+pub(crate) mod transfer;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
-    if standard::handles(&cmd) {
+    if let Command::DetachParent { session } = &cmd {
+        crate::cli::detach::run(session, json_out).await
+    } else if standard::handles(&cmd) {
         standard::run(cmd, json_out, suppress_reads).await
     } else {
         extra::run(cmd, json_out, suppress_reads).await
@@ -44,9 +51,24 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         } else {
             e
         }
-    })?;
+    });
+    let v = match v {
+        Ok(v) => v,
+        // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
+        // says what reaches it and carries its row.
+        Err(e) if crate::cli::send_relay::no_such_session(&e) => {
+            return Err(match crate::cli::send_relay::listed_row(&key).await {
+                Some(row) => crate::cli::send_relay::listed_refusal(&key, row).into(),
+                None => e,
+            });
+        }
+        Err(e) => return Err(e),
+    };
     crate::cli::resolve::routed_id(&v)
 }
+
+#[cfg(all(test, unix))]
+mod list_callers_tests;
 
 #[cfg(all(test, unix))]
 mod tests {

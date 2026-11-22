@@ -48,3 +48,90 @@ test("queued edit restore survives an unmount before removal resolves and remoun
   expect(restored).toEqual([["queued text", attachments]]);
   expect(heldBack.current).toBeUndefined();
 });
+
+// Quote in Reply while the composer is unmounted (a Sandboxed receipt opened, then Back): the quote
+// used to be dropped, because only a mounted composer took `chat.quoteReply`.
+type Calls = (["restore", string] | ["quote", string])[];
+function composer(calls: Calls) {
+  return {
+    restore: (text: string) => calls.push(["restore", text]),
+    quoteReply: (markdown: string) => calls.push(["quote", markdown]),
+  };
+}
+
+test("a quote picked while the composer is unmounted replays once when it mounts", async () => {
+  const { quoteIntoComposer, replayHeldForComposer } = await import("./composerRestore");
+  const calls: Calls = [];
+  const handle = { current: null as ReturnType<typeof composer> | null };
+  const heldBack = { current: undefined as { text: string; attachments: ComposerAttachment[] }[] | undefined };
+  const heldQuotes = { current: undefined as string[] | undefined };
+
+  quoteIntoComposer(handle, heldQuotes, "> Selected line\n\n");
+  expect(calls).toEqual([]);
+  expect(heldQuotes.current).toEqual(["> Selected line\n\n"]);
+
+  handle.current = composer(calls);
+  replayHeldForComposer(handle.current, heldBack, heldQuotes);
+  expect(calls).toEqual([["quote", "> Selected line\n\n"]]);
+  expect(heldQuotes.current).toBeUndefined();
+
+  // Another mount (Back, then the receipt and Back again) replays nothing a second time.
+  replayHeldForComposer(handle.current, heldBack, heldQuotes);
+  expect(calls).toEqual([["quote", "> Selected line\n\n"]]);
+});
+
+test("two quotes while unmounted replay in order, after a held-back prompt", async () => {
+  const { quoteIntoComposer, replayHeldForComposer } = await import("./composerRestore");
+  const calls: Calls = [];
+  const handle = { current: null as ReturnType<typeof composer> | null };
+  const heldBack = { current: undefined as { text: string; attachments: ComposerAttachment[] }[] | undefined };
+  const heldQuotes = { current: undefined as string[] | undefined };
+
+  quoteIntoComposer(handle, heldQuotes, "> First\n\n");
+  restoreComposerDraft(handle, heldBack, "refused prompt", []);
+  quoteIntoComposer(handle, heldQuotes, "> Second\n\n");
+  replayHeldForComposer(null, heldBack, heldQuotes);
+  expect(calls).toEqual([]);
+
+  handle.current = composer(calls);
+  replayHeldForComposer(handle.current, heldBack, heldQuotes);
+  expect(calls).toEqual([
+    ["restore", "refused prompt"],
+    ["quote", "> First\n\n"],
+    ["quote", "> Second\n\n"],
+  ]);
+  expect(heldBack.current).toBeUndefined();
+  expect(heldQuotes.current).toBeUndefined();
+});
+
+test("a quote while the composer is mounted goes straight in", async () => {
+  const { quoteIntoComposer } = await import("./composerRestore");
+  const calls: Calls = [];
+  const heldQuotes = { current: undefined as string[] | undefined };
+  quoteIntoComposer({ current: composer(calls) }, heldQuotes, "> Now\n\n");
+  expect(calls).toEqual([["quote", "> Now\n\n"]]);
+  expect(heldQuotes.current).toBeUndefined();
+});
+
+test("quotes a composer hands back wait ahead of later ones, or go straight into a live composer", async () => {
+  const { handBackQuotes, quoteIntoComposer, replayHeldForComposer } = await import("./composerRestore");
+  const calls: Calls = [];
+  const handle = { current: null as ReturnType<typeof composer> | null };
+  const heldBack = { current: undefined as { text: string; attachments: ComposerAttachment[] }[] | undefined };
+  const heldQuotes = { current: undefined as string[] | undefined };
+
+  quoteIntoComposer(handle, heldQuotes, "> Later\n\n");
+  handBackQuotes(handle, heldQuotes, ["> Earlier\n\n"]);
+  expect(heldQuotes.current).toEqual(["> Earlier\n\n", "> Later\n\n"]);
+
+  handle.current = composer(calls);
+  replayHeldForComposer(handle.current, heldBack, heldQuotes);
+  handBackQuotes(handle, heldQuotes, ["> Straight in\n\n"]);
+  handBackQuotes(handle, heldQuotes, []);
+  expect(calls).toEqual([
+    ["quote", "> Earlier\n\n"],
+    ["quote", "> Later\n\n"],
+    ["quote", "> Straight in\n\n"],
+  ]);
+  expect(heldQuotes.current).toBeUndefined();
+});

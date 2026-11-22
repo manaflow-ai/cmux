@@ -35,6 +35,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case signature(KeptVersion)
     /// The running daemon cannot report its stored formats.
     case storesUnknown
+    /// Another switch or rollback is already running.
+    case busy
 }
 
 /// Picks the rollback target or refuses (pure).
@@ -68,14 +70,16 @@ extension RollbackRefusal {
             UpdaterStrings.rollbackNothingKept
         case .predatesRollback(let kept):
             UpdaterStrings.rollbackPredates(kept.shortVersion)
-        case .storeTooNew(let store, let stored, let readable, let kept):
-            UpdaterStrings.rollbackStoreTooNew(kept.shortVersion, store, stored, readable)
+        case .storeTooNew(let store, _, _, let kept):
+            UpdaterStrings.rollbackStoreTooNew(kept.shortVersion, store)
         case .unknownStore(let store, let kept):
             UpdaterStrings.rollbackUnknownStore(kept.shortVersion, store)
         case .signature(let kept):
             UpdaterStrings.rollbackSignature(kept.shortVersion)
         case .storesUnknown:
             UpdaterStrings.rollbackStoresUnknown
+        case .busy:
+            UpdaterStrings.rollbackBusy
         }
     }
 }

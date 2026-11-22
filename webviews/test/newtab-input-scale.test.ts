@@ -51,17 +51,18 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
         fieldHeight: number;
         inputBottom: number;
         plusBottom: number;
+        textDrop: number;
       }[];
       for (const scale of scales) {
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", {
-            variant: "template-cards",
+            variant: "minimal-default",
             theme,
             fontSize: scale.fontSize,
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        // Cards has no idle prefix; enter shell mode through the real editor before measuring it.
+        // Minimal has no idle prefix; enter shell mode through the real editor before measuring it.
         await page.locator(".nt-field").click();
         await page.keyboard.type("!pwd");
         await page.locator(".nt-shell-glyph").waitFor();
@@ -82,6 +83,8 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
               fontSize: px(fieldStyle.fontSize),
               glyphFontSize: px(glyphStyle.fontSize),
               fieldPad: px(fieldStyle.paddingTop),
+              // The text drops this far under the row's padding so its ink centers on + (newtab/screen.css).
+              textDrop: px(fieldStyle.paddingTop) - px(fieldStyle.paddingBottom),
               glyphTop: glyphRect.top - inputRect.top,
               plusCenter: (plusRect.top + plusRect.bottom) / 2 - inputRect.top,
               lineHeight: px(fieldStyle.lineHeight),
@@ -99,7 +102,9 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
         expect(result.glyphFontSize).toBeCloseTo(result.fontSize, 1);
         expect(result.plusCenter).toBeCloseTo(result.fieldPad + result.lineHeight / 2, 1);
         expect(result.plusBottom).toBeLessThanOrEqual(result.inputBottom + 0.5);
-        expect(result.fieldHeight).toBeGreaterThanOrEqual(result.lineHeight + 2 * result.fieldPad - 1);
+        expect(result.fieldHeight).toBeGreaterThanOrEqual(
+          result.lineHeight + 2 * (result.fieldPad - result.textDrop / 2) - 1,
+        );
       }
       expect(small.fontSize).toBeCloseTo(12, 1);
       expect(normal.fontSize).toBeCloseTo(14, 1);
@@ -110,7 +115,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       expect(normal.inputHeight).toBeLessThan(large.inputHeight);
       await page.goto(
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", {
-          variant: "template-cards",
+          variant: "minimal-default",
           theme,
           fontSize: 0,
         })}`,

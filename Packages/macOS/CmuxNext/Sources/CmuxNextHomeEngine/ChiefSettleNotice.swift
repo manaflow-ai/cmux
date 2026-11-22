@@ -4,11 +4,16 @@ import Foundation
 /// summarize the view: `<chief home>/state/settle.json`, written by the host
 /// only while a turn waits (optchat-chief settle_status.rs). After a large
 /// import the first settle takes minutes; the notice says how far it is.
+/// It also says when a turn's session is slow to start because the machine is
+/// loaded (`startingSecs`): the start keeps going, and silence would look like a hang.
 nonisolated struct ChiefSettleNotice {
     /// The notice for the file's contents; nil when it is not a wait.
     static func text(json: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
-              let built = object["built"] as? Int, let total = object["total"] as? Int,
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
+        if let seconds = object["startingSecs"] as? Int, seconds >= 0 {
+            return HomeStrings.chiefStillStarting(seconds: seconds)
+        }
+        guard let built = object["built"] as? Int, let total = object["total"] as? Int,
               built >= 0, built < total else { return nil }
         return HomeStrings.chiefOrganizing(built: built, total: total)
     }

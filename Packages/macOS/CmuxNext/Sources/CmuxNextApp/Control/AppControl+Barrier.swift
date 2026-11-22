@@ -11,13 +11,9 @@ extension AppControl {
     func registerSyncBarrier(_ router: ControlRouter, daemon: DaemonService) {
         let offline = MiscHandlerStrings.daemonOffline
         router.registerSyncBarrier { [weak daemon] in
-            guard let connection = await MainActor.run(body: { daemon?.connection }) else {
-                throw ControlError(code: "unavailable", message: offline)
-            }
-            _ = try await connection.request(IdentifyRequest())
-            guard let sequence = await connection.eventSequence() else {
-                throw ControlError(code: "unavailable", message: offline)
-            }
+            guard let connection = await MainActor.run(body: { daemon?.connection }),
+                  let sequence = try await connection.syncBarrierSequence() // DaemonConnection+SyncBarrier
+            else { throw ControlError(code: "unavailable", message: offline) }
             return sequence
         }
     }

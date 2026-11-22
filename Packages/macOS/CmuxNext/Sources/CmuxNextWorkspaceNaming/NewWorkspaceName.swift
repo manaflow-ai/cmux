@@ -58,9 +58,9 @@ public nonisolated struct NewWorkspaceName {
         case .page:
             return clean(tab.title).flatMap { isPlaceholder($0) ? nil : $0 }
         case .terminal, .remoteTerminal:
-            // An agent's spinner glyphs (`⠐ Fix the bug`) are status, not the name.
-            if let title = clean(tab.title.map { TerminalTitle(raw: $0).text }), !isBareShell(title), !isPlaceholder(title) { return title }
-            let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
+            // The title's text: the daemon already took an agent's spinner glyphs (`⠐ Fix the bug`) off it.
+            if let title = clean(tab.title), !isBareShell(title), !isPlaceholder(title) { return title }
+            let directory = tab.cwd.map { ($0 as NSString).lastPathComponent }
             return clean(directory == "/" ? nil : directory)
         }
     }
@@ -77,7 +77,9 @@ public nonisolated struct NewWorkspaceName {
                                   workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
                                   allowsLegacyDefaults: Bool = true) -> String? {
         if let title = clean(workspaceTitle) { return title }
-        if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
+        let createdDefault = workspaceNameRevision == 0 && WorkspaceModel.isNumberedDefaultName(workspaceName)
+        if workspaceNameSource == .user && !createdDefault && (workspaceNameRevision > 0 || !allowsLegacyDefaults),
+           let name = clean(workspaceName) { return name }
         if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
         return tabName
     }
@@ -93,8 +95,6 @@ public nonisolated struct NewWorkspaceName {
 
     /// Shell names a terminal reports as its title while idle; they say
     /// nothing about the work, so the directory names the workspace.
-    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login", "~"]
-
     /// The blank page's and the New Tab page's addresses: what a conversation, page or app tab's
     /// record carries as its title, never a name.
     private static let placeholders: Set<String> = ["about:blank", "chrome://newtab", "chrome://newtab/"]
@@ -104,7 +104,7 @@ public nonisolated struct NewWorkspaceName {
     }
 
     private static func isBareShell(_ title: String) -> Bool {
-        bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title)
+        TerminalTitle.isBareShell(title)
     }
 
     /// One line, trimmed, at most `maxLength` characters; nil when empty

@@ -65,6 +65,7 @@ public final class HomePinMigration {
         let gone = Set(ids)
         var pins = store.pins(account: account)
         pins.pinned.removeAll { gone.contains($0.rawValue) }
+        pins.positions = pins.positions.filter { !gone.contains($0.key) }
         store.save(pins, account: account)
     }
 

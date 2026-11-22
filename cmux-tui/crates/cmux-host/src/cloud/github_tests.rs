@@ -46,7 +46,7 @@ impl Http for Fake {
                 let n = st.tokens_minted;
                 Ok((
                     200,
-                    json!({ "access_token": format!("bearer-{n}"), "token_type": "Bearer", "expires_at": T0 + 600_000 }),
+                    json!({ "access_token": format!("bearer-{n}"), "token_type": "Bearer", "expires_at": T0 + 600_000, "install": INSTALL, "user": "user_u0000000000000000001", "grant": "grant_v000000000000000004", "team": "team_t0000000000000000001" }),
                 ))
             }
             TOKEN_PATH => Ok(st.answers.pop_front().unwrap_or((500, json!({})))),
@@ -170,6 +170,49 @@ fn rate_limits_and_transport_errors_become_refusals() {
     assert_eq!(reply_for(&a, &empty)["ok"], false);
     let unknown = Answer::Http { status: 502, body: json!({}) };
     assert_eq!(reply_for(&a, &unknown)["error"]["code"], "http.502");
+}
+
+#[test]
+fn a_refusal_keeps_a_github_configure_page_and_drops_any_other_url() {
+    let a = ask(json!({ "contents": "read" }));
+    let page = "https://github.com/organizations/acme/settings/installations/9";
+    let refused = |url: &str| {
+        let body =
+            json!({ "error": { "code": "policy.denied", "message": "m", "configure_url": url } });
+        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
+    };
+    assert_eq!(
+        refused(page),
+        json!({ "code": "policy.denied", "message": "m", "configure_url": page })
+    );
+    for other in [
+        "http://github.com/settings/installations/9",
+        "https://evil.example/settings",
+        "https://github.com.evil.example/x",
+        "https://github.com/settings?token=x",
+        "https://github.com/",
+    ] {
+        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other}");
+    }
+}
+
+#[test]
+fn a_refusal_keeps_a_known_deny_reason_and_drops_any_other() {
+    let a = ask(json!({ "contents": "read" }));
+    let refused = |reason: &str| {
+        let body =
+            json!({ "error": { "code": "policy.denied", "message": "m", "reason": reason } });
+        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
+    };
+    for reason in super::github::DENY_REASONS {
+        assert_eq!(
+            refused(reason),
+            json!({ "code": "policy.denied", "message": "m", "reason": reason })
+        );
+    }
+    for other in ["", "something_new", "repo_not_granted\nx", "<script>"] {
+        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other:?}");
+    }
 }
 
 #[test]

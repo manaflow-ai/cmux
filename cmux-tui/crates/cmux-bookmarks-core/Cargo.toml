@@ -1,0 +1,21 @@
+[package]
+name = "cmux-bookmarks-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bookmark tree rules of bookmarks-v1 with no storage: limits, validation, op and record types, and the in-memory op reducer for the app's optimistic view"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+# Optional: the daemon parses URLs with it; the app FFI is to check the scheme only
+# (`validate_url`), so it links no URL parser.
+url = { workspace = true, optional = true }
+
+[dev-dependencies]
+url = { workspace = true }
+
+[lints]
+workspace = true

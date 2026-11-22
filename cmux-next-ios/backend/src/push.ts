@@ -5,16 +5,36 @@ import { PUSH_KINDS, type PushKind, type PushRegistration } from "./store.ts"
 /**
  * APNs for Feed-worthy agent events (PROTOCOL.md `POST /v1/devices/:deviceId/notify`). A deployed Worker's
  * fetch reaches APNs over HTTP/2 through Cloudflare's edge. Secrets: APNS_KEY_P8 (PKCS#8 PEM), APNS_KEY_ID,
- * APNS_TEAM_ID. Without them `notify` answers `configured:false` and sends nothing.
+ * APNS_TEAM_ID. Without them `notify` answers `configured:false` and sends nothing. APNS_SANDBOX_KEY_P8 and
+ * APNS_SANDBOX_KEY_ID (both or neither, same team) sign the sandbox sends only, for when the main key was made for
+ * Production alone (APNs answers its sandbox sends 403 BadEnvironmentKeyInToken).
  */
 export interface ApnsConfig {
   readonly keyP8: string
   readonly keyId: string
   readonly teamId: string
+  readonly sandbox?: { readonly keyP8: string; readonly keyId: string }
 }
 
 export const apnsConfig = (env: Env): ApnsConfig | null =>
-  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID ? { keyP8: env.APNS_KEY_P8, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID } : null
+  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID
+    ? {
+        keyP8: env.APNS_KEY_P8,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        ...(env.APNS_SANDBOX_KEY_P8 && env.APNS_SANDBOX_KEY_ID ? { sandbox: { keyP8: env.APNS_SANDBOX_KEY_P8, keyId: env.APNS_SANDBOX_KEY_ID } } : {})
+      }
+    : null
+
+/** The key that signs a send to ENVIRONMENT: the sandbox key for sandbox when there is one, else the main key. */
+export const signingConfig = (config: ApnsConfig, environment: PushRegistration["environment"]): ApnsConfig =>
+  environment !== "production" && config.sandbox ? { keyP8: config.sandbox.keyP8, keyId: config.sandbox.keyId, teamId: config.teamId } : config
+
+const tokensByEnvironment = async (config: ApnsConfig, targets: ReadonlyArray<PushRegistration>, now: number) => {
+  const tokens = new Map<PushRegistration["environment"], string>()
+  for (const t of targets) if (!tokens.has(t.environment)) tokens.set(t.environment, await providerToken(signingConfig(config, t.environment), now))
+  return tokens
+}
 
 /** The bundle ids a phone may register a token for (APNS_TOPICS, comma separated). */
 export const apnsTopics = (env: Env): ReadonlySet<string> =>
@@ -25,15 +45,107 @@ export const apnsTopics = (env: Env): ReadonlySet<string> =>
       .filter(Boolean)
   )
 
-/** Apple wants one provider token reused for 20 to 60 minutes: one per isolate, renewed after 50 or when refused. */
-let cached: { id: string; token: string; at: number } | undefined
+export interface CloudAttentionPush {
+  readonly recipient: string
+  readonly kind: "question" | "permission" | "done"
+  readonly event_id: string
+  readonly team_id: string
+  readonly machine_id: string
+  readonly session_id: string
+  readonly deep_link: string
+}
+
+export interface CloudAttentionSendResult {
+  readonly token: string
+  readonly outcome: ApnsOutcome | "retry_later"
+  readonly status: number
+  readonly reason?: string
+  /** APNs' opaque receipt id; safe to return to the caller, unlike the device token. */
+  readonly apns_id?: string
+}
+
+const CLOUD_ATTENTION_KINDS = ["question", "permission", "done"] as const
+
+/** A stable, full-width APNs collapse id; truncating event ids could merge unrelated events. */
+export const cloudAttentionCollapseId = async (event: CloudAttentionPush): Promise<string> => {
+  const input = JSON.stringify({ event_id: event.event_id, team_id: event.team_id, machine_id: event.machine_id, session_id: event.session_id, kind: event.kind })
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+/** Sends a Cloud attention banner to the owner's registered phones. Text stays out of APNs. */
+export const sendCloudAttention = async (
+  config: ApnsConfig,
+  targets: ReadonlyArray<PushRegistration>,
+  event: CloudAttentionPush,
+  now: number,
+  fetcher: typeof fetch = fetch,
+): Promise<ReadonlyArray<CloudAttentionSendResult>> => {
+  if (!CLOUD_ATTENTION_KINDS.includes(event.kind)) throw new Error("invalid Cloud attention kind")
+  const tokens = await tokensByEnvironment(config, targets, now)
+  const collapseId = await cloudAttentionCollapseId(event)
+  const title = event.kind === "question" ? "Cloud chat has a question" : event.kind === "permission" ? "Cloud chat needs permission" : "Cloud chat finished"
+  const body = JSON.stringify({
+    aps: { alert: { title }, sound: "default", category: `CLOUD_${event.kind.toUpperCase()}` },
+    cmux: {
+      cloud: {
+        kind: event.kind,
+        event_id: event.event_id,
+        team_id: event.team_id,
+        machine_id: event.machine_id,
+        session_id: event.session_id,
+        deep_link: event.deep_link,
+      },
+    },
+  })
+  return Promise.all(targets.map(async (target) => {
+    const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const request = new Request(`https://${host}/3/device/${target.token}`, {
+        method: "POST",
+        headers: {
+          authorization: `bearer ${tokens.get(target.environment)}`,
+          "apns-topic": target.topic,
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "apns-expiration": String(Math.floor((now + 24 * 3600_000) / 1000)),
+          "apns-collapse-id": collapseId,
+          "content-type": "application/json",
+        },
+        body,
+      })
+      try {
+        const response = await fetcher(request, { signal: controller.signal })
+        const reason = response.status === 200 ? undefined : ((await response.json().catch(() => ({}))) as { reason?: string }).reason
+        if (response.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken(signingConfig(config, target.environment))
+        const apnsId = response.headers.get("apns-id") ?? undefined
+        return { token: target.token, outcome: classifyApns(response.status, reason), status: response.status, ...(reason ? { reason } : {}), ...(apnsId ? { apns_id: apnsId } : {}) }
+      } finally {
+        clearTimeout(timeout)
+      }
+    } catch (error) {
+      return { token: target.token, outcome: "retry_later" as const, status: 0, reason: error instanceof DOMException && error.name === "AbortError" ? "timeout" : "network" }
+    }
+  }))
+}
+
+/** Apple wants one provider token reused for 20 to 60 minutes: one per key per isolate, renewed after 50 or when refused. */
+const cached = new Map<string, { token: string; at: number }>()
 const configId = (c: ApnsConfig) => `${c.teamId}:${c.keyId}:${c.keyP8.length}:${c.keyP8.slice(-16)}`
+/** Forgets CONFIG's token (every token when none is named). */
+export const forgetProviderToken = (config?: ApnsConfig) => {
+  if (config) cached.delete(configId(config))
+  else cached.clear()
+}
 
 export const providerToken = async (config: ApnsConfig, now: number): Promise<string> => {
-  if (cached && cached.id === configId(config) && now - cached.at < 50 * 60_000) return cached.token
+  const hit = cached.get(configId(config))
+  if (hit && now - hit.at < 50 * 60_000) return hit.token
   const key = await importPKCS8(config.keyP8.replace(/\\n/g, "\n"), "ES256")
   const token = await new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: config.keyId }).setIssuer(config.teamId).setIssuedAt(Math.floor(now / 1000)).sign(key)
-  cached = { id: configId(config), token, at: now }
+  cached.set(configId(config), { token, at: now })
   return token
 }
 
@@ -80,6 +192,10 @@ export interface NotifyEvent {
   readonly state?: PushState
   /** Per phone device id: the content sealed to that phone's push key and the Mac's signature (API 0.14.0). */
   readonly sealed?: Readonly<Record<string, SealedBox>>
+  /** A lead's phones whose boxes come in later batches: the lead skips them (PROTOCOL.md "Sealed notify"). */
+  readonly batchedPhones?: ReadonlyArray<string>
+  /** A batch after the lead (1, 2, ...): it reaches only the phones it has a box for. */
+  readonly batch?: number
 }
 
 /** One phone's sealed notification (PROTOCOL.md "Sealed pushes and the reply mailbox"). */
@@ -90,7 +206,15 @@ export interface SealedBox {
 
 /** A box is at most 3 KB of base64url, so the whole APNs payload stays under 4096 bytes. */
 export const MAX_SEALED_BOX = 3072
-const MAX_SEALED_PHONES = 20
+/**
+ * Boxes one notify carries: the bound on one request's body (about 66 KB), never on how many phones get the
+ * push. A Mac with more phones sends a lead and then batches of at most this many (`batch`).
+ */
+export const MAX_SEALED_PHONES = 20
+/** Phone ids one lead may name in `batchedPhones` (about 370 KB): a body bound far past any person's phones. */
+export const MAX_BATCHED_PHONES = 10_000
+/** The highest `batch` number: enough batches for MAX_BATCHED_PHONES phones. */
+export const MAX_BATCH = Math.ceil(MAX_BATCHED_PHONES / MAX_SEALED_PHONES)
 const BASE64URL = /^[A-Za-z0-9_-]+$/
 const SIGNATURE = /^[0-9a-f]{128}$/
 const PHONE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -105,7 +229,7 @@ export const MAILBOX_PENDING_LIMIT = 32
 export const isSealedText = (text: unknown, max: number): text is string => typeof text === "string" && text.length > 0 && text.length <= max && BASE64URL.test(text)
 
 const parseSealed = (v: unknown): Record<string, SealedBox> | string => {
-  const bad = "sealed must be {<phone device id>: {box, sig}} (box base64url of at most 3072 characters, sig 64 bytes in hex), at most 20 phones"
+  const bad = `sealed must be {<phone device id>: {box, sig}} (box base64url of at most 3072 characters, sig 64 bytes in hex), at most ${MAX_SEALED_PHONES} per request (more phones go in batches)`
   if (!isObject(v)) return bad
   const entries = Object.entries(v)
   if (entries.length === 0 || entries.length > MAX_SEALED_PHONES) return bad
@@ -202,6 +326,25 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     if (typeof r === "string") return r
     sealed = r
   }
+  // A malformed batch field refuses the push: dropped, a batch would reach every phone again, and a lead
+  // every phone its batches reach.
+  let batch: number | undefined
+  if (present(b.batch)) {
+    if (typeof b.batch !== "number" || !Number.isInteger(b.batch) || b.batch < 1 || b.batch > MAX_BATCH || !sealed)
+      return `batch must be an integer 1-${MAX_BATCH}, with sealed`
+    batch = b.batch
+  }
+  let batchedPhones: Array<string> | undefined
+  if (present(b.batchedPhones)) {
+    const list = b.batchedPhones
+    const bad = `batchedPhones must be at most ${MAX_BATCHED_PHONES} phone device ids, on a lead (no batch)`
+    if (batch !== undefined || !Array.isArray(list) || list.length > MAX_BATCHED_PHONES) return bad
+    batchedPhones = []
+    for (const v of list as Array<unknown>) {
+      if (typeof v !== "string" || !PHONE_ID.test(v.toLowerCase())) return bad
+      batchedPhones.push(v.toLowerCase())
+    }
+  }
   let tail: Array<string> | undefined
   if (Array.isArray(b.tail)) {
     tail = (b.tail as Array<unknown>)
@@ -219,13 +362,19 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ...(options ? { options } : {}),
     ...(questions ? { questions } : {}),
     ...(tail ? { tail } : {}),
-    ...(sealed ? { sealed } : {})
+    ...(sealed ? { sealed } : {}),
+    ...(batch ? { batch } : {}),
+    ...(batchedPhones?.length ? { batchedPhones } : {})
   }
 }
 
 /** The rate-limit key of a notify: terminal notifications have their own bucket, so a program that loops
  * OSC 9 never starves a Mac's questions and permission requests (review M3). */
-export const notifyLimitKey = (macId: string, kind: PushKind): string => (kind === "terminal" ? `${macId}:terminal` : macId)
+export const notifyLimitKey = (macId: string, kind: PushKind, batch?: number): string => {
+  const key = kind === "terminal" ? `${macId}:terminal` : macId
+  // Each batch has its own bucket, so a phone past the first 20 gets pushes at the same rate as the rest.
+  return batch ? `${key}:batch:${batch}` : key
+}
 
 const TITLES: Record<PushKind, (agent: string) => string> = {
   question: (a) => `${a} has a question`,
@@ -298,7 +447,8 @@ const alert = (e: NotifyEvent, previews: boolean) => {
       case "question":
         return [`${agent} asks`, e.questions?.[0]?.question || e.title || ""]
       case "permission":
-        return [`${agent} needs permission`, e.title || e.body || ""]
+        // As the Mac's approval prompt for a streaming device (the phone's ApprovalBanner): the Mac in the title.
+        return [`${agent} wants to act on ${e.macName}`, e.title || e.body || ""]
       case "completed":
         return [`${agent} finished`, last || e.body || ""]
       case "failed":
@@ -310,6 +460,7 @@ const alert = (e: NotifyEvent, previews: boolean) => {
         return [where ? `Terminal · ${where}` : "Terminal", [e.title, e.body].filter(Boolean).join(": ")]
     }
   })()
+  if (e.kind === "permission") return where ? { title, subtitle: where, body } : { title, body }
   return { title, subtitle: where ? `${where} · ${e.macName}` : e.macName, body }
 }
 
@@ -441,6 +592,16 @@ export const apnsPayload = (e: NotifyEvent, opts: { previews?: boolean } = {}) =
 export const pushTargets = (regs: ReadonlyArray<PushRegistration>, macId: string, kind: PushKind): Array<PushRegistration> =>
   regs.filter((r) => r.kinds.includes(kind) && !r.mutedMacs.includes(macId))
 
+/**
+ * The targets this notify reaches, so each phone gets one push however many requests the Mac splits it into:
+ * a batch only the phones it has a box for; a lead every target but the phones its batches reach.
+ */
+export const notifyTargets = (targets: ReadonlyArray<PushRegistration>, e: Pick<NotifyEvent, "sealed" | "batch" | "batchedPhones">): Array<PushRegistration> => {
+  if (e.batch) return targets.filter((t) => !!e.sealed?.[t.deviceId.toLowerCase()])
+  const later = new Set(e.batchedPhones ?? [])
+  return targets.filter((t) => !later.has(t.deviceId.toLowerCase()))
+}
+
 /** The kinds some phone that has not muted `macId` wants, in PUSH_KINDS order. */
 export const wantedKinds = (regs: ReadonlyArray<PushRegistration>, macId: string): Array<PushKind> => {
   const wanted = new Set(regs.filter((r) => !r.mutedMacs.includes(macId)).flatMap((r) => r.kinds))
@@ -509,6 +670,38 @@ export const classifyApns = (status: number, reason: string | undefined): ApnsOu
   return "failed"
 }
 
+export interface ApnsSendResult {
+  readonly token: string
+  readonly environment: PushRegistration["environment"]
+  readonly outcome: ApnsOutcome
+  readonly status: number
+  readonly reason?: string
+}
+
+/** One failed send as `notify` answers it: never the token, the topic or an error's text. */
+export interface NotifyFailure {
+  readonly environment: PushRegistration["environment"]
+  readonly status: number
+  readonly reason: string
+}
+
+/** APNs' `reason` is one word from Apple's fixed list (BadEnvironmentKeyInToken, TopicDisallowed, ...). */
+const APNS_REASON = /^[A-Za-z]{1,64}$/
+
+/**
+ * The failed sends for the `notify` answer, so the Mac can tell why APNs refused (a key not enabled for the
+ * sandbox, a topic the key may not push to): APNs' reason word, `unknown` for any other body, `network` when
+ * no answer came.
+ */
+export const notifyFailures = (results: ReadonlyArray<ApnsSendResult>): Array<NotifyFailure> =>
+  results
+    .filter((r) => r.outcome === "failed")
+    .map((r) => ({
+      environment: r.environment,
+      status: r.status,
+      reason: r.status === 0 ? "network" : typeof r.reason === "string" && APNS_REASON.test(r.reason) ? r.reason : "unknown"
+    }))
+
 /** Sends one event to every target; never throws. */
 export const sendApns = async (
   config: ApnsConfig,
@@ -516,18 +709,20 @@ export const sendApns = async (
   e: NotifyEvent,
   now: number,
   fetcher: typeof fetch = fetch
-): Promise<Array<{ token: string; outcome: ApnsOutcome; status: number; reason?: string }>> => {
+): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
-  const token = await providerToken(config, now)
+  const tokens = await tokensByEnvironment(config, targets, now)
   return Promise.all(
     targets.map(async (t) => {
       try {
-        const res = await fetcher(apnsRequest(t, e, token, now))
-        const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
-        if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = undefined
-        return { token: t.token, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
+        const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now))
+        const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
+        // A malformed body (`{"reason": true}`, `null`) has no reason.
+        const reason = typeof body === "string" ? body : undefined
+        if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken(signingConfig(config, t.environment))
+        return { token: t.token, environment: t.environment, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (err) {
-        return { token: t.token, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
+        return { token: t.token, environment: t.environment, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
       }
     })
   )

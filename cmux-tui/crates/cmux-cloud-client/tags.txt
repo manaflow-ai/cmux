@@ -1,0 +1,18 @@
+# The cmux-platform OpenAPI groups (first tag of each operation) that
+# cmux-cloud-client generates. A tag here that the spec no longer carries
+# fails scripts/update-spec.sh, so a renamed group cannot drop its routes.
+# A route NEXT Cloud needs that the spec lacks is a cmux-platform issue, not
+# a hand-written type here.
+System
+Authentication
+Machines
+Machine placement
+machineReservations
+defaultMachines
+Machine automatic sizing
+Workspace machines
+Cloud environments
+Machine join credentials
+Machine join redemption
+Registered machines
+Vault (machine)

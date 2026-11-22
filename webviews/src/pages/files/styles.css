@@ -52,8 +52,8 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 
 .files-chevron {
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   transition: transform var(--cmux-motion-micro) ease-out;
 }
 

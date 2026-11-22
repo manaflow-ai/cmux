@@ -24,11 +24,18 @@ export const SCALE_JSON = path.resolve(import.meta.dir, "../../schemas/motion-sc
 export interface MotionScaleJson {
   steps: { name: string; ms: number }[];
   easeOut: number[];
+  spring: { step: string; points: [number, number][] };
+  /** A sent prompt's one motion, the scale's one named length past its steps (--cmux-motion-send). */
+  send: { ms: number; ease: number[] };
+  settle: { ms: number; bezier: number[] };
 }
 
 export const SCALE: MotionScaleJson = JSON.parse(fs.readFileSync(SCALE_JSON, "utf8"));
-const STEPS = new Map(SCALE.steps.map((step) => [step.name, step.ms]));
-const ON_SCALE = new Set([0, ...STEPS.values()]);
+const STEPS = new Map([...SCALE.steps.map((step) => [step.name, step.ms] as const), ["send", SCALE.send.ms] as const]);
+// The settle's measured length (--cmux-motion-settle, MOTION_SETTLE_MS) counts as on the scale.
+const ON_SCALE = new Set([0, ...STEPS.values(), SCALE.settle.ms]);
+// --cmux-motion-settle is the settle's own measured length (--cmux-ease-settle runs over it).
+STEPS.set("settle", SCALE.settle.ms);
 /** A loop (a spinner turn, a breath, a shimmer pass) is at least this long. */
 export const LOOP_MIN_MS = 600;
 

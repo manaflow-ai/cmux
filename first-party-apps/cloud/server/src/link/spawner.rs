@@ -1,5 +1,5 @@
 //! [`LinkSpawner`]: starts links. The real one is
-//! [`super::CarrierSpawner`] (a local socket plus one `cmux link dial` per
+//! [`super::CarrierSpawner`] (a local socket plus one connection to the app's carrier per
 //! stream); tests use fakes.
 //!
 //! The spawner reports event lines and the end through one channel that

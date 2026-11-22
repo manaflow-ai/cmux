@@ -22,6 +22,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-claude-split.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -89,7 +90,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      // Cards (composer-mic pins it), the first dot, draws the split; Default keeps its chips in the box.
+      // Minimal, the page cmux ships, draws the split.
       variant: "composer-mic",
       composer: ".nt-composer",
       box: ".nt-box",
@@ -136,7 +137,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
   /** Where the composer's parts draw. */
   const layout = (page: Page, stage: Stage) =>
     page.evaluate(
-      ({ composer, box }) => {
+      ({ composer, box, PLUS_PICKER }) => {
         const root = document.querySelector<HTMLElement>(composer)!;
         const card = root.querySelector<HTMLElement>(box)!;
         const rect = (element: Element | null): Rect | null => {
@@ -185,10 +186,10 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           ),
           mic: rect(card.querySelector(".acpmux-mic")),
           send: rect(card.querySelector(".acpmux-send")),
-          plus: rect(card.querySelector(".acpmux-composer-plus .acpmux-picker-button")),
+          plus: rect(card.querySelector(PLUS_PICKER)),
         };
       },
-      { composer: stage.composer, box: stage.box },
+      { composer: stage.composer, box: stage.box, PLUS_PICKER },
     );
 
   for (const [engine] of engines) {
@@ -224,18 +225,22 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           at.modelButton!.right + 0.5,
         );
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
-        // Claude Code ends the row on the context ring, right of the model button, once there is usage.
-        // The chat's ring keeps its place from the start; the New Tab page has no chat yet, so no ring.
-        expect(Boolean(at.ring), "the chat's quiet row ends on the context ring").toBe(stage.plus);
+        // The context ring stands just left of the model button (Lawrence and Lucas 2026-11-11), so the row
+        // ends on the effort. The chat has its ring; the New Tab page has no chat yet, so no ring.
+        expect(Boolean(at.ring), "the chat's quiet row draws the context ring").toBe(stage.plus);
         if (at.ring)
-          expect(at.ring.left, "the ring follows the model button").toBeGreaterThanOrEqual(at.modelButton!.right - 0.5);
+          expect(at.ring.right, "the ring comes before the model button").toBeLessThanOrEqual(
+            at.modelButton!.left + 0.5,
+          );
       });
 
     for (const stage of COMPOSERS)
       for (const width of [760, 300])
         test(`${engine}: ${stage.name} at ${width} px: the mic stays`, async () => {
           const page = await open(engine, stage, width);
-          // The chat's Send waits for a draft: type one so Send comes in after the mic.
+          // The chat's Send waits for a draft: type one so Send comes in. In the chat it takes the one
+          // send slot before the mic, Claude desktop's ↵ (Leo 2026-10-31: "THE F***ING TWO SEND
+          // BUTTONS"), so the mic keeps the right edge; New Tab's Send stays after the mic.
           if (!stage.sendAtRest) {
             await page.locator(`${stage.box} .acpmux-md`).first().click();
             await page.keyboard.type("Retry");
@@ -245,14 +250,16 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           await page.close();
           expect(at.mic, "the mic shows").not.toBeNull();
           expect(at.mic!.width, "the mic at full size").toBeGreaterThanOrEqual(20);
-          expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
-          expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
+          if (stage.sendAtRest) expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
+          else expect(at.send!.right, "Send before the mic").toBeLessThanOrEqual(at.mic!.left + 0.5);
+          expect(at.send!.left, "Send inside the box").toBeGreaterThanOrEqual(at.box.left);
+          expect(at.mic!.right, "the mic inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
     test(`${engine}: + is its glyph, named Add, its tooltip "Add files and more"`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
-        .locator(".acpmux-composer-plus .acpmux-picker-button")
+        .locator(PLUS_PICKER)
         .first()
         .evaluate((element) => ({
           text: element.textContent?.trim() ?? "",
@@ -277,7 +284,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
               const r = element.getBoundingClientRect();
               return r.width ? { left: r.left, right: r.right } : null;
             };
-            const check = row.querySelector(".ui-menu-check")?.textContent?.trim() ?? "";
+            // The check is drawn (MenuCheckGlyph, an SVG), not a text glyph.
+            const check = row.querySelector(".ui-menu-check .ui-menu-check-glyph");
             return {
               checked: row.hasAttribute("data-checked"),
               check: check ? box(".ui-menu-check") : null,
@@ -316,7 +324,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             }),
           selector,
         );
-      await page.locator(".acpmux-composer-plus .acpmux-picker-button").first().click();
+      await page.locator(PLUS_PICKER).first().click();
       const rows = page.locator(".acpmux-menu .acpmux-menu-item");
       await rows.first().waitFor();
       const count = await rows.count();
@@ -329,7 +337,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       expect(plusRows[count - 1], "the row under the pointer").toBe(true);
       await page.keyboard.press("Escape");
 
-      await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+      await page.locator(COMPOSER_MD).first().click();
       await page.keyboard.type("@");
       const files = page.locator(".acpmux-mention-row");
       const listed = await files

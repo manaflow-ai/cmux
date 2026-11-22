@@ -82,7 +82,8 @@ public final class AgentActivityHostView: NSView {
     fileprivate func applyTheme(reload: Bool = false) {
         themeFollower.rebind()
         if reload { appliedTheme = nil }
-        let theme = Self.theme(themeScope)
+        // In this view's scope: see-through or opaque follows its workspace's picture (#28867).
+        let theme = performWithTheme { Self.theme(themeScope) }
         if theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
             webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)

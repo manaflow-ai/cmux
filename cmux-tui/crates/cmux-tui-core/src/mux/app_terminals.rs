@@ -157,6 +157,15 @@ impl Mux {
             None,
         )?;
         self.emit_terminal_registry_changed(&registry, revision);
+        drop(registry);
+        // The shell may have reported its directory and progress before
+        // this record existed; those reports stay pending until the terminal
+        // runs. Publish them now, as adoption and a reconnect do: an idle
+        // shell prints nothing that would.
+        if let Some(surface) = self.surface(surface) {
+            surface.publish_pending_directory();
+            surface.publish_pending_progress();
+        }
         Ok(())
     }
 

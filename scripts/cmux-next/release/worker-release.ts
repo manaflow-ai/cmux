@@ -4,6 +4,10 @@
  *   bun worker-release.ts previous --worker NAME [--wrangler BIN] [--out FILE] [--allow-first-deploy]
  *       Prints (and writes to FILE) the version id serving 100% now. Run BEFORE the deploy.
  *       Refuses (exit 1) when wrangler cannot name it, unless --allow-first-deploy.
+ *   bun worker-release.ts advance --branch BRANCH --source-dir DIR --github-output FILE
+ *       Inside the environment deployment lock, skips a push superseded by newer deployment
+ *       inputs on BRANCH. Paths come from backend.yml's push trigger; unrelated tips admit.
+ *       Unknown source, divergent history or unsupported path declarations refuse.
  *   bun worker-release.ts verify --worker NAME --url BASE --routes FILE --previous-file FILE
  *       [--changed-since REV] [--source-dir DIR] [--wrangler BIN] [--attempts N] [--interval-ms MS]
  *       Smokes every route of FILE without `sources`, and each route whose
@@ -30,7 +34,7 @@
  * seconds to reach every location.
  */
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 
 export interface Route {
@@ -240,6 +244,37 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
   const value = (flag: string) => (rest.includes(flag) ? rest[rest.indexOf(flag) + 1] : undefined)
   const worker = value("--worker")
   const wrangler = value("--wrangler") ?? process.env.WRANGLER_BIN ?? "wrangler"
+  if (command === "advance") {
+    try {
+      const branch = value("--branch")
+      const out = value("--github-output")
+      if (!branch || !out) throw new Error("advance needs --branch and --github-output")
+      const cwd = value("--source-dir") ?? "."
+      const git = (...args: Array<string>) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+      git("check-ref-format", `refs/heads/${branch}`)
+      // Fetch only the protected source branch. No environment/provider credential is needed.
+      git("fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`)
+      const tip = git("rev-parse", "--verify", "FETCH_HEAD^{commit}")
+      const candidate = git("rev-parse", "--verify", "HEAD^{commit}")
+      const ancestry = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", candidate, tip])
+      if (ancestry.status !== 0) throw new Error("checkout is not a proven ancestor of the protected tip")
+      const workflowPath = ".github/workflows/backend.yml"
+      const workflow = Bun.YAML.parse(git("show", `${candidate}:${workflowPath}`)) as { on?: { push?: { paths?: unknown } } }
+      const paths = workflow?.on?.push?.paths
+      // GitHub's path language is broader than our current declarations. Refuse new syntax
+      // rather than silently interpreting it differently from the workflow trigger.
+      if (!Array.isArray(paths) || !paths.includes(workflowPath) || paths.some((p) => typeof p !== "string" || !/^[a-zA-Z0-9_.\/-]+(?:\/\*\*)?$/.test(p)))
+        throw new Error("unsupported or missing backend push.paths declaration")
+      const changed = git("diff", "--no-renames", "--name-only", "-z", candidate, tip).split("\0").filter(Boolean)
+      const superseded = changed.some((file) => paths.some((path: string) => path.endsWith("/**") ? file.startsWith(path.slice(0, -2)) : file === path))
+      appendFileSync(out, `deploy=${!superseded}\n`)
+      io.log(superseded ? `newer deployment inputs at ${tip}; skip checkout ${candidate}` : `source admitted: ${candidate} (protected tip ${tip})`)
+      return 0
+    } catch (error) {
+      io.error(`source ordering refused: ${(error as Error).message}`)
+      return 1
+    }
+  }
   if (!worker) {
     io.error("--worker is required")
     return 2
@@ -356,16 +391,22 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         return 1
       }
     }
-    const served = bases.find((b) => ((x) => x.added.length + x.removed.length + x.changed.length === 0)(diffVars(b.vars, bindings as Array<Binding>)))
+    // A var a committed config has and the Worker lacks ("added") is not drift: a var set by hand is on the
+    // Worker, while a missing one is a committed var no deploy has shipped yet (development deploys red for
+    // longer than the base window: INTEGRATIONS_CALLBACK_ORIGIN, Nov 2026). Only a var the Worker has that
+    // no committed config gives it, or gives another value, is out of band.
+    const outOfBand = (x: ReturnType<typeof diffVars>) => x.removed.length + x.changed.length
+    const served = bases.find((b) => outOfBand(diffVars(b.vars, bindings as Array<Binding>)) === 0)
     const base = served?.vars ?? bases[0]?.vars
     const baseFile = served?.file ?? bases[0]?.file
     const d = diffVars(want, bindings as Array<Binding>)
     if (base) {
       const drift = diffVars(base, bindings as Array<Binding>)
-      const driftCount = drift.added.length + drift.removed.length + drift.changed.length
+      const driftCount = outOfBand(drift)
       if (driftCount === 0) {
+        if (drift.added.length) io.log(`not yet deployed: ${drift.added.join(", ")} (in the committed config ${baseFile}, missing on ${worker} version ${id}: an earlier deploy never shipped ${drift.added.length === 1 ? "it" : "them"}; this deploy sets ${drift.added.length === 1 ? "it" : "them"} from the repo)`)
         const changes = intendedChanges(base, want)
-        if (!changes.length) {
+        if (!changes.length && !drift.added.length) {
           io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} match ${worker} version ${id} (secrets not compared, not sent)`)
           return 0
         }
@@ -377,7 +418,7 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} already match ${worker} version ${id} (the base config differs; nothing to change)`)
         return 0
       }
-      const parts = [drift.added.length ? `added: ${drift.added.join(", ")}` : "", drift.removed.length ? `removed: ${drift.removed.join(", ")}` : "", drift.changed.length ? `changed: ${drift.changed.join(", ")}` : ""].filter(Boolean)
+      const parts = [drift.removed.length ? `removed: ${drift.removed.join(", ")}` : "", drift.changed.length ? `changed: ${drift.changed.join(", ")}` : ""].filter(Boolean)
       io.error(`vars drift between the base config ${baseFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}): a var was set out of band; deploy refused. Reconcile the vars with their owner first`)
       return 1
     }

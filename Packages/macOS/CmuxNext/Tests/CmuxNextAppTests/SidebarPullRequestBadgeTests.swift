@@ -8,7 +8,7 @@ import Testing
 
 /// Leo 2026-10-21 (sidebar organization, item A): every row carries its pull request badge, not only
 /// with the session tree on. The tree's nesting, guide line and keycaps stay opt-in
-/// (`sidebar.sessionTree`); the badge follows `sidebar.pullRequestBadges` (on by default).
+/// (`sidebar.sessionTree`); the badge has no switch of its own.
 /// Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row follows
 /// `sidebar.workspaceRow.pullRequest`, off by default.
 @MainActor @Suite(.serialized) struct SidebarPullRequestBadgeTests {
@@ -151,6 +151,33 @@ import Testing
         // A kind's override turns it off for that kind only.
         options.workspaceRow.overrides[.terminal] = WorkspaceRowOverride(elements: [.pullRequest: false])
         #expect(options.rowContent(ws, machine: nil).pullRequests == nil)
+    }
+
+    // MARK: Quiet marks (Leo 2026-10-21, "did we remove the pr things by default and also redesign tehm to be better")
+
+    @Test func theBadgeIsQuietUnlessItsChecksFail() {
+        #expect(SidebarPullRequestBadgeView.color(.failing) == Palette.danger, "failing checks need the person")
+        for status in [SidebarPullRequestBadge.Status.passing, .attention, .merged] {
+            #expect(SidebarPullRequestBadgeView.color(status) == Palette.textSecondary, "\(status) stays quiet: no wall of purple")
+        }
+    }
+
+    @Test func onePullRequestDrawsTheGlyphAloneAndSeveralDrawTheCount() {
+        let glyph = ceil(SidebarStyle.subtitleFont.pointSize)
+        let view = SidebarPullRequestBadgeView()
+        view.configure(SidebarPullRequestBadge(count: 1, status: .merged))
+        #expect(view.intrinsicContentSize.width == glyph, "the glyph's width only, the row's other icons' size")
+
+        // A row view is reused: one, several, one, several.
+        for (count, drawsCount) in [(2, true), (1, false), (3, true)] {
+            view.configure(SidebarPullRequestBadge(count: count, status: .failing))
+            let size = view.intrinsicContentSize
+            view.frame = NSRect(origin: .zero, size: size)
+            view.layoutSubtreeIfNeeded()
+            let label = view.subviews.compactMap { $0 as? ChromeLabel }.first
+            #expect((size.width > glyph) == drawsCount, "\(count) pull requests: the count shows only above one")
+            #expect((label?.isHidden == false && (label?.frame.width ?? 0) > 0) == drawsCount, "its label is laid out only then")
+        }
     }
 
     @Test func theBadgeReadsRunOnlyWhileSomeRowShowsPullRequests() {

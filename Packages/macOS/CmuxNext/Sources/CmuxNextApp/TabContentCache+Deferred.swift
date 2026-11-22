@@ -11,10 +11,10 @@ extension TabContentCache {
     func deferred(_ tab: TabModel, url: URL?) -> BrowserEntry {
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.title.isEmpty ? nil : tab.title)
+        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.titleText.isEmpty ? nil : tab.titleText)
         page.onStart = { [weak self] url in self?.startDeferred(key, url: url) }
         let entry = install(page, for: key)
-        entry.chrome.showNotice(CrashStrings.crashedPageNotice)
+        entry.state.showNotice(CrashStrings.crashedPageNotice)
         return entry
     }
 
@@ -44,15 +44,15 @@ extension TabContentCache {
         Self.unavailableLogger.notice("tab \(key, privacy: .public) waits: Chromium unavailable (\(reason.code, privacy: .public)); its page is not loaded in WebKit")
         // The tab's own profile: an incognito tab's URL must not show in another profile's suggestions.
         let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: .cef, profile: browserProfile?(key) ?? .default,
-                                      url: url, title: tab.title.isEmpty ? nil : tab.title)
+                                      url: url, title: tab.titleText.isEmpty ? nil : tab.titleText)
         let entry = install(page, for: key)
         // The tab the page shows when Reload is pressed: a stand-in's page moves to its daemon tab
         // (`moveBrowser`), which rebinds the chrome's key but not this closure.
         // A plain Reload starts on the page it shows; only another address was typed.
         page.onStart = { [weak self, weak entry] requested in
-            self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, shown: requested, typed: requested != url)
+            self?.retryChromium(entry?.state.tabKey ?? key, shown: requested, typed: requested != url)
         }
-        entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
+        entry.state.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
 

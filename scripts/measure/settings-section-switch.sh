@@ -6,9 +6,15 @@
 # new section complete, and the runs. Run alone on a worker, once per commit to compare:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/settings-section-switch.sh --ref SHA
 # CMUX_SETTINGS_SWITCH_RUNS: runs per action and engine (default 40).
+# It drives Playwright's engines, so it never runs on a Mac (Lawrence's rule, 2026-11-02: no Playwright,
+# Puppeteer or downloaded Chromium on his Mac or a fleet Mac); run it on a Linux cloud VM.
 set -euo pipefail
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  echo "settings-section-switch.sh: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM" >&2
+  exit 1
+fi
 cd "$(git rev-parse --show-toplevel)"
-bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)"
 bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
 if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ] && [ -x "$bun_dir/bun" ]; then
   export PATH="$bun_dir:$PATH"
@@ -17,9 +23,14 @@ cd webviews
 bun install --frozen-lockfile
 playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
 export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
-./node_modules/.bin/playwright install --only-shell chromium webkit
+./node_modules/.bin/playwright install webkit && ../scripts/ci/ensure-system-chrome.sh
 echo "host: $(hostname) sha: $(git rev-parse HEAD) bun: $(bun --version)"
-out="$(mktemp -d)/settings-switch.json"
+scratch="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+out="$scratch/settings-switch.json"
 bun scripts/latency/run.ts --page settings --runs "${CMUX_SETTINGS_SWITCH_RUNS:-40}" --no-fail --json "$out"
 python3 -I - "$out" <<'PY'
 import json, sys

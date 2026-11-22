@@ -65,6 +65,10 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const HEALTHY_RUN: Duration = Duration::from_secs(60);
 /// How long daemon shutdown waits for the brains to end after SIGTERM.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// A brain's `host.log` larger than this at a launch moves to `host.log.1`
+/// (replacing the one before), so the log of a brain that runs for months
+/// stays at most twice this size.
+const HOST_LOG_ROTATE_BYTES: u64 = 8 << 20;
 
 /// `CMUX_TUI_CHIEF_BRAINS`.
 #[derive(Debug, Clone, Deserialize)]
@@ -171,11 +175,9 @@ pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
 /// has its own, the default Chief's). A home whose socket does not fit
 /// starts no brain.
 const LONGEST_SOCKET: &str = "optchat/tools.sock";
-/// The longest Unix socket path, in bytes (macOS sun_path less the NUL).
-const MAX_SOCKET_PATH: usize = 103;
 
 fn sockets_fit(mux_home: &Path) -> bool {
-    mux_home.join(LONGEST_SOCKET).as_os_str().len() <= MAX_SOCKET_PATH
+    mux_home.join(LONGEST_SOCKET).as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
 }
 
 /// The brain's whole environment (the brain starts from an empty one): the
@@ -259,7 +261,10 @@ pub fn brain_environment(
             put(key, value);
         }
     }
-    for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL"] {
+    // CMUX_BUILD_SPACE: the owner's cloud build space (cmux-build-space), as the app passed it,
+    // `unusable` included: the brain, its acpmux and the `cmux` its turns run then call cmux
+    // Cloud only in this build's space, never nightly's.
+    for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "CMUX_BUILD_SPACE"] {
         if let Some(value) = inherited(key) {
             put(key, value);
         }
@@ -342,6 +347,12 @@ pub(crate) struct Slot {
     /// The supervisor stopped ([`ChiefBrains::stop`]): no signal waits for
     /// it any more, and a new Chief's brain is answered at once.
     stopped: std::sync::atomic::AtomicBool,
+    /// Signals sent (or kept in `early`) that the supervisor has not handled
+    /// yet, apart from `Exited` and `Shutdown`: each may start a brain.
+    queued: std::sync::atomic::AtomicUsize,
+    /// Brains with a process, or waiting in their restart backoff, as the
+    /// supervisor last counted them.
+    live: std::sync::atomic::AtomicUsize,
 }
 
 /// What happened to a new Chief's brain (`chief.profile.create` and
@@ -390,17 +401,55 @@ impl BrainPending {
 const EARLY_MAX: usize = 256;
 
 impl Slot {
+    /// What keeps an app's Chief owner here (server/owner_keepers.rs): its
+    /// brains that run or wait for their restart, and the signals that may
+    /// start one and wait for the supervisor. A brain is a client of the
+    /// owner only while its link is up, and the owner's stop ends every
+    /// brain (cutting a turn), so a link gap, a start or a backoff must not
+    /// let the owner stop. 0 once the supervisor stopped.
+    pub(crate) fn kept(&self) -> usize {
+        use std::sync::atomic::Ordering;
+        if self.stopped.load(Ordering::Acquire) {
+            return 0;
+        }
+        self.queued.load(Ordering::Acquire).saturating_add(self.live.load(Ordering::Acquire))
+    }
+
+    /// Sends `signal` on `sender`, counted in [`Self::kept`] until the
+    /// supervisor handled it; false when the supervisor is gone.
+    fn queue(&self, sender: &mpsc::Sender<Signal>, signal: Signal) -> bool {
+        use std::sync::atomic::Ordering;
+        self.queued.fetch_add(1, Ordering::AcqRel);
+        if sender.send(signal).is_ok() {
+            return true;
+        }
+        self.handled();
+        false
+    }
+
+    /// Keeps `signal` until the supervisor starts, counted as [`Self::queue`] does.
+    fn keep_early(&self, early: &mut Vec<Signal>, signal: Signal) {
+        self.queued.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        early.push(signal);
+    }
+
+    /// One counted signal was handled (or never reached the supervisor).
+    fn handled(&self) {
+        use std::sync::atomic::Ordering;
+        let _ = self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
+    }
+
     fn send(&self, signal: Signal) {
         if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
-            let _ = sender.send(signal);
+            self.queue(sender, signal);
         } else if taken().is_some() {
             let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
             if early.len() < EARLY_MAX {
-                early.push(signal);
+                self.keep_early(&mut early, signal);
             }
         }
     }
@@ -435,7 +484,7 @@ impl Slot {
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let (reply, answer) = mpsc::channel();
-            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            let sent = self.queue(sender, Signal::Control(chief.to_owned(), Some(reply)));
             return sent.then_some(answer);
         }
         drop(sender);
@@ -463,7 +512,7 @@ impl Slot {
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let (reply, answer) = mpsc::channel();
-            if sender.send(Signal::Created(Box::new(record.clone()), Some(reply))).is_ok() {
+            if self.queue(sender, Signal::Created(Box::new(record.clone()), Some(reply))) {
                 return Some(BrainPending::Wait(answer));
             }
             return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
@@ -480,7 +529,7 @@ impl Slot {
         // are bounded by MAX_CHIEFS), so its brain is never dropped.
         let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
         let (reply, answer) = mpsc::channel();
-        early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
+        self.keep_early(&mut early, Signal::Created(Box::new(record.clone()), Some(reply)));
         drop(early);
         drop(sender);
         Some(BrainPending::Wait(answer))
@@ -517,7 +566,16 @@ impl ChiefBrains {
 /// Starts the supervisor for `mux`, whose clients connect on `socket`, when
 /// `CMUX_TUI_CHIEF_BRAINS` is set; `None` otherwise.
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
-    let config = config()?;
+    let Some(config) = config() else {
+        // No supervisor will run: what waited for one keeps no owner.
+        let slot = &mux.chiefs().brains;
+        let dropped =
+            std::mem::take(&mut *slot.early.lock().unwrap_or_else(PoisonError::into_inner));
+        for _ in dropped {
+            slot.handled();
+        }
+        return None;
+    };
     // Tests only (a debug build): hold the install until the test opens this
     // FIFO for writing, so a create made before it is proven to wait for the
     // supervisor's answer (tests/cli/chief_brains.rs). Opening a FIFO for
@@ -531,7 +589,10 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         let slot = &mux.chiefs().brains;
         let mut installed = slot.sender.lock().unwrap_or_else(PoisonError::into_inner);
         for early in slot.early.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
-            let _ = sender.send(early);
+            // Counted when it was kept (`keep_early`).
+            if sender.send(early).is_err() {
+                slot.handled();
+            }
         }
         *installed = Some(sender.clone());
     }
@@ -709,10 +770,37 @@ impl Supervisor {
                     let _ = done.send(());
                     return;
                 }
-                Some(signal) => self.handle(signal),
-                None => {}
+                Some(signal) => {
+                    let counted = !matches!(signal, Signal::Exited { .. });
+                    self.handle(signal);
+                    self.on_time();
+                    self.publish_kept(counted);
+                }
+                None => {
+                    self.on_time();
+                    self.publish_kept(false);
+                }
             }
-            self.on_time();
+        }
+    }
+
+    /// Publishes what keeps the owner ([`Slot::kept`]) after a signal or a
+    /// deadline: the brains with a process or a pending restart, and, when
+    /// `counted`, one queued signal fewer. The owner's keepers watch reads
+    /// it again when it changed (its client presence wake).
+    fn publish_kept(&self, counted: bool) {
+        use std::sync::atomic::Ordering;
+        let Some(mux) = self.mux.upgrade() else { return };
+        let slot = &mux.chiefs().brains;
+        let live =
+            self.brains.values().filter(|b| b.process.is_some() || b.retry_at.is_some()).count();
+        let before = slot.kept();
+        slot.live.store(live, Ordering::Release);
+        if counted {
+            slot.handled();
+        }
+        if slot.kept() != before {
+            mux.control_clients.notify_client_presence();
         }
     }
 
@@ -720,7 +808,12 @@ impl Supervisor {
         self.brains
             .values()
             .flat_map(|b| {
-                let idle = (b.process.is_some() && !b.stopping).then_some(b.last_activity + IDLE);
+                // The same test as `on_time`'s idle stop: a typing brain is
+                // not stopped, so its idle deadline would stay in the past
+                // and the thread would wait zero, again and again. The end of
+                // its typing sets `last_activity`, from which the stop counts.
+                let idle = (b.process.is_some() && !b.stopping && b.typing.is_empty())
+                    .then_some(b.last_activity + IDLE);
                 [b.retry_at, idle]
             })
             .flatten()
@@ -994,11 +1087,7 @@ impl Supervisor {
             .open(&token_file)?;
         file.write_all(token.as_bytes())?;
         drop(file);
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(mux_home.join("host.log"))?;
+        let log = open_host_log(&mux_home.join("host.log"))?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = std::process::Command::new(&self.config.executable);
         command
@@ -1148,17 +1237,24 @@ fn wait_exited(pid: u32) -> bool {
 fn lock_held(lock: &Path) -> bool {
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd;
         let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
-        // SAFETY: flock on a descriptor this function owns; it is released
-        // when `file` drops.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+        lock_held_on(file)
     }
     #[cfg(not(unix))]
     {
         let _ = lock;
         false
     }
+}
+
+/// [`lock_held`] on the lock file opened as `file`.
+/// The look never leaves a lock behind (a brain that starts meanwhile must find its lock free,
+/// also while a child the server forked meanwhile has this descriptor). A look that fails reads
+/// as held, as before.
+#[cfg(unix)]
+fn lock_held_on(file: std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    FileLock::held_elsewhere(&file, Kind::Exclusive).unwrap_or(true)
 }
 
 /// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the
@@ -1309,3 +1405,126 @@ mod record_engine_tests {
         assert_eq!(record_engine_env(&full).len(), 3);
     }
 }
+
+#[cfg(test)]
+mod supervisor_idle_tests {
+    use super::*;
+
+    fn supervisor() -> Supervisor {
+        let (sender, _) = mpsc::channel();
+        Supervisor {
+            mux: Weak::new(),
+            socket: PathBuf::new(),
+            config: BrainsConfig {
+                executable: PathBuf::new(),
+                home: PathBuf::new(),
+                app: AppValues::default(),
+            },
+            brains: BTreeMap::new(),
+            sender,
+        }
+    }
+
+    /// A running brain still typing past the idle stop is not stopped
+    /// (`on_time` waits for its turn to end), so its idle deadline must not
+    /// stay in the past: the supervisor thread waited zero, found nothing to
+    /// do and ran again, a core at 100% in the app's headless owner for as
+    /// long as the turn kept its typing on.
+    #[test]
+    fn a_brain_typing_past_the_idle_stop_leaves_no_past_deadline() {
+        let now = Instant::now();
+        let Some(long_ago) = now.checked_sub(IDLE + Duration::from_secs(60)) else { return };
+        let mut supervisor = supervisor();
+        let mut brain = Brain::new();
+        // Reaped: the test's terminate (if any) signals nothing.
+        brain.process = Some(Process { pid: 0, reaped: Arc::new(Mutex::new(true)) });
+        brain.last_activity = long_ago;
+        brain.typing.insert("conversation".into());
+        supervisor.brains.insert("chief".into(), brain);
+
+        supervisor.on_time();
+        let brain = &supervisor.brains["chief"];
+        assert!(!brain.stopping, "a typing brain is not stopped for idleness");
+        assert!(
+            supervisor.next_deadline().is_none_or(|at| at > now),
+            "the supervisor's next wait is zero: it would spin"
+        );
+
+        // The turn ends: the idle stop counts from then.
+        supervisor.handle(Signal::Typing {
+            conversation: "conversation".into(),
+            participant: "chief".into(),
+            on: false,
+        });
+        let deadline = supervisor.next_deadline().expect("an idle brain has its stop due");
+        assert!(deadline >= now + IDLE - Duration::from_secs(1));
+    }
+}
+
+/// Opens a brain's log for appending, first moving a log over
+/// [`HOST_LOG_ROTATE_BYTES`] to `<log>.1`.
+#[cfg(unix)]
+fn open_host_log(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > HOST_LOG_ROTATE_BYTES) {
+        let mut kept = path.as_os_str().to_owned();
+        kept.push(".1");
+        // A failed move keeps appending to the old log: the launch matters more.
+        let _ = std::fs::rename(path, PathBuf::from(kept));
+    }
+    std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)
+}
+
+#[cfg(all(test, unix))]
+mod host_log_tests {
+    use super::*;
+
+    /// A brain's log does not grow for the brain's whole life: a launch moves a log over the
+    /// limit aside (one older log kept) and starts a new one.
+    #[test]
+    fn a_launch_rotates_a_host_log_over_the_limit() {
+        let dir = std::env::temp_dir().join(format!("cmux-chief-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("host.log");
+        let limit = usize::try_from(HOST_LOG_ROTATE_BYTES).unwrap();
+        std::fs::write(&log, vec![b'x'; limit + 1]).unwrap();
+        drop(open_host_log(&log).unwrap());
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 0, "a new log starts");
+        let kept = dir.join("host.log.1");
+        assert_eq!(std::fs::metadata(&kept).unwrap().len(), HOST_LOG_ROTATE_BYTES + 1);
+
+        // A log under the limit is appended to.
+        std::fs::write(&log, b"small").unwrap();
+        use std::io::Write as _;
+        open_host_log(&log).unwrap().write_all(b" more").unwrap();
+        assert_eq!(std::fs::read(&log).unwrap(), b"small more");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod lock_probe_tests {
+    use super::*;
+
+    /// A look at a free brain lock leaves it free, also while a child the server forked
+    /// meanwhile has the look's descriptor: else a brain that starts then exits as a second
+    /// brain, and the next look reports a brain that is not there.
+    #[test]
+    fn a_look_at_a_free_brain_lock_leaves_it_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("chief_brains");
+        let lock = dir.path().join("host.lock");
+        std::fs::write(&lock, b"").unwrap();
+        let look = std::fs::File::open(&lock).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        let held = lock_held_on(look);
+        let free = crate::fork_tests::free(&lock);
+        drop(keeper);
+        assert!(!held, "a free brain lock read as held");
+        assert!(free, "the look left the brain lock held");
+    }
+}
+
+#[cfg(test)]
+#[path = "chief_brains_brain_environment_tests.rs"]
+mod brain_environment_tests;

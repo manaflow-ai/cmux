@@ -33,7 +33,7 @@ struct IncognitoSpaceTests {
         let window = services.windows.newIncognitoWindow(space: space)
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == space, "a window still being created lost its space")
-        services.windows.pendingClaims = services.windows.pendingClaims.filter { $0.value != window }
+        services.windows.claims.pending = services.windows.claims.pending.filter { $0.value != window }
         services.windows.pendingEphemeralWindows.removeAll { $0 == window }
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == nil)

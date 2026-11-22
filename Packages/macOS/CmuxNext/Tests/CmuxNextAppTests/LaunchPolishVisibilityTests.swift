@@ -4,23 +4,24 @@ import CmuxNextActions
 import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextSettings
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
 
 @MainActor
 struct LaunchPolishVisibilityTests {
-    @Test func appStoreStaysInStoredLayoutButIsFilteredWhenPreviewFeaturesAreOff() {
+    /// The stored layout keeps the App Store; with Labs off its item info hides it (AppStoreHiddenUntilReadyTests).
+    @Test func appStoreIsDrawnFromTheStoredLayout() {
         let stored = SidebarLayoutDocument.defaults
-        let hidden = SidebarRows.visibleLayout(stored, showAppStore: false)
         #expect(stored.firstItem(with: .app("cmux/app-store")) != nil)
-        #expect(hidden.firstItem(with: .app("cmux/app-store")) == nil)
-        #expect(SidebarRows.visibleLayout(stored, showAppStore: true) == stored.withoutChats)
+        #expect(SidebarRows.visibleLayout(stored) == stored.withoutChats)
+        #expect(SidebarRows.visibleLayout(stored).firstItem(with: .app("cmux/app-store")) != nil)
     }
     @Test func whatsNewCardShowsAfterAnUpdateWithPreviewsOffByDefault() async throws {
         // User 13935: What's New shows after every update, no Labs gate; a Settings toggle turns it off.
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
         let settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -34,7 +35,7 @@ struct LaunchPolishVisibilityTests {
 
     @Test func whatsNewCardHidesWhenTheSettingIsTurnedOffAndKeepsTheUpdate() async throws {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
         var settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -46,12 +47,17 @@ struct LaunchPolishVisibilityTests {
         #expect(center.isUpdated, "hiding the card preserves the update")
     }
 
-    /// Leo 2026-10-29: "why the fuck does See What's New not fucking open the What's New tab
-    /// anymore?" What's New shows with Labs off (user 13935), so its page is no Labs preview:
-    /// with it gated the tab, top page and strip all answered nil and nothing opened.
-    @Test func whatsNewPageIsNotALabsPreviewPageButTheAppStoreIs() {
-        #expect(!InternalPageTabStore.isPreviewPage(InternalPageID.changelog.rawValue))
-        #expect(InternalPageTabStore.isPreviewPage(InternalPageID.appStore.rawValue))
+    /// Leo 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
+    /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES". The palette's and Help menu's What's New
+    /// (`updates.whatsNew`) is available with Labs off, the default; the App Store is a Labs preview until it is ready.
+    @Test func whatsNewActionIsAvailableWithLabsOff() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        #expect(services.settings?.snapshot.previewFeatures != true)
+        #expect(services.registry.unavailableReason(for: "updates.whatsNew") == nil,
+                "What's New in the palette and Help menu is still behind Labs")
+        #expect(services.registry.settingOffReason("appStore.show") != nil, "the App Store shows with Labs off")
     }
 
     /// The update this launch came from, as the old build recorded it.
@@ -64,17 +70,17 @@ struct LaunchPolishVisibilityTests {
         updater.whatsNew.lastUpdate = lastUpdate
         var spans: [[String]] = [], plain = 0
         updater.openChangelog = { plain += 1; return true }
-        updater.openChangelogSpan = { from, to in spans.append([from, to]); return true }
+        updater.openChangelogSpan = { from, to, _ in spans.append([from, to]); return true }
         return { (spans, plain) }
     }
 
     /// The "cmux Updated!" card's See What's New opens the changelog for the update's span
     /// through the updater, as the update island's does, not through the palette's
-    /// `updates.whatsNew` (a Labs entry, unavailable with Labs off, which left the card's
-    /// button doing nothing).
+    /// `updates.whatsNew` (a Labs entry until 2026-10-30, unavailable with Labs off then, which left
+    /// the card's button doing nothing).
     @Test func updatedCardSeeWhatsNewOpensTheUpdatesSpanWithoutThePaletteAction() throws {
         let suite = "launch-polish-see-whats-new-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.see-whats-new", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
@@ -104,6 +110,6 @@ struct LaunchPolishVisibilityTests {
 
     /// The span the opener gets becomes the changelog tab's route (`#/?from=&to=`).
     @Test func theUpdatesSpanIsTheChangelogTabsRoute() {
-        #expect(ChangelogPageTab.route(from: "0.9.0", to: "1.0.0") == "#/?from=0.9.0&to=1.0.0")
+        #expect(WhatsNewDesign.sheet.changelogRoute(from: "0.9.0", to: "1.0.0") == "#/?from=0.9.0&to=1.0.0")
     }
 }

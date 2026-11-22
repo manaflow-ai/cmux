@@ -27,6 +27,18 @@ import { runChild } from "./helpers/run-child";
 
 const SCRIPT = path.join(import.meta.dirname, "../services/vms/hygiene/cmux-machine-hygiene");
 const DAY_S = 24 * 60 * 60;
+// A fixture repository's git ignores the person's config and runs no automatic maintenance:
+// a commit can otherwise start a detached `git maintenance` whose lock files come and go
+// under .git while age() walks the tree, and age() then fails on a lock that is gone.
+const QUIET_GIT = {
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "maintenance.auto",
+  GIT_CONFIG_VALUE_0: "false",
+  GIT_CONFIG_KEY_1: "gc.auto",
+  GIT_CONFIG_VALUE_1: "0",
+};
 
 setDefaultTimeout(30_000);
 
@@ -252,7 +264,7 @@ describe("cmux-machine-hygiene", () => {
     const git = (args: string[]) =>
       runChild("git", args, {
         cwd: repo,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: m.home },
+        env: { ...process.env, ...QUIET_GIT, HOME: m.home },
       });
     mkdirSync(repo, { recursive: true });
     await git(["init", "-q", "-b", "main"]);
@@ -314,7 +326,7 @@ describe("cmux-machine-hygiene", () => {
     const git = (args: string[]) =>
       runChild("git", args, {
         cwd: repo,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: m.home },
+        env: { ...process.env, ...QUIET_GIT, HOME: m.home },
       });
     await git(["init", "-q", "-b", "main"]);
     await git(["add", "-f", "package.json", "node_modules/patched/index.js"]);

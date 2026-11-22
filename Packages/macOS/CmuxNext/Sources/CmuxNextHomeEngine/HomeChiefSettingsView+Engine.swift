@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The card's engine rows (`HomeChiefSettingsView`): reading the brain's engine, writing a pick,
@@ -263,7 +263,7 @@ extension HomeChiefSettingsView {
         return value == runs
     }
 
-    /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
+    /// The hint under the Harness row: only UniiChat's (sign in with `cmux harness login unii` first), since
     /// the other engines' sign-in is the brain host's own (a cloud Chief's runs on its server).
     func showHarnessHint() {
         guard source.choosesHarness else { return }

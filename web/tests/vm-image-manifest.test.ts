@@ -371,7 +371,7 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     // Regression: a schema-1 record carries no Dockerfile instruction hash,
     // so the checkout's instructions must equal those at repoCommit before
     // schema 2 may claim them; an unavailable commit is not proof either.
-    const bakedDockerfile = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const bakedDockerfile = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(bakedDockerfile).not.toBe(dockerfile);
     const changed = upgradeDevboxSourceRecords(manifestOf(recorded("base")), { dockerfileAt: () => bakedDockerfile });
     expect(changed.upgraded).toEqual([]);

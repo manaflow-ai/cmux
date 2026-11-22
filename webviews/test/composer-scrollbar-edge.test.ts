@@ -19,6 +19,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -60,33 +61,41 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width, height: 420 } });
       await page.goto(stageURL("long-draft"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-box .acpmux-md-field").waitFor();
-      const drawn = await page.evaluate(() => {
-        const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-        const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;
-        const fieldRect = field.getBoundingClientRect();
-        const text = field.querySelector(".ProseMirror")!.getBoundingClientRect();
-        const actions = [
-          ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
-        ].filter((button) => button.offsetWidth > 0);
-        const left = Math.min(...actions.map((button) => button.getBoundingClientRect().left));
-        const unreachable = actions
-          .filter((button) => {
-            const rect = button.getBoundingClientRect();
-            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-            return !hit || !(hit === button || button.contains(hit));
-          })
-          .map((button) => button.getAttribute("aria-label") ?? button.className);
-        return {
-          overflows: field.scrollHeight > field.clientHeight + 1,
-          // The lane sits 2 px inside the box's hairline rim (composerLocation.css).
-          laneOnBoxEdge: Math.abs(box.right - 2 - fieldRect.right) <= 1,
-          gap: Math.round(box.right - fieldRect.right),
-          textClearOfActions: text.right <= left + 0.5,
-          actions: actions.length,
-          unreachable,
-        };
+      await page.evaluate(async () => {
+        const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
+        const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+        setPreviewComposerLook("claude");
       });
+      await page.locator('.acpmux-composer:not([data-composer-look="codex"]) .acpmux-md-field').waitFor();
+      const drawn = await page.evaluate(
+        ({ COMPOSER_MD_FIELD }) => {
+          const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+          const field = document.querySelector<HTMLElement>(COMPOSER_MD_FIELD)!;
+          const fieldRect = field.getBoundingClientRect();
+          const text = field.querySelector(".ProseMirror")!.getBoundingClientRect();
+          const actions = [
+            ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
+          ].filter((button) => button.offsetWidth > 0);
+          const left = Math.min(...actions.map((button) => button.getBoundingClientRect().left));
+          const unreachable = actions
+            .filter((button) => {
+              const rect = button.getBoundingClientRect();
+              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              return !hit || !(hit === button || button.contains(hit));
+            })
+            .map((button) => button.getAttribute("aria-label") ?? button.className);
+          return {
+            overflows: field.scrollHeight > field.clientHeight + 1,
+            // The lane sits 2 px inside the box's hairline rim (composerLocation.css).
+            laneOnBoxEdge: Math.abs(box.right - 2 - fieldRect.right) <= 1,
+            gap: Math.round(box.right - fieldRect.right),
+            textClearOfActions: text.right <= left + 0.5,
+            actions: actions.length,
+            unreachable,
+          };
+        },
+        { COMPOSER_MD_FIELD },
+      );
       await page.close();
       expect(drawn.actions).toBeGreaterThanOrEqual(1);
       expect({
@@ -101,26 +110,32 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
   /// thumb moves between them (the box's rim and rounded corner stay), so the lowest row that differs
   /// is the bottom of the thumb at its end.
   async function thumbEnd(page: Page) {
-    const geometry = await page.evaluate(() => {
-      const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;
-      const rect = field.getBoundingClientRect();
-      const send = [
-        ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
-      ].filter((button) => button.offsetWidth > 0);
-      const top = Math.min(...send.map((button) => button.getBoundingClientRect().top));
-      return {
-        x: Math.round(rect.right - 4),
-        top: Math.round(rect.top),
-        bottom: Math.round(rect.bottom),
-        sendTop: top,
-      };
-    });
+    const geometry = await page.evaluate(
+      ({ COMPOSER_MD_FIELD }) => {
+        const field = document.querySelector<HTMLElement>(COMPOSER_MD_FIELD)!;
+        const rect = field.getBoundingClientRect();
+        const send = [
+          ...document.querySelectorAll<HTMLElement>(".acpmux-composer-box .acpmux-composer-actions button"),
+        ].filter((button) => button.offsetWidth > 0);
+        const top = Math.min(...send.map((button) => button.getBoundingClientRect().top));
+        return {
+          x: Math.round(rect.right - 4),
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          sendTop: top,
+        };
+      },
+      { COMPOSER_MD_FIELD },
+    );
     const column = async (to: "start" | "end") => {
-      await page.evaluate((to) => {
-        const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;
-        field.scrollTop = to === "end" ? field.scrollHeight : 0;
-        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      }, to);
+      await page.evaluate(
+        ({ to, COMPOSER_MD_FIELD }) => {
+          const field = document.querySelector<HTMLElement>(COMPOSER_MD_FIELD)!;
+          field.scrollTop = to === "end" ? field.scrollHeight : 0;
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        },
+        { to, COMPOSER_MD_FIELD },
+      );
       return PNG.sync.read(
         await page.screenshot({
           clip: { x: geometry.x, y: geometry.top, width: 1, height: geometry.bottom - geometry.top },
@@ -146,7 +161,7 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 420 } });
       await page.goto(stageURL(variant, PLACEMENTS));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-box .acpmux-md-field").waitFor();
+      await page.locator(COMPOSER_MD_FIELD).waitFor();
       const end = await thumbEnd(page);
       await page.close();
       expect(end.thumbBottom).toBeDefined();

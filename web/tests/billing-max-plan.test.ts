@@ -11,7 +11,7 @@ import {
   syncProPlanMetadata,
 } from "../services/billing/pro";
 import { personalPlanIdForSubscription } from "../services/billing/purchase";
-import { MAX_PRICING_USD } from "../services/billing/plans";
+import { GO_PRICING_USD, MAX_PRICING_USD } from "../services/billing/plans";
 import { resolveVmEntitlements, maxMemoryMbForPlan } from "../services/vms/entitlements";
 
 const lease = { refresh: async () => undefined } as never;
@@ -25,13 +25,17 @@ describe("Max as a personal plan", () => {
       items: { data: [{ price: { lookup_key: "cmux-go-monthly-10" } }] },
       metadata: {},
     } as never)).toBe(GO_PLAN_ID);
+    expect(personalPlanIdForSubscription({
+      items: { data: [{ price: { lookup_key: GO_PRICING_USD.month.lookupKey } }] },
+      metadata: {},
+    } as never)).toBe(GO_PLAN_ID);
   });
-  test("a personal Max plan unlocks large machines in a Team without changing its seat limit", () => {
+  test("a personal Max plan unlocks large machines in a Team, and seats size no machine count", () => {
     const user = { update: async () => undefined, id: "user-max", isAnonymous: false, billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "team", billingSeats: 3, userBillingPlanId: "max", teams: [{ id: "team-1", billingPlanId: "team", billingSeats: 3 }] } as never;
     for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {
       const result = resolveVmEntitlements(user, {}, options);
       expect(result.planId).toBe("max");
-      expect(result.maxActiveVms).toBe(15);
+      expect(result.maxActiveVms).toBe(200);
       expect(result.billingTeamId).toBe("team-1");
     }
   });

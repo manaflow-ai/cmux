@@ -39,7 +39,7 @@ const mayRevoke = (principal: Principal, keyId: ApiKeyId, createdBy: string) =>
     if (principal.scopes.has("admin")) return true;
     if (principal.actor.kind !== "session") return false;
     const teamAdmin = yield* TeamAdmin;
-    return yield* teamAdmin.isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(() => unavailable()));
+    return yield* teamAdmin.isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(unavailable));
   });
 
 export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handlers) =>
@@ -93,7 +93,7 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
                 agent: { labels, maxVms, maxUsdPerHour },
               })
               .pipe(
-                Effect.mapError(() => unavailable()),
+                Effect.mapError(unavailable),
                 Effect.as(
                   new CreatedAgentKey({
                     id,
@@ -125,10 +125,10 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
           "agentkey.revoke",
           keyId,
           Effect.gen(function* () {
-            const row = yield* agents.findAgentKey(principal.tenantId, keyId).pipe(Effect.mapError(() => unavailable()));
+            const row = yield* agents.findAgentKey(principal.tenantId, keyId).pipe(Effect.mapError(unavailable));
             if (row === null || !(yield* mayRevoke(principal, keyId, row.createdBy))) return yield* Effect.fail(keyNotFound());
             const now = new Date(yield* Clock.currentTimeMillis);
-            yield* agents.revokeAgentKey(principal.tenantId, keyId, now).pipe(Effect.mapError(() => unavailable()));
+            yield* agents.revokeAgentKey(principal.tenantId, keyId, now).pipe(Effect.mapError(unavailable));
             // Best effort now; whatever is left (a failed delete, a lost response) the reaper finishes.
             yield* cleanupAgentKey({ ...row, revokedAt: row.revokedAt ?? now }).pipe(Effect.ignore);
           }),
@@ -146,7 +146,7 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
             const linuxUser = payload.linuxUser ?? DEFAULT_LINUX_USER;
             const grant = yield* upstream
               .openClientSession(vm, proofs, linuxUser)
-              .pipe(Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())));
+              .pipe(Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable(error))));
             const id = newClientSessionId();
             const createdAt = new Date(yield* Clock.currentTimeMillis);
             yield* agents
@@ -163,7 +163,7 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
               .pipe(
                 // An unrecorded identity could never be revoked: delete it before answering.
                 Effect.tapError(() => upstream.deleteIdentity(grant.upstreamIdentityId).pipe(Effect.ignore)),
-                Effect.mapError(() => unavailable()),
+                Effect.mapError(unavailable),
               );
             return new ClientSession({
               id,
@@ -183,7 +183,7 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
       withOwnedVm(path.vmId, "vm:exec", "exec", (caller, vm) =>
         Effect.gen(function* () {
           const agents = yield* AgentStore;
-          const rows = yield* agents.liveClientSessions(TenantId.make(caller.value.tenantId), vm.value).pipe(Effect.mapError(() => unavailable()));
+          const rows = yield* agents.liveClientSessions(TenantId.make(caller.value.tenantId), vm.value).pipe(Effect.mapError(unavailable));
           return new ClientSessionList({
             sessions: rows.map((row) => new ClientSessionSummary({ id: row.id, vmId: vm.value, linuxUser: row.linuxUser, createdAt: row.createdAt.toISOString() })),
           });
@@ -201,12 +201,12 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
             const agents = yield* AgentStore;
             const upstream = yield* UpstreamClient;
             const tenantId = TenantId.make(caller.value.tenantId);
-            const row = yield* agents.findClientSession(tenantId, vm.value, parsed.value).pipe(Effect.mapError(() => unavailable()));
+            const row = yield* agents.findClientSession(tenantId, vm.value, parsed.value).pipe(Effect.mapError(unavailable));
             if (row === null) return yield* Effect.fail(sessionNotFound());
             if (row.revokedAt !== null) return;
-            yield* upstream.deleteIdentity(row.upstreamIdentityId).pipe(Effect.mapError(() => unavailable()));
+            yield* upstream.deleteIdentity(row.upstreamIdentityId).pipe(Effect.mapError(unavailable));
             const at = new Date(yield* Clock.currentTimeMillis);
-            yield* agents.markClientSessionRevoked(tenantId, row.id, at).pipe(Effect.mapError(() => unavailable()));
+            yield* agents.markClientSessionRevoked(tenantId, row.id, at).pipe(Effect.mapError(unavailable));
           }),
         ),
       ),

@@ -24,6 +24,26 @@ use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
+#[cfg(test)]
+thread_local! {
+    static AGENT_PROJECTION_ROWS_READ: Cell<usize> = const { Cell::new(0) };
+    static AGENT_HOOK_FENCE_ROWS_READ: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many agent projection rows this thread has read from the registry (test hook): a test
+/// counts the rows a reader pays for, with no clock (AGENT RECORDS, 2026-11-10).
+#[cfg(test)]
+pub(crate) fn agent_projection_rows_read_on_this_thread() -> usize {
+    AGENT_PROJECTION_ROWS_READ.with(Cell::get)
+}
+
+/// How many hook fence rows (`resource_agent_hook_state`) this thread has read from the registry
+/// (test hook): each daemon start reads all of them into memory.
+#[cfg(test)]
+pub(crate) fn agent_hook_fence_rows_read_on_this_thread() -> usize {
+    AGENT_HOOK_FENCE_ROWS_READ.with(Cell::get)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryNotificationProjection {
     pub id: NotificationPublicId,
@@ -225,10 +245,20 @@ enum StoredCursorStyle {
     Underline,
 }
 
-impl WorkspaceRegistry {
+/// Reads the durable public projections on one connection: the registry's own (under its lock) or the read-only
+/// one in a read transaction (`resource_api`'s committed snapshot rows), so one code path serves both.
+pub(crate) struct ProjectionReader<'a> {
+    pub(crate) db: &'a Connection,
+    pub(crate) session_id: &'a SessionPublicId,
+}
+
+impl ProjectionReader<'_> {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove notification links, while
-    /// agent reports remain durable historical projections keyed by terminal.
+    /// writer. Missing or tombstoned terminals remove notification links. An
+    /// agent record is the current projection of a live terminal: the tombstone
+    /// of the terminal deletes it and its hook fence in the same transaction,
+    /// and the open deletes the ones older builds left, so no row read here
+    /// belongs to a closed terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -271,7 +301,7 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT public_id
              FROM resource_terminals
@@ -288,7 +318,7 @@ impl WorkspaceRegistry {
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT outcome_json, idempotency_key
              FROM resource_effect_receipts
@@ -301,35 +331,28 @@ impl WorkspaceRegistry {
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
+        let ids = StoredIds::load(db)?;
         let rows = statement
             .query_map([i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
+            .map(|row| row.map(|(outcome_json, key)| (ids.text(outcome_json), key)))
             .collect::<Result<Vec<_>, _>>()?;
         let mut reads = self.durable_notification_reads()?;
-        {
-            // Marks for notifications outside the retained window are dead
-            // weight after a restart (the in-memory prune queue did not
-            // survive). Drop them here so the table stays bounded.
-            let retained_ids = rows
-                .iter()
-                .filter_map(|(outcome_json, _)| {
-                    serde_json::from_str::<Value>(outcome_json)
-                        .ok()
-                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
-                })
-                .collect::<HashSet<String>>();
-            let stale =
-                reads.keys().filter(|id| !retained_ids.contains(*id)).cloned().collect::<Vec<_>>();
-            for id in &stale {
-                self.connection.get().execute(
-                    "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
-                    [id.as_str()],
-                )?;
-                reads.remove(id);
-            }
-        }
-        let acked = self.acked_notification_ids()?;
+        // Marks for notifications outside the retained window are dead
+        // weight; the open drops them from the table
+        // (`prune_stale_notification_reads_at_open`). A read never writes
+        // (it runs under the registry lock), so here they are only skipped.
+        let retained_ids = rows
+            .iter()
+            .filter_map(|(outcome_json, _)| {
+                serde_json::from_str::<Value>(outcome_json)
+                    .ok()
+                    .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+            })
+            .collect::<HashSet<String>>();
+        reads.retain(|id, _| retained_ids.contains(id));
+        let acked = presentation_store::acked_notification_ids_in(db)?;
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
@@ -349,7 +372,7 @@ impl WorkspaceRegistry {
                 )
             })?;
             anyhow::ensure!(
-                stored.session_id == self.session_id,
+                stored.session_id == *self.session_id,
                 "notification {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
@@ -413,7 +436,7 @@ impl WorkspaceRegistry {
     /// unique. Rows for notifications the ledger evicted are pruned at the
     /// next acknowledgement, so this stays bounded.
     fn durable_notification_reads(&self) -> anyhow::Result<HashMap<String, Vec<String>>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT notification_id, client_id
              FROM resource_notification_reads
@@ -434,7 +457,7 @@ impl WorkspaceRegistry {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "WITH selected AS MATERIALIZED (
                SELECT projection.terminal_id,
@@ -453,6 +476,8 @@ impl WorkspaceRegistry {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        AGENT_PROJECTION_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
             let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
@@ -468,7 +493,7 @@ impl WorkspaceRegistry {
                 stored.terminal_id
             );
             anyhow::ensure!(
-                stored.session_id == self.session_id,
+                stored.session_id == *self.session_id,
                 "agent {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
@@ -508,13 +533,13 @@ impl WorkspaceRegistry {
     }
 
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
-        statement
+        let rows = statement
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -524,8 +549,12 @@ impl WorkspaceRegistry {
                     row.get::<_, Option<i64>>(4)?,
                 ))
             })?
+            .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        AGENT_HOOK_FENCE_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
+        rows.into_iter()
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row?;
+                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row;
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,
@@ -543,8 +572,7 @@ impl WorkspaceRegistry {
 
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {
         let stored = self
-            .connection
-            .get()
+            .db
             .query_row(
                 "SELECT result_json, idempotency_key
                  FROM resource_mutations
@@ -596,7 +624,7 @@ impl WorkspaceRegistry {
     /// Every native frontend's projections (the resource API's own rows
     /// excluded), for the launch snapshot (`launch-snapshot-v1`).
     pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT frontend, scope, subject_key, schema_version,
                     projection_revision, payload
@@ -634,7 +662,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT frontend, scope, subject_key, schema_version,
                     projection_revision, payload
@@ -675,8 +703,8 @@ impl WorkspaceRegistry {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")
@@ -693,6 +721,58 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
+    }
+}
+
+impl WorkspaceRegistry {
+    pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }.public_projections()
+    }
+
+    pub(crate) fn public_agent_projections(
+        &self,
+        terminal: Option<&TerminalPublicId>,
+        state: Option<&str>,
+    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }
+            .public_agent_projections(terminal, state)
+    }
+
+    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }.live_terminal_public_ids()
+    }
+
+    pub(super) fn durable_notifications(
+        &self,
+        live_terminals: &HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }
+            .durable_notifications(live_terminals)
+    }
+
+    /// Read marks stored for one notification, for tests that verify pruning.
+    #[cfg(test)]
+    pub(crate) fn durable_notification_read_clients(
+        &self,
+        notification_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }
+            .durable_notification_read_clients(notification_id)
+    }
+
+    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }.native_frontend_projections()
+    }
+
+    pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &db, session_id: &self.session_id }.public_frontend_projections()
     }
 
     #[cfg(test)]
@@ -775,3 +855,32 @@ fn parse_rgb(value: &str) -> anyhow::Result<Rgb> {
 
 #[cfg(test)]
 mod tests;
+
+/// Drop the read marks of notifications outside the retained window (the
+/// newest [`NOTIFICATION_LEDGER_CAPACITY`] committed, uncleared ones, as
+/// `durable_notifications` reads them). At runtime the in-memory prune
+/// queue drops them; it does not survive a restart, so the open drops what
+/// it left. Before, every snapshot read deleted them under the registry lock.
+pub(crate) fn prune_stale_notification_reads_at_open(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM resource_notification_reads
+         WHERE notification_id NOT IN (
+           SELECT id FROM (
+             SELECT json_extract(outcome_json, '$.value.id') AS id
+             FROM resource_effect_receipts
+             WHERE operation = 'notification.create'
+               AND state = 'committed'
+               AND json_extract(outcome_json, '$.kind') = 'success'
+               AND json_extract(outcome_json, '$.value.id') NOT IN (
+                 SELECT notification_id FROM resource_notification_clears
+               )
+             ORDER BY committed_revision DESC, idempotency_key DESC
+             LIMIT ?1
+           ) WHERE id IS NOT NULL
+         )",
+        [i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?],
+    )?;
+    Ok(())
+}

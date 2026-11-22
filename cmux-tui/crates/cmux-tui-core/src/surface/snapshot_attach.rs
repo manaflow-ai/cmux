@@ -7,14 +7,13 @@
 //! reach the viewer as a new READY snapshot taken under the terminal lock, so
 //! the snapshot and the live bytes after it never overlap or leave a gap.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
 
 use super::attach_tap::SnapshotRequestHandle;
 use super::*;
-use kitty_replay_cache::KittyReplayCache;
 
 /// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
 /// attach by the viewer, no daemon setting): unacknowledged output kept for one
@@ -28,37 +27,40 @@ pub(crate) const SNAPSHOT_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis
 /// Published byte offset and grid generation of one terminal. Written only by
 /// the attach broadcasts, which run under the terminal lock; read under the
 /// same lock when a snapshot is taken.
-///
-/// It also holds the terminal's Kitty replay state for READY images, which is
-/// used under the same lock.
 #[derive(Default)]
 pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
-    kitty_replay: KittyReplayCache,
+    /// The bytes behind `offset`, for `terminal-resume-v1`.
+    pub(super) ring: resume_ring::ResumeRing,
 }
 
 impl SnapshotStreamPosition {
-    pub(super) fn add_output(&self, len: usize) {
-        self.offset.fetch_add(len as u64, Ordering::AcqRel);
+    pub(super) fn add_output(&self, output: &[u8]) {
+        self.ring.append(output);
+        self.offset.fetch_add(output.len() as u64, Ordering::AcqRel);
     }
 
     /// Account one broadcast frame: output advances the offset, a replacement
     /// of the grid (resize, host replay) starts a new generation.
     pub(super) fn observe_frame(&self, frame: &AttachFrame) {
         match frame {
-            AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => {
-                self.add_output(output.len());
+            AttachFrame::Output(output) => self.add_output(output),
+            AttachFrame::OutputWithColors { output, .. } => {
+                self.add_output(output);
+                self.ring.bump_epoch();
             }
             AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {
                 self.generation.fetch_add(1, Ordering::AcqRel);
+                self.ring.bump_epoch();
             }
-            AttachFrame::ColorsChanged(_) => {}
+            AttachFrame::ColorsChanged(_) => self.ring.bump_epoch(),
         }
     }
 
     pub(super) fn bump_generation(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.ring.bump_epoch();
     }
 
     /// `(generation, offset)`.
@@ -79,24 +81,15 @@ pub(crate) struct TerminalSnapshotFrame {
     /// The READY prefix: envelope through the READY record.
     pub data: Vec<u8>,
     /// The rest of the same COMPLETE encode: HISTORY manifests, scrollback
-    /// PAGE records and FINISH (`terminal-snapshot-history-v1`). READY plus
-    /// this is one complete snapshot taken at one cut.
+    /// PAGE records, Kitty pixel payloads and history placements, and FINISH
+    /// (`terminal-snapshot-history-v1`). READY plus this is one complete
+    /// snapshot taken at one cut, Kitty images included.
     pub history: Vec<u8>,
     pub colors: TerminalColors,
     /// Row-marker epoch and the marker of the active area's top row at the
     /// snapshot, so `terminal-history` pages line up with this READY.
     pub marker_epoch: u64,
     pub active_top_marker: u64,
-    /// The Kitty image replay at the same cut (`terminal-snapshot-images-v1`),
-    /// or `None` when the viewer did not opt in or the terminal has no images.
-    pub images: Option<Arc<SnapshotImages>>,
-}
-
-/// The Kitty image replay stream of one READY and what it holds.
-#[derive(Debug, Clone)]
-pub(crate) struct SnapshotImages {
-    pub data: Vec<u8>,
-    pub stats: ghostty_vt::KittyReplayStats,
 }
 
 /// A READY taken exactly at a resize cut for a viewer that reflows its own
@@ -146,15 +139,30 @@ pub(crate) enum SnapshotAdmission {
 struct GateState {
     last_snapshot_at: Option<Instant>,
     pending: bool,
+    /// A throttled request waits for the end of its interval: the worker
+    /// asks for its snapshot then (``SnapshotRequestGate::fire_deferred``).
+    /// A viewer whose local history did not match after a resize holds the
+    /// READY without its scrollback until this snapshot arrives, so a
+    /// throttled request is never dropped.
+    deferred_at: Option<Instant>,
 }
 
 /// Collapses duplicate snapshot requests and rate-limits them per viewer.
 /// The attach worker records every snapshot it sends ([`Self::sent`]), so a
 /// backlog or grid-change snapshot also counts toward the interval.
+/// Runs when a viewer is shown or hidden (``SnapshotRequestGate::on_visibility_change``).
+type VisibilityWaker = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct SnapshotRequestGate {
     handle: SnapshotRequestHandle,
     state: Arc<Mutex<GateState>>,
+    /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
+    /// output once per wall-clock second instead of per frame.
+    hidden: Arc<AtomicBool>,
+    /// Woken with the worker on every visibility change (the attach's notification thread holds `scroll-changed`
+    /// while hidden).
+    visibility_wakers: Arc<Mutex<Vec<VisibilityWaker>>>,
 }
 
 impl SnapshotRequestGate {
@@ -163,7 +171,29 @@ impl SnapshotRequestGate {
         Self {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
+            hidden: Arc::new(AtomicBool::new(false)),
+            visibility_wakers: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Runs `wake` on every later visibility change of this viewer.
+    pub(crate) fn on_visibility_change(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.visibility_wakers.lock().unwrap().push(Box::new(wake));
+    }
+
+    /// Whether the viewer said it does not show the terminal.
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden.load(Ordering::Acquire)
+    }
+
+    /// The viewer shows (`visible`) or no longer shows the terminal; its worker rereads it at once. Returns false
+    /// when the viewer is gone.
+    pub(crate) fn set_visible(&self, visible: bool) -> bool {
+        self.hidden.store(!visible, Ordering::Release);
+        for wake in self.visibility_wakers.lock().unwrap().iter() {
+            wake();
+        }
+        self.handle.poke()
     }
 
     pub(crate) fn request(&self, now: Instant) -> SnapshotAdmission {
@@ -175,6 +205,13 @@ impl SnapshotRequestGate {
             let next = last + SNAPSHOT_REQUEST_MIN_INTERVAL;
             if now < next {
                 let wait = next - now;
+                let first = state.deferred_at.is_none();
+                state.deferred_at = Some(next);
+                drop(state);
+                // The worker's wait takes the new deadline.
+                if first {
+                    self.handle.poke();
+                }
                 return SnapshotAdmission::Throttled {
                     retry_after_ms: wait.as_millis().max(1) as u64,
                 };
@@ -184,7 +221,31 @@ impl SnapshotRequestGate {
             return SnapshotAdmission::NotAttached;
         }
         state.pending = true;
+        state.deferred_at = None;
         SnapshotAdmission::Accepted
+    }
+
+    /// When a throttled request asks for its snapshot (the worker wakes
+    /// then), or `None` when no request waits.
+    pub(crate) fn deferred_at(&self) -> Option<Instant> {
+        self.state.lock().unwrap().deferred_at
+    }
+
+    /// Queues the snapshot of a throttled request whose interval ended by
+    /// `now`. Returns true when it queued one.
+    pub(crate) fn fire_deferred(&self, now: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        match state.deferred_at {
+            Some(at) if at <= now => {
+                state.deferred_at = None;
+                if state.pending || !self.handle.request() {
+                    return false;
+                }
+                state.pending = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The worker sent a snapshot at `now`, or tried and deferred it (a
@@ -195,6 +256,8 @@ impl SnapshotRequestGate {
         // its own snapshot, so it stays pending (later requests collapse).
         state.pending = self.handle.snapshot_pending();
         state.last_snapshot_at = Some(now);
+        // This snapshot answers a throttled request too.
+        state.deferred_at = None;
     }
 }
 
@@ -235,23 +298,18 @@ impl Surface {
     /// Take the snapshot a viewer's worker owes it and drop the queued
     /// frames it supersedes, both under the terminal lock. One COMPLETE
     /// encode at one cut gives the READY prefix and the history after it, so
-    /// the history always continues exactly that READY. `images_cap`: the
-    /// viewer gets the Kitty images too, encoded in the same lock hold (they
-    /// can change right after), with at most that many decoded pixel bytes.
+    /// the history always continues exactly that READY, Kitty images
+    /// included.
     pub(crate) fn take_viewer_snapshot(
         &self,
         receiver: &AttachFrameReceiver,
-        images_cap: Option<u64>,
     ) -> ghostty_vt::Result<TerminalSnapshotFrame> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        let cut = pty.snapshot_position.load();
-        let (generation, offset) = cut;
-        let replay = &pty.snapshot_position.kitty_replay;
-        let images = images_cap.and_then(|cap| replay.images_locked(&term, cut, cap, self.id));
+        let (generation, offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         let (cols, rows) = (term.cols(), term.rows());
@@ -273,7 +331,6 @@ impl Surface {
             colors,
             marker_epoch,
             active_top_marker,
-            images,
         })
     }
 
@@ -304,25 +361,6 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         pty.term.lock().unwrap().encode_snapshot(phase)
-    }
-
-    /// The Kitty replay of this terminal now (tests compare it with a
-    /// viewer's images chunks).
-    #[cfg(test)]
-    pub(crate) fn encode_kitty_replay_for_test(
-        &self,
-        max_image_bytes: u64,
-    ) -> ghostty_vt::Result<(Vec<u8>, ghostty_vt::KittyReplayStats)> {
-        let Some(pty) = self.as_pty() else {
-            return Err(ghostty_vt::Error::InvalidValue);
-        };
-        pty.term.lock().unwrap().encode_kitty_replay(max_image_bytes)
-    }
-
-    /// Kitty replay encodes this terminal ran for READY images (tests).
-    #[cfg(test)]
-    pub(crate) fn kitty_replay_encodes_for_test(&self) -> u64 {
-        self.as_pty().map_or(0, |pty| pty.snapshot_position.kitty_replay.encodes())
     }
 
     /// The host terminal's history check now (tests compare it with a
@@ -391,7 +429,12 @@ impl PtySurface {
     /// grid queued after every frame before the resize, at the resize's
     /// generation and offset; every other snapshot viewer gets a READY with
     /// history at a later cut, as before.
-    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
+    pub(super) fn publish_resize_locked(
+        &self,
+        term: &Terminal,
+        frame: Option<AttachFrame>,
+        windows: &pty_surface::TapWindowReplays,
+    ) {
         match &frame {
             Some(frame) => self.snapshot_position.observe_frame(frame),
             None => self.snapshot_position.bump_generation(),
@@ -408,7 +451,8 @@ impl PtySurface {
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
         let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match frame {
-            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
+            Some(frame) => taps
+                .retain(|tap| tap.try_send_resize(windows.frame_for(tap, &frame), local.as_ref())),
             None => {
                 for tap in &*taps {
                     tap.resync_snapshot_at_cut(local.as_ref());
@@ -440,16 +484,12 @@ impl PtySurface {
                 colors: self.terminal_colors_locked(term, defaults),
                 marker_epoch: term.history_marker_epoch(),
                 active_top_marker: term.active_top_marker(),
-                images: None,
             },
             history_rows: check.rows,
             history_digest: check.digest,
         }))
     }
 }
-
-#[path = "kitty_replay_cache.rs"]
-mod kitty_replay_cache;
 
 #[cfg(test)]
 #[path = "tests/snapshot_attach.rs"]

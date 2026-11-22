@@ -35,8 +35,11 @@ public final class PaletteController {
     /// of guessing it from the active window, which the palette's own
     /// `relativeTo:` and the key window can both disagree with.
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
-    /// Main-thread phases of each open, request to committed first frame
-    /// (the stall bench, `debug.timings`).
+    /// Work waiting for the palette's first open (``onFirstShow(_:)``); empty after it.
+    private var firstShowWork: [@MainActor () -> Void] = []
+    /// Work for each open (``onShows(_:)``).
+    private var showWork: [@MainActor () -> Void] = []
+    /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
     /// (a key-down), or nil when no event caused the open (CLI, socket). Read
@@ -46,6 +49,7 @@ public final class PaletteController {
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
+    let registryRows = RegistryPaletteRows() // the command rows kept across opens: an open builds only the changed ones
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []
@@ -105,6 +109,11 @@ public final class PaletteController {
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // The palette, the Settings button and `cmux settings clear-palette-history`.
+        registry.bindEffect("palette.clearSearchHistory", effect: { [weak self] _ in
+            self?.model.clearSearchHistory()
+            return .done
+        })
         // Cmd-Shift-A: Search, which adds history and agent chats to the open items
         // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
@@ -116,8 +125,8 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     guard let self, let source = self.sources.workspaces else { return }
-                    // An id that names no workspace is refused, never a silent success.
-                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                    // An id that names no workspace is refused, never a silent success. One lookup, no list.
+                    guard source.hasWorkspace(id: workspace) else {
                         return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
                     }
                     source.selectWorkspace(id: workspace)
@@ -141,6 +150,20 @@ public final class PaletteController {
     }
 
     // MARK: Warm-up
+
+    /// Runs `work` once, at the palette's first open from now on, after that open's frame is committed so the panel's
+    /// first frame is not held up: work made ahead of something a palette row may open next (the app's web overlay pages,
+    /// made on this sign of intent and not at launch, as `MenuTracking.onFirstMenu` does for menus).
+    public func onFirstShow(_ work: @escaping @MainActor () -> Void) {
+        firstShowWork.append(work)
+    }
+
+    /// Runs `work` at each palette open, after that open's frame is committed (as ``onFirstShow(_:)``): work made ahead
+    /// of something a palette row may open next that is freed again when unused (the app's web overlay pages), so `work`
+    /// makes it again or keeps it, and costs little when it is already made.
+    public func onShows(_ work: @escaping @MainActor () -> Void) {
+        showWork.append(work)
+    }
 
     /// Loads the palette's localized string tables. Pure and thread-safe:
     /// call it off the main thread at launch so the first open does not
@@ -220,7 +243,7 @@ public final class PaletteController {
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches, ask: ask)
+                                       swatches: sources.argumentSwatches, ask: ask, creators: sources.targetCreators)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -264,8 +287,11 @@ public final class PaletteController {
         // window): hiding gives the keys back to the window, not the page.
         // `NSApplication.shared`: `NSApp` is nil in package-test processes.
         let app = NSApplication.shared
-        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
-        while let owner = parent?.parent { parent = owner }
+        var parent = topWindow(window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 })
+        // A window off every screen (the render window of a page an agent drives in the background, whose page
+        // window took the keys) is no anchor: clamped to the screen, the palette sat in its bottom-left corner.
+        if let anchor = parent, !isOnAScreen(anchor) { parent = nil }
+        if parent == nil { parent = topWindow(app.mainWindow).flatMap { isOnAScreen($0) ? $0 : nil } }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now
         presentationGeneration += 1
@@ -278,6 +304,11 @@ public final class PaletteController {
         isVisible = true
         parentWindow = parent
         onVisibilityChange?(true, parent)
+        let due = firstShowWork + showWork
+        if !due.isEmpty {
+            firstShowWork = []
+            scheduleAfterFrameCommit { due.forEach { $0() } }
+        }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
         let size = PaletteLayout.windowSize
@@ -306,6 +337,7 @@ public final class PaletteController {
     /// page it closed on (a refused command's notice).
     private func presentAgain() {
         guard !isVisible else { return }
+        model.didShowAgain()
         // Without a parent (opened while no window was key or main, as in a
         // no-activate run) `present` picks the key or main window again.
         present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })
@@ -320,6 +352,10 @@ public final class PaletteController {
 
     /// The panel while the palette is open (`debug.key` target `palette`).
     public var visiblePanel: NSWindow? { isVisible ? panel : nil }
+
+    /// The search field's text as drawn while the palette is open (`debug.focus`), which a
+    /// capture checks next to the model's `query`: the two can disagree.
+    public var visibleFieldText: String? { isVisible ? contentView?.searchBar.field.stringValue : nil }
 
     /// Key-downs in the panel that reached `noResponder(for:)` (the system
     /// beep) since launch.
@@ -410,8 +446,8 @@ public final class PaletteController {
 
     // MARK: Keys
 
-    /// Maps a key-down in the panel to a palette command. Returns true when
-    /// the event was consumed (so the text field never sees it).
+    /// Maps a key-down in the panel to a palette command, else runs the navigation action it is bound to
+    /// (``runsNavigationChord(_:)``). Returns true when the event was consumed (so the text field never sees it).
     /// `window`: the panel the key went to (the event's own window when nil).
     func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         let window = window ?? event.window
@@ -429,7 +465,7 @@ public final class PaletteController {
             caretAtEnd: caret.atEnd,
             caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
-        ) else { return false }
+        ) else { return runsNavigationChord(event) }
         return model.handle(command)
     }
 }
@@ -452,4 +488,17 @@ public struct PaletteOpenTiming: Sendable {
     public var total: Duration { model + panel + present + commit }
     /// Key-down to the committed first frame: ``input`` plus ``total``.
     public var keyToFrame: Duration { input + total }
+}
+
+/// `window`'s top ancestor (a Chromium page window's document window).
+@MainActor private func topWindow(_ window: NSWindow?) -> NSWindow? {
+    var top = window
+    while let owner = top?.parent { top = owner }
+    return top
+}
+
+/// Whether `window` overlaps a screen (true with no screens: nothing to check against).
+@MainActor private func isOnAScreen(_ window: NSWindow) -> Bool {
+    let screens = NSScreen.screens
+    return screens.isEmpty || screens.contains { $0.frame.intersects(window.frame) }
 }

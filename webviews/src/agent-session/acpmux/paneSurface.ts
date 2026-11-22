@@ -37,7 +37,7 @@ type EscapeDismissOptions = {
   capture?: boolean;
 };
 
-function escapeSurfaceOpen(document: Document): boolean {
+export function escapeSurfaceOpen(document: Document): boolean {
   return [
     ...document.querySelectorAll<HTMLElement>(
       '[role="menu"], [role="listbox"], [role="dialog"], .ui-popup, [aria-haspopup][data-popup-open], ' +

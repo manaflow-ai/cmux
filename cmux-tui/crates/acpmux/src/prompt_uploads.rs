@@ -7,7 +7,7 @@
 //! sent: no answer from acpmux", and so did its Retry; "fix it so 20 screenshots send in seconds:
 //! attachments go as blobs or files referenced from the prompt, not inlined base64 in one frame".
 //! The app's page host drops a call over 4 MiB unanswered (`ChromiumPageHostBridge`), and every
-//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so screenshots
+//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so screenshots
 //! inline in one `session/prompt` cannot pass. Uploaded first, in chunks, they go in a prompt of a
 //! few hundred bytes.
 //!
@@ -44,7 +44,7 @@ pub const URI_SCHEME: &str = "acpmux-upload:";
 /// over 5 MiB, which this is the decoded size of. A larger one goes by its path.
 pub const INLINE_IMAGE_BYTES: usize = (5 << 20) / 4 * 3;
 /// The most image bytes one prompt carries inline: as base64, with its text, one JSON-RPC
-/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 15 MiB). The images past it go by path.
+/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 31 MiB). The images past it go by path.
 pub const INLINE_PROMPT_BYTES: usize = 10 << 20;
 
 /// The upload a block names: its `_meta.acpmux.upload`, or (refused as invalid by [`resolve`])
@@ -285,6 +285,23 @@ fn not_marked(name: &str, e: &anyhow::Error) -> RpcError {
     refused("upload.unreadable", format!("cannot mark upload {name} in use: {e}"))
 }
 
+/// The upload a prompt block names, as its id and file name (`open_delivery::part`): a
+/// reference (`_meta.acpmux.upload`), or a link resolved from one (`_meta.acpmux.uploadPath`,
+/// the upload's own folder and its name: `file_uploads::finished_path`). None: the block names
+/// no upload; `Some(None)`: it names one, but not by both.
+pub(crate) fn named_upload(block: &Value) -> Option<Option<(String, String)>> {
+    let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
+    if let Some(upload) = upload_of(block) {
+        let id = text(upload.get("uploadId"));
+        return Some(id.zip(text(upload.get("fileName"))));
+    }
+    let path = block.pointer("/_meta/acpmux/uploadPath")?;
+    let path = Path::new(path.as_str().unwrap_or_default());
+    let name = path.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    let id = path.parent().and_then(Path::file_name).and_then(|n| n.to_str()).map(str::to_owned);
+    Some(id.zip(name))
+}
+
 fn links_upload(blocks: &[Value]) -> bool {
     blocks.iter().any(|b| b.pointer("/_meta/acpmux/uploadPath").is_some())
 }
@@ -327,7 +344,7 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
     let message = format!(
         "peer {} runs acpmux build {build}, which does not read uploaded files in a message; run \
-         `acpmux host update {}`",
+         `acpmux machine update {}`",
         peer.name, peer.name
     );
     refused("upload.unsupported", message)

@@ -7,8 +7,8 @@ import CmuxNextCompat
 /// strip for it. The strip holds one and calls `begin` before a menu shows and `end` after.
 @MainActor final class TabMenuTracking {
     private weak var strip: TabStripView?
-    /// End-of-tracking observer of the menu the strip returned last.
-    private var endObserver: MainActorObservation?
+    /// End-of-tracking observer of the menu the strip returned last (``MenuTracking``).
+    private var endObserver: MenuTracking?
 
     init(strip: TabStripView) { self.strip = strip }
 
@@ -18,9 +18,11 @@ import CmuxNextCompat
         end()
         strip?.buttonReveal.menuOpen = true
         strip?.newTabButton.isMenuOpen = fromNewTabButton
-        endObserver = MainActorObservation(NSMenu.didEndTrackingNotification, object: menu) { [weak self] in
-            self?.end()
+        let menus = MenuTracking()
+        menus.subscribe { [weak self, weak menu] change in
+            if case .ended(let ended) = change, ended === menu { self?.end() }
         }
+        endObserver = menus
     }
 
     /// The menu closed. AppKit sends no exit event for a pointer that left

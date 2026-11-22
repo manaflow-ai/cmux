@@ -20,7 +20,7 @@ def agg(us):
   r=sum(u.get('cache_read',0) for u in us); w=sum(u.get('cache_write',0) for u in us); i=sum(u.get('input',0) for u in us)
   return r,w,i,(r/(r+w+i) if r+w+i else 0)
 print('Chief turns',len(turns))
-for k in ['ttft_ms','ms','start_ms','requests','tools']:
+for k in ['posted_to_first_draft_ms','posted_to_start_ms','first_draft_ms','start_ms','headers_ms','ttft_ms','ms','requests','tools']:
   a=[t[k] for t in turns if isinstance(t.get(k),(int,float))]
   print(f'  {k}: p50 {pct(a,.5)} p90 {pct(a,.9)}')
 c=[t['cost_usd'] for t in turns if t.get('cost_usd') is not None]

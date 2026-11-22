@@ -97,22 +97,50 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "harness secret",
         &[(
-            "Store an endpoint key for a harness",
-            "acpmux harness secret set acme ANTHROPIC_AUTH_TOKEN",
+            "Store an API key a harness's profile reads",
+            "acpmux harness secret set my-agent ACME_API_KEY",
         )],
     ),
     (
         "harness secret set",
         &[
-            (
-                "Store a key from a hidden prompt",
-                "acpmux harness secret set acme ANTHROPIC_AUTH_TOKEN",
-            ),
+            ("Store a key from a hidden prompt", "acpmux harness secret set my-agent ACME_API_KEY"),
             (
                 "Store a key read from stdin",
-                "printf 'sk-test' | acpmux harness secret set local CMUX_BYO_API_KEY",
+                "printf 'sk-test' | acpmux harness secret set my-agent ACME_API_KEY",
             ),
         ],
+    ),
+    (
+        "harness install",
+        &[
+            ("Install Claude Code through its official installer", "acpmux harness install claude"),
+            (
+                "Install Codex, printing each step as a JSON line",
+                "acpmux harness install codex --json",
+            ),
+        ],
+    ),
+    (
+        "harness codex-runtime",
+        &[
+            ("Download the pinned Codex release", "acpmux harness codex-runtime install"),
+            ("See whether the managed Codex is ready", "acpmux harness codex-runtime status"),
+        ],
+    ),
+    (
+        "harness codex-runtime install",
+        &[(
+            "Download and verify the pinned official Codex release (opt in; a Codex on PATH still wins)",
+            "acpmux harness codex-runtime install",
+        )],
+    ),
+    (
+        "harness codex-runtime status",
+        &[(
+            "Print the managed Codex version, path and readiness",
+            "acpmux harness codex-runtime status",
+        )],
     ),
     (
         "harness reload",

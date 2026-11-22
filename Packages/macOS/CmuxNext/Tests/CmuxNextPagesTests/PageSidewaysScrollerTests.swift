@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -9,6 +10,7 @@ import WebKit
 /// them (each table in an `overflow: auto hidden` wrapper as wide as the column): a 20-column
 /// table, one long unbroken cell, code in cells, a 40-row table and a small table.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageSidewaysScrollerTests {
     private static let html: String = {
         let row = { (cells: [String]) in "<tr>" + cells.map { "<td>\($0)</td>" }.joined() + "</tr>" }
@@ -88,6 +90,7 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["wide", "long"])
     func aTableWiderThanTheColumnScrollsSideways(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id))
     }
@@ -96,6 +99,7 @@ struct PageSidewaysScrollerTests {
     /// words still do not fit, and the report follows the wrapper.
     @Test func codeInCellsIsReportedExactlyWhenItsTableOverflows() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         let overflows = try await page.webView.callAsyncJavaScript(
             "const w = document.getElementById('code').parentElement; return w.scrollWidth > w.clientWidth + 1;",
@@ -106,12 +110,14 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["tall", "small", "text"])
     func aTableThatFitsAndPlainTextDoNot(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id) == false)
     }
 
     @Test func movingOffTheTableOrThePageClearsTheReport() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: "wide"))
         #expect(try await page.pointer(over: "small") == false)
@@ -123,6 +129,7 @@ struct PageSidewaysScrollerTests {
     /// scrolls sideways is inside it, where `document.elementFromPoint` does not reach.
     @Test func aScrollerInsideAShadowRootScrollsSideways() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: "shadowWide"))
         #expect(try await page.pointer(over: "shadowFits") == false)

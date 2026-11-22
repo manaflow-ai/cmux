@@ -1,9 +1,11 @@
+import CMUXAuthCore
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSIdentity
 import CmuxiOSPush
+import CmuxMobileSupport
 import Foundation
 import OSLog
 import UIKit
@@ -28,6 +30,9 @@ final class AppContainer {
     let approveSigner: (any FeedApproveSigning)?
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
+    /// The Hosted Chief check for `home`: its card while the Chief does not
+    /// answer, and Turn On (nil for a source without Cloud Chief brains).
+    private(set) var chiefBrain: HomeChiefBrainModel?
     /// Which chat server Home uses (Settings > Chat Server), persisted.
     let chatServers = HomeChatServerStore(defaults: .standard)
     /// The wire source behind `home`, shut down when Home is rebuilt.
@@ -47,6 +52,11 @@ final class AppContainer {
     var onUpdateRequiredChange: ((HomeUpdateRequired?) -> Void)?
     /// Dials Home's sockets again when the app comes to the foreground.
     private var foregroundObserver: (any NSObjectProtocol)?
+    /// This build's cloud data space: every request to the cmux cloud
+    /// (`CMUXCloudAPIBaseURL`) from a tagged DEBUG build carries `X-Cmux-Build-Space: dev:<tag>`;
+    /// release and TestFlight send no header; a DEBUG build without a usable `CMUXDevTag` is
+    /// misconfigured and its cloud clients refuse every call (``CMUXBuildSpaceError``).
+    let buildSpace: CMUXBuildSpaceState
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let composition = MobileAuthComposition(
@@ -60,18 +70,29 @@ final class AppContainer {
         #else
         homeUsesMock = false
         #endif
+        #if DEBUG
+        let devBuild = true
+        #else
+        let devBuild = false
+        #endif
+        let buildSpace = Self.buildSpace(infoDictionary: Bundle.main.infoDictionary, devBuild: devBuild)
+        self.buildSpace = buildSpace
+        if let refusal = buildSpace.refusal {
+            Logger(subsystem: "dev.cmux.ios", category: "identity").fault("cloud calls refused: \(refusal.localizedDescription, privacy: .public)")
+        }
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
         let madeIdentity = base.map {
-            InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
+            InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name,
+                            buildSpace: buildSpace)
         }
         identity = madeIdentity
         let ops: any CloudOpsSending
         let reader: CloudReadClient?
         if let base, let madeIdentity {
-            ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
-            reader = CloudReadClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
+            ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity), buildSpace: buildSpace)
+            reader = CloudReadClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity), buildSpace: buildSpace)
         } else {
             ops = DisabledCloudOps()
             reader = nil
@@ -118,6 +139,10 @@ final class AppContainer {
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                if let chiefBrain = self?.chiefBrain {
+                    // task-owner: one brain read; ends with its answer
+                    Task { await chiefBrain.refresh() }
+                }
                 guard let source = self?.homeSource else { return }
                 // task-owner: one reconnect nudge; ends at once
                 Task { await source.reconnectNow() }
@@ -131,6 +156,13 @@ final class AppContainer {
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
         updateRequired = requirement
+    }
+
+    /// The build's space from its `CMUXDevTag` (empty, or an unexpanded `$(CMUX_DEV_TAG)`, in
+    /// release and TestFlight builds), sanitized like `scripts/lib/mobile-attach.sh`. A DEBUG build
+    /// (`devBuild`) with no usable tag is misconfigured, never nightly.
+    static func buildSpace(infoDictionary: [String: Any]?, devBuild: Bool) -> CMUXBuildSpaceState {
+        CMUXBuildSpaceState(devBuild: devBuild, devTag: AppVersionInfo(infoDictionary: infoDictionary, isDevBuild: true).devTag)
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
@@ -153,9 +185,11 @@ final class AppContainer {
         if let home, homeKey == key { return home }
         dropHome()
         homeKey = key
-        let store = HomeStore(source: makeHomeSource(server: server, account: account))
+        let source = makeHomeSource(server: server, account: account)
+        let store = HomeStore(source: source, blobCacheDirectory: HomeStore.defaultBlobCacheDirectory)  // the app's own attachment folder, which this store owns
         store.start()
         home = store
+        chiefBrain = (source as? any HomeChiefBrainControlling).map { HomeChiefBrainModel(control: $0) }
         return store
     }
 
@@ -165,7 +199,7 @@ final class AppContainer {
     }
 
     private func makeHomeSource(server: HomeChatServer, account: SignedInAccount) -> any HomeSource {
-        guard !homeUsesMock else { return MockHomeSource() }
+        guard !homeUsesMock else { return Self.previewMock() }
         let source: WireHomeSource
         switch server {
         case .hosted:
@@ -176,18 +210,32 @@ final class AppContainer {
                 if forceRefresh { return try await coordinator.forceRefreshAccessToken() }
                 return try await coordinator.accessToken()
             }
-            source = WireHomeSource(baseURL: base, auth: .stack(bearer), displayName: account.displayName)
+            source = WireHomeSource(baseURL: base, auth: .stack(bearer), displayName: account.displayName,
+                                    buildSpace: buildSpace)
         case .selfHosted(let url):
+            // The user's own server, not the cmux cloud: no build space.
             source = WireHomeSource(baseURL: url, auth: .tailscale, displayName: account.displayName)
         }
         homeSource = source
         return source
     }
 
+    /// The DEBUG mock owner; `CMUX_IOS_PREVIEW_CHIEF_OFF=1` gives it a Hosted
+    /// Chief whose brain is off, so Home shows the Chief card (simulator screenshots).
+    private static func previewMock() -> MockHomeSource {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_CHIEF_OFF"] == "1" {
+            return MockHomeSource(options: .init(hostedChiefBrain: false))
+        }
+        #endif
+        return MockHomeSource()
+    }
+
     /// Stops Home and closes its sockets.
     private func dropHome() {
         home?.stop()
         home = nil
+        chiefBrain = nil
         homeKey = nil
         if let old = homeSource {
             // task-owner: one shutdown; ends with it

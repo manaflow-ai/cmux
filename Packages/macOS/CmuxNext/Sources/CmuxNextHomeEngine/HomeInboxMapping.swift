@@ -1,13 +1,14 @@
 import CmuxHomeCore
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The owner's `home-inbox` rows as the Messages list's rows, field for field: each owned row is the
 /// store's row (its people and preview) with the owner's kind, name, unread, pin and mark, in the
 /// owner's order. Conversations the owner does not list (Cloud ones, until `home-inbox` has them) keep
-/// this Mac's pins and marks: their pins follow the owner's, the others go among the owner's unpinned
-/// rows by their time.
+/// this Mac's pins and marks: their pins go among the owner's by the position a drag gave them
+/// (``HomePins/positions``; never dragged: after the owner's), the others go among the owner's
+/// unpinned rows by their time.
 struct HomeInboxMapping {
     private(set) var rows: [InboxRow] = []
     private(set) var pinned: Set<ConversationID> = []
@@ -15,7 +16,7 @@ struct HomeInboxMapping {
 
     init(owned: [HomeInboxRequest.Row], listed: [InboxRow], pins: HomePins, unreadMarks marks: Set<ConversationID>) {
         let byID = Dictionary(listed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var ownedPinned: [InboxRow] = []
+        var ownedPinned: [(row: InboxRow, position: UInt64?)] = []
         var ownedRest: [InboxRow] = []
         for row in owned {
             guard var mapped = byID[ConversationID(row.id)] else { continue }
@@ -34,7 +35,7 @@ struct HomeInboxMapping {
             if row.markedUnread { unreadMarks.insert(mapped.id) }
             if row.pinned {
                 pinned.insert(mapped.id)
-                ownedPinned.append(mapped)
+                ownedPinned.append((mapped, row.pinPosition))
             } else {
                 ownedRest.append(mapped)
             }
@@ -44,7 +45,9 @@ struct HomeInboxMapping {
         let (otherPinned, otherRest) = pins.split(others)
         pinned.formUnion(otherPinned.map(\.id))
         unreadMarks.formUnion(marks.intersection(others.map(\.id)))
-        rows = ownedPinned + otherPinned + Self.merged(ownedRest, otherRest)
+        let pinnedRows = (ownedPinned + otherPinned.map { (row: $0, position: pins.position(of: $0.id)) }).enumerated()
+            .sorted { ($0.element.position ?? .max, $0.offset) < ($1.element.position ?? .max, $1.offset) }.map(\.element.row)
+        rows = pinnedRows + Self.merged(ownedRest, otherRest)
     }
 
     /// The rows of several owners as one list: with one owner its own order; else pinned rows by pin

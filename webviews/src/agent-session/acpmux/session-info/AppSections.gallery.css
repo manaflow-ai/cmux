@@ -1,0 +1,6 @@
+/* Gallery alternatives only; the shipped sections reuse Session Info's unboxed layout. */
+.gallery-app-sections { display: flex; width: 100%; }
+.gallery-app-sections .acpmux-session-info { --acpmux-session-info-top: 0px; }
+.gallery-app-section-tag { color: var(--agent-muted); font-size: var(--text-detail); }
+.gallery-app-section-content[data-cap] { max-height: calc(3 * var(--grid-row)); overflow: hidden; }
+.gallery-app-sections[data-look="compact"] section[data-section^="app:"] { border: var(--cmux-hairline, .5px) solid var(--agent-border); padding: var(--grid-base); }

@@ -19,11 +19,9 @@ import CmuxNextCompat
 /// - a DEV build without a Team ID (``configure(keychainService:)`` with nil): a software key in
 ///   this process's memory only, new each launch (enroll again after a relaunch; the known DEV gap
 ///   of the person key, identity.md).
-/// Before ``configure(keychainService:)``, ``shared`` has no key.
+/// Before ``configure(keychainService:)``, there is no key. The app makes one per process (in its
+/// ``AgentPanePeerApprover``): the transport signs with it, the host gives its public half to the daemon.
 public nonisolated final class AcpmuxMacApprover: Sendable {
-    // lint:allow one key per app process: the transport signs with it, the host gives its public half to the daemon
-    public static let shared = AcpmuxMacApprover(mode: .unconfigured)
-
     /// The domain of the signed message (acpmux `mac_approvers::DOMAIN`).
     static let domain = "acpmux-mac-approver-decision-v1"
     /// How long a signed Allow counts: well under acpmux's `MAX_LIFETIME` (300 s).
@@ -75,8 +73,14 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
     private let state: Mutex<State>
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
-    /// A memory key (tests, and a DEV build's ``shared`` once configured).
+    /// A memory key (tests).
     public convenience init() { self.init(mode: .memory) }
+
+    /// The app's key, where ``configure(keychainService:)`` says it lives.
+    public convenience init(keychainService: String?) {
+        self.init(mode: .unconfigured)
+        configure(keychainService: keychainService)
+    }
 
     init(mode: Mode) { state = Mutex(State(mode: mode)) }
 
@@ -151,28 +155,6 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         return out
     }
 
-    /// Gives this Mac's acpmux the public key, so `acpmux host enroll` there knows which key to
-    /// enroll on a peer (`_acpmux/mac_approver_set`, the person only), each time the host connects
-    /// to that daemon (a restarted daemon holds none: `thisMac` is in its memory only). Off the
-    /// pane's connect path.
-    static func register(_ environment: AcpmuxEnvironment) {
-        // task-owner: one short person connection (5 s deadline at most) per daemon connect
-        Task { @MainActor in await registerNow(environment) }
-    }
-
-    @MainActor
-    private static func registerNow(_ environment: AcpmuxEnvironment) async {
-        AgentPanePeerApprovals.daemons[environment.socketPath] = ["ACPMUX_HOME": environment.home.path,
-                                                                  "ACPMUX_SOCKET": environment.socketPath]
-        guard let identity = await shared.loadedIdentity() else { return }
-        guard let line = await AcpmuxPersonLine.open(environment) else { return }
-        defer { line.close() }
-        guard line.isPerson else { return }
-        let name = await MacName().displayName()
-        // nil: a daemon too old for peer-route approvals, nothing to give it.
-        _ = await line.call("_acpmux/mac_approver_set", ["id": identity.id, "publicKey": identity.publicKey, "name": name])
-    }
-
     private static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 
     /// The Secure Enclave key under `service`, made and stored on first use; nil without an
@@ -187,7 +169,8 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         read[kSecReturnData as String] = true
         read[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(read as CFDictionary, &out)
+        // Every call here refuses UI: a Keychain that would ask answers errSecInteractionNotAllowed.
+        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: read) as CFDictionary, &out)
         if status == errSecSuccess, let blob = out as? Data,
            (try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)) != nil {
             return .enclave(blob)
@@ -202,11 +185,11 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                                                            .privateKeyUsage, &error),
               let made = try? SecureEnclave.P256.Signing.PrivateKey(accessControl: access) else { return nil }
-        if status == errSecSuccess { _ = SecItemDelete(query as CFDictionary) }
+        if status == errSecSuccess { _ = SecItemDelete(KeychainNoPromptContext.applied(to: query) as CFDictionary) }
         var add = query
         add[kSecValueData as String] = made.dataRepresentation
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let added = SecItemAdd(add as CFDictionary, nil)
+        let added = SecItemAdd(KeychainNoPromptContext.applied(to: add) as CFDictionary, nil)
         guard added == errSecSuccess else {
             logger.error("mac approver key not stored: \(added, privacy: .public)")
             return nil

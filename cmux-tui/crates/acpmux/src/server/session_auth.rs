@@ -96,6 +96,8 @@ async fn ask_peer(
             route_id: route_id.map(str::to_owned),
             login: None,
             from_session_id: None,
+            credential: None,
+            provider: None,
         }
     };
     let down = || {
@@ -110,7 +112,7 @@ async fn ask_peer(
         return Ok(here(
             SessionAuthState::Unknown,
             format!(
-                "{} runs acpmux build {build}, which does not answer {}; `acpmux host update {}` updates it",
+                "{} runs acpmux build {build}, which does not answer {}; `acpmux machine update {}` updates it",
                 peer.name,
                 method::MUX_SESSION_AUTH,
                 peer.name

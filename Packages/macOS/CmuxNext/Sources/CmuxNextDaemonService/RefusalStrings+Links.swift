@@ -81,6 +81,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")
     }
 
+    /// An opaque agent link (`?id=aid-…`, a public PR footer's) that names no chat on this Mac or a
+    /// machine it is paired with: the chat is someone else's, or its machine isn't connected.
+    public static var agentReferenceUnavailable: String {
+        text("handlers.refusal.agentReferenceUnavailable", "this agent session isn't available to you: it isn't on this Mac or a machine paired with it")
+    }
+
     /// A nightly pane or tab link: its workspace opened, the item itself has no counterpart here.
     public static var linkItemNotFound: String {
         text("handlers.refusal.linkItemNotFound", "opened the workspace, but the linked pane or tab couldn't be found")
@@ -93,7 +99,7 @@ nonisolated extension RefusalStrings {
 
     /// An agent chat tab in a pane whose daemon lacks `agent-session-tabs-v1`.
     public static var agentTabsUnsupported: String {
-        text("handlers.refusal.agentTabsUnsupported", "this machine's cmux-tui cannot hold agent chat tabs yet: update it")
+        text("handlers.refusal.agentTabsUnsupported", "cmux on this machine can't hold agent chat tabs yet: update it")
     }
 
     /// Duplicate Tab on an agent chat tab whose acpmux session runs on another Mac.
@@ -125,7 +131,7 @@ nonisolated extension RefusalStrings {
 
     /// A new agent chat tab in a pane whose daemon is not connected (nothing queues).
     public static var agentTabsDisconnected: String {
-        text("handlers.refusal.agentTabsDisconnected", "this machine's cmux-tui is not connected: the agent chat tab was not opened")
+        text("handlers.refusal.agentTabsDisconnected", "this machine isn't connected: the agent chat tab was not opened")
     }
 
     /// A chat change in a tab that did not reach the store (not a conflict).

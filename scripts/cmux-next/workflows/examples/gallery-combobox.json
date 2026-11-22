@@ -1,0 +1,18 @@
+{
+  "workflowVersion": 1,
+  "id": "gallery-combobox",
+  "fixture": "synthetic",
+  "steps": [
+    {
+      "id": "keyboard-selection",
+      "driver": "gallery",
+      "from": "combobox-closed",
+      "to": "combobox-submitted",
+      "action": "gallery.play",
+      "target": {"entry": "ui.combobox", "variant": "keyboard"},
+      "args": {},
+      "expect": {"play": "passed"}
+    }
+  ],
+  "untested": ["Native CUA interaction", "Real provider data", "Hardware frame timing"]
+}

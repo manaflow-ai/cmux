@@ -211,7 +211,7 @@ async fn the_owner_toggles_a_peer_vm_over_its_link() {
     assert_eq!(b.vm_host().await, TAKES);
 
     let e = ca.call("_acpmux/vm_host", json!({"name": "nope"})).await.unwrap_err();
-    assert!(e["message"].as_str().unwrap().contains("acpmux host ls"), "{e}");
+    assert!(e["message"].as_str().unwrap().contains("acpmux machine ls"), "{e}");
     // A peer's own request is never relayed on.
     let mut from_peer = C::new(b.clone(), Origin::Peer).await;
     assert!(from_peer.call("_acpmux/vm_host", json!({"name": "x"})).await.is_err());

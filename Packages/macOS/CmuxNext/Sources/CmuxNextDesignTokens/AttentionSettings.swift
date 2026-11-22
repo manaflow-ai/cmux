@@ -12,6 +12,16 @@ public nonisolated enum AttentionStyle: String, Hashable, Sendable, CaseIterable
     case blink
 }
 
+/// How a tab and a sidebar row that wait for the person show it (`notifications.attention.mark`).
+/// Leo 2026-11-19: "needs you" as motion, a look customization off by default; the badge stays the default.
+public nonisolated enum AttentionMarkLook: String, Hashable, Sendable, CaseIterable {
+    /// The unread dot or status mark (the default).
+    case badge
+    /// No mark: the tab's pill and the row breathe a soft halo in the mark's color until they are seen
+    /// (selected); a seen tab or row that still waits shows the badge.
+    case glow
+}
+
 /// `notifications.attention.*` in cmux.json: the pane attention ring and
 /// whether the tab and the sidebar row show the unread mark too.
 public nonisolated struct AttentionSettings: Hashable, Sendable {
@@ -22,13 +32,16 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// nil takes the theme accent (`AttentionHighlightLook.defaultColor`): never a fixed blue
     /// (Leo, 2026-10-21: "if we have any kind of blinky, it should be themed/customizable").
     public var color: ThemeRGB?
-    /// How a terminal (or any pane but an agent chat) rings (`notifications.attention.terminals`):
+    /// How a terminal (or any pane but an agent chat, and an unread agent chat while
+    /// `agentChatRing` is `none`) rings (`notifications.attention.terminals`):
     /// `glow`, a stroke with a soft glow as classic's (default); `ring`, the stroke alone; `none`,
     /// no ring (the tab and the sidebar row still show the unread mark).
     public var terminalRing: FocusRingStyle = .glow
     /// How an agent chat's pane rings when its turn ends (`notifications.attention.agentChats`).
     /// `none` by default (Leo, 2026-10-21: no blinky on turn end for the GUI; cmuxterm-hq#2959):
     /// a turn that ends in a shown chat is read at once. On, `ring` is the recommended look.
+    /// It never hides an unread chat's ring: that one draws the terminal look while this is
+    /// `none` (cmux#34447).
     public var agentChatRing: FocusRingStyle = .none
     /// The agent chat ring's flashes as it goes (`notifications.attention.agentChatBlinkCount`):
     /// one (cmuxterm-hq#2959); `blinkCount` is the terminal's.
@@ -51,13 +64,30 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var flashesOnTyping = true
     public var showsOnTab = true
     public var showsOnSidebar = true
+    /// How the tab and the sidebar row show it (`notifications.attention.mark`): the badge, or a glow.
+    public var mark: AttentionMarkLook = .badge
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
-    /// `app.reorderOnNotification`). Off by default: the sidebar keeps the
-    /// order the user made and shows attention as a badge (Leo 2026-10-20).
-    public var movesToTop = false
+    /// `app.reorderOnNotification`), once per notification, as iMessage does:
+    /// first in its project, else first among the loose rows. A notification is
+    /// what turns a row blue (done) or yellow (needs you); a working agent posts
+    /// none, so working rows stay put (Leo 2026-11-10: "the working sessions,
+    /// that's probably too noisy ... But like the ones that are blue that are
+    /// done ... Likewise with the yellow"). On by default (the user, 2026-11-09);
+    /// rebuilds never re-sort by attention, so a drag still sticks until the
+    /// next notification (Leo 2026-10-20).
+    public var movesToTop = true
+    /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
+    /// looking at moves its workspace to the top, as `movesToTop` does for every
+    /// notification (`notifications.attention.moveToTopOnAgentFinish`, cmux#31513).
+    /// Off by default; it matters only with `movesToTop` off.
+    public var movesToTopOnAgentFinish = false
 
     public init() {}
+
+    /// Whether a notification moves its workspace to the top: every one with `movesToTop`,
+    /// an agent's finished turn (`finishedTurn`) with `movesToTopOnAgentFinish` too.
+    public func movesToTop(finishedTurn: Bool) -> Bool { movesToTop || finishedTurn && movesToTopOnAgentFinish }
 
     /// Whether the pane being drawn shows a ring: its look and the arrival style are not none.
     public var drawsRing: Bool { style != .none && ringStyle != .none }
@@ -70,10 +100,12 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
         return settings
     }
 
+    /// Whether any pane can ring: a terminal's look or an agent chat's, with an arrival style.
+    public var drawsAnyRing: Bool { style != .none && (terminalRing != .none || agentChatRing != .none) }
+
     /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
     public func rings(agentChat: Bool) -> Bool { surface(agentChat: agentChat).drawsRing }
 
-    public static let widthRange: ClosedRange<CGFloat> = 0.5...8
     public static let blinkRange: ClosedRange<Int> = 1...10
     public static let durationRange: ClosedRange<Double> = 0.3...30
 }

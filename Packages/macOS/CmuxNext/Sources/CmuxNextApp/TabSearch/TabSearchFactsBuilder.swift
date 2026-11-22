@@ -13,13 +13,14 @@ enum TabSearchFactsBuilder {
     static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
         ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services),
                               closed: cache?.closedTabs { closed(services) } ?? closed(services),
-                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services)))
+                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services), cache: cache))
     }
 
     /// The strip's names (`TabTitleResolver`) of the agent chats in `workspaces`, by tab id: their
     /// records are titled with the `about:blank` of the page that draws them. Only agent tabs are
-    /// resolved, so a publish stays one walk of the tabs.
-    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver) -> [String: String] {
+    /// resolved, in one walk; with `cache`, only the workspaces whose names changed (ask-bdd706af47).
+    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver, cache: ControlWorkspaceInfoCache? = nil) -> [String: String] {
+        if let cache { return cache.tabTitles.titles(workspaces) { titles([$0], resolver) } }
         var resolver = resolver
         var result: [String: String] = [:]
         for workspace in workspaces {
@@ -57,9 +58,24 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
+        // Each daemon's workspaces by resource id, built once per publish: a closed tab names its
+        // workspace, and a scan per tab (`workspace(resourceID:)`) cost O(closed tabs x workspaces)
+        // tracked reads on every publish (perf100: most of this builder at 483 workspaces).
+        var byResource: [ObjectIdentifier: [ResourceID: WorkspaceModel]] = [:]
+        func workspace(_ id: ResourceID, of daemon: DaemonService) -> WorkspaceModel? {
+            let key = ObjectIdentifier(daemon)
+            if let index = byResource[key] { return index[id] }
+            var index: [ResourceID: WorkspaceModel] = [:]
+            for model in daemon.store.workspaces {
+                // The first workspace with an id wins, as `workspace(resourceID:)` finds it.
+                if let resource = model.resourceID, index[resource] == nil { index[resource] = model }
+            }
+            byResource[key] = index
+            return index[id]
+        }
         return listed(DaemonClosedHistory.entries([.tab], in: services)) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
-            let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
+            let workspaceTitle = item.workspaceID.flatMap { workspace($0, of: daemon)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
             // One close gesture of several tabs is one item: its row reopens all of them.
             let title = item.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(item.tabs.count)

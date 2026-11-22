@@ -37,18 +37,16 @@ import Testing
                                                        .workspace(WorkspaceID("b")), .workspace(WorkspaceID("c"))])
     }
 
-    @Test func blocksKeepTabRowsAndMembersWithTheirHead() {
+    @Test func blocksKeepMembersWithTheirHead() {
         let g = GroupID("g"), w = WorkspaceID("w"), m = WorkspaceID("m")
         let rows = [
             Self.row(.section(.pinned), 0),
             Self.row(.workspace(w), 20),
-            Self.row(.tab(w, TabID("t")), 40),
             Self.row(.group(g), 60, group: g),
             Self.row(.workspace(m), 80, group: g),
-            Self.row(.tab(m, TabID("u")), 100, group: g),
             Self.row(.workspace(WorkspaceID("x")), 120),
         ]
-        #expect(SidebarGroupDragPlan.blocks(of: rows).map(\.range) == [0...20, 20...60, 60...120, 120...140])
+        #expect(SidebarGroupDragPlan.blocks(of: rows).map(\.range) == [0...20, 20...40, 60...100, 120...140])
     }
 
     /// The card's centre maps to its top in base space: where the group stood (top 52), the slot is where it came from.
@@ -103,7 +101,7 @@ import Testing
         // Header and three rows: whole.
         #expect(SidebarGroupDragPlan.cardHeight(rows: Array(rows.prefix(4)), top: 100, full: 118) == 118)
         #expect(SidebarGroupDragPlan.cardHeight(rows: [100...128], top: 100, full: 28) == 28)
-        // Rows with no height (a hidden tab row) do not count.
+        // Rows with no height (a row closing its slot) do not count.
         #expect(SidebarGroupDragPlan.cardHeight(rows: [100...128, 128...128, 130...158, 160...188, 190...218], top: 100, full: 118) == 118)
     }
 

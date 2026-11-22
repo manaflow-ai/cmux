@@ -54,6 +54,13 @@ extension ScreenContentView {
         context.overlayNeedsSync()
     }
 
+    /// Puts the camera at its target now (the window went out of sight: no frames).
+    func settleCanvasCamera() {
+        guard isCanvas, canvasState.camera.isMoving else { return }
+        canvasState.camera.snap()
+        applyCamera()
+    }
+
     /// Advances the camera toward its target; true while it moves.
     func stepCanvasCamera(_ dt: Double, policy: MotionPolicy) -> Bool {
         guard isCanvas, canvasState.camera.isMoving else { return false }

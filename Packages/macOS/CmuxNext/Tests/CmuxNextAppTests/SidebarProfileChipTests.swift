@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's bottom-left profile control (Leo and Lawrence 2026-10-20): the
 /// avatar alone at any width, with no name and no chevron; the name shows on
 /// hover and the full identity in its menu. Search and the spaces dots follow it.
-@MainActor @Suite(.serialized) struct SidebarProfileChipTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarProfileChipTests {
     struct Harness {
         let sidebar: SidebarView
         let window: NSWindow
@@ -53,6 +54,73 @@ import Testing
         // Search and the dots sit after the avatar.
         let search = h.frame(of: h.sidebar.searchButton)
         #expect(!h.sidebar.searchButton.isHidden && search.minX >= frame.maxX, "search \(search) after the avatar \(frame)")
+    }
+
+    /// Swift live mode's mark sits right after the avatar on its line, before Search, and the
+    /// spaces dots start after it (Leo 2026-11-06: "at the bottom just to the right of the
+    /// profile circle in the sidebar").
+    @Test func theLiveModeBadgeFollowsTheAvatar() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        let badge = LiveModeBadgeView()
+        h.sidebar.liveModeBadge = badge
+        h.settle()
+        let avatar = h.frame(of: try #require(h.sidebar.footerBand.profileControl?.view))
+        let mark = h.frame(of: badge)
+        #expect(mark.width > 0 && mark.minX >= avatar.maxX && mark.minX - avatar.maxX <= Metrics.space2 + 0.5,
+                "the mark \(mark) right after the avatar \(avatar)")
+        #expect(abs(mark.midY - avatar.midY) < 1, "on the avatar's line")
+        #expect(mark.maxX <= h.frame(of: h.sidebar.searchButton).minX, "before Search")
+        #expect(h.frame(of: h.sidebar.profileBar).minX >= mark.maxX, "the dots start after the mark")
+        h.sidebar.liveModeBadge = nil
+        h.settle()
+        #expect(badge.superview == nil)
+    }
+
+    /// App health's line moves nothing in the footer row when it comes and goes (Leo, 2026-11-11: "slow
+    /// indicator on the bottom left is uselsss and layout shifts the space. it's bad"): the spaces strip, its
+    /// dots and "+", the update button and Search keep their frames, and the line floats above the row at the
+    /// avatar's leading edge. As a badge it sits on the avatar's corner, and moves nothing either.
+    @Test func theHealthLineMovesNothingInTheFooterRow() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        h.sidebar.spacesPosition = .bottom
+        h.sidebar.model.profiles = [SidebarProfile(id: ProfileKey("work"), name: "Work", color: .blue),
+                                    SidebarProfile(id: ProfileKey("home"), name: "Home", color: .green)]
+        h.sidebar.model.activeProfileID = ProfileKey("work")
+        h.sidebar.showUpdateAvailable("Update Available")
+        h.settle()
+        let bar = h.sidebar.profileBar
+        let row = { [h.frame(of: bar), h.frame(of: h.sidebar.updateAvailableButton), h.frame(of: h.sidebar.searchButton)] + bar.slotRects() }
+        let atRest = row()
+        let avatar = try #require(h.sidebar.footerBand.bandFirstRow?.frame)
+        for long in [false, true] {
+            let line = NSTextField(labelWithString: long ? String(repeating: "Session service isn’t responding ", count: 4) : "Agent chat isn’t responding")
+            h.sidebar.healthIndicator = line
+            h.settle()
+            #expect(row() == atRest, "the row holds still with the line (long: \(long))")
+            let frame = h.frame(of: line)
+            // The line snaps to the device-pixel grid (`WindowTitlebar.alignedFrame`); the avatar may sit on a half point
+            // (#44449's scaled row), so at 1x the line is half a pixel from it at most, and on it at 2x.
+            #expect(frame.width > 0 && abs(frame.minX - avatar.minX) <= 0.5 / max(1, h.window.backingScaleFactor) + 0.001, "at the avatar's leading edge: \(frame) beside \(avatar), scale \(h.window.backingScaleFactor)")
+            #expect(frame.maxY <= avatar.minY, "above the row: \(frame) over \(avatar)")
+            #expect(frame.maxX <= h.sidebar.bounds.width, "inside the sidebar")
+            h.sidebar.healthIndicator = nil
+            h.settle()
+            #expect(row() == atRest, "and still once it leaves")
+        }
+        let badge = Badge(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        h.sidebar.healthIndicator = badge
+        h.settle()
+        #expect(row() == atRest, "the badge moves nothing either")
+        #expect(h.frame(of: badge).intersects(avatar), "on the avatar's corner: \(h.frame(of: badge)) \(avatar)")
+        h.sidebar.healthIndicator = nil
+    }
+
+    /// App health's `dot` treatment, as the footer sees it.
+    final class Badge: NSView, AvatarBadgePlacing {
+        var sitsOnAvatar: Bool { true }
+        override var fittingSize: NSSize { NSSize(width: 10, height: 10) }
     }
 
     /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).

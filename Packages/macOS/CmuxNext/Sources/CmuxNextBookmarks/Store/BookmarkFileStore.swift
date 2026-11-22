@@ -1,9 +1,9 @@
 public import Foundation
 
-/// The local bookmark file (bookmarks.md section 2): every profile's tree in
-/// one JSON document, used while the home daemon lacks `bookmarks-v1`. An
-/// actor, so reads and writes stay off the main thread; each save writes
-/// the whole file atomically.
+/// The local bookmark file an older build wrote (bookmarks.md section 2):
+/// every profile's tree in one JSON document. Read once to copy it into the
+/// home daemon (`bookmarks-v1`, the only writer now), then deleted. An actor,
+/// so the read stays off the main thread.
 public actor BookmarkFileStore {
     public let file: URL
     private var cache: [String: [BookmarkNode]]?
@@ -31,18 +31,6 @@ public actor BookmarkFileStore {
     }
 
     public var exists: Bool { FileManager.default.fileExists(atPath: file.path) }
-
-    /// Replaces one profile's nodes (an empty list removes the profile).
-    public func save(profile: String, nodes: [BookmarkNode]) throws {
-        var profiles = load()
-        profiles[profile] = nodes.isEmpty ? nil : nodes
-        cache = profiles
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(Document(version: 1, profiles: profiles))
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: file, options: .atomic)
-    }
 
     /// Deletes the file once its data lives in the daemon.
     public func remove() throws {

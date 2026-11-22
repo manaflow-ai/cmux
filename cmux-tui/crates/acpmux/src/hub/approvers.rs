@@ -63,6 +63,28 @@ impl ApproverSet {
         Ok(json!({"count": count}))
     }
 
+    /// This Mac's paired phones as a peer enrolls them (`host approvals enroll`, its
+    /// `mac-approvers.json`): `{id, publicKey, name}`, each id [`peer_phone_id`]. A phone whose
+    /// id does not fit is left out. Public keys only.
+    pub fn peer_entries(&self) -> Vec<Value> {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        inner
+            .1
+            .iter()
+            .filter_map(|a| {
+                let id = peer_phone_id(&inner.0, &a.id)?;
+                Some(json!({"id": id, "publicKey": hex(&a.public_key), "name": a.name,
+                            "fingerprint": fingerprint(&a.public_key)}))
+            })
+            .collect()
+    }
+
+    /// [`peer_phone_prefix`] of this Mac's device id; None before the app sent its set.
+    pub fn peer_prefix(&self) -> Option<String> {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (!inner.0.is_empty()).then(|| peer_phone_prefix(&inner.0))
+    }
+
     /// `_acpmux/approvers` (the person only): ids, names and key fingerprints.
     pub fn list(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -293,6 +315,27 @@ fn canonical_string(s: &str, out: &mut String) {
     out.push('"');
 }
 
+/// The start of every paired phone's id in a peer's enrolled Macs ([`peer_phone_prefix`]).
+pub const PEER_PHONE: &str = "phone:";
+
+/// The start of every id a peer gives this Mac's paired phones: `phone:`, then the first 6
+/// bytes of the SHA-256 of the Mac's device id as hex, then `:`. `host approvals` finds and
+/// removes this Mac's phones on a peer by it, and never another Mac's.
+pub fn peer_phone_prefix(mac_device: &str) -> String {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(mac_device.as_bytes());
+    format!("{PEER_PHONE}{}:", hex(digest.get(..6).unwrap_or_default()))
+}
+
+/// The id a paired phone has in a peer's enrolled Macs ([`peer_phone_prefix`], then the phone's
+/// id). The phone signs a peer chat's answer as this id, with the enrolled Mac's message
+/// (`mac_approvers.rs`), and computes it the same way (the iOS app's `PeerApprovalPayload`). None when
+/// it would not be a valid id.
+pub fn peer_phone_id(mac_device: &str, phone: &str) -> Option<String> {
+    let id = format!("{}{phone}", peer_phone_prefix(mac_device));
+    valid_id(&id).then_some(id)
+}
+
 /// The first 8 bytes of the key's SHA-256, as hex.
 pub fn fingerprint(key: &[u8]) -> String {
     use sha2::Digest;
@@ -492,5 +535,18 @@ mod tests {
             assert!(set.set(&bad).is_err(), "{bad}");
         }
         assert_eq!(set.list()["approvers"], json!([]));
+    }
+
+    #[test]
+    fn a_paired_phones_peer_id_is_under_its_macs_prefix_only() {
+        let one = peer_phone_id("mac-device-1", "iphone-1").unwrap();
+        assert!(one.starts_with(&peer_phone_prefix("mac-device-1")));
+        assert!(!one.starts_with(&peer_phone_prefix("mac-device-2")));
+        assert_eq!(peer_phone_prefix("mac-device-1").len(), "phone:".len() + 12 + 1);
+        assert!(valid_id(&one));
+        // The same vector is in the app's ApprovalPayloadTests (`PeerApprovalPayload.peerID`).
+        assert_eq!(one, "phone:db7667e21fe9:iphone-1");
+        // An id that would not be valid there is none.
+        assert_eq!(peer_phone_id("mac-device-1", &"x".repeat(128)), None);
     }
 }

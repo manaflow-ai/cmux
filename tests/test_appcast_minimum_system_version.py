@@ -18,10 +18,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "appcast_minimum_system_version.py"
-spec = importlib.util.spec_from_file_location("appcast_floor", SCRIPT)
-floor_tool = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(floor_tool)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
+import appcast_minimum_system_version as floor_tool  # noqa: E402
 
 
 def appcast(*items: str) -> str:
@@ -82,6 +83,17 @@ class FloorTests(unittest.TestCase):
             app = make_app(Path(tmp), "14.0")
             with self.assertRaisesRegex(floor_tool.FloorError, "below the executable's deployment target 26.0"):
                 floor_tool.floor(app, minos_reader=lambda _: ["26.0"])
+
+    def test_floor_below_the_app_framework_deployment_target_fails(self) -> None:
+        # CMUX-629: the code is CmuxNextApp.framework behind a stub; its target is the package's.
+        with tempfile.TemporaryDirectory() as tmp:
+            app = make_app(Path(tmp), "14.0")
+            framework = app / floor_tool.APP_CODE_FRAMEWORK_BINARY
+            framework.parent.mkdir(parents=True)
+            framework.write_text("framework")
+            targets = {app / "Contents" / "MacOS" / "cmux": ["14.0"], framework: ["15.0"]}
+            with self.assertRaisesRegex(floor_tool.FloorError, "below CmuxNextApp.framework's deployment target 15.0"):
+                floor_tool.floor(app, minos_reader=lambda path: targets[path])
 
     def test_reads_minos_from_a_real_mach_o(self) -> None:
         if sys.platform != "darwin":

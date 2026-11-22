@@ -14,19 +14,27 @@
 //!   address candidate.
 //! - [`relay_frame`]: the binary frame the Durable Object relay forwards.
 //! - [`probe`]: path probes carried inside the WireGuard session.
+//! - [`candidates`]: the addresses a peer advertises inside the session.
+//! - [`medium`]: what a direct path physically rides (Thunderbolt, LAN, routed).
 //! - [`selector`]: which path the next datagram takes, with hysteresis.
 //!
 //! The I/O engine (sockets, boringtun sessions, the relay WebSocket) lives in
 //! the endpoint and drives these types.
 
+pub mod candidates;
 pub mod classify;
+pub mod medium;
 pub mod path;
 pub mod probe;
 pub mod relay_frame;
 pub mod selector;
 pub mod stun;
 
+pub use candidates::{
+    CANDIDATE_PORT, CandidateError, MAX_CANDIDATES, decode_candidates, encode_candidates,
+};
 pub use classify::{DatagramClass, classify};
+pub use medium::{LocalNetwork, Medium, local_networks, medium_of};
 pub use path::{PathClass, PathId, PathKind};
 pub use probe::{Probe, ProbeError, ProbeKind};
 pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError};

@@ -9,6 +9,7 @@
 // cannot touch the page; it returns SVG text. Ondine always renders; Mermaid 11 (securityLevel
 // "strict") draws only a source Ondine refuses, with no flag or setting to choose it. Either SVG is parsed
 // as HTML (Mermaid writes HTML labels), cleaned of script, handlers and script URLs, then inserted.
+import { markdownColorScheme } from "./colorScheme";
 type MermaidAPI = {
   initialize(config: Record<string, unknown>): void;
   render(id: string, source: string): Promise<{ svg: string }>;
@@ -31,6 +32,21 @@ type VegaLiteAPI = { compile(spec: unknown, options?: { config?: unknown }): { s
 
 export type DiagramLibrary = "ondine" | "mermaid" | "vega";
 
+/**
+ * A renderer's script did not load (the host served no `__lib/<name>.js`, or it ran without its
+ * globals). The message names the library for logs and tests; what a reader sees is the caller's own
+ * localized line (DiagramBlock's `diagram.unavailable`, the markdown page's), never this name.
+ */
+export class DiagramLoadError extends Error {
+  constructor(
+    readonly library: string,
+    detail: string,
+  ) {
+    super(`${library} ${detail}`);
+    this.name = "DiagramLoadError";
+  }
+}
+
 /** The global each library script defines. */
 const LIBRARY_GLOBALS: Record<DiagramLibrary, string> = { ondine: "ondine", mermaid: "mermaid", vega: "vega" };
 
@@ -49,12 +65,12 @@ export class DiagramLibraries {
     if (!promise) {
       promise = new Promise<void>((resolve, reject) => {
         const url = this.libURL(name);
-        if (!url) return reject(new Error(`no ${name} library`));
+        if (!url) return reject(new DiagramLoadError(name, "has no URL"));
         const script = document.createElement("script");
         script.src = url;
         script.async = true;
         script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`${name} library failed to load`));
+        script.onerror = () => reject(new DiagramLoadError(name, "failed to load"));
         document.head.append(script);
       });
       promise.catch(() => this.loads.delete(name));
@@ -67,7 +83,8 @@ export class DiagramLibraries {
 let mermaidCount = 0;
 let mermaidScheme: string | null = null;
 
-const darkScheme = () => globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+// The paper's scheme when `markdown.theme` fixes it, else the App Theme's (markdown-paper-scheme.test.ts).
+const darkScheme = () => markdownColorScheme() === "dark";
 
 let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
 
@@ -75,7 +92,7 @@ let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
 async function renderOndine(libraries: DiagramLibraries, source: string): Promise<string> {
   await libraries.load("ondine");
   const ondine = (globalThis as { ondine?: OndineAPI }).ondine;
-  if (!ondine) throw new Error("ondine did not load");
+  if (!ondine) throw new DiagramLoadError("ondine", "did not load");
   ondineRenderer ??= ondine.create({ modules: { all: ondine.wasm } });
   return ondineRenderer.render(source).svg;
 }
@@ -84,7 +101,7 @@ async function renderOndine(libraries: DiagramLibraries, source: string): Promis
 async function renderMermaidJS(libraries: DiagramLibraries, source: string): Promise<string> {
   await libraries.load("mermaid");
   const mermaid = (globalThis as { mermaid?: MermaidAPI }).mermaid;
-  if (!mermaid) throw new Error("mermaid did not load");
+  if (!mermaid) throw new DiagramLoadError("mermaid", "did not load");
   const scheme = darkScheme() ? "dark" : "default";
   if (mermaidScheme !== scheme) {
     mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: scheme, fontFamily: "inherit" });
@@ -93,21 +110,47 @@ async function renderMermaidJS(libraries: DiagramLibraries, source: string): Pro
   return (await mermaid.render(`cmux-mermaid-${++mermaidCount}`, source)).svg;
 }
 
+/** The latest draw into each target: a render still running for an earlier one must not write over it. */
+const draws = new WeakMap<HTMLElement, number>();
+const views = new WeakMap<HTMLElement, { finalize(): void }>();
+
+/** Starts a draw into `target`; the returned check is false once a newer draw or `cancelDiagram` took over. */
+function beginDraw(target: HTMLElement): () => boolean {
+  const mine = (draws.get(target) ?? 0) + 1;
+  draws.set(target, mine);
+  return () => draws.get(target) === mine;
+}
+
+/**
+ * Cancels the draw into `target` and stops the Vega view it holds (its timers and window listeners):
+ * the block redrew from another source or left the page. A render still running for it drops its result.
+ */
+export function cancelDiagram(target: HTMLElement): void {
+  draws.set(target, (draws.get(target) ?? 0) + 1);
+  views.get(target)?.finalize();
+  views.delete(target);
+}
+
 /**
  * Renders a mermaid diagram as SVG into `target` with Ondine, falling back to Mermaid for a source
- * Ondine refuses; when both refuse, Ondine's reason is the error.
+ * Ondine refuses; when both refuse, Ondine's reason is the error, unless Ondine never loaded and
+ * Mermaid refused the source: then Mermaid's reason is the one about the source.
  */
 export async function renderMermaid(libraries: DiagramLibraries, source: string, target: HTMLElement): Promise<void> {
+  const current = beginDraw(target);
   let svg: string;
   try {
     svg = await renderOndine(libraries, source);
   } catch (ondineError) {
     try {
       svg = await renderMermaidJS(libraries, source);
-    } catch {
-      throw ondineError;
+    } catch (mermaidError) {
+      throw ondineError instanceof DiagramLoadError && !(mermaidError instanceof DiagramLoadError)
+        ? mermaidError
+        : ondineError;
     }
   }
+  if (!current()) return;
   target.replaceChildren(document.importNode(cleanSVG(svg), true));
 }
 
@@ -144,8 +187,6 @@ export function cleanSVG(text: string): SVGSVGElement {
   return svg as unknown as SVGSVGElement;
 }
 
-const views = new WeakMap<HTMLElement, { finalize(): void }>();
-
 /** Renders a Vega or Vega-Lite spec (JSON) as SVG into `target`, without eval. */
 export async function renderVega(
   libraries: DiagramLibraries,
@@ -153,16 +194,17 @@ export async function renderVega(
   source: string,
   target: HTMLElement,
 ): Promise<void> {
+  const current = beginDraw(target);
   const spec = JSON.parse(source) as Record<string, unknown>;
   const [, { expressionInterpreter }] = await Promise.all([libraries.load("vega"), import("vega-interpreter")]);
   const globals = globalThis as { vega?: VegaAPI; vegaLite?: VegaLiteAPI };
   const vega = globals.vega;
-  if (!vega) throw new Error("vega did not load");
+  if (!vega) throw new DiagramLoadError("vega", "did not load");
   // The chart sits on the page backdrop (no white card), with readable axes in dark mode.
   const config = { background: "transparent", ...(darkScheme() ? darkVegaConfig : {}) };
   let vegaSpec: Record<string, unknown> = spec;
   if (mode === "vega-lite") {
-    if (!globals.vegaLite) throw new Error("vega-lite did not load");
+    if (!globals.vegaLite) throw new DiagramLoadError("vega-lite", "did not load");
     vegaSpec = globals.vegaLite.compile(spec, { config }).spec as Record<string, unknown>;
   }
   const runtime = vega.parse({ ...vegaSpec, background: spec.background ?? "transparent" }, config, { ast: true });
@@ -174,6 +216,11 @@ export async function renderVega(
     hover: true,
   });
   await view.runAsync();
+  // A newer draw or a cancel took over while this one ran: stop its view and leave the target alone.
+  if (!current()) {
+    view.finalize();
+    return;
+  }
   views.get(target)?.finalize();
   views.set(target, view);
   target.replaceChildren(container);
@@ -186,13 +233,17 @@ const darkVegaConfig = {
   view: { stroke: "#444" },
 };
 
-/** Renders a diagram block; on failure shows `errorText` and the reason. */
+/**
+ * Renders a diagram block; on failure shows `errorText` and the reason, or `unavailableText` when a
+ * renderer did not load (``DiagramLoadError``), whose message names an internal library.
+ */
 export function renderDiagram(
   libraries: DiagramLibraries,
   language: string,
   source: string,
   target: HTMLElement,
   errorText: string,
+  unavailableText: string,
 ): void {
   target.dataset.state = "rendering";
   const done = (promise: Promise<void>) =>
@@ -204,7 +255,9 @@ export function renderDiagram(
         target.dataset.state = "error";
         const message = document.createElement("div");
         message.className = "md-diagram-error";
-        message.textContent = `${errorText} ${error instanceof Error ? error.message : String(error)}`;
+        const reason =
+          error instanceof DiagramLoadError ? unavailableText : error instanceof Error ? error.message : String(error);
+        message.textContent = `${errorText} ${reason}`;
         target.replaceChildren(message);
       },
     );

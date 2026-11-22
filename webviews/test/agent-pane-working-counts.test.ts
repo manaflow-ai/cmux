@@ -14,6 +14,8 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -173,14 +175,15 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   /// The tray off, as the host sends it with the theme, unless `tray`.
   const open = async (session: string, width = 900, tray = false) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
+    // The clock beside the line's label, which this file reads with the counts.
+    await pinArms(page, CLOCK_ON_LINE);
     await page.goto(url(session));
     await line(page).waitFor({ timeout: 25_000 });
     if (!tray)
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
-  // The running turn's one live line at its bottom (Thinking.tsx, Debug toggles codexToolRuns and
-  // liveLineBelow, on by default): it names the read in flight, then the counts.
+  // The running turn's one live line at its bottom (Thinking.tsx): it names the read in flight, then the counts.
   const line = (page: Page) => page.locator(".cv-worked.is-below");
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -223,13 +226,14 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
-    // The Linter finished and the watcher stopped: neither counts.
+    // The Linter finished and the watcher stopped: neither counts. The turn's clock stands beside the
+    // label with no "total" (#34866): "Read app.ts 2m 9s · 2 subagents · 1 command".
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ · 2 subagents · 1 command$/,
+      /^Read [^·]+ \d+s · 2 subagents · 1 command$/,
     );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
     await plain.close();
   });
 
@@ -237,43 +241,68 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
-    // What runs is listed first; the Linter that ended stays as a finished card under it
-    // (49acdd1d589d keeps finished cards mounted in the tray).
+    // It starts folded to its header (cmux#28875); the person opens it.
+    await openRunningTray(page);
+    // What runs is listed first, newest first (#33364: Tester started after Reviewer); the Linter
+    // that ended stays as a finished card under it (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
       .locator("li:not([data-finished]) .acpmux-agent-line .acpmux-summary-agent__name")
       .allInnerTexts();
-    expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
     await page.close();
   });
 
-  test("a count moves nothing: the line keeps its box and its label stays put", async () => {
+  test("background counts keep the live line's box within the same row context", async () => {
     for (const width of [900, 420]) {
-      const measure = async (session: string) => {
-        const page = await open(session, width);
-        const box = await line(page).evaluate((node) => {
+      const measure = (page: Page, token: string) =>
+        line(page).evaluate((node, token) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          const px = (name: string) => parseFloat(style.getPropertyValue(name));
+          // The tokens are var() chains, so resolve each through a probe's height.
+          const px = (name: string) => {
+            const probe = document.createElement("div");
+            probe.style.height = `var(${name})`;
+            node.append(probe);
+            const value = probe.getBoundingClientRect().height;
+            probe.remove();
+            return value;
+          };
           return {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+            oneLine: px(token),
           };
+        }, token);
+      const page = await open(BUSY, width);
+      try {
+        // This line follows subagent steps: the live line's drawn box (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX).
+        // Counts must not change it.
+        const withCounts = await measure(page, "--cv-live-line-box");
+        expect(withCounts.height).toBe(withCounts.oneLine);
+        expect(withCounts.labelHeight).toBe(20);
+        expect(withCounts.labelLeft).toBe(0);
+        const counts = line(page).locator(".cv-worked__count:has(> .cv-worked__open)");
+        expect(await counts.count()).toBe(2);
+        await counts.evaluateAll((nodes) => {
+          for (const node of nodes) (node as HTMLElement).style.display = "none";
         });
+        expect(await measure(page, "--cv-live-line-box")).toEqual(withCounts);
+      } finally {
         await page.close();
-        return box;
-      };
-      const busyBox = await measure(BUSY);
-      expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
-      expect(busyBox.height).toBe(busyBox.oneLine);
-      expect(busyBox.labelHeight).toBe(20);
+      }
+      const quiet = await open(QUIET, width);
+      try {
+        // With no preceding step, its row is the 32px footer slot and its words the same drawn box at its top.
+        const box = await measure(quiet, "--cv-live-line-box");
+        expect(box.height).toBe(box.oneLine);
+        expect(box.labelHeight).toBe(20);
+        expect(box.labelLeft).toBe(0);
+      } finally {
+        await quiet.close();
+      }
     }
   });
 

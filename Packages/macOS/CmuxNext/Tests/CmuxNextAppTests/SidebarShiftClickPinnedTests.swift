@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// #27701: Shift-click across pinned workspaces, as cmux classic. Shift-click selects every workspace drawn
@@ -9,7 +10,7 @@ import Testing
 /// Cmd-Shift-click adds the range to the selection. Before, a press on a pinned tile only showed its workspace,
 /// and a Shift-click on a row from a shown pinned workspace selected that row alone (the range had no anchor).
 /// Each case runs with Pinned in the band above the list and in the list's block (the sidebar document).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct SidebarShiftClickPinnedTests {
     static let pinned = [LayoutItemID("itm_p1"), LayoutItemID("itm_p2")]
     static func pinnedWorkspace(_ item: LayoutItemID) -> WorkspaceID { WorkspaceID("ws-\(item.rawValue.dropFirst(4))") }

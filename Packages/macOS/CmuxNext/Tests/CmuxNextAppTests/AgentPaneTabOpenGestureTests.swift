@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// click, ``AgentPaneUserGestures``), which page script cannot make, and uses it once. A terminal
 /// opened only to type printable text (`run: false`), an empty terminal and a browser tab run nothing
 /// and stay ungated; typed text with a control key (`run: false`, `tab.typeAhead`) is a run.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneTabOpenGestureTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -147,7 +148,10 @@ struct AgentPaneTabOpenGestureTests {
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         window.contentView = view
         try #require(window.makeFirstResponder(view.webView), "the page's field could not take the keyboard")
-        let router = KeyRouter(registry: ActionRegistry.standard())
+        // The router holds its registry unowned: the test keeps it alive to its end.
+        let registry = ActionRegistry.standard()
+        defer { withExtendedLifetime(registry) {} }
+        let router = KeyRouter(registry: registry)
 
         let posted = try Self.returnKey(source: Int64(getpid()) + 1)
         NewTabInputCoordinator.replay(posted, held: posted, in: window, router: router)

@@ -112,11 +112,9 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let mut notifications = self.tree_decorations();
-        // The raw tree reads an app workspace's kind from presentation; the
-        // creation's delta must show it (`app-screens-v1`).
-        let reloads_presentation =
-            matches!(mark, crate::state::home_store::EmptyWorkspaceMark::App(_));
+        // The delta serializes the new empty workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
+        let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
@@ -239,10 +237,8 @@ impl Mux {
                     replayed: true,
                 });
             }
-            let resource_revision = project_resource
-                .then(|| registry.snapshot())
-                .transpose()?
-                .map(|snapshot| snapshot.resource_revision);
+            let resource_revision =
+                project_resource.then(|| registry.resource_revision()).transpose()?;
             if reloads_presentation {
                 self.reload_presentation(&registry)?;
                 notifications.presentation = self.presentation_snapshot();
@@ -285,6 +281,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(revision),
                     transaction: None,
+                    mutation: None,
                 },
                 selection_resync,
             )

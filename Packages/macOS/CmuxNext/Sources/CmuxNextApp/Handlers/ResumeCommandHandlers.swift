@@ -25,22 +25,21 @@ enum ResumeCommandHandlers {
             guard let (surface, connection) = terminal(invocation, context) else { return }
             registry.track(change(.clear, surface, connection))
         })
+        let lastCommand = DaemonCapability.terminalLastCommand
+        RunLastCommandActions(unavailable: context.needs(lastCommand.rawValue), terminal: { terminal($0, context, lastCommand) }).bind(into: registry)
     }
 
     /// The targeted or focused terminal tab and its own daemon's connection.
-    private static func terminal(_ invocation: ActionInvocation, _ context: AppActionContext) -> (SurfaceID, DaemonConnection)? {
+    private static func terminal(_ invocation: ActionInvocation, _ context: AppActionContext, _ capability: DaemonCapability = .resumeCommand) -> (SurfaceID, DaemonConnection)? {
         guard let (tab, _) = context.daemonTab(invocation) else { return nil }
         guard tab.kind == .pty else { return context.refuse(RefusalStrings.notATerminal) }
         let daemon = context.services.machines.daemon(forTab: tab)
-        guard daemon.supports(DaemonCapability.resumeCommand.rawValue) else {
-            return context.refuse(daemon.missingCapabilityMessage(DaemonCapability.resumeCommand.rawValue))
-        }
+        guard daemon.supports(capability.rawValue) else { return context.refuse(daemon.missingCapabilityMessage(capability.rawValue)) }
         guard let connection = daemon.connection else { return context.refuse(MiscHandlerStrings.daemonOffline) }
         return (tab.surface, connection)
     }
 
-    private static func change(_ change: TerminalResumeCommandRequest.Change, _ surface: SurfaceID,
-                               _ connection: DaemonConnection) -> ActionWork {
+    private static func change(_ change: TerminalResumeCommandRequest.Change, _ surface: SurfaceID, _ connection: DaemonConnection) -> ActionWork {
         Task {
             do {
                 _ = try await connection.request(TerminalResumeCommandRequest(.surface(surface), change: change))

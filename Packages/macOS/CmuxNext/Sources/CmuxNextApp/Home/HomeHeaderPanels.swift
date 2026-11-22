@@ -1,5 +1,7 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextHome
+import CmuxNextHomeModel
 
 /// The panels the Home transcript header's top-right toggles open and close beside Home, like
 /// Claude desktop's panel buttons (Leo 2026-10-20: "stop opening the hard-coded default right
@@ -44,7 +46,7 @@ struct HomeHeaderPanelContext {
 @MainActor
 enum HomeHeaderPanels {
     /// Every header toggle, left to right.
-    static let all: [HomeHeaderPanel] = [memory, rightSidebar]
+    static let all: [HomeHeaderPanel] = [memory]
 
     /// The Chief's Memory Inspector, a tab in Home's right column (``ChiefMemoryPageService``).
     static let memory = HomeHeaderPanel(
@@ -62,19 +64,12 @@ enum HomeHeaderPanels {
             return memory.isShown(in: window)
         })
 
-    /// The window's right sidebar (Sessions, Files, Feed, Dock, Machines): its own toggle action.
-    static let rightSidebar = HomeHeaderPanel(
-        id: "rightSidebar", symbol: "sidebar.right", label: { HomeHeaderPanelStrings.rightSidebar },
-        action: "toggleRightSidebar",
-        isOpen: { $0.window?.rightSidebar.isVisible ?? false })
-
-    /// The cluster's buttons for `context` (empty while Debug Settings > Home > Home header panel
-    /// toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
+    /// The cluster's buttons for `context` (none while Debug Settings > Home > Home header panel toggles is
+    /// off): an observable read, so a watch redraws them when any panel opens or closes.
     static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
                       enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
-        guard enabled else { return [] }
         let registry = context.services.registry
-        return panels.filter { $0.isShown(context) }.map { panel in
+        return panels.filter { enabled && $0.isShown(context) }.map { panel in
             HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(),
                                 shortcut: registry.shortcutDisplay(for: panel.action), isOn: panel.isOpen(context))
         }
@@ -90,9 +85,6 @@ enum HomeHeaderPanels {
 
 enum HomeHeaderPanelStrings {
     static var memory: String {
-        String(localized: "home.headerPanels.memory", defaultValue: "Memory Inspector", table: "MiscHandlers", bundle: .module)
-    }
-    static var rightSidebar: String {
-        String(localized: "home.headerPanels.rightSidebar", defaultValue: "Right Sidebar", table: "MiscHandlers", bundle: .module)
+        String(localized: "home.headerPanels.memory", defaultValue: "Memory Inspector", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

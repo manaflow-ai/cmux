@@ -3092,7 +3092,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     oversized.extend_from_slice(&5_000u16.to_le_bytes());
     oversized.extend_from_slice(&1_000u16.to_le_bytes());
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, oversized)).unwrap();
-    renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    cmux_tui_platform::read_timeout_or_ended(&renderer.stream, Duration::from_secs(5)).unwrap();
     loop {
         match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
             Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
@@ -3593,8 +3593,20 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    // The exact revision assertions below count creation commits only; a
-    // shell's cwd report would add its own revision.
+    // The revision asserts of the resolution and of the replay read the
+    // creation's own revision. The session's revision after a restart has a
+    // lower bound only: the daemon can make its own commit
+    // (`session.restate-part`, `mux/startup_restore/restate_parts.rs`) after a
+    // start. A shell's cwd report would add one more commit, so shell
+    // integration stays off.
+    let session_revision = |snapshot: &serde_json::Value, step: &str| -> u64 {
+        snapshot["cursor"]["revision"]
+            .as_str()
+            .and_then(|revision| revision.parse::<u64>().ok())
+            .unwrap_or_else(|| {
+                panic!("{step}: `cursor.revision` is not an integer: {}", snapshot["cursor"])
+            })
+    };
     let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
     harness.host_ready_delay_ms = Some(2_000);
     harness.shell_integration = false;
@@ -3646,7 +3658,8 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(first_snapshot["cursor"]["revision"], "1");
+    let first_session_revision = session_revision(&first_snapshot, "after the first restart");
+    assert!(first_session_revision >= 1, "after the first restart: {first_session_revision}");
     assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -3692,7 +3705,12 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(second_snapshot["cursor"]["revision"], "1");
+    let second_session_revision = session_revision(&second_snapshot, "after the second restart");
+    assert!(second_session_revision >= 1, "after the second restart: {second_session_revision}");
+    assert!(
+        second_session_revision >= first_session_revision,
+        "the session's revision went back: {first_session_revision}, then {second_session_revision}"
+    );
     assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -4838,6 +4856,7 @@ struct ParkedTemplate {
     host_pid: u32,
     identity: (Vec<u8>, Vec<u8>, String),
     registry_id: serde_json::Value,
+    workspace_key: String,
 }
 
 /// Start a terminal, then park its daemon the way the Cloud bake does: a
@@ -4905,6 +4924,7 @@ fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: record.workspace_key,
     }
 }
 
@@ -4922,6 +4942,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: builder_key,
     } = park_template_host(&mut harness);
     harness.adopt_template_terminal = true;
     harness.restart();
@@ -4988,6 +5009,17 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
     assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // Every clone of one snapshot holds this host: its workspace takes a fresh key, never the
+    // builder's, or every clone's workspace is one workspace to an app that shows several machines.
+    assert!(!builder_key.is_empty());
+    let clone_key = workspaces["workspaces"][0]["key"].as_str().unwrap().to_string();
+    assert_ne!(clone_key, builder_key, "{workspaces}");
+    // The host's own record (its recovery mirror) names the clone's workspace, not the builder's.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while wait_for_host_records(&harness.host_root(), 1)[0].1.workspace_key != clone_key {
+        assert!(Instant::now() < deadline, "the host record still names the builder's workspace");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     // The template settings configure this daemon only. A terminal it spawns
     // must not inherit them (the Cloud user's shells and agents).
     let env_file = harness.dir.join("template-child-env");
@@ -5276,6 +5308,13 @@ mod durable_tab_links;
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 
+#[path = "terminal_host_recovery/restart_host_leak.rs"]
+mod restart_host_leak;
+
+#[cfg(unix)]
+#[path = "terminal_host_recovery/pty_release.rs"]
+mod pty_release;
+
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
@@ -5310,6 +5349,9 @@ mod idle_template;
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
 
+#[path = "terminal_host_recovery/kept_restore.rs"]
+mod kept_restore;
+
 #[path = "terminal_host_recovery/reconnect_checkpoints.rs"]
 mod reconnect_checkpoints;
 
@@ -5318,6 +5360,12 @@ mod kitty_budget_resync;
 
 #[path = "terminal_host_recovery/parallel_new_tabs.rs"]
 mod parallel_new_tabs;
+
+#[path = "terminal_host_recovery/startup_adoption_order.rs"]
+mod startup_adoption_order;
+
+#[path = "terminal_host_recovery/startup_kitty_wave.rs"]
+mod startup_kitty_wave;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
@@ -5330,6 +5378,11 @@ mod answers_before_adoption;
 
 #[path = "terminal_host_recovery/adoption_startup_state.rs"]
 mod adoption_startup_state;
+
+/// Needs the debug-build seam that holds each adoption.
+#[cfg(debug_assertions)]
+#[path = "terminal_host_recovery/input_while_adopting.rs"]
+mod input_while_adopting;
 
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]

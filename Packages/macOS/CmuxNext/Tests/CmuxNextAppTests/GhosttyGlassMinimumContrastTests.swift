@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import GhosttyNextKit
 import IOSurface
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// cx-d07pp: a translucent window without glass (`background-opacity` below 1) takes the same
 /// path, because the surfaces draw a transparent default background there
 /// (`GhosttyRuntimeSurfacePolicy`) and the host paints the background.
-@MainActor @Suite(.serialized) struct GhosttyGlassMinimumContrastTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GhosttyGlassMinimumContrastTests {
     @Test func darkTextOnALightGlassThemeStaysDark() async throws {
         // Flexoki Light's colors.
         let result = try await Self.renderText(config: """

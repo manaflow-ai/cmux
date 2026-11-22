@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextSettings
 
 extension AgentPaneView {
     /// Start Dictation sent up the responder chain from this pane's page (``AgentPaneDictationKey``):
@@ -6,7 +7,7 @@ extension AgentPaneView {
     /// Dictation key and Edit ▸ Start Dictation go to NSApplication instead, which asks
     /// ``takeStartDictation(in:sender:)``.
     @objc(startDictation:) func startDictation(_ sender: Any?) {
-        if dictationKey.usesSystemDictation { dictationKey.system(sender) } else { dictationKey.pane(self) }
+        if usesSystemDictation { dictationKey.system(sender) } else { dictationKey.pane(self) }
     }
 
     /// Start Dictation as NSApplication gets it (Edit ▸ Start Dictation, its Globe-D key
@@ -15,10 +16,19 @@ extension AgentPaneView {
     /// `agent.systemDictation` Debug toggle is on.
     @discardableResult
     public static func takeStartDictation(in keyWindow: NSWindow?, sender: Any?) -> Bool {
-        guard let keyWindow, let pane = dictationOwner(in: keyWindow), !pane.dictationKey.usesSystemDictation else { return false }
+        guard let keyWindow, let pane = dictationOwner(in: keyWindow) else { return false }
+        // macOS's dictation takes the microphone: cmux's own session (any pane's) ends first, keeping its words.
+        if pane.usesSystemDictation {
+            pane.model.dictationHandoff.stopOwnDictation()
+            return false
+        }
         pane.dictationKey.pane(pane)
         return true
     }
+
+    /// macOS's dictation, not the pane's: the Debug toggle, or `agentPane.dictationSource` `macos`
+    /// (whose hand-off sends Start Dictation to NSApplication, which must then not come back here).
+    var usesSystemDictation: Bool { dictationKey.usesSystemDictation || model.composer.dictationSource == .macos }
 
     /// The agent pane whose page has the keyboard in `keyWindow`: the pane holding its first
     /// responder (WebKit), or the pane whose Chromium page window it is (a child of the pane's window).

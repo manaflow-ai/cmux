@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)
 import QuartzCore
 
 /// CoreAnimation animations for the cursor layer, made from one plan.
@@ -28,3 +29,4 @@ extension GlidePlan {
         return animation
     }
 }
+#endif

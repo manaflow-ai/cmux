@@ -97,10 +97,14 @@ const reduceCreate = (
   const raw = Array.isArray(params.participants) ? (params.participants as Array<Participant>) : []
   let creator = actor
   let participants: Array<Participant> = raw
-  if (kind === "chief") {
-    // Built by the owner's UserDO (`chief.create`): a system op whose params are trusted.
+  // A channel (chief-channels-DESIGN.md 1): a group built by the creator's UserDO (`channel.create`), the creator and the channel Chief only.
+  const channelChief = typeof params.channel_chief === "string" ? params.channel_chief : undefined
+  if (params.channel_chief !== undefined && (kind !== "group" || actor !== SYSTEM_ACTOR || !channelChief?.startsWith("agent_"))) return refuse("forbidden")
+  if (kind === "chief" || channelChief !== undefined) {
+    // Built by the owner's UserDO (`chief.create`, `channel.create`): a system op whose params are trusted.
     if (actor !== SYSTEM_ACTOR || typeof params.owner !== "string") return refuse("forbidden")
     creator = params.owner
+    if (channelChief !== undefined && (raw.length !== 2 || !raw.some((p) => p.id === creator && p.kind === "human") || !raw.some((p) => p.id === channelChief && p.kind === "agent"))) return refuse("invalid_participant")
   } else {
     if (actor === SYSTEM_ACTOR || (kind === "dm" && !actor.startsWith("user_"))) return refuse("forbidden")
     // The team whose policy applies comes from the principal; absent = personal.
@@ -121,6 +125,7 @@ const reduceCreate = (
     participants,
     now: formatRfc3339Millis(ctx.now),
     kind,
+    ...(channelChief === undefined ? {} : { channel_chief: channelChief }),
     ...(typeof team === "string" ? { team } : {}),
     ...(typeof params.settings === "object" && params.settings !== null ? { settings: params.settings } : {}),
     ...(typeof params.retention_days === "number" ? { retention_days: params.retention_days } : {})

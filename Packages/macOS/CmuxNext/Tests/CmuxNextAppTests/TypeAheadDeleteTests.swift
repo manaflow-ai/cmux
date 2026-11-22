@@ -1,3 +1,4 @@
+import CmuxNextFocus
 @testable import CmuxNextApp
 @testable import CmuxNextPages
 import Testing
@@ -58,5 +59,10 @@ struct TypeAheadDeleteTests {
         #expect(script.contains("i < 3"))
         #expect(script.contains("execCommand('delete', false)"))
         #expect(PageInputReadiness.editScript(.insert("a\"b")).contains(#"execCommand('insertText', false, "a\"b")"#))
+    }
+
+    @Test func readinessScriptExposesAResendHookForChromiumCommitGaps() {
+        #expect(PageInputReadiness.script.contains("__cmuxInputReadyResend"))
+        #expect(PageInputReadiness.script.contains("post({ ready: sent, epoch, commandFocus: command, list, editing })"))
     }
 }

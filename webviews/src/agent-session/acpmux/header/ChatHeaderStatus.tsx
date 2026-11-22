@@ -41,7 +41,7 @@ function StatusLabel({ status, detail, inline }: { status: string; detail?: stri
       /* tooltip-allow: the warning's detail, shown nowhere else */ title={detail}
       aria-label={detail}
     >
-      <Icon name="status.warning" size={13} />
+      <Icon name="status.warning" size={14} />
       <span>{status}</span>
     </output>
   );

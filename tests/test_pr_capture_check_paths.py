@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pr-capture-check and cmux-next-media's route list the changed paths from the merge commit, not the API.
+"""pr-capture-check (pr-body-checks.yml) and cmux-next-media's route list the changed paths from the merge commit, not the API.
 
 The check runs on every push, label and description edit of a feat-cmux-next
 pull request, and each run paged through `pulls/N/files` on the repository's
@@ -21,11 +21,17 @@ import unittest
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-capture-check.yml").read_text())
-STEPS = WORKFLOW["jobs"]["capture"]["steps"]
+WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-body-checks.yml").read_text())
+STEPS = WORKFLOW["jobs"]["body"]["steps"]
 
 
 def step(name: str) -> dict:
@@ -112,15 +118,15 @@ class MergeCommitFixture(unittest.TestCase):
 
 class CapturePathsTests(MergeCommitFixture):
     def test_the_merge_commit_lists_the_files_api_set(self):
-        result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA=self.head)
+        result, outputs = self.run_step("List the changed paths with renames", MERGE_SHA=self.merge, HEAD_SHA=self.head)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(outputs.get("listed"), "true")
-        listed = (self.temp / "paths.txt").read_text(encoding="utf-8").splitlines()
+        listed = (self.temp / "capture-paths.txt").read_text(encoding="utf-8").splitlines()
         self.assertEqual(set(listed), self.api_set)
         self.assertEqual(self.gh_calls(), [])
 
     def test_the_check_reads_no_api_once_git_listed_the_paths(self):
-        self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA=self.head)
+        self.run_step("List the changed paths with renames", MERGE_SHA=self.merge, HEAD_SHA=self.head)
         # The base checkout has no pr_capture_check.py; give the step this repository's.
         (self.clone / "scripts/ci").mkdir(parents=True)
         (self.clone / "scripts/cmux-next/media").mkdir(parents=True)
@@ -135,15 +141,15 @@ class CapturePathsTests(MergeCommitFixture):
 
     def test_a_merge_of_another_head_is_not_trusted(self):
         # A stale merge commit (of an earlier head) must not stand in for this head's changes.
-        result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA="b" * 40)
+        result, outputs = self.run_step("List the changed paths with renames", MERGE_SHA=self.merge, HEAD_SHA="b" * 40)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("listed", outputs)
 
     def test_a_failed_listing_falls_back_to_the_files_api(self):
-        result, outputs = self.run_step("List the changed paths", MERGE_SHA="0" * 40, HEAD_SHA=self.head)
+        result, outputs = self.run_step("List the changed paths with renames", MERGE_SHA="0" * 40, HEAD_SHA=self.head)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("listed", outputs)
-        self.assertTrue(step("List the changed paths").get("continue-on-error"))
+        self.assertTrue(step("List the changed paths with renames").get("continue-on-error"))
         (self.clone / "scripts/ci").mkdir(parents=True)
         (self.clone / "scripts/cmux-next/media").mkdir(parents=True)
         for path in ("scripts/ci/pr_capture_check.py", "scripts/cmux-next/media/path_map.py"):

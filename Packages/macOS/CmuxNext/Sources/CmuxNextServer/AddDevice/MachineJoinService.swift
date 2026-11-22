@@ -63,26 +63,31 @@ public nonisolated struct MachineJoinService: Sendable {
     /// `cmux machine rotate ID --json`: true when the platform rotated its credential. The
     /// output is never kept: it may carry the new credential.
     public var rotate: @Sendable (_ id: String) async -> Bool
+    /// `cmux device remove joined:ID --yes --json`: revokes it if it still can join, and takes it off
+    /// every machine list (the record is cmux-tui's, so the CLI, MCP, the app and the phone agree).
+    public var remove: @Sendable (_ id: String) async -> Bool
 
     public init(mint: @escaping @Sendable (String?) async -> Result<JoinLine, JoinLineFailure>,
                 list: @escaping @Sendable () async -> [JoinedMachine]?,
                 doctor: @escaping @Sendable (String) async -> [HostStepResult] = MachineJoinService.noSteps,
                 meshChanges: @escaping @Sendable () -> AsyncStream<Void> = { AsyncStream { $0.finish() } },
                 revoke: @escaping @Sendable (String) async -> Bool = MachineJoinService.refuse,
-                rotate: @escaping @Sendable (String) async -> Bool = MachineJoinService.refuse) {
+                rotate: @escaping @Sendable (String) async -> Bool = MachineJoinService.refuse,
+                remove: @escaping @Sendable (String) async -> Bool = MachineJoinService.refuse) {
         self.mint = mint
         self.list = list
         self.doctor = doctor
         self.meshChanges = meshChanges
         self.revoke = revoke
         self.rotate = rotate
+        self.remove = remove
     }
 
     /// No checks: ``doctor``'s default, a named function rather than an async closure literal as a
     /// default argument (crash ratchet, cx-bsue).
     @Sendable public static func noSteps(_ id: String) async -> [HostStepResult] { [] }
 
-    /// Changes nothing: ``revoke`` and ``rotate``'s default (a named function, not an async closure
+    /// Changes nothing: ``revoke``, ``rotate`` and ``remove``'s default (a named function, not an async closure
     /// literal as a default argument; crash ratchet, cx-bsue).
     @Sendable public static func refuse(_ id: String) async -> Bool { false }
 

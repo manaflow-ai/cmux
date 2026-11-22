@@ -247,10 +247,8 @@ impl Record {
         // Its lock file stays when the record goes: a sender that opened it just before would
         // otherwise lock a file nobody else sees.
         crate::config::private_state_dir(dir).ok()?;
-        let mut open = std::fs::OpenOptions::new();
-        open.create(true).truncate(false).write(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        let mut open = crate::home_fs::OpenOptions::new();
+        open.create(true).truncate(false).write(true).mode(0o600);
         let lock = open.open(dir.join(format!("{hash}.lock"))).ok()?;
         lock.try_lock().ok()?;
         Some(Self { path: dir.join(format!("{hash}.json")), lock })
@@ -272,7 +270,7 @@ impl Record {
     /// Removes it: its upload finished, was cancelled, or is gone. The lock file stays, empty.
     /// False when it is still there, naming an upload another send could take as its own.
     pub(super) fn forget(&self) -> bool {
-        match std::fs::remove_file(&self.path) {
+        match crate::home_fs::remove_file(&self.path) {
             Ok(()) => true,
             Err(e) => e.kind() == std::io::ErrorKind::NotFound,
         }
@@ -332,11 +330,25 @@ pub(super) async fn upload(
     size: u64,
     progress: &mut Progress<'_>,
 ) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| (failure(daemon, &path.display().to_string(), e.into()), None))?;
+    upload_opened(daemon, chat, path, size, file, progress).await
+}
+
+/// Upload the descriptor the caller validated, retaining the normal resume key and filename.
+pub(super) async fn upload_opened(
+    daemon: &Client,
+    chat: &str,
+    path: &Path,
+    size: u64,
+    mut file: tokio::fs::File,
+    progress: &mut Progress<'_>,
+) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
     let label = path.display().to_string();
     let name = super::safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
-    // With its reason: the CLI prints the outer message only.
     let fail = |e: anyhow::Error| failure(daemon, &label, e);
-    let mut file = tokio::fs::File::open(path).await.map_err(|e| (fail(e.into()), None))?;
+    file.seek(std::io::SeekFrom::Start(0)).await.map_err(|e| (fail(e.into()), None))?;
     let meta = file.metadata().await.map_err(|e| (fail(e.into()), None))?;
     let mut head = vec![0u8; HEAD_BYTES.min(usize::try_from(size).unwrap_or(HEAD_BYTES))];
     file.read_exact(&mut head).await.map_err(|e| (fail(e.into()), None))?;
@@ -425,6 +437,11 @@ pub(super) async fn upload(
             offset = at;
             file.seek(std::io::SeekFrom::Start(offset)).await?;
         }
+        let after = file.metadata().await?;
+        anyhow::ensure!(
+            after.len() == size && after.modified().ok() == meta.modified().ok(),
+            "{label} changed while it was sent; send it again once writing finishes"
+        );
         anyhow::Ok(())
     };
     match sent.await {

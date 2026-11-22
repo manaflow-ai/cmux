@@ -19,7 +19,7 @@ final class FocusModeBadgeView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = Metrics.controlCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -58,8 +58,8 @@ final class FocusModeBadgeView: NSView {
     func show(armed: Bool) {
         label.stringValue = armed ? Strings.focusModeArmed : Strings.focusModeActive
         let help = Strings.focusModeExitHelp(Strings.focusModeEscapeHint)
-        themedToolTip = help
         setAccessibilityLabel(label.stringValue)
+        setAccessibilityHelp(help) // it shows its words: no tooltip (a1315's cut 2)
         setAccessibilityHelp(help)
         needsDisplay = true
         updateLayer()

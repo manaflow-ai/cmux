@@ -70,6 +70,7 @@ public nonisolated struct BrowserToolbarPolicy {
             return BrowserToolbarButtonState(icon: .browserToolbarDevtools, label: hinted(Strings.toolbarDevTools),
                                              isActive: facts.devToolsOpen)
         case .overflow:
+            // The pane's ⋮ (`OverflowButton.paneGlyph`, Chrome's), as on the tab bar above it (Lawrence msg 19627).
             return BrowserToolbarButtonState(icon: .browserToolbarMore, label: Strings.toolbarMore)
         }
     }

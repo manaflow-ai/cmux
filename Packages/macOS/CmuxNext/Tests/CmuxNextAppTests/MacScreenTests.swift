@@ -2,9 +2,11 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxTheme
@@ -32,10 +34,11 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences())
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(), viewerLook: .current)
 }
 
 /// Mac Screen tabs: the record, scrolling.
+@Suite(.closesItsWindows)
 struct MacScreenRecordTests {
     @Test func homeRecordRoundTrips() throws {
         #expect(MacScreenRecord.homeURL.absoluteString == "cmux://mac-screen")
@@ -60,6 +63,7 @@ struct MacScreenRecordTests {
 /// Link pairing is gone: the store keeps only device names, and its first
 /// load removes the old link pairings (Keychain items) once.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenStoreTests {
     /// A file from a build with link pairing: the cleanup runs once, the old fields go.
     @Test func theFirstLoadRemovesLinkPairingsOnce() async throws {
@@ -92,10 +96,66 @@ struct MacScreenStoreTests {
         await reloaded.load()
         #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Mac mini 2")
     }
+
+    /// The first-use guide hides for good after the first share: the mark is written and read back.
+    @Test func sharedBeforePersists() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        store.markSharedBefore()
+        await store.flush()
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("hasSharedBefore"))
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasSharedBefore)
+    }
+
+    /// A share marked before the file finished loading stays marked.
+    @Test func sharedBeforeMarkedDuringLoadIsKept() async throws {
+        let (store, file) = makeStore()
+        // A file from before the share, in a folder the mark's save cannot overwrite, so load reads `false`.
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"deviceNames":{},"hasSharedBefore":false,"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        #expect(store.hasSharedBefore)
+    }
+
+    /// Viewing another Mac once ends the first-use guide too, and the mark is written and read back.
+    @Test func viewedBeforePersistsAndEndsTheFirstUseGuide() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        #expect(MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        store.markViewedBefore()
+        #expect(store.hasUsedBefore && !MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        await store.flush()
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasViewedBefore && !reloaded.hasSharedBefore)
+    }
+
+    /// A change made before the file is read never overwrites the file with the empty state: the names stay.
+    @Test func aChangeBeforeLoadKeepsTheSavedNames() async throws {
+        let (store, file) = makeStore()
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hubDeviceName":"Office","deviceNames":{"\#(deviceID)":"Studio"},"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        await store.flush()
+        #expect(store.hubDeviceName == "Office" && store.deviceNames[deviceID] == "Studio" && store.hasSharedBefore)
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Studio" && reloaded.hasSharedBefore)
+    }
 }
 
 /// A pairing link pasted or typed in an address bar is refused with a word,
 /// and never searched (it carried a room secret).
+@Suite(.closesItsWindows)
 struct MacScreenAddressTests {
     @Test(arguments: [
         "cmux-vnc://pair?signal=https://s.example&room=00112233445566778899aabbccddeeff&secret=abcdefghijklmnopqrstuvwxyzABCDEF0123&name=Mac",
@@ -145,6 +205,7 @@ struct MacScreenAddressTests {
     }
 }
 
+@Suite(.closesItsWindows)
 struct MacScreenScrollTests {
     @Test func wheelLinesPassThrough() {
         var scroll = MacScreenScroll()
@@ -162,6 +223,7 @@ struct MacScreenScrollTests {
 
 /// Settings > Development exists only in DEV builds: every route to it (section, focused key)
 /// opens the default page elsewhere.
+@Suite(.closesItsWindows)
 struct MacScreenDevelopmentSettingsRouteTests {
     @Test func developmentRoutesOnlyInDevBuilds() {
         #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
@@ -177,6 +239,7 @@ struct MacScreenDevelopmentSettingsRouteTests {
 /// synthetic events (accessibility tools, automation) post `rightMouseDown`
 /// with button number 0, which read as a left click on the remote Mac.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenRightClickTests {
     private func event(_ type: NSEvent.EventType) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
@@ -194,6 +257,7 @@ struct MacScreenRightClickTests {
 /// browser page: its route names only the record ("home", "device:<id>"), and
 /// a tab restored on an old link record says links are no longer supported.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
         MacScreenPages(store: makeStore().0, work: BackgroundWork())
@@ -285,13 +349,26 @@ struct MacScreenPageTabTests {
 
     /// Without a device hub (or signed out) the home page says how to set Mac Screen up.
     @Test func theHomePageExplainsTheSetup() {
-        #expect(MacScreenHomeSnapshot.setupNote(configured: false) != MacScreenHomeSnapshot.setupNote(configured: true))
+        #expect(MacScreenHomeSnapshot.setupDevices(configured: false).note != MacScreenHomeSnapshot.setupDevices(configured: true).note)
+    }
+
+    /// Leo, 2026-11-19 (ask-6a79af928f): Your Devices said "None of your other devices share Mac Screen" with a
+    /// list never read. "None" is said only after a read; before it, loading; a failure says why.
+    @Test func yourDevicesSaysNoneOnlyAfterTheListWasRead() {
+        let none = L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+        #expect(MacScreenHomeSnapshot.emptyNote(.noDevices) == none)
+        #expect(MacScreenHomeSnapshot.emptyNote(.finding) == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        let failed = MacScreenHomeSnapshot.emptyNote(.failed(.list, detail: "HTTP 503"))
+        #expect(failed != none && failed.contains("HTTP 503"))
+        #expect(MacScreenHomeSnapshot.emptyNote(.failed(.connection, detail: nil)) != none)
+        #expect(DeviceDiscovery.make(status: "ready", listed: false, connection: "connected", shown: 0) == .finding)
+        #expect(DeviceDiscovery.make(status: "ready", listed: true, connection: "connected", shown: 0) == .noDevices)
     }
 }
 
 /// Every Mac Screen surface draws in its tab's theme scope and follows Settings > Appearance live
 /// (it used system styling: `.bar`, control background, system status colors).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct MacScreenThemeTests {
     private func paint(_ scope: ThemeScope, background: UInt32, foreground: UInt32) throws {
         let input = ThemeInput(background: ThemeRGB(hex: background), foreground: ThemeRGB(hex: foreground))
@@ -344,6 +421,7 @@ struct MacScreenThemeTests {
 
 /// A stalled connection shows Reconnecting at once, not a frozen picture.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenPaneConnectTests {
     @Test func aStalledStreamShowsReconnecting() {
         #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: false) == nil)
@@ -353,6 +431,7 @@ struct MacScreenPaneConnectTests {
 }
 
 /// The connecting card says "Reconnecting…" only after the tab has shown the Mac once.
+@Suite(.closesItsWindows)
 struct MacScreenConnectingCardTests {
     @Test func firstConnectSaysConnecting() {
         #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: false) == .connecting(reconnecting: false))
@@ -366,6 +445,7 @@ struct MacScreenConnectingCardTests {
 
 /// A Mac screen never takes the keyboard until the person clicks the picture.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenOpenKeyboardTests {
     @Test func aNewScreenStartsReleased() {
         let pane = devicePane("Keys")
@@ -377,6 +457,7 @@ struct MacScreenOpenKeyboardTests {
 
 /// The screen takes input only while it is live with no card.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenCardInputTests {
     @Test func onlyALiveScreenWithNoCardTakesInput() {
         #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
@@ -413,6 +494,7 @@ struct MacScreenCardInputTests {
 /// 120 Hz streaming: the pane tells its session how fast its display
 /// refreshes, and the stats line shows the agreed rate next to the measured one.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenFrameRateTests {
     @Test func thePaneReportsItsDisplayRateToTheSession() {
         let pane = devicePane()

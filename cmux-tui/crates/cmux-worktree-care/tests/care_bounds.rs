@@ -82,16 +82,11 @@ fn common(main: &Path) -> PathBuf {
     PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]))
 }
 
-fn trace_git(root: &Path) -> (PathBuf, Option<std::ffi::OsString>) {
-    let (trace, _rss, old_path) = trace_git_with_rss(root);
-    (trace, old_path)
-}
-
-fn trace_git_with_rss(root: &Path) -> (PathBuf, PathBuf, Option<std::ffi::OsString>) {
-    let trace = root.join("git.trace");
-    let rss = root.join("merge-tree.rss-kb");
-    // Put a tiny logging shim ahead of the first executable in the original
-    // PATH; invoking the shim recursively would otherwise hide real git.
+/// The git a shim in front of PATH runs: native Git from its own executable
+/// directory. Hosted runners may put a Go caching wrapper on PATH, and the
+/// peak RSS measured here must be Git's own; invoking the shim recursively
+/// would otherwise hide real git.
+fn native_git() -> PathBuf {
     let path_git = std::env::var_os("PATH")
         .unwrap()
         .to_string_lossy()
@@ -100,13 +95,21 @@ fn trace_git_with_rss(root: &Path) -> (PathBuf, PathBuf, Option<std::ffi::OsStri
         .map(|dir| dir.join("git"))
         .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from("/usr/bin/git"));
-    // Hosted runners may put a Go caching wrapper on PATH. Its runtime can
-    // exhaust the address-space cap before Git starts, so measure native Git
-    // from its own executable directory for these entirely local fixtures.
     let exec_path = Command::new(&path_git).arg("--exec-path").output().unwrap();
     assert!(exec_path.status.success());
     let native = PathBuf::from(String::from_utf8_lossy(&exec_path.stdout).trim()).join("git");
-    let real = if native.is_file() { native } else { path_git };
+    if native.is_file() { native } else { path_git }
+}
+
+fn trace_git(root: &Path) -> (PathBuf, Option<std::ffi::OsString>) {
+    let (trace, _rss, old_path) = trace_git_with_rss(root);
+    (trace, old_path)
+}
+
+fn trace_git_with_rss(root: &Path) -> (PathBuf, PathBuf, Option<std::ffi::OsString>) {
+    let trace = root.join("git.trace");
+    let rss = root.join("merge-tree.rss-kb");
+    let real = native_git();
     let shim = root.join("git");
     let time = if cfg!(target_os = "linux") { "/usr/bin/time" } else { "/nonexistent" };
     let script = format!(
@@ -246,6 +249,85 @@ fn oversized_history_skips_merge_tree_before_running_it() {
     unsafe { std::env::set_var("PATH", old_path.unwrap_or_default()) };
     restore_home(old_home);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A squash-merged worktree scanned through a `git` on PATH whose
+/// merge-tree first maps 1 GiB of anonymous memory with `prot` (Python's
+/// `mmap` names), the way a Go git wrapper's runtime reserves address space,
+/// then runs native Git. Returns the worktree's `finished` answer.
+#[cfg(target_os = "linux")]
+fn squash_answer_with_merge_tree_mapping(name: &str, prot: &str) -> Option<String> {
+    let python = Command::new("python3").arg("-V").output();
+    assert!(python.is_ok_and(|out| out.status.success()), "the shim needs python3");
+    let (root, main) = repository(name);
+    let worktree = root.join("wt");
+    git(&main, &["worktree", "add", "-b", "feature", worktree.to_str().unwrap()]);
+    write(&worktree.join("file"), "feature\n");
+    git(&worktree, &["commit", "-am", "feature"]);
+    git(&main, &["merge", "--squash", "feature"]);
+    git(&main, &["commit", "-m", "squash"]);
+    git(&main, &["push", "origin", "HEAD:main"]);
+    git(&main, &["fetch", "origin"]);
+    let real = native_git();
+    let mapped = root.join("mapped");
+    let script = format!(
+        "#!/bin/sh\nfor arg do\n  if [ \"$arg\" = merge-tree ]; then\n    exec python3 -c 'import mmap, os, sys\nmapping = mmap.mmap(-1, 1 << 30, flags=mmap.MAP_PRIVATE, prot={prot})\nopen(sys.argv[1], \"w\").close()\nos.execv(sys.argv[2], sys.argv[2:])' '{}' '{}' \"$@\"\n  fi\ndone\nexec '{}' \"$@\"\n",
+        mapped.display(),
+        real.display(),
+        real.display()
+    );
+    let shim = root.join("git");
+    write(&shim, &script);
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let old_path = std::env::var_os("PATH");
+    prepend_path(&root, old_path.as_ref());
+    let old_home = isolate_home(&root);
+    let repo = inventory::scan_with_memo(&common(&main), &[], Arc::new(FinishedMemo::memory()));
+    unsafe { std::env::set_var("PATH", old_path.unwrap_or_default()) };
+    restore_home(old_home);
+    let repo = repo.unwrap();
+    let canonical = std::fs::canonicalize(&worktree).unwrap();
+    let listed = repo
+        .worktrees
+        .iter()
+        .find(|w| std::fs::canonicalize(&w.path).ok().as_deref() == Some(canonical.as_path()))
+        .expect("listed");
+    let facts = listed.facts.as_ref().expect("readable");
+    let answer = facts.finished.clone();
+    let reached = mapped.exists();
+    std::fs::remove_dir_all(root).unwrap();
+    // A shim that never ran merge-tree, or whose mapping failed, proves nothing.
+    if prot.contains("PROT_WRITE") {
+        assert!(!reached, "the 1 GiB writable mapping fit under the merge-tree memory cap");
+    } else {
+        assert!(reached, "merge-tree's 1 GiB address-space reservation was refused");
+    }
+    answer
+}
+
+/// A git whose runtime reserves address space it never uses (the Go git
+/// wrapper on hosted runners, git-lfs) still answers: merge-tree's cap bounds
+/// memory, not address space. It failed under the 768 MiB `RLIMIT_AS` at
+/// random, by load, and the squash-merged branch read as unfinished.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_git_that_reserves_unused_address_space_still_gets_an_answer() {
+    let _environment = ENV_LOCK.lock().unwrap();
+    let answer = squash_answer_with_merge_tree_mapping("reserve", "mmap.PROT_READ");
+    assert!(answer.as_deref().is_some_and(|f| f.contains("origin/main")), "{answer:?}");
+}
+
+/// The cap still holds memory a merge-tree writes: 1 GiB of writable memory
+/// is refused, and the check is unknown, never a remembered answer.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_merge_tree_that_writes_past_the_memory_cap_has_no_answer() {
+    let _environment = ENV_LOCK.lock().unwrap();
+    let answer = squash_answer_with_merge_tree_mapping("write", "mmap.PROT_READ | mmap.PROT_WRITE");
+    assert_eq!(answer, None);
 }
 
 /// A subprocess entry point for the perf harness. Keeping this as a separate

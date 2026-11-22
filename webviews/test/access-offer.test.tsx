@@ -9,6 +9,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { failureCopy, failureKind, failureRecovery } from "../src/agent-session/acpmux/failureCopy";
 import { ACCESS_ACTIONS } from "../src/agent-session/acpmux/accessOffer";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const t = translatorFor("en");
 const router = { name: "cmux model router", harness: "cmux" };
@@ -93,13 +94,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = (error: string) => ({

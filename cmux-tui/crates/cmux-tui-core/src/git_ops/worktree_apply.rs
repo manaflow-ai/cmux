@@ -125,7 +125,7 @@ fn plan(repository: &Repository, git_dir: &Path, key: &str) -> Result<Attempt, R
         // A copy of the worktree's index, with every change added: new files
         // count, and the worktree's own index stays as the chat left it.
         let source = git_dir.join("index");
-        if source.exists() && std::fs::copy(&source, &index).is_err() {
+        if source.exists() && copy_keeping_time(&source, &index).is_err() {
             let message = format!("{}: could not copy the index", source.display());
             return Err(refused(OPERATION, "git_failed", message, Value::Null));
         }
@@ -183,6 +183,21 @@ fn plan(repository: &Repository, git_dir: &Path, key: &str) -> Result<Attempt, R
     };
     let files = listed.iter().map(|name| String::from_utf8_lossy(name).into_owned()).collect();
     Ok(Attempt { main_root, patch, names, files })
+}
+
+/// Copies the index and gives the copy the index's modification time. Git
+/// trusts an entry's stat data unless the entry is as new as the index file
+/// ("racy git"), so a copy stamped now would let an edit of the same size,
+/// made in the second the index was written, read as unchanged and be left
+/// out of the patch. The time is read before the copy: an index written in
+/// between only makes more entries count as racy, which is safe. The copy is
+/// opened read-only to set the time: the copy has the index's mode, which may
+/// lack the write bit (0444), and setting a file's times needs only that the
+/// process owns it (futimens), not write access.
+fn copy_keeping_time(source: &Path, copy: &Path) -> std::io::Result<()> {
+    let modified = std::fs::metadata(source)?.modified()?;
+    std::fs::copy(source, copy)?;
+    std::fs::File::open(copy)?.set_modified(modified)
 }
 
 /// Applies the patch to the main checkout's files, unless a lost reply's run

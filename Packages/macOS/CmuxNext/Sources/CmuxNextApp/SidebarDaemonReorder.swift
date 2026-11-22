@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -18,41 +19,44 @@ enum SidebarDaemonReorder {
         let entries = daemon.store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: nil) }
         guard let commands = WorkspaceMovePlan(window: sections).commands(for: position, moving: ids, daemon: entries, groups: false)
         else { return failed(edit, bridge) }
-        run(commands, on: daemon, edit: edit, bridge: bridge)
+        run(commands, on: daemon, edit: edit, failed: bridge.saveFailed(.reorder(ids, to: position)), bridge: bridge)
     }
 
     private static func failed(_ edit: SidebarPendingEdits.Token?, _ bridge: SidebarBridge) {
-        bridge.rows.settle(edit)
+        bridge.rows.edits.settle(edit)
         bridge.resync()
     }
 
     /// Sends reorder commands one after another in one task: each index
-    /// assumes the previous command applied. A rejection re-syncs.
+    /// assumes the previous command applied. A rejection re-syncs and says why (#26382).
     private static func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService, edit: SidebarPendingEdits.Token?,
-                            bridge: SidebarBridge) {
+                            failed: @escaping @MainActor (ActionWorkFailure) -> Void, bridge: SidebarBridge) {
         let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
                               uniquingKeysWith: { first, _ in first })
         // `services` pins the app's services while the commands run, so a
         // re-sync after a rejection never reads a freed owner (cx-6so P1b).
         Task { [weak bridge, services = bridge.services] in
             for command in commands {
-                let ok: Bool
+                let failure: ActionWorkFailure?
                 switch command {
                 case .move(let id, let index):
                     guard let key = keys[id] else { continue }
-                    ok = await daemon.intend("move-workspace", .moveWorkspace(key: key, index: index)) { c in
+                    failure = await daemon.intentSender("move-workspace", .moveWorkspace(key: key, index: index)) { c in
                         _ = try await c.moveWorkspace(key, to: index)
-                    }
+                    }()
                 case .place:
                     // Never planned without groups (`groups: false`).
-                    ok = false
+                    failure = ActionWorkFailure("move-workspace")
                 }
-                if !ok {
-                    withExtendedLifetime(services) { if let bridge { failed(edit, bridge) } }
+                if let failure {
+                    withExtendedLifetime(services) {
+                        bridge?.rows.edits.settle(edit)
+                        failed(failure)
+                    }
                     return
                 }
             }
-            bridge?.rows.settle(edit)
+            bridge?.rows.edits.settle(edit)
         }
     }
 }

@@ -6,11 +6,24 @@
 # move failed, and with a push every minute or two no repair landed for hours
 # (the settings exports stayed stale from 05:27 on 2026-10-19).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
+# the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
+# "Directory not empty" (cmux-next run 42965233728). GIT_CONFIG_* reaches every git below, the
+# script's own included.
+export GIT_CONFIG_COUNT=4 \
+  GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
+  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false \
+  GIT_CONFIG_KEY_2=receive.autogc GIT_CONFIG_VALUE_2=false \
+  GIT_CONFIG_KEY_3=gc.autoDetach GIT_CONFIG_VALUE_3=false
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # A generated file whose inputs (the action exports) the edits below never touch.
 gen=web/data/cmux-shortcuts.generated.json
@@ -21,7 +34,7 @@ cap=plans/cmux-next/daemon-capabilities.json
 setup() {
   with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p web/data \
     && echo src > source.txt && echo old > "$gen" \
@@ -46,6 +59,43 @@ setup
 repair="$(git -C "$tmp/bot" rev-parse HEAD)"
 run > "$tmp/out" || fail "an unmoved branch did not take the repair: $(cat "$tmp/out")"
 [[ "$(remote_tip)" == "$repair" ]] || fail "the remote is not at the repair commit"
+
+# Catalog parity is checked on the exact candidate before any automatic push.
+setup
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then
+  fail "a catalog parity failure published the repair"
+fi
+[[ "$(remote_tip)" == "$before" ]] || fail "the parity failure moved the remote"
+grep -q 'swift_parity' "$tmp/out" || fail "the refusal does not name the failing parity check"
+setup
+lane_push source.txt "moved before parity"
+STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
+[[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
+
+setup
+lane_push source.txt "moved before failed parity"
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "a moved candidate ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "a moved candidate published despite failed parity"
+
+# Cargo receives no publication credentials; the push still gets its own Git header.
+setup
+mkdir -p "$tmp/bot/.git/hooks"
+cat > "$tmp/bot/.git/hooks/pre-push" <<'HOOK'
+#!/usr/bin/env bash
+git config --get http.https://example.invalid/.extraheader > "$STUB_PUSH_AUTH"
+HOOK
+chmod +x "$tmp/bot/.git/hooks/pre-push"
+git -C "$tmp/bot" config core.hooksPath "$tmp/bot/.git/hooks"
+auth_index="${GIT_CONFIG_COUNT:-0}"
+(cd "$tmp/bot" && env "GIT_CONFIG_COUNT=$((auth_index + 1))" \
+  "GIT_CONFIG_KEY_$auth_index=http.https://example.invalid/.extraheader" \
+  "GIT_CONFIG_VALUE_$auth_index=AUTHORIZATION: basic fixture-token" \
+  TOKEN=fixture-token GH_TOKEN=fixture-token GITHUB_TOKEN=fixture-token STUB_PUSH_AUTH="$tmp/push-auth" \
+  bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 \
+  || fail "credentials were not isolated from parity: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/push-auth")" == 'AUTHORIZATION: basic fixture-token' ]] || fail "the push lost its own credentials"
 
 # 2. The branch moved in files the repair does not write: the repair lands on the new tip.
 setup
@@ -113,7 +163,7 @@ grep -q "cmux-tui/bindings/page/generated.txt" "$tmp/out" || fail "the refusal d
 # sources; the fake flag file sits outside every input area so a flag edit moves nothing else.
 setup_next() {
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \
@@ -157,6 +207,16 @@ lane_commit() { # <subject> <file> <text> [<file> <text>]...
     && git add -A && git commit -q -m "$subject" && git push -q origin feat)
 }
 settings_files=(schemas/settings/settings-schema.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.json)
+
+# A mixed settings/action repair cannot salvage the settings half when parity fails.
+setup_next
+(cd "$tmp/bot" && mkdir -p plans/cmux-next && echo 'new surface' > plans/cmux-next/action-surfaces.json \
+  && echo 'new dump' > plans/cmux-next/action-catalog.json && git add plans/cmux-next \
+  && git commit -q --amend --no-edit)
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "mixed exports ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "mixed exports partially published despite failed parity"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "settings were salvaged from a failed candidate"
 
 # 7. feat-cmux-next moved during the ten-minute Mac export and the move touched CmuxNextSettings,
 #    the exports' inputs (a revert, say). The exports made at BASE_SHA could be wrong at the tip,
@@ -489,5 +549,32 @@ fi
 grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "$tmp/err")"
 [[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "exports whose inputs kept moving were handed on: $(find "$tmp/mac-out" -type f)"
 grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
+
+# 26. The namespace lint's safe rewrite (a Swift file under Packages/) lands on a tip an unrelated
+#     commit moved, and waits when the move touched Packages/, its inputs.
+setup_swift() {
+  setup_next
+  lane_commit "lane adds a namespace type" Packages/a/A.swift "public enum A {}"
+  rm -rf "$tmp/bot"; git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo "public struct A { public init() {} }" > Packages/a/A.swift \
+    && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+}
+setup_swift
+lane_commit "lane edits the readme" README.md "readme v2"
+run > "$tmp/out" 2>&1 || fail "a namespace rewrite did not land past an unrelated move: $(cat "$tmp/out")"
+[[ "$(remote_show Packages/a/A.swift)" == "public struct A { public init() {} }" ]] \
+  || fail "the namespace rewrite did not land: $(remote_show Packages/a/A.swift)"
+setup_swift
+lane_commit "lane edits another type" Packages/a/B.swift "public struct B {}"
+if run > "$tmp/out" 2>&1; then fail "a namespace rewrite whose inputs moved passed the run"; fi
+[[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite made for an older Packages/ landed"
+# A reviewed exemption added to either baseline on the tip holds the rewrite too (#29577).
+for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-package-conventions-baseline.txt; do
+  setup_swift
+  lane_commit "lane exempts A" "$baseline" "Packages/a/A.swift:A"
+  if run > "$tmp/out" 2>&1; then fail "a namespace rewrite passed past a $baseline move"; fi
+  [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
+done
 
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or wait"

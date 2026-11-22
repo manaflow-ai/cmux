@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextDaemonService
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -15,9 +16,10 @@ extension SidebarBridge {
         let requests = services.cache.pageRequests
         let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
-        let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
+        let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: QuitAgents.environment(services)))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -38,21 +40,22 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
-    /// one task, so the bridge cancels both together. `registry` gives the
-    /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        let cards = start(model: model, updater: updater, registry: registry, asks: asks)
+    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`, over the app's own sidebar
+    /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
+                      document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
+                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
+        let cards = start(model: model, updater: updater, registry: registry, asks: asks, restoring: restoring)
         guard window != nil else { return cards }
-        let whatsNew = model.followTopItems()
+        let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
-    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        Task {
+    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
+        model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
+        return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
+                (updateCard(updater), updatedCard(updater), asks?.card ?? restoring?().map { SidebarNoticeCard.restoring($0, withDetails: true) } ?? noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }
@@ -85,6 +88,8 @@ enum SidebarCardFeed {
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
+        case .noticeAction(UpdaterService.starCardID, let action): services.updater.starCardAction(action)
+        case .dismissNotice(UpdaterService.starCardID): services.updater.starPromptFinished(starred: false)
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card) where !services.machineAsks.answer(card, action: nil): dismissNotice(card, updater: services.updater)
@@ -135,38 +140,33 @@ enum SidebarCardFeed {
     /// A notice button: the update status's actions (Release Notes is a link `open` shows like a popover
     /// link), the update cards' x menu, Use Real Feed, an announcement's Try It, a tip's Try It and x menu.
     static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
-        if card == updateCardID || card == SidebarUpdateCard.cardID, let option = UpdateCardCloseOption(rawValue: action) {
-            updater.closeUpdateCard(option)
-        } else if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
-            if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
-                open(url)
-            } else {
-                updater.performCardAction(action)
-            }
-        } else if card == testFeedCardID, action == useRealFeedActionID {
-            try? updater.useTestFeed(nil, pinned: false)
-        } else if card.hasPrefix(announcementPrefix), PageDescriptor.changelogTryItActions.contains(action) {
-            updater.runAllowListedAction?(action)
-        } else if card.hasPrefix(tipPrefix) {
-            updater.tipCardAction(String(card.dropFirst(tipPrefix.count)), action)
+        let option = UpdateCardCloseOption(rawValue: action), cardAction = UpdateCardAction(rawValue: action) // routed by `SidebarBridgeRules.noticeAction`
+        switch SidebarBridgeRules().noticeAction(card: card, action: action, closeOption: option != nil, cardAction: cardAction != nil,
+                                                 tryIt: PageDescriptor.changelogTryItActions.contains(action)) {
+        case .closeUpdate: if let option { updater.closeUpdateCard(option) }
+        case .updateAction:
+            if cardAction == .releaseNotes, let url = updater.cardReleaseNotesURL { open(url) } else if let cardAction { updater.performCardAction(cardAction) }
+        case .useRealFeed: try? updater.useTestFeed(nil, pinned: false)
+        case .announcementTry: updater.runAllowListedAction?(action)
+        case .tip(let tip): updater.tipCardAction(tip, action)
+        case .none: break
         }
     }
 
     /// A notice's x: the update status hides; an announcement or a tip never
     /// shows again. The test-feed notice has no x.
     static func dismissNotice(_ card: String, updater: UpdaterService) {
-        if card == updateCardID {
-            updater.dismissCard()
-        } else if card.hasPrefix(announcementPrefix) {
-            updater.dismissAnnouncement(String(card.dropFirst(announcementPrefix.count)))
-        } else if card.hasPrefix(tipPrefix) {
-            updater.dismissTip(String(card.dropFirst(tipPrefix.count)))
+        switch SidebarBridgeRules().dismissNotice(card) { // `SidebarBridgeRules.dismissNotice`
+        case .update: updater.dismissCard()
+        case .announcement(let id): updater.dismissAnnouncement(id)
+        case .tip(let id): updater.dismissTip(id)
+        case .none: break
         }
     }
 
     /// The shared notice card (Lawrence 2026-10-09), one message at a time:
     /// the update status (a check's progress and result, a found update),
-    /// then the active test feed, then the newest announcement, then today's
+    /// then the active test feed, then the newest announcement, then the one-time GitHub star ask, then today's
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
@@ -184,7 +184,12 @@ enum SidebarCardFeed {
             return SidebarNoticeCard(id: announcementPrefix + item.id, symbol: "megaphone", title: item.title, detail: item.detail,
                                      actions: actions, dismissLabel: UpdaterService.cardDismissLabel)
         }
-        guard let tip = updater.tip else { return nil }
+        if updater.starPrompt.isOffered {
+            return .starPrompt(id: UpdaterService.starCardID, title: StarPromptCenter.title, detail: StarPromptCenter.detail,
+                               open: SidebarNoticeCard.Action(id: UpdaterService.starOpenAction, title: StarPromptCenter.openTitle),
+                               dismissLabel: UpdaterService.cardDismissLabel, shownAction: UpdaterService.tipShownAction)
+        }
+        guard let tip = updater.shownTip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,
@@ -198,11 +203,17 @@ enum SidebarCardFeed {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
         // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
         let closes = shown.actions.contains(.update)
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
+        // A status card: the text starts at the card's padding, with no small glyph before it, and
+        // its control sits on the right (Leo 2026-10-31: "WHY NOT JUST LEFT ALIGN THE TEXT PUT A
+        // BIGGER SYMBOL ON THE RIGHT").
+        var notice = SidebarNoticeCard(id: updateCardID, symbol: nil, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
+                                 trailing: shown.trailing.map { SidebarNoticeCard.Trailing(id: $0.rawValue, symbol: $0.symbol, label: $0.title) },
                                  dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
                                  dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
                                  userAsked: asked)
+        notice.leadingSpinner = false
+        return notice
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).

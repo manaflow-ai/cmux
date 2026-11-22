@@ -69,7 +69,10 @@ final class MessageCellAccessibility {
         bubble.accessibilityIdentifier = "conversation.bubble.\(model.message.id)"
         var elements: [Any] = []
         if let quoteModel = model.replyQuote, let frame = layout.quoteFrame {
-            quote.accessibilityLabel = quoteModel.text
+            // The quote's own thread count reads with it ("…, 3 Replies").
+            quote.accessibilityLabel = layout.quoteRepliesFrame == nil
+                ? quoteModel.text
+                : "\(quoteModel.text), \(MessageCell.repliesText(quoteModel.replyCount))"
             quote.frameProvider = { shifted(frame) }
             elements.append(quote)
         }

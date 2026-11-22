@@ -1,0 +1,18 @@
+{
+  "about": "The pinned UI font of cmux NEXT: the macOS system font, no letter-spacing, nothing bundled. scripts/cmux-next/check-ui-font.py fails when type-scale.json, the generated CSS, the app bundle or a webviews default font stack leave it, and when this file changes in a range with no `Font-order: <the user's words>` commit trailer. Change it only on the user's order, quoting it in that trailer.",
+  "orders": [
+    {
+      "date": "2026-10-21",
+      "who": "Leo",
+      "ask": "ask-52da478628",
+      "words": "WE ALREADY HAD THE FONTS. WE SAID INTER, WITH SOME AMOUNT [of tracking], AND WE BUNDLED SOME STUFF IN.",
+      "status": "superseded on 2026-11-07"
+    },
+    {
+      "date": "2026-11-07",
+      "who": "Lawrence",
+      "words": "default fonts on cmux for everything should be macos default, not inter, this applies to everything, including markdown viewer, chat trajectory etc"
+    }
+  ],
+  "stack": ["-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"]
+}

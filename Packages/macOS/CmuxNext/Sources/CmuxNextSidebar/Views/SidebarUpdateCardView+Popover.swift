@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 // UPDATE-CARD: the highlights popup (the React ready surface, cx-urd.61.2,
-// in the app's one hover card window) opens while the pointer is
-// anywhere over the card and stays while the pointer travels to it, so it can
+// in the app's one hover card window) opens once the pointer has rested
+// anywhere over the card for `notesOpenDelay` (a click opens it at once; a pass
+// over the card opens nothing) and stays while the pointer travels to it, so it can
 // be scrolled and "See all changes" clicked. Leaving the card or the popup
 // closes it after a short delay unless the pointer is back on either, or is
 // still on its way across the corridor between them (Leo 2026-10-19: it
@@ -23,13 +24,14 @@ extension SidebarUpdateCardView {
     /// window edge). No-op without a card or a window. A popup that is still
     /// closing (the pointer left and came back) opens again.
     func showNotes() {
+        cancelNotesOpen()
         cancelNotesClose()
         guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
               let cards = hoverCards() else { return }
         let host = notesHost
         wireNotes(highlights)
         host.adopt(highlights)
-        host.fit(height: notesHeight(for: highlights.contentHeight))
+        host.fit(height: notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
         let anchor = window.convertToScreen(convert(bounds, to: nil))
         let body = HoverCardBody(view: host, placement: .beside, themeAnchor: self, applyTheme: {})
         cards.presentOwned(Self.notesID, body: body, anchor: anchor, parent: window, interactive: true) { [weak self] in
@@ -47,7 +49,8 @@ extension SidebarUpdateCardView {
         parkHighlights()
     }
 
-    /// Menu width: the popover type every cmux popover uses (320-360 pt).
+    /// Menu width: the popover type every cmux popover uses (320-360 pt). The most it gets: a short
+    /// popover (no change list) is as wide as its lines (Leo 2026-11-03: "stretched out wasted space").
     static var popoverWidth: CGFloat { 340 }
 
     /// The popup is at most this share of its window's height; the page scrolls inside it.
@@ -56,11 +59,18 @@ extension SidebarUpdateCardView {
     /// A pinned popup (a click on the card) may grow to this share of its window's height.
     static var pinnedMaxHeightFraction: CGFloat { 0.85 }
 
-    /// How long the popup waits after the pointer left the card or the popup before it closes.
-    static var notesCloseDelay: Duration { .milliseconds(250) }
+    /// How long the pointer rests on the card before the popup opens: the delay every hover card
+    /// waits (`sidebar.hoverCards.delay`, Chrome's 1300 ms by default; Lawrence 2026-11-12, msg 30807:
+    /// "hovering on update should wait longer"; 2026-11-15, msg 32286: the same as every other card).
+    /// A click on the card opens it at once.
+    static var notesOpenDelay: Duration { DesignSettings.shared.hoverCardDelay }
+
+    /// How long the popup waits after the pointer left the card or the popup before it closes: the
+    /// hover card grace (`HoverIntentTiming.cardGrace`), as a workspace card that lingers.
+    static var notesCloseDelay: Duration { HoverIntentTiming.current.cardGrace }
 
     /// The longest the corridor between the card and the popup keeps it open (a slow hand).
-    static var notesCorridorLimit: Duration { .milliseconds(1200) }
+    static var notesCorridorLimit: Duration { .milliseconds(1200) } // hover-timing: travel cap, not a delay
 
     /// The popup's height for a page `contentHeight` tall: capped to
     /// ``popoverMaxHeightFraction`` of the window (the page scrolls past it).
@@ -81,7 +91,7 @@ extension SidebarUpdateCardView {
         notesDismissedWhileHovered = false
         if notesAreShown, let highlights, highlights.contentHeight > 0 {
             cancelNotesClose()
-            notesHost.fit(height: notesHeight(for: highlights.contentHeight))
+            notesHost.fit(height: notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
             hoverCards()?.refitOwned(Self.notesID)
         } else {
             showNotes()
@@ -103,6 +113,7 @@ extension SidebarUpdateCardView {
     /// noted as it starts, so a move during its fade does not reopen it.
     func hideNotes() {
         notesPinned = false
+        cancelNotesOpen()
         cancelNotesClose()
         guard notesAreShown else { return }
         if isHovered { notesDismissedWhileHovered = true }
@@ -115,7 +126,7 @@ extension SidebarUpdateCardView {
         notesHost.onPointerEnter = { [weak self] in self?.cancelNotesClose() }
         highlights.onHeightChange = { [weak self, weak highlights] in
             guard let self, let highlights, highlights.contentHeight > 0 else { return }
-            self.notesHost.fit(height: self.notesHeight(for: highlights.contentHeight))
+            self.notesHost.fit(height: self.notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
             self.hoverCards()?.refitOwned(Self.notesID)
         }
     }
@@ -181,6 +192,25 @@ extension SidebarUpdateCardView {
         if onTheWay, notesCloseWaited < Self.notesCorridorLimit { return armNotesClose() }
         hoverCards()?.endOwned(Self.notesID)
     }
+
+    /// The pointer came onto the card (or moved on it with nothing open): open the popup after
+    /// ``notesOpenDelay`` unless it leaves first. A move while the open is pending keeps the
+    /// first deadline (a hand resting on the card still opens it on time).
+    func scheduleNotesOpen() {
+        guard card != nil, !notesAreShown, !notesDismissedWhileHovered else { return }
+        notesOpenTimer.scheduleIfIdle(after: Self.notesOpenDelay) { @MainActor [weak self] in
+            self?.notesOpenFired()
+        }
+    }
+
+    /// The rest passed: open if the pointer is still on the card.
+    func notesOpenFired() {
+        notesOpenChecks &+= 1
+        guard isHovered, !notesDismissedWhileHovered, !notesAreShown, !isHiddenOrHasHiddenAncestor else { return }
+        showNotes()
+    }
+
+    func cancelNotesOpen() { notesOpenTimer.cancel() }
 
     func cancelNotesClose() {
         notesCloseTimer.cancel()

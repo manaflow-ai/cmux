@@ -14,6 +14,15 @@ pub(super) async fn read_line<R: AsyncRead + Unpin>(
     reader: &mut R,
     limit: usize,
 ) -> io::Result<String> {
+    read_line_within(reader, limit, HANDSHAKE_TIMEOUT).await
+}
+
+/// [`read_line`] under `deadline` in place of [`HANDSHAKE_TIMEOUT`].
+pub(super) async fn read_line_within<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: usize,
+    deadline: Duration,
+) -> io::Result<String> {
     let read = async {
         let mut line = Vec::with_capacity(128);
         loop {
@@ -28,7 +37,7 @@ pub(super) async fn read_line<R: AsyncRead + Unpin>(
         }
         String::from_utf8(line).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"))
     };
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, read)
+    tokio::time::timeout(deadline, read)
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "no line before the deadline"))?
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -19,7 +20,7 @@ import Testing
 /// phases (selection 189 configures with 13 rows realized). The phases run
 /// in a child process (an exit test), where this sidebar is the only one,
 /// and the child writes its counts for this test to check.
-@MainActor @Suite(.serialized) struct SidebarRenderCountTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRenderCountTests {
     struct Harness {
         let sidebar: SidebarView
         let model: SidebarModel

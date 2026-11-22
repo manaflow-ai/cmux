@@ -8,6 +8,8 @@ import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
+import { withInstallAuthority, type InstallAuthorityState } from "./user-authority.ts"
+import { DEFAULT_CHIEF_OPS, defaultChiefAllowed, reduceDefaultChief, signupChiefOutbox } from "./user-chief-default.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -19,14 +21,19 @@ const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
+  /** Reducer-owned install authority generation and incarnations. */
+  readonly install_authority?: InstallAuthorityState
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
   /** Home settings (home-messaging.md section 4.2), absent until the first home.settings.set. */
   readonly home_settings?: homeUser.HomeSettings
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
-  /** One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). */
-  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true }
+  /**
+   * One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). default_chief_machine: the
+   * default Chief's provisioning outbox was queued, at the first user.ensure or by the backfill (user-chief-default.ts).
+   */
+  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true; readonly default_chief_machine?: true }
   /**
    * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
@@ -130,6 +137,15 @@ export const inboxRefusalFor = (state: UserState, entity: string, principal: Pri
   return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
 }
 
+/** Active install grant with expiry and op classes; callers must bind the exact grant. */
+export const liveInstallGrant = (state: UserState, p: Principal, now: number) => {
+  if (p.kind !== "install" || !p.install || !p.grant) return undefined
+  const inst = state.installs[p.install], grant = state.grants[p.grant]
+  if (!inst || !grant || inst.revoked_at !== null || inst.grant !== p.grant || grant.grantee !== p.install || grant.revoked_at !== null
+    || (grant.expires_at !== null && (!Number.isFinite(grant.expires_at) || grant.expires_at <= now))) return undefined
+  return grant
+}
+
 /** True when the principal's install exists and is not revoked. */
 export const installActive = (state: UserState, p: Principal) => {
   if (p.kind === "session") return true
@@ -159,10 +175,51 @@ const withSsoLeft = (state: UserState, team: string, at: number): UserState => {
 }
 
 /**
+ * Most revoked installs one user's head keeps. The head is one SQLite row (STATE_MAX_BYTES in
+ * ownership state-guard.ts): without a bound every sign-in and every bound machine leaves a revoked
+ * install and grant behind for good, until the guard refuses every commit for that user.
+ */
+export const MAX_REVOKED_INSTALLS = 100
+
+/**
+ * Drops the oldest revoked installs (by revoked_at, then id) past MAX_REVOKED_INSTALLS, each with its
+ * grant. An install still named by a pending SSH revoke, a presence key or a push target stays. Every
+ * lookup treats a missing install as unknown, so a dropped install's token stays refused.
+ * withInstallAuthority drops its incarnation in the same commit.
+ */
+export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+  const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
+  if (revoked.length <= keep) return state
+  const held = new Set([
+    ...Object.keys(state.ssh_revoke_pending ?? {}),
+    ...Object.keys(state.confirm?.presence_keys ?? {}),
+    ...Object.values(state.push_targets ?? {}).map((t) => t.install)
+  ])
+  const drop = revoked
+    .filter((i) => !held.has(i.id))
+    .sort((a, b) => a.revoked_at! - b.revoked_at! || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, revoked.length - keep)
+  if (drop.length === 0) return state
+  const installs = { ...state.installs }
+  const grants = { ...state.grants }
+  for (const i of drop) {
+    delete installs[i.id]
+    if (grants[i.grant]?.grantee === i.id) delete grants[i.grant]
+  }
+  return { ...state, installs, grants }
+}
+
+/**
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
  * reaches a revoked device). Shared by install.revoke, install.sign_out and install.revoke_by_team.
+ * The same commit drops the oldest revoked installs past MAX_REVOKED_INSTALLS.
  */
 const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
+  const r = revokeOne(state, cur, now)
+  return r.ok && r.changed !== false ? { ...r, state: pruneRevokedInstalls(r.state) } : r
+}
+
+const revokeOne = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
   const g = state.grants[cur.grant]
@@ -219,10 +276,11 @@ export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTA
         : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
-export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
+export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInstallAuthority({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
+    if (DEFAULT_CHIEF_OPS.has(op)) return defaultChiefAllowed(state, principal) ? undefined : { code: "auth.forbidden", message: "only this user's signup outbox provisions its default Chief" }
     // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
@@ -230,13 +288,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     // A Chief's create or rename from its Cloud brain (UserDO.chiefManage, server code only); user-chief.ts narrows the params.
-    if (principal.kind === "agent" && principal.identity === `agent:${principal.agent} via chief`) return (op === "chief.create" || op === "chief.update") && principal.agent !== undefined && chiefActive(state, principal.agent) ? undefined : { code: "auth.forbidden", message: "a Chief creates chiefs and renames other chiefs only" }
+    if (principal.kind === "agent" && principal.identity === `agent:${principal.agent} via chief`) return (op === "chief.create" || op === "chief.update" || op === "channel.create") && principal.agent !== undefined && chiefActive(state, principal.agent) ? undefined : { code: "auth.forbidden", message: "a Chief creates chiefs and renames other chiefs only" }
     if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (DEFAULT_CHIEF_OPS.has(op)) return reduceDefaultChief(state, op, params, ctx)
     if (CHIEF_OPS.has(op)) return reduceChief(state, op, (params ?? {}) as Record<string, unknown>, ctx)
     if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
@@ -265,7 +324,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         // address). Earliest entries are kept, so later changes cannot evict the owner's address.
         const oldVerified = state.user?.email_verified && state.user.email ? state.user.email : null
         const newVerified = profile.email_verified && profile.email ? profile.email : null
-        let next: UserState = { ...state, user: profile }
+        // The first ensure queues the default Chief and its machine; the flag keeps the backfill from queueing them again.
+        let next: UserState = state.user === null ? { ...state, user: profile, migrations: { ...state.migrations, default_chief_machine: true } } : { ...state, user: profile }
         let notices: ReadonlyArray<OutboxItem> = []
         if (oldVerified && !sameEmail(oldVerified, newVerified)) {
           // The replaced address always stays (its window starts now); the others keep their
@@ -285,12 +345,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           state: next,
           value: profile,
           changed: !same,
-          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices]
+          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices, ...(state.user === null ? signupChiefOutbox(profile.id) : [])]
         }
       }
       case "install.register":
       case "install.register_server": {
-        if (!state.user) return reject("validation.invalid", "call user.ensure first")
+        // Prune first, in this commit: a head already past the size limit heals on its next register.
+        const base = pruneRevokedInstalls(state)
+        if (!base.user) return reject("validation.invalid", "call user.ensure first")
         const d = op === "install.register_server" ? decodeParams<typeof InstallRegisterServerParams.Type>({ params: InstallRegisterServerParams } as unknown as CloudOpDef, params) : decodeParams<typeof InstallRegister.params.Type>(InstallRegister, params)
         if (!d.ok) return d
         const v = d.value as typeof InstallRegisterServerParams.Type
@@ -302,12 +364,12 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if ((v.kind === "vm") !== (v.bound_machine !== undefined) || (v.kind === "vm" && v.bound_team === undefined)) return reject("validation.invalid", "a vm install names its bound team and machine; no other install does")
         if (v.kind === "team-vm" && v.bound_team === undefined) return reject("validation.invalid", "a team-vm install names its bound team")
         const thumbprint = jwkThumbprint(v.public_jwk)
-        if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
+        if (Object.values(base.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
         }
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
-        const left = p.sso_team ? state.sso_left?.[p.sso_team] : undefined
+        const left = p.sso_team ? base.sso_left?.[p.sso_team] : undefined
         const stampSso = Boolean(p.sso_team) && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && (left === undefined || (v.sso_seen_at ?? -1) > left)))
         const device = v.device ?? ctx.newId("dev")
         // A caller may narrow the default grant (a paired server asks for read and mutate-own), never widen it.
@@ -344,9 +406,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         }
         return {
           ok: true,
-          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(state, p.sso_team) : state), installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
+          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(base, p.sso_team) : base), installs: { ...base.installs, [install]: i }, grants: { ...base.grants, [grant]: g } },
           value: i,
-          outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
+          outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: base.user.id } }]
         }
       }
       case "install.ios_cloud_link_migrate": {

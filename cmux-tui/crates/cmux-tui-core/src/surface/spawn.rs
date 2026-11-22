@@ -200,12 +200,14 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!(
                     "local-{}",
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: shared_output,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -221,12 +223,19 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                #[cfg(any(unix, windows))]
+                input_route: arc_swap::ArcSwapOption::empty(),
+                #[cfg(any(unix, windows))]
+                input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -247,7 +256,6 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid,
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),
@@ -255,6 +263,9 @@ impl Surface {
                 exit_notified: AtomicBool::new(false),
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
@@ -286,6 +297,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -377,7 +389,26 @@ impl Surface {
                                     local_output::readable(fd, 0).unwrap_or(false)
                                 });
                             let result = if ready {
-                                output.read(pty, |buf| reader.read(buf)).map(Some)
+                                output
+                                    .read(pty, |buf| {
+                                        let mut count = reader.read(buf)?;
+                                        // A flood: the bytes already waiting are parsed with
+                                        // this read, not one parse per PTY read (1 KiB on
+                                        // macOS). A lone echo finds nothing more.
+                                        #[cfg(unix)]
+                                        if count > 0
+                                            && let Some(fd) = read_fd
+                                        {
+                                            local_output::fill_waiting(
+                                                fd,
+                                                buf,
+                                                &mut count,
+                                                |rest| reader.read(rest),
+                                            );
+                                        }
+                                        Ok(count)
+                                    })
+                                    .map(Some)
                             } else {
                                 Ok(None)
                             };

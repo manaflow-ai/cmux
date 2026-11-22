@@ -48,8 +48,12 @@ public final class PaletteRanker {
 
     /// Ranks a prepared palette index through the shared ranker.
     ///
-    /// - Parameter version: A stable snapshot identifier. Reusing it for the
-    ///   same entries lets the bridge reuse its prepared text fields.
+    /// - Parameters:
+    ///   - version: A stable snapshot identifier. Reusing it for the
+    ///     same entries lets the bridge reuse its prepared text fields.
+    ///   - sendsHistory: Sends the whole `frecency` with this query instead of naming the history
+    ///     the ranker holds for its ``FrecencyStore/revision`` (the cost every keystroke paid before;
+    ///     `CmdPRankBench` measures both).
     nonisolated public func rank(
         index: inout PaletteSearchIndex,
         version: Int? = nil,
@@ -62,7 +66,8 @@ public final class PaletteRanker {
         ranksPrefixFirst: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
-        highlightLimit: Int = 60
+        highlightLimit: Int = 60,
+        sendsHistory: Bool = false
     ) -> [PaletteRankedSection] {
         do {
             guard let bridge else { return [] }
@@ -78,7 +83,8 @@ public final class PaletteRanker {
                 ranksPrefixFirst: ranksPrefixFirst,
                 recentLimit: recentLimit,
                 rowLimit: rowLimit,
-                highlightLimit: highlightLimit
+                highlightLimit: highlightLimit,
+                sendsHistory: sendsHistory
             )
         } catch {
             return []

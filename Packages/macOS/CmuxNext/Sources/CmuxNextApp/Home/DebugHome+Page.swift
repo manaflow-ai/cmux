@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// `debug.home` `page`: the Home page's conversation list as the active
@@ -21,7 +22,7 @@ extension DebugHome {
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
-        let view = services.windows.active?.topPages.views[.home] as? TopHomePageView
+        let view = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView // as the fixture finds it
         let lines: [CmuxNextSettings.JSONValue] = (view?.lines ?? []).map { line in
             switch line {
             case .header(let kind): return .object(["header": .string(String(describing: kind))])
@@ -87,7 +88,7 @@ extension DebugHome {
             // Every native Home tab (`home.tab`): its key, window, shown conversation and the
             // newest texts its own transcript view holds.
             "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
-                let transcript = tab.view.host.flatMap(HomePageTab.transcript(in:))
+                let transcript = tab.view.host.flatMap(HomeNativeTranscriptView.first(in:))
                 return .object([
                     "key": .string(tab.key),
                     "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }

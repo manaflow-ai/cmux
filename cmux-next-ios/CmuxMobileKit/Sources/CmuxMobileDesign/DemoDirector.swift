@@ -48,10 +48,8 @@ public final class DemoDirector {
         /// Setup's footer Sign out, then its confirmation.
         case setupSignOut
         case setupConfirmSignOut
-        // Feed swipe actions and composer attachments.
-        case feedSwipe(event: String, edge: String)
+        // Feed swipe actions (performed directly: UIKit opens a row's actions only under a finger).
         case feedSwipeAction(event: String, action: String)
-        case feedSwipeClose
         // Onboarding and setup (`-cmux-mobile-demo onboarding`).
         case onboardingOpenEmail
         case onboardingTypeEmail(String)

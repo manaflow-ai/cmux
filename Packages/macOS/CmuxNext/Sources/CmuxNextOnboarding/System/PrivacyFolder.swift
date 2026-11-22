@@ -17,6 +17,16 @@ public nonisolated enum PrivacyFolder: String, CaseIterable, Sendable {
             + ProtectedFolderEntry.roots.filter { $0.kind == rawValue }.map(\.path)
     }
 
+    /// The kind of protected folder `path` (absolute, standardized) sits in, if any, by its
+    /// spelling only. The Mac's disk ignores case.
+    /// - Parameters:
+    ///   - path: An absolute, standardized path.
+    ///   - homePath: The home folder the protected folders are in, as an absolute path.
+    /// - Returns: The kind, or nil when `path` is in none.
+    public static func containing(_ path: String, homePath: String) -> PrivacyFolder? {
+        of(path: path, home: URL(fileURLWithPath: homePath, isDirectory: true))
+    }
+
     /// The kind `path` (absolute, standardized) sits in, if any. The Mac's
     /// disk ignores case, so `~/desktop/x` is on the Desktop too.
     static func of(path: String, home: URL) -> PrivacyFolder? {

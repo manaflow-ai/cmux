@@ -1,0 +1,86 @@
+{
+  "title": "Each space owns its pins and groups: a new space after a pinned group in the default space",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Default space: workspace Notes",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Notes"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Show Notes",
+      "cmux": [
+        "workspace",
+        "name:Notes",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Notes into a new group Design",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.moveToNewGroup",
+        "--name",
+        "Design"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Pin the group Design",
+      "cmux": [
+        "action",
+        "run",
+        "workspaceGroup.togglePin"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Default space: Design stays in Pinned after its workspace closes",
+      "cmux": [
+        "action",
+        "run",
+        "closeWorkspace",
+        "--confirm"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Make space Work",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Work"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Switch the window to Work: none of the default space's groups",
+      "cmux": [
+        "action",
+        "run",
+        "space.selectByNumber",
+        "--index",
+        "2"
+      ],
+      "wait": 3
+    }
+  ]
+}

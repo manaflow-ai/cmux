@@ -75,7 +75,11 @@
             "owner",
             "remote",
             "repository"
-          ]
+          ],
+          "placeholder": {
+            "key": "settings.placeholder.githubOwner",
+            "text": "Add a user or organization"
+          }
         }
       ]
     }

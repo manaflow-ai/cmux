@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -21,7 +22,7 @@ private actor BenchHost: AgentPaneHostProviding {
 /// 2,000 frames at 2,000 frames/s; `burst`, 2,000 frames back to back. Main-thread CPU is the host main thread's CPU time across the burst.
 /// CMUX_PANE_TRANSPORT_BENCH_VISIBLE=1 puts the windows on screen (a live Mac).
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"), .closesItsWindows)
 struct AgentPaneTransportBench {
     nonisolated static let rounds = Int(ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH_ROUNDS"] ?? "") ?? 5
     static let visible = ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH_VISIBLE"] == "1"

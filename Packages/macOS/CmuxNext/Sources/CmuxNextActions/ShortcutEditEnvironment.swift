@@ -39,6 +39,7 @@ public struct SystemReservedShortcuts {
         Shortcut("h", modifiers: [.command, .option]): "Hide Others",
         Shortcut("m", modifiers: [.command]): "Minimize",
         Shortcut("d", modifiers: [.command, .option]): "Dock",
+        Shortcut("d", modifiers: [.control, .command]): "Look Up",
         Shortcut("f", modifiers: [.control, .command]): "Full Screen",
         Shortcut(",", modifiers: [.command]): "Settings",
         Shortcut(Shortcut.upArrowKey, modifiers: [.control]): "Mission Control",

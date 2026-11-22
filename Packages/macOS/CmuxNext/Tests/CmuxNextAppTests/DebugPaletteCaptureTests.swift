@@ -16,9 +16,10 @@ struct DebugPaletteCaptureTests {
         _ = NSApplication.shared
         let palette = PaletteController(registry: ActionRegistry.standard(), frecencyPersistence: nil)
         palette.show(.commands)
+        // Own the panel even if the visibility assertion fails or it has already hidden.
+        let ownedPanel = NSApp.windows.first { palette.owns($0) }
+        defer { palette.hide(); ownedPanel?.close() }
         let panel = try #require(palette.visiblePanel)
-        // Hiding only orders the palette's panel out: close it too.
-        defer { palette.hide(); panel.close() }
         let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("palette-capture-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(atPath: path) }
         let result = DebugPaletteCapture.capture(panel, to: path, windowImage: { _ in nil })

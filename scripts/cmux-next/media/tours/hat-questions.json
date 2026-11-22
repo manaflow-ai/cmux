@@ -1,0 +1,92 @@
+{
+  "title": "Composer hat questions: three asks wait over the composer, the pager steps to the second, a click answers it, and a typed reply withdraws the first (its record reads Answered in chat); the video shows each step, the stills the end (one question left)",
+  "steps": [
+    {
+      "title": "chat: a new agent chat on the fake harness",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.newAgentChat",
+          "focus": true
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "chat: on the fake harness",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "new_chat",
+          "harness": "fake"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "ask: the agent asks three questions at once",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "questions: Should I push the release branch now? | Can you create that key and run the command? | Keep the old flag for one more nightly?"
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "trust: the new chat's folder is trusted, so the prompt goes",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-trust-ask-primary"
+        }
+      },
+      "wait": 5
+    },
+    {
+      "title": "step: the pager's right chevron shows the second",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-hat-questions__step:not([data-step=previous])"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "answer: a click on Yes answers it",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-hat-questions__answer"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "type: a reply typed in the composer withdraws the question its card would show",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "compose_send",
+          "text": "Not yet: wait for the canary to finish first."
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "state: the chat after",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "wait": 1
+    }
+  ]
+}

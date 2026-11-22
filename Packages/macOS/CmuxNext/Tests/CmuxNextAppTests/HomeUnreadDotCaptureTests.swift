@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
@@ -12,6 +13,7 @@ import UniformTypeIdentifiers
 /// after (the notification blue), stacked in `.build/home-unread-dots.png` (a fleet step returns
 /// it with `--artifact`). It checks only that each drew; `HomeSidebarUnreadDotTests` checks the dot.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeUnreadDotCaptureTests {
     private func render(width: CGFloat, dark: Bool, before: Bool) throws -> CGImage? {
         _ = NSApplication.shared

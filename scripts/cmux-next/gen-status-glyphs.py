@@ -14,6 +14,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SOURCE = "schemas/status-glyphs/static-status.json"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift"
 TS_FILE = "webviews/src/ui/statusGlyphs.generated.ts"
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (SOURCE, SWIFT_FILE, TS_FILE)
 # The states a set maps (StaticStatusGlyph.swift maps the app's states onto them).
 STATES = ["working", "waiting", "permission", "done", "error"]
 ARITY = {"M": 2, "L": 2, "C": 6, "arc": 5, "circle": 3, "rect": 4, "Z": 0}

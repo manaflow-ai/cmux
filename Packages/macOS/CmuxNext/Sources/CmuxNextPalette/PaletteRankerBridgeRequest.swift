@@ -7,7 +7,9 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let version: Int?
     let query: String?
     let sectionOrders: [Int]
-    let frecency: PaletteRankerBridgeFrecency
+    /// The history sent with this request; nil when it names an installed `historyRevision`.
+    let frecency: PaletteRankerBridgeFrecency?
+    let historyRevision: Int64?
     let now: Double
     let showsRecent: Bool
     let keepsSectionOrder: Bool
@@ -19,4 +21,7 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let pinnedSectionIndex: Int?
     let rowLimit: Int
     let highlightLimit: Int
+    /// Section names (title, id per section index) for the query's filter tokens (`in:tabs`);
+    /// nil, left out of the JSON, on pages without filters.
+    var sectionNames: [[String]]?
 }

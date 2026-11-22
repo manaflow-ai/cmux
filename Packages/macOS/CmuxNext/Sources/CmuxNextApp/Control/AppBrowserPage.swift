@@ -34,7 +34,7 @@ enum AppBrowserPage {
         // saved password filled again, so an automated click cannot release
         // one to page script (plans/cmux-next/browser.md, "Browser import:
         // passwords and security").
-        let stale = markAgentDriven(tabID, services: services)
+        let stale = markAgentDriven(tabID, services: services, reading: BrowserPageIntent.current == .reads)
         // The engine the record names, with url/title written back to the record.
         let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
         // Chromium makes a page asynchronously: an action right after
@@ -58,6 +58,7 @@ enum AppBrowserPage {
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
         if needsLiveBrowser(operation) { try await ensureBrowser(page) }
+        if operation.actsOnDocument { await services.browserHost?.tabs.keepRendering(tabID: tabID, needsAScreen: operation.needsAScreen) }
         // No extension rule here: every agent may drive every tab, in any
         // profile (#24413). Saved passwords never fill in an agent-driven tab
         // (`markAgentDriven` above), and the per-tab lease coordinates agents.
@@ -131,10 +132,7 @@ enum AppBrowserPage {
     /// page failed with `js_error` "closed". The control deadline bounds the
     /// wait (`browserCreated` resumes false when the call is cancelled).
     static func ensureBrowser(_ page: any BrowserTab) async throws {
-        guard let page = page as? CEFTab, !page.agentRelay.hasBrowser else { return }
-        page.agentRelay.createBrowser()
-        guard await page.agentRelay.browserCreated() else {
-            throw ControlError(code: "unavailable", message: "The browser page could not start; retry")
-        }
+        guard let page = page as? CEFTab, !(await page.agentRelay.started()) else { return }
+        throw ControlError(code: "unavailable", message: "The browser page could not start; retry")
     }
 }

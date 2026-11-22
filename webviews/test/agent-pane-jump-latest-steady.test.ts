@@ -17,6 +17,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-jump-latest-steady.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -205,49 +206,52 @@ await requireBrowserLane("agent-pane-jump-latest-steady.test.ts", async () => {
   /// Records the control after every painted frame, read as the frame paints (a ResizeObserver on a
   /// probe resized in each frame's callbacks, as agent-pane-jump-latest-motion does), until `stop`.
   const startFrames = (page: Page) =>
-    page.evaluate(() => {
-      const holder = window as unknown as { __jumpFrames?: Frame[] };
-      const frames: Frame[] = [];
-      holder.__jumpFrames = frames;
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
-      document.body.append(probe);
-      let wide = false;
-      const read = (frame: number) => {
-        const control = document.querySelector<HTMLElement>(".acpmux-jump-latest");
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const fromEnd = Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
-        if (!control) {
-          frames.push({ at: frame, shown: false, opacity: 0, x: 0, y: 0, w: 0, h: 0, fromEnd });
-          return;
-        }
-        const box = control.getBoundingClientRect();
-        frames.push({
-          at: frame,
-          shown: control.hasAttribute("data-shown"),
-          opacity: Number(getComputedStyle(control).opacity),
-          x: box.x,
-          y: box.y,
-          w: box.width,
-          h: box.height,
-          fromEnd,
-        });
-      };
-      const observer = new ResizeObserver(() => read(performance.now()));
-      observer.observe(probe);
-      window.cmuxAfterPaint(
-        () => {
-          if (holder.__jumpFrames === frames) return;
-          observer.disconnect();
-          probe.remove();
-          return false;
-        },
-        () => {
-          wide = !wide;
-          probe.style.width = wide ? "2px" : "1px";
-        },
-      );
-    });
+    page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const holder = window as unknown as { __jumpFrames?: Frame[] };
+        const frames: Frame[] = [];
+        holder.__jumpFrames = frames;
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+        document.body.append(probe);
+        let wide = false;
+        const read = (frame: number) => {
+          const control = document.querySelector<HTMLElement>(JUMP_LATEST);
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const fromEnd = Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
+          if (!control) {
+            frames.push({ at: frame, shown: false, opacity: 0, x: 0, y: 0, w: 0, h: 0, fromEnd });
+            return;
+          }
+          const box = control.getBoundingClientRect();
+          frames.push({
+            at: frame,
+            shown: control.hasAttribute("data-shown"),
+            opacity: Number(getComputedStyle(control).opacity),
+            x: box.x,
+            y: box.y,
+            w: box.width,
+            h: box.height,
+            fromEnd,
+          });
+        };
+        const observer = new ResizeObserver(() => read(performance.now()));
+        observer.observe(probe);
+        window.cmuxAfterPaint(
+          () => {
+            if (holder.__jumpFrames === frames) return;
+            observer.disconnect();
+            probe.remove();
+            return false;
+          },
+          () => {
+            wide = !wide;
+            probe.style.width = wide ? "2px" : "1px";
+          },
+        );
+      },
+      { JUMP_LATEST },
+    );
   const stopFrames = (page: Page) =>
     page.evaluate(() => {
       const holder = window as unknown as { __jumpFrames?: Frame[] };
@@ -302,7 +306,7 @@ await requireBrowserLane("agent-pane-jump-latest-steady.test.ts", async () => {
     send(record("in", "agent_message_chunk", chunk("Streaming the reply: ")));
     // Hidden, the control is inert (out of the accessibility tree): find it by its label.
     await page
-      .locator('.acpmux-jump-latest[aria-label="Jump to latest, still replying"]')
+      .locator('.acpmux-jump-latest:not(.acpmux-jump-up)[aria-label="Jump to latest, still replying"]')
       .waitFor({ state: "attached" });
     await untilStill(page);
     await startFrames(page);

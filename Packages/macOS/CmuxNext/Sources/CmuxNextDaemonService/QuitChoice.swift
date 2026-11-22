@@ -17,14 +17,17 @@ public enum QuitSessionsChoice: String, Equatable, Sendable {
 
 /// Who asked to quit.
 public enum QuitOrigin: Equatable, Sendable {
-    /// Cmd-Q, the Quit menu item or the Dock's Quit: may show the sheet.
+    /// Cmd-Q, the Quit cmux menu item or the Dock's Quit: the one Quit, which
+    /// quits the app and keeps every session running (CMUX-630, `QuitRules.decide`).
     case interactive
     /// "Quit and Keep Sessions", "Quit and End Sessions, Keep Layout",
-    /// "Quit and End Everything", or `cmux app quit` with `--keep-sessions`,
+    /// "Quit and End Everything" (command palette rows, not in the menu bar),
+    /// or `cmux app quit` with `--keep-sessions`,
     /// `--end-sessions` or `--end-everything`: runs as asked.
     case explicit(QuitSessionsChoice)
     /// `cmux app quit` (or `action.run quit`) with no flag: follows the
-    /// setting and never waits on a sheet.
+    /// setting (End Everything ends the sessions but keeps the workspaces)
+    /// and never waits on a sheet.
     case scripted
     /// Shut down, restart or log out: never asks, never ends terminals
     /// (the system ends them).

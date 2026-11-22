@@ -94,6 +94,7 @@ public final class VoiceCallSession: Identifiable {
     /// end_call ran: hang up once Chief's goodbye has played.
     @ObservationIgnored private var hangUpAfterSpeech = false
     @ObservationIgnored private var triedTranscriptionFallback = false
+    @ObservationIgnored private var retriedServerError = false
 
     public init(link: any VoiceCallLink, toolbox: any VoiceCallToolbox, config: VoiceCallSessionConfig,
                 now: @escaping @Sendable () -> Date = { Date() }) {
@@ -123,6 +124,12 @@ public final class VoiceCallSession: Identifiable {
                 break
             } catch let failure as VoiceCallFailure {
                 guard phase == .connecting else { return }
+                if case .server = failure, !retriedServerError {
+                    // OpenAI's realtime/calls answers a bare 500 now and then; one fresh
+                    // connect (a new offer) usually goes through.
+                    retriedServerError = true
+                    continue
+                }
                 if case let .refused(message) = failure, !triedTranscriptionFallback,
                    message.localizedCaseInsensitiveContains("transcri") {
                     // The transcription model was refused at setup: connect

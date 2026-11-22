@@ -34,7 +34,7 @@ public nonisolated struct AgentPanePullRequestAnswer: Equatable, Sendable {
 /// (`pr.inspect`) also shows its author.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,updatedAt,mergedAt,additions,deletions,changedFiles,files,labels,baseRefName,headRefName,author"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,updatedAt,mergedAt,additions,deletions,changedFiles,files,labels,baseRefName,headRefName,baseRefOid,headRefOid,author"
     /// The most checks the popover lists.
     static let maximumChecks = 50
     /// The most labels the card shows; the rest are a "+N".
@@ -78,7 +78,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     }
 
     /// Its checks summed: `failing` when any failed, else `pending` when any has not finished, else
-    /// `passing`, or `none` without checks. A skipped or neutral check counts as passed.
+    /// `passing`, or `none` without checks. A neutral check counts as passed. Counted over
+    /// ``counted(_:)``: a skipped check and a run a newer run of the same check replaced are not
+    /// counted at all; a cancelled run nothing replaced counts as failed.
     public struct Checks: Equatable, Sendable {
         public var state: String
         public var passed: Int
@@ -100,8 +102,12 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public var url: String
     public var number: Int
     public var title: String
-    /// `open`, `draft`, `merged` or `closed`.
+    /// `open`, `draft`, `merged` or `closed`; an issue's is `open`, `closed` (completed) or
+    /// `not_planned`.
     public var state: String
+    /// What the link names: a pull request, or an issue (``AgentChatPullRequestReader/issueView(_:)``),
+    /// which has no branches, checks or files.
+    public var isIssue = false
     /// `approved`, `changes_requested`, `review_required`, or empty without a required review.
     public var review: String
     /// `mergeable`, `conflicting`, or empty while GitHub works it out.
@@ -123,20 +129,47 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public var files: [ChangedFile]
     /// Its labels' names, at most ``maximumLabels``.
     public var labels: [String]
+    /// The color of each of ``labels`` that has a valid one, by name: six hex digits with no `#`,
+    /// as GitHub returns it (Leo 2026-11-07: "Are we able to pull the colors?"). A label with
+    /// anything else is left out, and the card picks a color of its own for it.
+    public var labelColors: [String: String]
     /// The branch it merges into and the branch it merges from; empty when gh did not say.
     public var baseRef: String
     public var headRef: String
+    /// The commits of those branches (full ids): what a diff from commits already on this machine
+    /// compares (``AgentChatPullRequestReader/diff(url:)``); empty when gh did not say.
+    public var baseCommit: String
+    public var headCommit: String
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
+    /// Its author's avatar as GitHub links it (`avatarUrl(size: 48)`), kept only when it is on
+    /// ``AgentReplyAvatars/host`` (``AgentReplyAvatars/allowedURL(_:)``); empty otherwise and from
+    /// `gh pr view`, which does not read it. The page never gets this link: its CSP loads no
+    /// remote image, so the host fetches the image and hands over ``authorAvatar``.
+    public var authorAvatarURL: String
+    /// That avatar as a `data:` URL, set by ``AgentReplyPullRequests`` when it holds the image;
+    /// nil until then (Leo 2026-11-07: "can you not just also pull the GitHub icon for the profile
+    /// picture?").
+    public var authorAvatar: String?
+    /// The head commit's check rollup as GitHub sums it (`SUCCESS`, `PENDING`, `FAILURE`, ...),
+    /// upper-cased and followed by its checks counted by state when GitHub gave them
+    /// (``AgentChatPullRequestReader/rollupFingerprint(_:)``); empty without checks and from
+    /// `gh pr view`. The probe compares it
+    /// (``AgentChatPullRequestReader/probeQuery(_:)``); the card does not read it.
+    public var rollupState: String
+    /// The base branch tip's rollup, the same way (``rollupState``), for the probe.
+    public var baseRollupState: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
-    /// did not say, as a `gh pr view` does not (the Inspector's Changes shows it beside a bubble).
+    /// did not say, as a `gh pr view` does not (Session Info's Changes shows it beside a bubble).
     public var comments: Int?
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
                 checks: Checks, checkList: [Check] = [], createdAt: String = "", updatedAt: String = "", mergedAt: String = "",
                 additions: Int = 0, deletions: Int = 0, changedFiles: Int = 0, files: [ChangedFile] = [],
-                labels: [String] = [], baseRef: String = "", headRef: String = "", author: String = "",
-                comments: Int? = nil) {
+                labels: [String] = [], baseRef: String = "", headRef: String = "", baseCommit: String = "",
+                headCommit: String = "", author: String = "", comments: Int? = nil, labelColors: [String: String] = [:],
+                authorAvatarURL: String = "", authorAvatar: String? = nil, rollupState: String = "",
+                baseRollupState: String = "") {
         self.url = url
         self.number = number
         self.title = title
@@ -155,8 +188,15 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.labels = labels
         self.baseRef = baseRef
         self.headRef = headRef
+        self.baseCommit = baseCommit
+        self.headCommit = headCommit
         self.author = author
         self.comments = comments
+        self.labelColors = labelColors
+        self.authorAvatarURL = authorAvatarURL
+        self.authorAvatar = authorAvatar
+        self.rollupState = rollupState
+        self.baseRollupState = baseRollupState
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -165,11 +205,14 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
               let url = object["url"] as? String, url.hasPrefix("https://"), !url.contains(where: \.isWhitespace),
               let number = object["number"] as? Int else { return nil }
         let state = (object["state"] as? String)?.lowercased() ?? "open"
-        let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
+        // Every surface that shows this pull request's checks (Session Info's Changes, the card, the
+        // sidebar's marks) reads them from here, so this is the one place they are made countable.
+        let rollup = Self.counted(object["statusCheckRollup"] as? [[String: Any]] ?? [])
         // The base branch's tip as the batched read answers it (`baseStatusCheckRollup`); a
         // `gh pr view` cannot read it, so there it is absent and no check is marked.
         let onBase = Self.failing(object["baseStatusCheckRollup"] as? [[String: Any]] ?? [])
         let mergeable = (object["mergeable"] as? String)?.lowercased() ?? ""
+        let author = object["author"] as? [String: Any]
         self.init(url: url, number: number, title: object["title"] as? String ?? "",
                   state: state == "open" && object["isDraft"] as? Bool == true ? "draft" : state,
                   review: (object["reviewDecision"] as? String)?.lowercased() ?? "",
@@ -182,8 +225,14 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   changedFiles: object["changedFiles"] as? Int ?? 0, files: Self.files(object["files"]),
                   labels: Self.labels(object["labels"]),
                   baseRef: Self.branch(object["baseRefName"]), headRef: Self.branch(object["headRefName"]),
-                  author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "",
-                  comments: (object["totalCommentsCount"] as? Int).map { max(0, $0) })
+                  baseCommit: Self.commit(object["baseRefOid"]), headCommit: Self.commit(object["headRefOid"]),
+                  author: (author?["login"] as? String).map { String($0.prefix(100)) } ?? "",
+                  comments: (object["totalCommentsCount"] as? Int).map { max(0, $0) },
+                  labelColors: Self.labelColors(object["labels"]),
+                  authorAvatarURL: (author?["avatarUrl"] as? String).flatMap(AgentReplyAvatars.allowedURL)?.absoluteString ?? "",
+                  rollupState: (object["rollupState"] as? String)?.uppercased() ?? "",
+                  baseRollupState: (object["baseRollupState"] as? String)?.uppercased() ?? "")
+        isIssue = object["kind"] as? String == "issue"
     }
 
     /// gh's `files`, each with its own counts, at most ``maximumFiles``.
@@ -204,9 +253,31 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             .map(\.self)
     }
 
+    /// The colors of gh's `labels` that ``labels(_:)`` keeps, by the name it keeps: exactly six
+    /// ASCII hex digits each, else the label has none here. The first of two same-named labels wins.
+    static func labelColors(_ raw: Any?) -> [String: String] {
+        guard let rows = raw as? [[String: Any]] else { return [:] }
+        let kept = Set(labels(raw))
+        var colors: [String: String] = [:]
+        for row in rows {
+            guard let name = (row["name"] as? String).map({ String($0.prefix(60)) }), kept.contains(name), colors[name] == nil,
+                  let color = row["color"] as? String, color.count == 6, color.allSatisfy({ $0.isASCII && $0.isHexDigit })
+            else { continue }
+            colors[name] = color
+        }
+        return colors
+    }
+
     /// A branch name as the card prints it.
     static func branch(_ raw: Any?) -> String {
         (raw as? String).map { String($0.prefix(200)) } ?? ""
+    }
+
+    /// A full commit id (40 or 64 lowercase hex digits); empty for anything else.
+    static func commit(_ raw: Any?) -> String {
+        guard let id = raw as? String, id.utf8.count == 40 || id.utf8.count == 64,
+              id.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else { return "" }
+        return id
     }
 
     /// A check's name, whichever kind of context it is.
@@ -251,7 +322,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// `pull_request` trigger whose concurrency groups differ runs twice and both runs stand, and
     /// a dispatched or rescued re-run outranks the run it stands beside without cancelling it.
     /// Dropping the older of those on a base tip can only fail to excuse a red, which is the safe
-    /// direction; doing it to a pull request's own rollup would drop a red it does cause.
+    /// direction. A pull request's own rollup goes through ``counted(_:)`` instead, which drops a
+    /// run only when a newer run of the same workflow, event and check name exists.
     static func latestRuns(_ rollup: [[String: Any]]) -> [[String: Any]] {
         var newest: [String: Int] = [:]
         for check in rollup {
@@ -279,10 +351,52 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             .map(identity))
     }
 
+    /// A pull request's own rollup as its counts read it: skipped contexts left out, and of the
+    /// rest, every run that a newer run of the very same check proves superseded left out too.
+    ///
+    /// A head's rollup lists every run of every workflow a pull request event started, and label or
+    /// edit events start the same workflows again, whose concurrency groups then cancel the older
+    /// runs. Counted whole, a pull request with two real reds read "19 failing" (17 of them
+    /// cancelled duplicates). Only a supersession that is proven is undone here: two contexts are
+    /// runs of one check when they share the workflow, the event that started the run and the
+    /// name (``supersessionKey(_:)``), and of those only the one in the highest run id counts. So
+    /// - a cancelled run a newer run of its check replaced is not counted;
+    /// - a cancelled run with no newer run of its check is counted, and as failed
+    ///   (``outcome(_:)`` has no CANCELLED case): a cancellation a person asked for is a red;
+    /// - runs of one workflow and name that other events started (a `push` run beside a
+    ///   `pull_request` one, say) are separate checks and each counts, so neither hides the
+    ///   other's red;
+    /// - a context whose run, workflow or event was not read (a commit status, another app's
+    ///   check run, a `gh pr view` answer) cannot be proven superseded and is counted as it is.
+    /// A skipped context never ran and is not counted at all.
+    static func counted(_ rollup: [[String: Any]]) -> [[String: Any]] {
+        let ran = rollup.filter { conclusionOf($0) != "SKIPPED" }
+        var newest: [String: Int] = [:]
+        for check in ran {
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { continue }
+            newest[key] = max(newest[key] ?? run, run)
+        }
+        return ran.filter { check in
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { return true }
+            return run >= (newest[key] ?? run)
+        }
+    }
+
+    /// The check a context is a run of, for ``counted(_:)``: its workflow, the event that started
+    /// its run, and its name; nil unless all three were read, since only then can a newer run
+    /// prove it superseded.
+    private static func supersessionKey(_ check: [String: Any]) -> String? {
+        guard let run = runOf(check), !run.workflow.isEmpty,
+              let event = ((check["checkSuite"] as? [String: Any])?["workflowRun"] as? [String: Any])?["event"] as? String,
+              !event.isEmpty,
+              check["name"] is String else { return nil }
+        return "\(run.workflow)\u{0}\(event)\u{0}\(name(check))"
+    }
+
     /// Each check run or commit status with its outcome, failed first; links only when https. A
     /// failing check whose ``identity(_:)`` is in `failingOnBase` is marked as the base branch's
-    /// red, not this pull request's. Every context of `rollup` is counted: a pull request's own
-    /// rollup is read exactly as GitHub reports it (see ``latestRuns(_:)``).
+    /// red, not this pull request's. Every context of `rollup` is listed; a pull request's own
+    /// rollup comes here through ``counted(_:)``.
     static func checkList(_ rollup: [[String: Any]], failingOnBase: Set<String> = []) -> [Check] {
         let order = ["failed": 0, "pending": 1, "passed": 2]
         let list = rollup.map { check in
@@ -326,7 +440,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     }
 
     var json: JSONValue {
-        ["url": .string(url), "number": JSONValue(number), "title": .string(title), "state": .string(state),
+        var object: [String: JSONValue] = ["url": .string(url), "number": JSONValue(number), "title": .string(title), "state": .string(state),
          "review": .string(review), "mergeable": .string(mergeable),
          "createdAt": .string(createdAt), "updatedAt": .string(updatedAt), "mergedAt": .string(mergedAt),
          "author": .string(author),
@@ -348,5 +462,11 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
              if check.onBase { row["onBase"] = .bool(true) }
              return .object(row)
          })]
+        // Only when there are any, so a card with none draws its own colors and placeholder.
+        if !labelColors.isEmpty { object["labelColors"] = .object(labelColors.mapValues { .string($0) }) }
+        if let authorAvatar { object["authorAvatar"] = .string(authorAvatar) }
+        // Only for an issue, so a pull request's answer reads as it always has.
+        if isIssue { object["kind"] = .string("issue") }
+        return .object(object)
     }
 }

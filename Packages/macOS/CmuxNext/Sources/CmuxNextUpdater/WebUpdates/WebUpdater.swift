@@ -84,9 +84,10 @@ public final class WebUpdater {
     /// Whether downloads may use Low Data Mode and expensive links (`updates.meteredNetwork`).
     @ObservationIgnored public var allowsConstrained = false
     @ObservationIgnored public var allowsExpensive = true
-    /// The folder the app serves now; it is never pruned, even after a newer update or a roll
-    /// back, until the next safe point swaps it out (``pruneUnused()``).
-    @ObservationIgnored public var served: () -> URL? = { nil }
+    /// The folders the app serves now (the active one and any an open page still loaded from);
+    /// none is pruned, even after a newer update or a roll back, until the pages reading it
+    /// reloaded at their safe points (``pruneUnused()``).
+    @ObservationIgnored public var served: () -> [URL] = { [] }
     /// Whether cmux is in the front: checks come every ``interval`` there and every
     /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
     @ObservationIgnored public var foreground = true
@@ -113,6 +114,9 @@ public final class WebUpdater {
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// The launch check's removal of the trees it no longer serves, started after its answer;
+    /// every check and channel change waits for it too, so none unpacks or prunes beside it.
+    @ObservationIgnored private var launchPrune: Task<Void, Never>?
     /// The last state write queued (a check keeping its update, a roll back, a channel's return to
     /// the bundled web): each waits for the one before, so none saves over another.
     @ObservationIgnored private var writing: Task<Void, Never>?
@@ -151,13 +155,28 @@ public final class WebUpdater {
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
             self?.launchVersion = tree == nil ? nil : state.active
+            if tree == nil {
+                // Every page's first request waits for this answer, not for the removal: after an
+                // app update that shipped newer web it is the kept trees, about 900 files each.
+                // task-owner: the launch prune, kept so checks and channel changes await it
+                self?.launchPrune = Task { await Self.prune(store, keeping: state.keptKeys) }
+            }
             return tree
         }
         launch = task
         return await task.value
     }
 
-    /// `channel` is the followed `updates.web` (nil before it is read: any kept update).
+    /// The launch check and the removal it started: a check or a channel change waits for both
+    /// before it unpacks, saves or prunes.
+    func launchSettled() async {
+        _ = await launchTree()
+        await launchPrune?.value
+    }
+
+    /// `channel` is the followed `updates.web` (nil before it is read: any kept update). Forgets the
+    /// kept update it does not serve but leaves its trees on disk: ``launchTree()`` removes them
+    /// after the answer.
     @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, channel: Channel? = nil) async -> (URL?, WebUpdateState) {
         var state = store.readState()
         guard let active = state.active else { return (nil, state) }
@@ -170,7 +189,6 @@ public final class WebUpdater {
         state.active = nil
         state.previous = nil
         try? store.write(state)
-        store.prune(keeping: [])
         return (nil, state)
     }
 
@@ -185,7 +203,7 @@ public final class WebUpdater {
         nextCheck.cancel()
         // The launch check, then at most one state write, after the writes queued before it.
         _ = enqueue { [weak self] in
-            _ = await self?.launchTree()
+            await self?.launchSettled()
             guard let self, self.channel == channel, let active = state.active,
                   channel == .off || active.channel != channel.rawValue else { return }
             try await serve(nil, refusingActive: false)
@@ -228,7 +246,7 @@ public final class WebUpdater {
         await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
-        _ = await launchTree()
+        await launchSettled()
         let channel = channel, follows = follows
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
@@ -376,9 +394,9 @@ public final class WebUpdater {
         onReady(pointer.map { store.tree(for: $0.key).root }, pointer)
     }
 
-    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: URL? = nil) async throws {
+    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: [URL] = []) async throws {
         try store.write(state)
-        store.prune(keeping: state.keptKeys.union([served?.lastPathComponent].compactMap { $0 }))
+        store.prune(keeping: state.keptKeys.union(served.map(\.lastPathComponent)))
     }
 
     /// Removes the kept trees nothing serves or may serve; the app calls it after a safe point.
@@ -386,7 +404,7 @@ public final class WebUpdater {
         // A check in flight may be unpacking into staging or keeping a tree it has not saved
         // yet; its own save prunes.
         guard phase != .checking, phase != .downloading else { return }
-        let store = store, keys = state.keptKeys.union([served()?.lastPathComponent].compactMap { $0 })
+        let store = store, keys = state.keptKeys.union(served().map(\.lastPathComponent))
         await Self.prune(store, keeping: keys)
     }
 

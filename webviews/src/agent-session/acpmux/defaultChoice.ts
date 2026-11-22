@@ -63,3 +63,33 @@ export function rememberResolvedDefault(harness: string, model: string): void {
     // Storage unavailable: the next new chat says "Default" until it starts.
   }
 }
+
+const ALIAS_STORAGE_KEY = "cmux.acpmux.resolvedAliases";
+
+/// The release a harness's alias ("opus") last ran here ("claude-opus-5-5"), so a chat on the alias
+/// is named by its version before its session reports what it runs. Per viewer; a missing or blocked
+/// store only means the alias's own name until then.
+export function loadResolvedAlias(harness: string, alias: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(ALIAS_STORAGE_KEY) ?? "{}");
+    const value =
+      parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)[`${harness}\u0000${alias}`]
+        : undefined;
+    return typeof value === "string" && value ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberResolvedAlias(harness: string, alias: string, release: string): void {
+  try {
+    const key = `${harness}\u0000${alias}`;
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(ALIAS_STORAGE_KEY) ?? "{}");
+    const all = parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    if (all[key] === release) return;
+    globalThis.localStorage?.setItem(ALIAS_STORAGE_KEY, JSON.stringify({ ...all, [key]: release }));
+  } catch {
+    // Storage unavailable: the alias keeps its own name until its session reports the release.
+  }
+}

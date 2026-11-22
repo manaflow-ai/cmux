@@ -10,10 +10,16 @@ enum AgentPaneHandshakeReply {
         // Its native tools were the old page's: they go too, so no stale button sends an old id to the new page.
         if request == .ready {
             model.tabRow.pageLoaded()
+            model.sessionInfo.pageLoaded()
+            model.setToastAvoidance(nil)
+            model.hostGlass.pageLoaded()
             model.setTabRowTools([])
         }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
+        // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
+        // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
+        model.startFolders.prefetch(for: model)
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
@@ -23,18 +29,25 @@ enum AgentPaneHandshakeReply {
                 handshake.cwd = seed.cwd
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
+                handshake.promptAttachments = seed.promptAttachments
                 // A prompt a person's own action seeded goes out by itself with a single-use
                 // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands
                 // its prompt out once, so a reload gets neither the prompt nor a ticket again.
-                if let prompt = seed.prompt, !prompt.isEmpty, seed.promptBy.sendsBySelf {
+                if (seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false), seed.promptBy.sendsBySelf {
                     let issued = model.transport.gestures.issueSeedTicket()
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
+                } else if seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false {
+                    // A CLI, MCP or script seed waits in the composer for the person's own Send.
+                    model.transport.gestures.holdAutomationSeed()
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.effort = seed.effort
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
+                if seed.picksCloud { handshake.pickCloud = true }
+                handshake.cloudStartHandoff = seed.cloudStartHandoff
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
@@ -48,15 +61,20 @@ enum AgentPaneHandshakeReply {
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
-            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
+            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTabForPage {
                 handshake.newTab = newTab
                 handshake.newSession = true
-                if handshake.cwd == nil { handshake.cwd = newTab.cwd }
+                if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
+            handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
-            if handshake.machineName == nil { handshake.machineName = await AgentPaneModel.localMachineName?.value }
+            let localName = await AgentPaneModel.localMachineName?.value
+            if handshake.machineName == nil { handshake.machineName = localName }
+            // The picker's local row starts a chat on the page's own acpmux: this Mac's, never replaced by a
+            // seeded chat's peer or Cloud machine, or the machine a remote route attaches the page to.
+            handshake.localMachineName = handshake.connection?.remote?.machine ?? localName
             // A pane attaches only to the exact session its tab recorded: a session the
             // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
             // available", never another chat (P1 2026-10-09).
@@ -68,7 +86,13 @@ enum AgentPaneHandshakeReply {
             // A peer's folder belongs to that peer. Never resolve it against this Mac's
             // workspace/agent-home or read local Git data at the same path.
             let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
-            if !started, handshake.peer == nil { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
+            if !started, handshake.peer == nil {
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
+                // Its pull requests' diffs are read from this folder before GitHub (GitHubLocalDiff).
+                if let repository = handshake.githubRepository, let cwd = handshake.cwd {
+                    AgentReplyPullRequests.shared.noteFolder(cwd, of: repository)
+                }
+            }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
@@ -78,8 +102,11 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
+            // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
+            model.clientReady = false
             model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }
@@ -90,7 +117,10 @@ enum AgentPaneHandshakeReply {
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
-            return AgentPaneReply.handshake(handshake)
+            // A reconnect's page keeps its screen and reads no New Tab context (webviews App.tsx), so its reply
+            // carries none: a send here would mark its document with a shared text that the page did not keep.
+            if request == .reconnect { handshake.newTab = nil }
+            return AgentPaneReply.handshake(handshake, newTab: handshake.newTab.flatMap { model.newTabReply($0) })
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
@@ -127,5 +157,17 @@ enum AgentPaneHandshakeReply {
         guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
+    }
+
+    /// `acpmux.restartStuck`: the waiting line's "Restart agent service", while the page's
+    /// handshake waits for this app's acpmux. The person decides; the app never restarts a daemon
+    /// that is only slow on its own (rule R5). Page script cannot make a gesture, and the host
+    /// stops a daemon only while a lookup waits on it. Answers `{stopped}`; the page then asks for
+    /// a handshake again, which starts a new daemon.
+    static func restartStuckAcpmux(in model: AgentPaneModel) async -> [String: Any] {
+        guard model.transport.gestures.consume() else {
+            return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
+        }
+        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
     }
 }

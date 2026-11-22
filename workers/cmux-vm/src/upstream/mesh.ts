@@ -17,6 +17,8 @@ import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import type { UpstreamError } from "./client.ts";
+import type { PendingMeshCreation } from "../proofs/mesh-creation.ts";
+import type { Option } from "effect";
 
 /** A private network the provider just created. Only `createNetwork` makes one. */
 export interface CreatedNetwork {
@@ -49,6 +51,8 @@ export interface CreatedRule {
 }
 
 export interface UpstreamMeshService {
+  readonly recoverNetwork: <C, M>(mesh: Named<M, MeshId>, proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly pending: PendingMeshCreation<C, M> }) => Effect.Effect<Option.Option<CreatedNetwork>, UpstreamError>;
+  readonly createJournalledNetwork: <C, M>(mesh: Named<M, MeshId>, proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly mayCreate: TenantMayCreate<C, "mesh">; readonly pending: PendingMeshCreation<C, M> }) => Effect.Effect<CreatedNetwork, UpstreamError>;
   readonly createNetwork: <C, M>(
     mesh: Named<M, MeshId>,
     proofs: { readonly scope: KeyHasScope<C, "mesh:write">; readonly mayCreate: TenantMayCreate<C, "mesh"> },
@@ -81,7 +85,19 @@ export interface UpstreamMeshService {
       readonly routes: ReadonlyArray<string>;
     },
   ) => Effect.Effect<CreatedTunnel, UpstreamError>;
+  /** Deletes a tunnel `createTunnel` or `findDeviceTunnel` returned; one already gone counts as deleted. */
   readonly discardCreatedTunnel: (created: CreatedTunnel) => Effect.Effect<void, UpstreamError>;
+  /**
+   * The tunnel a create for `device` made, found by the slug that create sent (its reply may have been lost): None when
+   * the provider has no tunnel at that slug. Fails (touching nothing) when the tunnel there is not this device's on this
+   * mesh. Only for a device id the store recorded as a create attempt on this mesh.
+   */
+  readonly findDeviceTunnel: <C, M, D>(
+    mesh: Named<M, MeshId>,
+    device: Named<D, DeviceId>,
+    proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
+    options: { readonly tenantId: TenantId },
+  ) => Effect.Effect<Option.Option<CreatedTunnel>, UpstreamError>;
   readonly getTunnel: <C, T>(
     tunnel: Named<T, TunnelId>,
     proofs: {
@@ -122,6 +138,12 @@ export interface UpstreamMeshService {
       readonly meshScope: KeyHasScope<C, "mesh:write">;
       readonly vmScope: KeyHasScope<C, "vm:write">;
     },
+  ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
+  /** Read only the current address on this exact owned network. Never attaches a VM. */
+  readonly readVmAddress: <C, M, V>(
+    mesh: Named<M, MeshId>, vm: Named<V, VmId>,
+    proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly ownsVm: TenantOwnsResource<C, V>;
+      readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> },
   ) => Effect.Effect<{ readonly ipv4: string | null }, UpstreamError>;
   readonly detachVm: <C, V>(
     vm: Named<V, VmId>,

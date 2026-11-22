@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Home split draws its divider only where it is (live-qa 2026-10-21, nightly 3a63d6d): a Home
@@ -10,6 +11,7 @@ import Testing
 /// NSSplitView draws each divider in a layer of its own (a sublayer whose delegate is the split view).
 /// The test reads those layers' frames after the clamp and after a width set outside layout.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeSidebarSplitDividerTests {
     /// The split's divider layers: its own sublayers, drawn by the split view (the list and the chat
     /// columns are its subviews' backing layers).
@@ -30,6 +32,7 @@ struct HomeSidebarSplitDividerTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
         home.update(HomeLoneChiefRailTests.model(chiefs: conversations))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "divider" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -52,7 +55,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aClampedDividerLeavesNoLineAtItsOldPlace(dark: Bool) throws {
         let suite = "cmux.tests.splitDivider.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults)
         defer { window.close() }
@@ -72,7 +75,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aFoldedLoneConversationLeavesNoLineAtItsOldPlace(dark: Bool) throws {
         let suite = "cmux.tests.splitDividerFold.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults, conversations: 1)
         defer { window.close() }
@@ -91,7 +94,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aWidthSetOutsideLayoutMovesTheDividerLayer(dark: Bool) throws {
         let suite = "cmux.tests.splitDividerReset.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults)
         defer { window.close() }

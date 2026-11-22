@@ -1,0 +1,14 @@
+[
+ {
+  "path": ".github",
+  "blob_href": "https://github.com/manaflow-ai/cmux/blob/3a781db43f56fa7a9199a04aa13faee88581609c/.github",
+  "start_line": 1,
+  "start_column": null,
+  "end_line": 1,
+  "end_column": null,
+  "annotation_level": "failure",
+  "title": "",
+  "message": "The self-hosted runner lost communication with the server. Verify the machine is running and has a healthy network connection. Anything in your workflow that terminates the runner process, starves it for CPU/Memory, or blocks its network access can cause this error.",
+  "raw_details": ""
+ }
+]

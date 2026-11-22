@@ -107,6 +107,14 @@ def resident_mb() -> dict[int, float]:
     return found
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this helper
+# (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the clone about 1 s later.
+# Killed with the app, it leaves the clone until reboot: 29 GB on cmux18 (2026-11-02).
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
 def _roots(bundle: str) -> tuple[str, ...]:
     real = os.path.realpath(bundle)
     return tuple({real + "/", real.removeprefix("/private") + "/", bundle.rstrip("/") + "/"})
@@ -115,7 +123,7 @@ def _roots(bundle: str) -> tuple[str, ...]:
 def main_pid(bundle: str) -> int | None:
     """The app process of `bundle` (its Contents/MacOS binary), or None."""
     macos = tuple(root + "Contents/MacOS/" for root in _roots(bundle))
-    pids = [pid for pid, _ppid, cmd in process_table() if cmd.startswith(macos)]
+    pids = [pid for pid, _ppid, cmd in process_table() if cmd.startswith(macos) and CLONE_CLEANUP not in cmd]
     return min(pids) if pids else None
 
 
@@ -261,7 +269,8 @@ class Instance:
         return rounded
 
     def end(self, grace: float = 10):
-        """SIGTERM the app, then SIGKILL anything of the instance still alive."""
+        """SIGTERM the app, then SIGKILL anything of the instance still alive. Chromium's code-sign clone
+        cleanup helper (see CLONE_CLEANUP) gets up to CLONE_CLEANUP_WAIT_S to remove the launch's clone first."""
         import signal
         pids = set(self.pids()) | {self.pid}
         try:
@@ -271,13 +280,23 @@ class Instance:
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline and _alive(self.pid):
             time.sleep(0.2)  # bench: waiting for a clean quit
-        pids |= set(self.pids())
-        for pid in pids:
-            if _alive(pid) and pid != os.getpid():
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+        found = self.pids()
+        pids |= set(found)
+        cleanups = {pid for pid, cmd in found.items() if CLONE_CLEANUP in cmd}
+
+        def kill(group):
+            for pid in group:
+                if _alive(pid) and pid != os.getpid():
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+
+        kill(pids - cleanups)
+        deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+        while time.monotonic() < deadline and any(_alive(pid) for pid in cleanups):
+            time.sleep(0.2)  # bench: Chromium's helper removes the launch's code-sign clone
+        kill(cleanups)
 
 
 def _alive(pid: int) -> bool:

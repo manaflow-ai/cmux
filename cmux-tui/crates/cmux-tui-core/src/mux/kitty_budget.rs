@@ -85,18 +85,9 @@ impl Mux {
         self: &Arc<Self>,
         surface: &Surface,
     ) -> anyhow::Result<()> {
-        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
         {
             let mut budget = self.kitty_image_budget.lock().unwrap();
-            let removed_current_surface = budget
-                .entries
-                .get(&runtime_id)
-                .and_then(|entry| entry.surface.as_ref())
-                .and_then(Weak::upgrade)
-                .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
-            if removed_current_surface {
-                budget.entries.remove(&runtime_id);
-                budget.blocked_surfaces.remove(&runtime_id);
+            if Self::remove_kitty_image_entry(&mut budget, surface) {
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
             }
         }
@@ -179,6 +170,26 @@ impl Mux {
         true
     }
 
+    /// Remove `surface`'s entry when it is still the one registered under
+    /// its runtime id; true when it was.
+    pub(super) fn remove_kitty_image_entry(
+        budget: &mut KittyImageBudgetState,
+        surface: &Surface,
+    ) -> bool {
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        let registered = budget
+            .entries
+            .get(&runtime_id)
+            .and_then(|entry| entry.surface.as_ref())
+            .and_then(Weak::upgrade)
+            .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
+        if registered {
+            budget.entries.remove(&runtime_id);
+            budget.blocked_surfaces.remove(&runtime_id);
+        }
+        registered
+    }
+
     pub(super) fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
         budget.entries.retain(|_, entry| {
             entry.surface.as_ref().is_none_or(|surface| surface.strong_count() > 0)
@@ -215,10 +226,10 @@ impl Mux {
                 }
             }
         }
-        budget.capacity = kitty_image_budget_capacity(
-            Self::kitty_image_budget_owner_count(budget),
-            budget.capacity,
-        );
+        // Sized for the terminals a respawn will add too, so their
+        // reservations do not wait for a launch still in flight.
+        let sized_for = budget.sized_for(Self::kitty_image_budget_owner_count(budget));
+        budget.capacity = kitty_image_budget_capacity(sized_for, budget.capacity);
     }
 
     pub(super) fn start_kitty_image_budget_worker(self: &Arc<Self>) {

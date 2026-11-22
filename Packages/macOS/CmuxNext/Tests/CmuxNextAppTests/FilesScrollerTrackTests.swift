@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 @testable import CmuxNextFilesUI
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// rows/columns do not have extra bg". The Files pane's list (a table with columns) and its column
 /// view (an NSBrowser) scroll both ways; every bar in them is the shared thin scroller, on no track,
 /// with no fill where the bars meet, also for columns the browser adds later.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FilesScrollerTrackTests {
     private static let actions = FilesPaneActions(
         activate: { _ in }, select: { _, _ in }, sort: { _ in }, rename: { _, _ in },
@@ -50,6 +51,7 @@ struct FilesScrollerTrackTests {
         let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(), lister: Listing())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = columns.view
         columns.view.frame = NSRect(x: 0, y: 0, width: 420, height: 300)
         let browser = try #require(columns.view as? NSBrowser)

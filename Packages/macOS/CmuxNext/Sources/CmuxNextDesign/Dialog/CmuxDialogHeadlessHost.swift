@@ -5,22 +5,22 @@ public import AppKit
 /// window closed.
 @MainActor
 public final class CmuxDialogHeadlessHost: CmuxDialogHosting {
-    public private(set) var shown: [CmuxDialogView] = []
+    public private(set) var shown: [CmuxDialogPresentation] = []
     private var gone: [ObjectIdentifier: () -> Void] = [:]
 
     public init() {}
 
-    public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+    public func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
         shown.append(dialog)
         gone[ObjectIdentifier(dialog)] = scopeGone
     }
 
-    public func hide(_ dialog: CmuxDialogView) {
+    public func hide(_ dialog: CmuxDialogPresentation) {
         shown.removeAll { $0 === dialog }
         gone[ObjectIdentifier(dialog)] = nil
     }
 
-    public func closeScope(of dialog: CmuxDialogView) {
+    public func closeScope(of dialog: CmuxDialogPresentation) {
         gone.removeValue(forKey: ObjectIdentifier(dialog))?()
     }
 }

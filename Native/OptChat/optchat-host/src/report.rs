@@ -56,6 +56,9 @@ pub enum Report {
         node: NodeId,
         wait: std::time::Duration,
     },
+    /// The API refused a node's request as too large on every try: its
+    /// input, cut to the line's room, was stored as the line (issue 36026).
+    NodeOversized { node: NodeId, error: String },
     /// A write failed (its transaction rolled back); the chat stops writing
     /// until a restart.
     Fatal { error: String },
@@ -133,6 +136,11 @@ impl fmt::Display for Report {
                     node.name()
                 )
             }
+            Report::NodeOversized { node, error } => write!(
+                f,
+                "compactor node {} is too large for the model ({error}); its input, cut to the line's room, is the line",
+                node.name()
+            ),
             Report::Fatal { error } => write!(f, "chat stopped writing: {error}"),
         }
     }

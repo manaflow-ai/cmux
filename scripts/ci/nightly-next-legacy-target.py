@@ -47,11 +47,28 @@ import sys
 import xml.etree.ElementTree as ET
 
 NS = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+FEED_PREFIXES = {"sparkle": NS[1:-1], "cmux": "https://cmux.com/xml-namespaces/cmux"}
+
+
+def bind_feed_prefixes(data):
+    """DATA with every feed prefix it uses declared on the <rss> root (the live
+    cmux NEXT feed carried an unbound cmux: prefix on 2026-11-01)."""
+    root = re.search(rb"<rss\b[^>]*>", data)
+    if root is None:
+        return data
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix.encode() + rb":[A-Za-z_]", data) is not None
+        if used and re.search(rb"\sxmlns:" + prefix.encode() + rb"\s*=", opening) is None:
+            opening = opening[:-1] + f' xmlns:{prefix}="{uri}">'.encode()
+    return data[:root.start()] + opening + data[root.end():]
 
 
 def items(path):
     out = []
-    for item in ET.parse(path).getroot().iter("item"):
+    with open(path, "rb") as handle:
+        root = ET.fromstring(bind_feed_prefixes(handle.read()))
+    for item in root.iter("item"):
         version = (item.findtext(f"{NS}version") or "").strip()
         enclosure = item.find("enclosure")
         if re.fullmatch(r"\d+", version) and enclosure is not None:

@@ -11,6 +11,8 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 
+// The card's one home is Chief, the home of its rows.
+const PAGE = "/settings/chief";
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const choices = (element: HTMLElement) => [...element.querySelectorAll<HTMLElement>(".chief-pet-choice")];
 /** The pet as the card shows it: on or off, and the character in its preview. */
@@ -22,22 +24,30 @@ const checked = (element: HTMLElement) =>
   choices(element).find((choice) => choice.getAttribute("aria-pressed") === "true")?.dataset.pet;
 
 test("the page shows every character, the chosen one checked while the pet is off", async () => {
-  const page = await renderPage({ path: "/settings/chief" });
+  const page = await renderPage({ path: PAGE });
   await settle();
   const pet = card(page.container);
   expect(choices(pet).map((choice) => choice.dataset.pet)).toEqual([
-    "orb",
-    "orb-spark",
-    "orb-hood",
+    "fox",
     "machine",
     "machine-cyan",
     "machine-blue",
     "moon",
     "moon-blue",
-    "fox",
     "mochi",
+    "captain",
+    "sprout",
+    "bolt",
+    "fox-arctic",
+    "machine-violet",
+    "machine-gold",
+    "moon-rose",
+    "orb",
+    "orb-spark",
+    "orb-hood",
   ]);
-  // The pet is off by default, but every Chief surface wears the first character: it is the one checked.
+  // The pet is off by default, but every Chief surface wears the default character, orb, wherever it
+  // sits in the grid (Series 1 without the orbs, the animated sets, Series 2, then the orbs): it is the one checked.
   expect(checked(pet)).toBe("orb");
   expect(pet.dataset.enabled).toBe("false");
   // The card draws both rows: no plain toggle or menu for them below it.
@@ -47,7 +57,7 @@ test("the page shows every character, the chosen one checked while the pet is of
 });
 
 test("picking a character with the pet off swaps the avatar and leaves the pet off", async () => {
-  const page = await renderPage({ path: "/settings/chief" });
+  const page = await renderPage({ path: PAGE });
   await settle();
   const pick = async (id: string) => {
     await act(async () => card(page.container).querySelector<HTMLElement>(`[data-pet="${id}"]`)!.click());
@@ -69,7 +79,7 @@ test("picking a character with the pet off swaps the avatar and leaves the pet o
 });
 
 test("picking a character with the pet shown swaps it and keeps it shown", async () => {
-  const page = await renderPage({ path: "/settings/chief", mock: { values: { "home.chiefPetEnabled": true } } });
+  const page = await renderPage({ path: PAGE, mock: { values: { "home.chiefPetEnabled": true } } });
   await settle();
   await act(async () => card(page.container).querySelector<HTMLElement>('[data-pet="fox"]')!.click());
   await settle();
@@ -79,7 +89,7 @@ test("picking a character with the pet shown swaps it and keeps it shown", async
 });
 
 test("Show Pet and Hide Pet turn the pet on and off with its character kept", async () => {
-  const page = await renderPage({ path: "/settings/chief", mock: { values: { "home.chiefPetMascot": "moon" } } });
+  const page = await renderPage({ path: PAGE, mock: { values: { "home.chiefPetMascot": "moon" } } });
   await settle();
   const toggle = () => card(page.container).querySelector<HTMLButtonElement>('[data-action="chief-pet-toggle"]')!;
   expect(toggle().textContent).toBe("Show Pet");
@@ -95,7 +105,7 @@ test("Show Pet and Hide Pet turn the pet on and off with its character kept", as
 });
 
 test("hovering a character previews it without picking it", async () => {
-  const page = await renderPage({ path: "/settings/chief", mock: { values: { "home.chiefPetMascot": "moon" } } });
+  const page = await renderPage({ path: PAGE, mock: { values: { "home.chiefPetMascot": "moon" } } });
   await settle();
   const fox = card(page.container).querySelector<HTMLElement>('[data-pet="fox"]')!;
   const preview = () => card(page.container).querySelector<HTMLElement>(".chief-pet-preview")!;
@@ -108,4 +118,21 @@ test("hovering a character previews it without picking it", async () => {
   expect(shown(card(page.container))).toEqual({ enabled: false, character: "Moon" });
   expect(preview().dataset.previewing).toBe("false");
   page.unmount();
+});
+
+// Leo 2026-11-01: "obv i assume this won't switch up what they've currently selected...?" The value is
+// the character's id, so a saved choice stays checked after the reorder, and an id that is no character
+// checks the default, orb, not the grid's first cell.
+test("a saved character stays checked after the reorder; an unknown one checks orb", async () => {
+  const saved = await renderPage({ path: PAGE, mock: { values: { "home.chiefPetMascot": "moon" } } });
+  await settle();
+  expect(checked(card(saved.container))).toBe("moon");
+  saved.unmount();
+  const unknown = await renderPage({
+    path: PAGE,
+    mock: { values: { "home.chiefPetMascot": "retired-character" } },
+  });
+  await settle();
+  expect(checked(card(unknown.container))).toBe("orb");
+  unknown.unmount();
 });

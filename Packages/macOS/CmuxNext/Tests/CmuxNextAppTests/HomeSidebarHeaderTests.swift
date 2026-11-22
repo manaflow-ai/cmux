@@ -20,7 +20,7 @@ struct HomeSidebarHeaderTests {
         let items = [h.search, h.filter]
         #expect(h.compose == .zero)
         #expect(Set(items.map(\.midY)).count == 1, "the row wraps at \(width)")
-        #expect(items.allSatisfy { $0.height == HomeSidebarHeaderLayout.side })
+        #expect(items.allSatisfy { $0.height == HomeSidebarHeaderMetrics.standard.side })
         #expect(items.allSatisfy { $0.minX >= 0 && $0.maxX <= width }, "the row overflows \(width)")
         for (a, b) in zip(items, items.dropFirst()) {
             #expect(a.maxX <= b.minX, "items overlap at \(width)")
@@ -73,6 +73,60 @@ struct HomeSidebarHeaderTests {
         #expect(!home.unreadToggle.isOn)
     }
 
+    /// The user, 2026-11-03 (msg 20156): "somehow i got search to be stuck in this state": a click on the
+    /// filter button left an empty field over "No Results" and no chats, with nothing showing that a
+    /// filter was on. An on filter shows as a chip (Unread ×) under the search row with the list under
+    /// it; the empty list says No Unread Chats over Show All; the chip, Show All and the toggle each
+    /// turn it off, and every chat shows again.
+    /// The user, 2026-11-03 (msg 20156): "the filter button looks active" while the filter is on. The
+    /// Unread toggle sits on glass, where its lit glyph and its rest glyph are the same ink, so the on
+    /// state keeps the toggle's fill (`ChromeHover` `lit`) under the glyph until the filter goes off.
+    @Test func theUnreadToggleKeepsItsFillWhileTheFilterIsOn() {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        #expect(!home.unreadToggle.hover.state.lit)
+        home.unreadToggle.performClick(nil)
+        #expect(home.unreadOnly && home.unreadToggle.hover.state.lit)
+        home.filterChip.performClick(nil)
+        #expect(!home.unreadOnly && !home.unreadToggle.hover.state.lit)
+    }
+
+    @Test func anOnFilterShowsItselfAndTurnsOffFromTheChipOrShowAll() {
+        let off = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: false)
+        #expect(off.filterChip == .zero)
+        let on = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true)
+        #expect(on.filterChip.height == HomeSidebarHeaderMetrics.standard.chipHeight)
+        #expect(on.filterChip.minY >= on.search.maxY)
+        #expect(on.listTop == on.filterChip.maxY + HomeSidebarHeaderMetrics.standard.chipGap)
+
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        func laidOut() {
+            home.layoutSubtreeIfNeeded()
+            home.list.headerView.needsLayout = true
+            home.list.headerView.layoutSubtreeIfNeeded()
+        }
+        laidOut()
+        #expect(home.filterChip.isHidden)
+        home.unreadToggle.performClick(nil)
+        laidOut()
+        #expect(!home.filterChip.isHidden)
+        #expect(home.filterChip.frame.minY == home.header.filterChip.minY && home.filterChip.frame.width > 0)
+        let empty = home.list.controller
+        #expect(!empty.noResults.isHidden)
+        #expect(empty.noResults.stringValue == SidebarStrings.noUnread)
+        #expect(!empty.showAll.isHidden)
+        empty.showAll.performClick(nil)
+        laidOut()
+        #expect(!home.unreadOnly && !home.unreadToggle.isOn && home.list.controller.filter == .all)
+        #expect(home.filterChip.isHidden && empty.showAll.isHidden)
+        // The chip turns it off the same way.
+        home.unreadOnly = true
+        laidOut()
+        home.filterChip.performClick(nil)
+        laidOut()
+        #expect(!home.unreadOnly && home.filterChip.isHidden)
+        #expect(home.list.controller.filter == .all)
+    }
+
     /// live-qa on nightly 3a63d6d: in light mode the compose and filter glyphs did not draw at all.
     /// A button has its glyph from the start and at its size as soon as the header sets its frame,
     /// without waiting for the button's own layout pass.
@@ -121,8 +175,8 @@ struct HomeSidebarHeaderTests {
         }
         // The glyph keeps its size across the switch: half the Unread toggle's height. The list's compose button is
         // hidden and zero-sized since 1cc2f1b57d133 (compose is the chat's at every width), so its glyph is the 10 pt floor.
-        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderLayout.side
-            && home.unreadToggle.glyphSize == HomeSidebarHeaderLayout.side / 2)
+        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderMetrics.standard.side
+            && home.unreadToggle.glyphSize == HomeSidebarHeaderMetrics.standard.side / 2)
         #expect(home.compose.frame.size == .zero && home.compose.glyphSize == 10)
     }
 }

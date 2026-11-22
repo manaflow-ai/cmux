@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -8,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 /// card just disappears." A wheel scroll with the pointer on the shown workspace card belongs to
 /// the card: it stays, and the scroll never reaches the sidebar under it. A scroll off the card
 /// still ends it, as before.
-@MainActor @Suite(.serialized) struct WorkspaceHoverCardScrollTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceHoverCardScrollTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...3).map {
@@ -68,6 +69,22 @@ import CmuxNextWakeupsTestSupport
         return try #require(coordinator.panel).cardFrame
     }
 
+    /// The pointer left the shown card's row and the card: moves `clock` past the card's leave grace
+    /// until the card hides. A workspace card lingers (#39684, Leo 2026-11-07): it stays for the grace
+    /// armed when the pointer left its row (the aim window when it headed into the card), and a deadline
+    /// that found the pointer on the card starts one more full grace once it finds the pointer gone. So
+    /// two graces at most: a card still shown after them is a card that stays.
+    static func waitOutLeaveGrace(_ coordinator: HoverCardCoordinator, _ clock: ManualClock) async throws {
+        let grace = max(coordinator.machine.leaveWindow, coordinator.machine.aimWindow) + .milliseconds(50)
+        for _ in 0..<2 where coordinator.machine.shownTarget != nil {
+            let armed = coordinator.machine.armedToken
+            // The grace timer must be asleep before the clock moves past it, and its deadline must land.
+            try await clock.waitForSleeper()
+            clock.advance(by: grace)
+            try await settle(until: { coordinator.machine.armedToken != armed })
+        }
+    }
+
     @Test func aScrollOnTheCardKeepsItAndNeverReachesTheSidebar() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
@@ -90,10 +107,14 @@ import CmuxNextWakeupsTestSupport
         list.hoverCard.timelineSource = { _, limit in
             (0..<min(limit, 40)).map { SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-Double($0) * 60), text: "Prompt \($0)") }
         }
-        let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
         let shown = try #require(coordinator.machine.shownTarget)
         let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        // The card opens tabs-first; Show details reveals the history and refits the card in place.
+        body.detailsToggle.performClick(nil)
+        body.runPendingDetailsPresses()
         try #require(!body.timeline.isHidden, "the card shows no history")
+        let card = try #require(coordinator.panel).cardFrame
         #expect(body.timeline.scrollOffset == 0)
         let history = body.timeline.scrollView
         let frame = try #require(history.window).convertToScreen(history.convert(history.bounds, to: nil))
@@ -102,6 +123,31 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<5 { _ = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40)) }
         #expect(body.timeline.scrollOffset > 0, "the wheel did not scroll the history")
         #expect(coordinator.isShowing(shown.id), "scrolling the history dismissed the card")
+        try await Self.tearDown(window, coordinator)
+    }
+
+    /// Show details is a press the card accepts; its release never reaches the monitor, so the
+    /// card stays and expands in place.
+    @Test func pressingShowDetailsKeepsTheCardAndItsReleaseIsNeverMonitored() async throws {
+        #expect(!HoverCardCoordinator.monitoredEvents.contains(.leftMouseUp), "the card's monitor would dismiss on a release")
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        list.hoverCard.timelineSource = { _, _ in [SidebarTimelineEntry(kind: .prompt, date: Date(), text: "Prompt")] }
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        let shown = try #require(coordinator.machine.shownTarget)
+        let panel = try #require(coordinator.panel)
+        let body = try #require(panel.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        let toggle = body.detailsToggle
+        let point = try #require(toggle.window).convertPoint(toScreen: toggle.convert(NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY), to: nil))
+        coordinator.pointerMoved(to: point)
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(coordinator.handleMonitoredEvent(press) != nil, "the press on Show details was swallowed")
+        #expect(coordinator.isShowing(shown.id), "pressing Show details dismissed the card (\(coordinator.machine.phase))")
+        toggle.performClick(nil)
+        body.runPendingDetailsPresses()
+        #expect(body.isDetailsExpanded)
+        #expect(coordinator.isShowing(shown.id), "Show details did not expand the card in place")
         try await Self.tearDown(window, coordinator)
     }
 

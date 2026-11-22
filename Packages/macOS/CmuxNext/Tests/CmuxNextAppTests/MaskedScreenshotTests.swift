@@ -7,6 +7,7 @@ import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -17,7 +18,7 @@ import WebKit
 /// The window here shows a green native view beside a browser pane whose page area is red (a
 /// stand-in for the page's pixels): the person's raw capture shows the red, the agent's shows
 /// the mask over the whole page area, no red pixel anywhere, and the green untouched.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct MaskedScreenshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct MaskedScreenshotTests {
     static let green = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1).cgColor
     static let red = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor
 
@@ -33,6 +34,7 @@ import WebKit
         var chromeRect: NSRect { chrome.convert(chrome.bounds, to: nil) }
 
         func close() {
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()
@@ -132,13 +134,22 @@ import WebKit
 
     /// The person's raw capture of the window once the window server shows the page's red.
     private func rawCapture(_ fixture: Fixture) async throws -> CGImage {
-        let deadline = ContinuousClock.now + .seconds(5)
         let center = CGPoint(x: fixture.pageRect.midX, y: fixture.pageRect.midY)
-        while true {
-            let image = try await fixture.window.screenshotImage(includeChild: { _ in false })
-            if Self.isRed(Pixels(image).at(center, size: fixture.window.frame.size)) || ContinuousClock.now > deadline { return image }
+        return try await Self.settledCapture(fixture.window) { Self.isRed(Pixels($0).at(center, size: fixture.window.frame.size)) }
+    }
+
+    /// `window`'s raw capture once `shows` holds for it, bounded. Until the window server composites a new window
+    /// the capture can be all transparent, which `screenshotImage` throws as `.blank`: in a test process with no
+    /// window before this one (#26809's heavy step on a CI mini) every test here threw it 0.2-0.6 s in. The last
+    /// capture runs outside the loop, so a window that never shows still fails with that capture's own error or
+    /// in the caller's checks.
+    static func settledCapture(_ window: NSWindow, until shows: (CGImage) -> Bool) async throws -> CGImage {
+        let deadline = ContinuousClock.now + .seconds(5)
+        repeat {
+            if let image = try? await window.screenshotImage(includeChild: { _ in false }), shows(image) { return image }
             try await Task.sleep(for: .milliseconds(50))
-        }
+        } while ContinuousClock.now < deadline
+        return try await window.screenshotImage(includeChild: { _ in false })
     }
 
     @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
@@ -150,7 +161,8 @@ import WebKit
         let raw = Pixels(try await rawCapture(fixture))
         #expect(Self.isRed(raw.at(CGPoint(x: page.midX, y: page.midY), size: size)), "the raw capture shows the page: there is something to mask")
 
-        let (image, masked) = try await AppWindowImage.maskedCapture(fixture.window)
+        let (image, masked, areas) = try await AppWindowImage.maskedCapture(fixture.window)
+        #expect(areas.map(\.name).contains("browser"), "the capture names what it masked")
         let shot = Pixels(image)
         #expect(masked >= 1)
         #expect(shot.width == raw.width && shot.height == raw.height)
@@ -224,7 +236,10 @@ import WebKit
         #expect(stripRect.width > 0 && stripRect.height > 0)
         #expect(launchRect.width > 0 && launchRect.height > 0)
         await ScreenshotMask.waitToSettle()
-        let raw = try await window.screenshotImage(includeChild: { _ in false })
+        let raw = try await Self.settledCapture(window) {
+            Self.isRed(Pixels($0).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size))
+                && Self.isRed(Pixels($0).at(CGPoint(x: launchRect.midX, y: launchRect.midY), size: window.frame.size))
+        }
         #expect(Self.isRed(Pixels(raw).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size)),
                 "the unmasked strip actually renders the sentinel over its secret title")
         #expect(Self.isRed(Pixels(raw).at(CGPoint(x: launchRect.midX, y: launchRect.midY), size: window.frame.size)),
@@ -383,6 +398,42 @@ import WebKit
         #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled)
     }
 
+    /// A theme change blends colors on the render server (`ColorTransition`, `GlassTintBlend`): the
+    /// window, the pane and the page's chrome run color and opacity animations while every pixel stays
+    /// inside its view's frame, so the capture still masks the right place and goes ahead. Only an
+    /// animation that moves or resizes pixels (position, bounds, transform) refuses it. Before this, every
+    /// shot during a theme blend refused ("The window kept animating or resizing"), so the
+    /// theme-live-reload probe could time no save on a runner without Screen Recording (hq run 43693832138).
+    @Test func aColorBlendLeavesTheMaskSettledAndAMoveDoesNot() throws {
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let content = try #require(fixture.window.contentView?.layer)
+        fixture.chrome.wantsLayer = true
+        let chrome = try #require(fixture.chrome.layer)
+        let page = try #require(fixture.chrome.pageArea.layer)
+        let colors = [Self.red, Self.green]
+        content.add(Motion.sampledKeyframes("backgroundColor", values: colors, duration: 60), forKey: "test.blend")
+        chrome.add(Motion.sampledKeyframes("borderColor", values: colors, duration: 60), forKey: "test.blend")
+        page.add(Motion.sampledKeyframes("opacity", values: [1.0, 0.5], duration: 60), forKey: "test.fade")
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a color or opacity blend moves no pixel")
+
+        let moves = page.frame.origin
+        content.add(Motion.sampledKeyframes("position.x", values: [moves.x, moves.x + 40], duration: 60), forKey: "test.move")
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a holding view that moves moves the page")
+        content.removeAnimation(forKey: "test.move")
+        page.add(Motion.sampledKeyframes("bounds.size.width", values: [10.0, 200.0], duration: 60), forKey: "test.resize")
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a page that resizes")
+        page.removeAnimation(forKey: "test.resize")
+        let transition = CATransition()
+        transition.type = .push
+        transition.duration = 60
+        // Core Animation files every transition under kCATransition, whatever key it is added with.
+        page.add(transition, forKey: kCATransition)
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a push transition slides the page")
+        page.removeAnimation(forKey: kCATransition)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).isSettled)
+    }
+
     /// A mask covers whole pixels and one more on each side at a fractional scale, so no pixel
     /// of what it covers blends into its edge.
     @Test func aMaskCoversWholePixelsAtAFractionalScale() throws {
@@ -411,19 +462,19 @@ import WebKit
     @Test func onlyAPersonsRunInTheAppIsRaw() {
         var claimed = ActionInvocation(origin: .user)
         claimed.viaControlSocket = true
-        #expect(!ScreenshotHandlers.isPersonsRun(claimed))
-        #expect(ScreenshotHandlers.isPersonsRun(ActionInvocation()))
+        #expect(!claimed.isPersonsOwnRun)
+        #expect(ActionInvocation().isPersonsOwnRun)
         for origin in ActionOrigin.allCases where origin != .user {
-            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)), "\(origin)")
+            #expect(!ActionInvocation(origin: origin).isPersonsOwnRun, "\(origin)")
         }
         var app = ActionInvocation(origin: .user)
         app.callerApp = "com.example.sidebar-app"
-        #expect(!ScreenshotHandlers.isPersonsRun(app))
+        #expect(!app.isPersonsOwnRun)
         var chat = ActionInvocation(origin: .user)
         chat.callerAgentSession = "agent-1"
-        #expect(!ScreenshotHandlers.isPersonsRun(chat))
+        #expect(!chat.isPersonsOwnRun)
         var terminal = ActionInvocation(origin: .user)
         terminal.callerTerminal = "term_1"
-        #expect(!ScreenshotHandlers.isPersonsRun(terminal))
+        #expect(!terminal.isPersonsOwnRun)
     }
 }

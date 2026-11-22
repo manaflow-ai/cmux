@@ -1,6 +1,9 @@
 // Page strings come from xcstrings tables (scripts/pages/gen-strings.mjs writes
 // `<page>/generated/strings.json`); no string lives only in TypeScript. The page picks the app's
-// language from `navigator.languages`, which WebKit sets from the app's preferred localizations.
+// language from `appLanguages()` (appLanguage.ts): the Language setting's, else
+// `navigator.languages`, which WebKit sets from the app's preferred localizations.
+import { intl } from "../../ui/intl";
+import { appLanguages } from "./appLanguage";
 
 export type StringTable = Record<string, Record<string, string>>;
 
@@ -34,37 +37,44 @@ export function resolveLanguage(tags: readonly string[], available: readonly str
 export interface Strings {
   readonly language: string;
   t(key: string): string;
-  /** `t(key)` with printf-style object placeholders (`%@`, `%1$@`) replaced by `args`. */
+  /** `t(key)` with printf-style object placeholders (`%@`, `%1$@`) replaced by `args`. A plural
+   * string (`key#<category>` in the table, gen-strings.mjs) takes the form the language's plural
+   * rules pick for the first argument, its count. */
   format(key: string, ...args: string[]): string;
 }
 
-/** Replaces `%@` (in order) and `%N$@` (by position) with `args`; `%%` is a percent sign. */
+/** Replaces `%@` and the integer specifiers `%d`, `%ld`, `%lld` (in order; `%N$@`, `%N$lld` by
+ * position) with `args`; `%%` is a percent sign. A plural catalog string must use an integer
+ * specifier, which Xcode's catalog compiler requires of a plural variation. */
 export function formatString(text: string, args: readonly string[]): string {
   let next = 0;
-  return text.replace(/%(?:(\d+)\$)?@|%%/g, (match, position: string | undefined) => {
+  return text.replace(/%(?:(\d+)\$)?(?:@|l{0,2}d)|%%/g, (match, position: string | undefined) => {
     if (match === "%%") return "%";
     const index = position ? Number(position) - 1 : next++;
     return args[index] ?? "";
   });
 }
 
-export function createStrings(table: StringTable, tags: readonly string[] = navigatorLanguages()): Strings {
+export function createStrings(table: StringTable, tags: readonly string[] = appLanguages()): Strings {
   const language = resolveLanguage(tags, Object.keys(table));
   followDocumentLanguage(Object.keys(table));
   setDocumentLanguage(language);
   const local = table[language] ?? {};
   const english = table.en ?? {};
   const t = (key: string) => local[key] ?? english[key] ?? key;
+  const rules = intl.PluralRules(language);
+  // A plural string's text for the count, else the locale's plain text for the key (a catalog that
+  // gave this language no plural forms), else English.
+  const form = (key: string, args: readonly string[]) => {
+    if (!(`${key}#other` in english)) return t(key);
+    const plural = `${key}#${rules.select(Number(args[0] ?? 0))}`;
+    return local[plural] ?? local[key] ?? english[plural] ?? english[`${key}#other`] ?? key;
+  };
   return {
     language,
     t,
-    format: (key, ...args) => formatString(t(key), args),
+    format: (key, ...args) => formatString(form(key, args), args),
   };
-}
-
-function navigatorLanguages(): readonly string[] {
-  const nav = globalThis.document?.defaultView?.navigator ?? globalThis.navigator;
-  return nav?.languages?.length ? nav.languages : [nav?.language ?? "en"];
 }
 
 // A document owns one languagechange listener, shared by every string table on the page.
@@ -84,6 +94,6 @@ function followDocumentLanguage(available: readonly string[]): void {
   const state = { available };
   documentLanguages.set(doc, state);
   doc.defaultView?.addEventListener("languagechange", () => {
-    setDocumentLanguage(resolveLanguage(navigatorLanguages(), state.available));
+    setDocumentLanguage(resolveLanguage(appLanguages(), state.available));
   });
 }

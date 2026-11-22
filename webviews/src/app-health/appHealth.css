@@ -1,0 +1,74 @@
+/* App health (AppHealth.tsx; design/app-health.md). Quiet: one small dot in the tone's color and a
+   line in the body type; the danger and attention roles are the only color. No transition, no
+   animation, no pulse: the indicator appears and leaves in one frame, in a slot whose height is the
+   line's, so nothing beside it moves. Every size reads the design and type scales. */
+.ah-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-faint);
+}
+.ah-dot[data-tone="danger"] {
+  background: var(--ds-color-danger);
+}
+.ah-dot[data-tone="attention"] {
+  background: var(--ds-color-attention);
+}
+
+/* The indicator. */
+.ah-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  height: var(--text-body--line-height);
+  color: var(--ds-color-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.ah-indicator-open {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  flex: 1;
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.ah-indicator-open:hover {
+  background: var(--ds-color-hover);
+  color: var(--ds-color-fg);
+}
+.ah-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* B: the titlebar's dot alone, in an icon button's square. */
+.ah-indicator[data-treatment="titlebar"] {
+  justify-content: center;
+}
+
+/* C: an inline pill with the worst part's Repair. */
+.ah-indicator[data-treatment="pill"] {
+  height: auto;
+  width: max-content;
+  max-width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--ds-color-hover);
+}
+.ah-indicator[data-treatment="pill"] .ah-indicator-open:hover {
+  background: none;
+}

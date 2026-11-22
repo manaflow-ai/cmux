@@ -57,7 +57,7 @@ BUDGET_CURL_LOG="$TMP_DIR/budget-curl.log"
 BUDGET_CLOCK_FILE="$TMP_DIR/budget-clock"
 MINISIGN_BIN_DIR="$TMP_DIR/minisign-bin"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$MINISIGN_BIN_DIR"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/std" "$BIN_DIR" "$MINISIGN_BIN_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -79,8 +79,8 @@ case "\${1:-}" in
 esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
-printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
-printf 'large fixture payload\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
+printf 'std fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std/std.zig"
+printf 'large fixture payload\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/payload"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 
 if command -v shasum >/dev/null 2>&1; then

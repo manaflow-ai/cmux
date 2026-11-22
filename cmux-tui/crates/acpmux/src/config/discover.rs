@@ -37,7 +37,28 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     add_coderouter_route(&mut found, route, &which);
     add_cmux_router(&mut found, &which);
     add_uniichat(&mut found, self_argv());
+    add_chief(&mut found, self_exe(), &|path| path.is_file());
     found
+}
+
+/// Whether PATH discovery adds a harness `head` names (a profile or a family) once its program is
+/// installed: `claude`, `codex`, `gemini`, `cmux`... A new session's start reads PATH again only
+/// for such a name (`hub/rediscover.rs`); any other name (a typo) keeps its refusal at once.
+pub fn discoverable(head: &str) -> bool {
+    static NAMES: std::sync::OnceLock<std::collections::BTreeSet<String>> =
+        std::sync::OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            // Every program found: what discovery adds on a host that has them all.
+            let every = |bin: &str| Some(format!("/{bin}"));
+            let mut found = discover_harnesses_from(None, &every);
+            add_coderouter_route(&mut found, Some("route"), &every);
+            add_cmux_router_with(&mut found, &every, None);
+            let families: Vec<String> =
+                found.iter().map(|(name, p)| super::derive_family(name, p)).collect();
+            families.into_iter().chain(found.into_keys()).collect()
+        })
+        .contains(head)
 }
 
 /// The Muse Code ACP adapter's program (cmux-muse-acp).
@@ -87,12 +108,70 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
     );
 }
 
+/// The profile name of the built-in Chief harness.
+pub const CHIEF_PROFILE: &str = "chief";
+
+/// The Chief harness's family: the Chief's own brains refuse it (optchat-chief
+/// `harness_gate`), since a Chief turn on it would message that Chief as the person.
+pub const CHIEF_FAMILY: &str = "chief";
+
+/// This process's executable, and whether it runs acpmux as `cmux-tui acp …`
+/// (a prefix before acpmux's words).
+fn self_exe() -> Option<(std::path::PathBuf, bool)> {
+    let this = crate::self_command::SelfCommand::current().ok()?;
+    Some((this.exe, !this.prefix.is_empty()))
+}
+
+/// Adds `chief`: the person's Chief as an agent chat, through `cmux-tui chief acp`
+/// (the ACP adapter over the Chief conversation Home shows). The CLI is the
+/// multicall binary acpmux is part of: this binary itself when it runs as
+/// `cmux-tui acp …`, else the `cmux-tui` beside it (the app bundle links both
+/// names to one binary). Never a `cmux` found on PATH, which can be another
+/// app's CLI; a standalone acpmux with no `cmux-tui` beside it offers no Chief.
+/// A profile file named `chief` wins.
+pub fn add_chief(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    exe: Option<(std::path::PathBuf, bool)>,
+    is_file: &dyn Fn(&std::path::Path) -> bool,
+) {
+    if found.contains_key(CHIEF_PROFILE) {
+        return;
+    }
+    let Some((exe, in_cmux_tui)) = exe else { return };
+    let cli = if in_cmux_tui {
+        exe
+    } else {
+        let Some(beside) = exe.parent().map(|dir| dir.join("cmux-tui")) else { return };
+        if !is_file(&beside) {
+            return;
+        }
+        beside
+    };
+    found.insert(
+        CHIEF_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![cli.to_string_lossy().into_owned(), "chief".into(), "acp".into()],
+            env: BTreeMap::new(),
+            description: Some("Your Chief: the same chat as Home".into()),
+            fallback: None,
+            family: Some(CHIEF_FAMILY.into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+}
+
 /// The profile name of the cmux model router harness.
 pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
 /// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
-/// `(id, name)`, the DeepSeek models only (user, 2026-10-28). The first is the profile
+/// `(id, name)`: the DeepSeek models (user, 2026-10-28) and Gemini 4 Neon on our own Vertex AI
+/// (user, 2026-11-19). This list is the offline fallback; the live list is the model catalog's
+/// `cmux` harness (cloud-api `/v1/models/catalog`). The first is the profile
 /// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
 /// The cmux setting `agents.modelRouter.model` picks another start model from this list
 /// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
@@ -102,6 +181,7 @@ pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
     ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
     ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
     ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("google/gemini-4-neon", "Gemini 4 Neon"),
 ];
 
 /// The cmux setting that picks the cmux router profile's start model.
@@ -273,6 +353,18 @@ pub fn discover_harnesses_from(
         // Cursor's CLI speaks ACP itself: `cursor-agent acp` (newer installs
         // name the launcher `agent`; see cursor_agent_launcher below).
         ("cursor", "cursor-agent"),
+        // Hermes Agent (NousResearch/hermes-agent) speaks ACP itself:
+        // `hermes acp`. Its provider and model come from ~/.hermes
+        // (`hermes model`).
+        ("hermes", "hermes"),
+        // OpenClaw (openclaw/openclaw): `openclaw acp`, a bridge to its own Gateway. Its bridge
+        // refuses per-session MCP servers (`agent_tools::NO_SESSION_MCP_FAMILIES`); a Chief turn
+        // reaches it through the Chief's own OpenClaw home (optchat-chief `brain_home.rs`).
+        ("openclaw", "openclaw"),
+        // Google Antigravity's CLI speaks ACP itself since 1.5: `agy acp`
+        // (antigravity.google/docs/ide/extensions/acp). Without `agy`, the
+        // ACP Registry's `agy_acp_server.par` still takes `antigravity`.
+        ("antigravity", "agy"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -295,7 +387,9 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" | "agy" | "openclaw" => {
+                    (HarnessKind::Acp, vec![path, "acp".into()])
+                }
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -313,7 +407,7 @@ pub fn discover_harnesses_from(
                         "found on PATH".into()
                     }),
                     fallback: None,
-                    family: if matches!(bin, "dsh" | "opencode2") {
+                    family: if matches!(bin, "dsh" | "opencode2" | "openclaw") {
                         Some(name.into())
                     } else {
                         None
@@ -399,7 +493,11 @@ pub fn discover_harnesses_from(
     // PATH no npx adapter package is offered: it reads the account through
     // codex's `account/read`, which a ChatGPT login behind a routing proxy
     // (subrouter) fails, so its chats never started; the bridge does not.
-    if !codex_imported && let Some(codex) = which("codex") {
+    if !codex_imported
+        && let Some(codex) = which("codex").or_else(|| {
+            crate::managed_codex::configured_path().map(|p| p.to_string_lossy().into_owned())
+        })
+    {
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
         }
@@ -463,6 +561,93 @@ mod uniichat_tests {
         let mut found = BTreeMap::from([(UNIICHAT_PROFILE.to_owned(), mine.clone())]);
         add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
         assert_eq!(found[UNIICHAT_PROFILE], mine);
+    }
+}
+
+#[cfg(test)]
+mod chief_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn bundle(path: &Path) -> bool {
+        path == Path::new("/App/bin/cmux-tui")
+    }
+
+    #[test]
+    fn chief_is_built_in_through_the_cmux_cli_beside_the_bundled_acpmux() {
+        // The app bundle: `acpmux` and `cmux-tui` are links to one multicall binary.
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let chief = &found[CHIEF_PROFILE];
+        assert_eq!(chief.argv, vec!["/App/bin/cmux-tui", "chief", "acp"]);
+        assert_eq!(chief.kind, HarnessKind::Acp);
+        assert_eq!(chief.family.as_deref(), Some(CHIEF_FAMILY));
+        // `cmux-tui acp …`: the binary itself runs `chief acp`.
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/opt/cmux-tui"), true)), &|_| false);
+        assert_eq!(found[CHIEF_PROFILE].argv, vec!["/opt/cmux-tui", "chief", "acp"]);
+    }
+
+    #[test]
+    fn a_standalone_acpmux_without_the_cmux_cli_offers_no_chief_and_a_profile_file_wins() {
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/usr/local/bin/acpmux"), false)), &|_| false);
+        assert!(!found.contains_key(CHIEF_PROFILE), "never a `cmux` from PATH: {found:?}");
+        let mine = HarnessProfile {
+            argv: vec!["/mine".into()],
+            kind: HarnessKind::Acp,
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut found = BTreeMap::from([(CHIEF_PROFILE.to_owned(), mine.clone())]);
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        assert_eq!(found[CHIEF_PROFILE], mine);
+    }
+
+    #[test]
+    fn the_chief_is_never_the_automatic_default_harness() {
+        // `chief` sorts before `claude`: with no configured default, every new chat on a Mac
+        // would start on the person's Chief (seen in the fleet capture, 2026-10-30).
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let mut claude = found[CHIEF_PROFILE].clone();
+        claude.argv = vec!["claude".into()];
+        claude.family = Some("claude".into());
+        found.insert("claude".into(), claude);
+        let mut cfg = crate::config::Config::default();
+        cfg.join_discovered(found.clone());
+        cfg.pick_auto_default_for_tests();
+        assert_eq!(cfg.default_harness.as_deref(), Some("claude"));
+        // With the Chief alone there is no automatic default at all.
+        let mut alone = crate::config::Config::default();
+        found.remove("claude");
+        alone.join_discovered(found);
+        alone.pick_auto_default_for_tests();
+        assert_eq!(alone.default_harness, None);
+    }
+
+    #[test]
+    fn the_chief_harness_draws_the_ch_monogram_not_a_picture() {
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let profile = &found[CHIEF_PROFILE];
+        let spec = crate::config::harness_icon::resolve(
+            CHIEF_PROFILE,
+            Some("Chief"),
+            profile,
+            CHIEF_FAMILY,
+            None,
+        );
+        let crate::config::harness_icon::IconSpec::Monogram { text, .. } = spec else {
+            panic!("{spec:?}")
+        };
+        assert_eq!(text, "CH");
     }
 }
 
@@ -542,5 +727,78 @@ mod muse_tests {
         let acpx = r#"{"agents": {"muse": {"argv": ["/Users/me/bin/my-muse"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &on_path(&["muse", "muse-acp"]));
         assert_eq!(found["muse"].argv, ["/Users/me/bin/my-muse"]);
+    }
+}
+
+#[cfg(test)]
+mod hermes_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Hermes Agent (NousResearch/hermes-agent) speaks ACP itself: `hermes
+    /// acp`. On PATH it is an ACP harness of its own family, so the Chief's
+    /// engine picker, `chief engine set --harness hermes` and chats can run it.
+    #[test]
+    fn hermes_on_path_runs_hermes_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["hermes"]));
+        let hermes = found.get("hermes").expect("hermes on PATH is a harness");
+        assert_eq!(hermes.kind, HarnessKind::Acp);
+        assert_eq!(hermes.argv, ["/opt/bin/hermes", "acp"]);
+        assert_eq!(crate::config::derive_family("hermes", hermes), "hermes");
+    }
+
+    /// A `hermes` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn hermes_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"hermes": {"argv": ["/Users/me/bin/my-hermes", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["hermes"]));
+        assert_eq!(found["hermes"].argv, ["/Users/me/bin/my-hermes", "acp"]);
+    }
+}
+
+#[cfg(test)]
+mod antigravity_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Google Antigravity's `agy` CLI speaks ACP itself since 1.5 (`agy
+    /// acp`). On PATH it is the `antigravity` harness, so a NEXT chat can
+    /// start it without the ACP Registry's separate server.
+    #[test]
+    fn agy_on_path_runs_agy_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["agy"]));
+        let agy = found.get("antigravity").expect("agy on PATH is a harness");
+        assert_eq!(agy.kind, HarnessKind::Acp);
+        assert_eq!(agy.argv, ["/opt/bin/agy", "acp"]);
+        assert_eq!(crate::config::derive_family("antigravity", agy), "antigravity");
+    }
+
+    /// An `antigravity` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn antigravity_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"antigravity": {"argv": ["/Users/me/bin/my-agy", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["agy"]));
+        assert_eq!(found["antigravity"].argv, ["/Users/me/bin/my-agy", "acp"]);
+    }
+}
+
+#[cfg(test)]
+mod discoverable_tests {
+    use super::*;
+
+    #[test]
+    fn names_discovery_adds_are_discoverable_and_others_are_not() {
+        for name in ["claude", "codex", "gemini", "opencode", "cmux", "claude-sr", "claude-cr"] {
+            assert!(discoverable(name), "{name}");
+        }
+        for name in ["claud", "chief", "unii", "my-profile", ""] {
+            assert!(!discoverable(name), "{name}");
+        }
     }
 }

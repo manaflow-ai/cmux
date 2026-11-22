@@ -11,6 +11,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "compile-app-host-test-product.sh"
@@ -37,7 +44,7 @@ def fingerprint(workspace: str, derived_data: str, *, xcode: str = "Xcode 26.3",
     (stub_dir / "xcodebuild").chmod(0o755)
     cwd = base / workspace.lstrip("/")
     cwd.mkdir(parents=True, exist_ok=True)
-    env = {"PATH": f"{stub_dir}:/usr/bin:/bin"}
+    env = git_fixture_env.fixture_env({"PATH": f"{stub_dir}:/usr/bin:/bin"})
     if root is not None:
         env["CMUX_CI_CANONICAL_ROOT"] = str(base / root.lstrip("/"))
     result = subprocess.run(
@@ -121,9 +128,9 @@ class CanonicalFingerprintTests(unittest.TestCase):
             for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
                 result = subprocess.run(
                     [str(ROOT_SCRIPT), "--print-root"],
-                    env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
+                    env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
                          "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
-                         "CMUX_CI_FLEET_DIR": fleet_dir},
+                         "CMUX_CI_FLEET_DIR": fleet_dir}),
                     text=True,
                     capture_output=True,
                     check=True,
@@ -140,10 +147,10 @@ class CanonicalFingerprintTests(unittest.TestCase):
         # every build start cold and every seed unadoptable (job 111334766861).
         result = subprocess.run(
             [str(ROOT_SCRIPT), "--print-root"],
-            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
                  "RUNNER_NAME": "blacksmith-12vcpu-macos-26-abc123",
                  "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
-                 "CMUX_CI_FLEET_DIR": "/nonexistent/cmux-build-fleet"},
+                 "CMUX_CI_FLEET_DIR": "/nonexistent/cmux-build-fleet"}),
             text=True,
             capture_output=True,
             check=True,
@@ -160,8 +167,8 @@ class CanonicalFingerprintTests(unittest.TestCase):
             helper = Path(tmp) / "glaeda-canonical-root"
             helper.write_text("#!/bin/sh\nexit 0\n")
             helper.chmod(0o755)
-            base_env = {"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
-                        "RUNNER_NAME": "cmux13s-mac-mini-glaeda", "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper)}
+            base_env = git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                        "RUNNER_NAME": "cmux13s-mac-mini-glaeda", "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper)})
             for exported, expected in (
                 (None, "/private/tmp/cmux-ci"),
                 ("/private/tmp/cmux-ci", "/private/tmp/cmux-ci"),
@@ -178,7 +185,7 @@ class CanonicalFingerprintTests(unittest.TestCase):
     def test_hosted_runner_keeps_the_shared_default_and_override_wins(self):
         hosted = subprocess.run(
             [str(ROOT_SCRIPT), "--print-root"],
-            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "github", "RUNNER_NAME": "GitHub Actions 42"},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "github", "RUNNER_NAME": "GitHub Actions 42"}),
             text=True,
             capture_output=True,
             check=True,
@@ -186,7 +193,7 @@ class CanonicalFingerprintTests(unittest.TestCase):
         self.assertEqual(hosted.stdout.strip(), "/private/tmp/cmux-ci")
         override = subprocess.run(
             [str(ROOT_SCRIPT), "--print-root"],
-            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": "aws-m4pro-9-glaeda-1", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/custom"},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": "aws-m4pro-9-glaeda-1", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/custom"}),
             text=True,
             capture_output=True,
             check=True,
@@ -210,7 +217,7 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
     def run_script(self, workspace=None, root=None, extra_env=None):
         return subprocess.run(
             [str(ROOT / "scripts" / "ci" / "canonical-build-root.sh"), str(workspace or self.workspace)],
-            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(root or self.root), **(extra_env or {})},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(root or self.root), **(extra_env or {})}),
             text=True, capture_output=True,
         )
 
@@ -254,7 +261,7 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
     def test_runtime_source_alias_resolves_embedded_file_paths(self):
         result = subprocess.run(
             [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
-            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)}),
             text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -266,7 +273,7 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
         refused = subprocess.run(
             [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.root / "src")],
-            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)}),
             text=True, capture_output=True,
         )
         self.assertNotEqual(refused.returncode, 0)
@@ -276,8 +283,8 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         runtime_root = self.base / "stable-source"
         result = subprocess.run(
             [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
-            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root),
-                 "CMUX_CI_RUNTIME_SOURCE_ROOT": str(runtime_root)},
+            env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root),
+                 "CMUX_CI_RUNTIME_SOURCE_ROOT": str(runtime_root)}),
             text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -631,7 +638,7 @@ class BuildPhaseCallerPathTests(unittest.TestCase):
     HELPER = ROOT / "scripts" / "build-phase-caller-path.sh"
 
     def path_after(self, path: str, caller: str | None) -> str:
-        env = {"PATH": path}
+        env = git_fixture_env.fixture_env({"PATH": path})
         if caller is not None:
             env["CMUX_CALLER_PATH"] = caller
         return subprocess.run(

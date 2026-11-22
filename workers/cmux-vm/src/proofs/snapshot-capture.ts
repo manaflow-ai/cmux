@@ -16,7 +16,7 @@ export interface ForkSnapshotAccess<C, S> extends Proof<"ForkSnapshotAccess", [C
 const ForkAccess = defineProof("ForkSnapshotAccess");
 export type CaptureWriteScope<C, S> = KeyHasScope<C, "snapshot:write"> | ForkSnapshotAccess<C, S>;
 export const forkSnapshotAccess = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, key: string, _scope: KeyHasScope<C, "vm:write">) => Effect.gen(function* () {
-  const parent = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
+  const parent = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(unavailable));
   const p = parent?.progress, principal = caller.value;
   if (p?.phase !== "capturing" || p.snapshotId !== snapshot.value || p.captureKey !== (yield* scopedForkSnapshotKey(key))
     || principal.resourceAllowlist !== null || !carriesRequiredLabels(principal, p.receipt.labels)
@@ -33,14 +33,14 @@ export const snapshotCaptureEvidenceOf = <C, S>(proof: AuthorizedSnapshotCapture
   return record;
 };
 export const authorizedSnapshotCapture = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>) => Effect.gen(function* () {
-  const result = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "get", id: snapshot.value }).pipe(Effect.mapError(() => unavailable()));
+  const result = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "get", id: snapshot.value }).pipe(Effect.mapError(unavailable));
   if (result.state !== "record" || result.record.intent.id !== snapshot.value) return yield* Effect.fail(snapshotNotFound());
   const { record } = result, p = caller.value;
   const originalActor = actorRef(p.actor) === record.intent.createdBy;
   const selected = p.resourceAllowlist === null || p.resourceAllowlist.has(snapshot.value)
     || (originalActor && p.resourceAllowlist.has(record.intent.sourceVmId));
   if (!selected || !carriesRequiredLabels(p, record.intent.labels) || (p.actor.kind === "service" && !originalActor)) return yield* Effect.fail(snapshotNotFound());
-  const row = yield* (yield* SnapshotStore).inspect(p.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
+  const row = yield* (yield* SnapshotStore).inspect(p.tenantId, snapshot.value).pipe(Effect.mapError(unavailable));
   if (Option.isSome(row) && (!carriesRequiredLabels(p, row.value.labels) || row.value.createdBy !== record.intent.createdBy)) return yield* Effect.fail(snapshotNotFound());
   const proof: AuthorizedSnapshotCapture<C, S> = Object.freeze({ ...Authorized.prove(caller, snapshot) });
   evidence.set(proof, record);
@@ -55,7 +55,7 @@ export const snapshotFenceAllowed = (principal: Principal, fence: SnapshotKeyFen
 export const legacySnapshotCaptureStatus = <C>(caller: Named<C, Principal>, rawId: string) => Effect.gen(function* () {
   const id = parseSnapshotId(rawId);
   if (Option.isNone(id)) return yield* Effect.fail(unavailable());
-  const stored = yield* (yield* SnapshotStore).inspect(caller.value.tenantId, id.value).pipe(Effect.mapError(() => unavailable()));
+  const stored = yield* (yield* SnapshotStore).inspect(caller.value.tenantId, id.value).pipe(Effect.mapError(unavailable));
   if (Option.isNone(stored)) return yield* Effect.fail(snapshotNotFound());
   const row = stored.value, principal = caller.value, originalActor = actorRef(principal.actor) === row.createdBy;
   const selected = principal.resourceAllowlist === null || principal.resourceAllowlist.has(row.id)

@@ -5,3 +5,9 @@
  * clear through Stripe redelivery and the replay cron before paging.
  */
 export const STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX = "retryable: ";
+
+/**
+ * How long the inbox retries an event. Stripe only serves events through the
+ * API for 30 days; stop well before. Billing alerts watch the same window.
+ */
+export const STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;

@@ -121,8 +121,38 @@ test("a reopened goal uses its persisted state, then follows completion and clea
   expect(shownGoal()?.status).toBe("paused");
   daemon.push(event(3, goal("complete")));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(shownGoal()?.status).toBe("complete");
+  // Codex's legacy `complete` reaches the strip as the shared lifecycle's `done` (goal.ts).
+  expect(shownGoal()?.status).toBe("done");
   daemon.push(event(4, null));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shownGoal()).toBeUndefined();
+});
+
+// Claude Code's /loop, as acpmux sends it (cmux-tui acpmux claude_stdio/loops.rs): the same
+// `_meta.goal` field, with its kind and next run; stopping it clears the strip.
+test("a Claude Code loop reaches the goal strip with its next run, and its stop clears it", async () => {
+  const event = (seq: number, value: unknown) => ({
+    sessionId: CHAT,
+    seq,
+    at: START + seq * 1000,
+    dir: "in",
+    kind: "session_info_update",
+    msg: {
+      method: "session/update",
+      params: { sessionId: CHAT, update: { sessionUpdate: "session_info_update", _meta: { goal: value } } },
+    },
+  });
+  const daemon = fakeDaemon("high", [userEvent(1, "/loop check the deploy")]);
+  const { shownGoal } = await connect(daemon);
+  daemon.push(event(2, { kind: "loop", status: "active", objective: "check the deploy", nextRunAt: START + 270_000 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shownGoal()).toEqual({
+    kind: "loop",
+    status: "active",
+    objective: "check the deploy",
+    nextRunAt: START + 270_000,
+  });
+  daemon.push(event(3, null));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(shownGoal()).toBeUndefined();
 });

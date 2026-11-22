@@ -1,0 +1,127 @@
+{
+ "id": "spam-cmd-digit",
+ "priority": "P0",
+ "title": "Cmd-1..9 hammered: every press runs; held: nothing after the key-up",
+ "why": "Workspace switching by number under spam must neither drop presses nor run on.",
+ "source": "shortcut spam (handoff/input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md 1; Lawrence 2026-10-28)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-spam-digits",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "repeat": 2,
+   "gap": 0.5,
+   "mark": "made"
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "use",
+   "name": "first"
+  },
+  {
+   "do": "hammer_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "presses": 20,
+   "within": 1.0,
+   "as": "hammered"
+  },
+  {
+   "do": "expect",
+   "title": "20 presses of Cmd-2 in 1 s each ran",
+   "since": "hammered",
+   "timeout": 10,
+   "all": [
+    {
+     "spam_runs": {
+      "of": "hammered",
+      "ran": 20
+     }
+    }
+   ]
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hold"
+  },
+  {
+   "do": "hold_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "seconds": 2,
+   "as": "held"
+  },
+  {
+   "do": "expect",
+   "title": "nothing ran after Cmd-1 went up",
+   "since": "held",
+   "timeout": 5,
+   "settle": 1.5,
+   "all": [
+    {
+     "spam_unchanged": {
+      "since": "held_release"
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

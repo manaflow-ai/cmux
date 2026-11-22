@@ -131,6 +131,17 @@ pub enum Service {
     TerminalBytes,
     TcpTunnel,
     ComputerUse,
+    /// A byte stream to a Unix socket on the daemon's host. The client names
+    /// the socket with metadata `path`, which must equal one entry of the
+    /// allowlist the daemon was started with; a daemon with none refuses
+    /// every open. Only a session whose carrier grant marks the machine's
+    /// owner holds this service (the Cloud desktop, `/run/cmux-rd/desktop.sock`).
+    LocalSocket,
+    /// acpmux's JSON-RPC, one message per line, bridged by the daemon to
+    /// acpmux's carrier socket. Only a session whose carrier grant names
+    /// `acpmux` holds it; the daemon tells acpmux who the person is from that
+    /// grant, never from the stream.
+    Acpmux,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +177,9 @@ pub enum RemoteCapability {
     ComputerUseV1,
     /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
     TerminalViewerSizePriorityV1,
+    /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
+    /// key and writes them (`replace-machine-secrets`).
+    SecretsV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -397,6 +411,39 @@ pub enum WorkspaceRequest {
     CancelComputerUse {
         invocation: ComputerUseInvocationId,
     },
+    /// `secrets-v1`: replace `~/.config/cmux/machine-secrets.env` with exactly
+    /// these items (an empty list clears it). Purpose `secret`.
+    ReplaceMachineSecrets {
+        items: Vec<SealedSecret>,
+    },
+}
+
+/// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
+/// mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305). The
+/// `info` binds the machine id, the purpose, `name` and `nonce`; the AAD is
+/// `name`. The plaintext is the time it was sealed (Unix seconds, a
+/// big-endian u64) and then the value. Only the daemon holding the key can
+/// open it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedSecret {
+    pub name: String,
+    /// 32 lowercase hex digits, fresh per item: the daemon refuses one it has
+    /// already opened.
+    pub nonce: String,
+    /// The HPKE encapsulated key (32 bytes).
+    pub enc: ByteString,
+    /// The AEAD ciphertext with its tag.
+    pub ciphertext: ByteString,
+}
+
+impl std::fmt::Debug for SealedSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SealedSecret")
+            .field("name", &self.name)
+            .field("nonce", &self.nonce)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -531,6 +578,9 @@ pub enum WorkspaceResponse {
     ComputerUseCanceled {
         invocation: ComputerUseInvocationId,
         accepted: bool,
+    },
+    MachineSecretsReplaced {
+        count: u32,
     },
 }
 

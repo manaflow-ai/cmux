@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// cx-pd83 (nxdog89-v1): the browser import card ("Import bookmarks, history and passwords from
@@ -11,7 +12,7 @@ import Testing
 /// card floats on the window's overlay host, not in the browser's views, so it must leave the
 /// screen with its tab and come back when the tab shows again. Runs a real pane and a real WebKit
 /// browser tab in a window, as the app shows them.
-@MainActor @Suite(.serialized) struct BrowserImportCardTabSwitchTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserImportCardTabSwitchTests {
     /// A tab that draws nothing until it paints, as the New Tab page (an agent page) does.
     final class UnpaintedPage: NSView, PaneFirstPaintGated {
         private var painted = false
@@ -56,19 +57,22 @@ import Testing
         /// The card the browser offers now, as the import offer service shows it.
         func offer() -> NSView? {
             let offer = BrowserCookieImportOffer(icons: [], title: "Import bookmarks, history and passwords from Google Chrome",
-                                                 detail: "", importTitle: "Import…", notNowTitle: "Not Now")
+                                                 importTitle: "Import…", notNowTitle: "Not Now")
             chrome.showCookieImportOffer(offer) { _ in }
             pane.layoutSubtreeIfNeeded()
             return chrome.currentCookieImportCard
         }
 
-        /// Whether `card` is on screen: presented on this window's overlay host.
+        /// Whether `card` is on screen: presented on this window's overlay host, and not hidden there
+        /// in place while its tab is off screen.
         func shows(_ card: NSView?) -> Bool {
-            card?.window?.parent === window
+            guard let card else { return false }
+            return card.window?.parent === window && !card.isHiddenOrHasHiddenAncestor
         }
 
         func tearDown() {
             chrome.hideCookieImportOffer()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()
@@ -81,6 +85,7 @@ import Testing
         let card = try #require(tab.offer())
         #expect(tab.shows(card), "the card shows over its browser tab")
 
+        let clip = try #require(card.superview, "presented in its overlay clip")
         let other = NSView()
         tab.pane.show(other)
         tab.pane.layoutSubtreeIfNeeded()
@@ -89,6 +94,9 @@ import Testing
         tab.pane.show(tab.chrome)
         tab.pane.layoutSubtreeIfNeeded()
         #expect(tab.shows(card), "its tab shows again, and so does the card")
+        // Leo, 2026-11-08: "the import cookies from google chrome card flickers sometimes". A card
+        // presented again moves its page to a new view, which draws a blank frame at full opacity.
+        #expect(card.superview === clip, "it waited hidden in place: the same present, no blank frame")
     }
 
     /// Cmd-T: the New Tab page draws nothing until it paints, so the browser stays on screen

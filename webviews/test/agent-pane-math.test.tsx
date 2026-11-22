@@ -5,6 +5,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -41,12 +42,9 @@ const window = dom.window;
 const host = window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");
@@ -166,9 +164,10 @@ test("a selection copies its equations as their TeX", async () => {
   selection.addRange(range);
   expect(copySelection()).toBe("$\\pi r^2$ here.");
 
-  // Text with no math copies as the page would copy it.
+  // Text with no math is the reply's rich copy (selectionCopy.ts): its text, and clean HTML.
   range.selectNodeContents(paragraphs[1]!);
   selection.removeAllRanges();
   selection.addRange(range);
-  expect(copySelection()).toBeUndefined();
+  expect(copySelection()).toBe("Done.");
+  expect(copiedHtml).toBe("Done.");
 });

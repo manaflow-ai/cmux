@@ -28,7 +28,7 @@ Why this order:
   rules, because its paths are that machine's.
 
 An explicit folder (`--cwd`, a config command) always wins, and Ghostty's
-`window-`, `tab-` and `split-inherit-working-directory = false` still start at home.
+`window-`, `tab-` and `split-inherit-working-directory = false` still start in Ghostty's `working-directory`, else at home (docs/cmux-next/new-terminal-folder.md).
 
 ## Agent settings
 
@@ -45,7 +45,7 @@ New Chat action, as it does for a seeded prompt (`issueSeedTicket`); that is fol
 
 ## Where it lives
 
-- `Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkContextTrail.swift`: the list and the rule
+- `Packages/macOS/CmuxNext/Sources/CmuxNextFocus/WorkContextTrail.swift`: the list and the rule
   (tests: `WorkContextTrailTests`).
 - `AppServices+WorkContext.swift`: recording on focus settle, and the lookup of live tabs.
 - `NewTerminalStart.inherited(besides:in:services:)`: the folder for every new terminal path

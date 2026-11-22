@@ -1,0 +1,19 @@
+{
+  "title": "Signed-out Cloud actions (HQ #4884): the palette's Open Desktop row and a fixture Cloud machine's right-click menu while signed out. Base: greyed rows that say to run Sign In from the command palette; cmux#28786: enabled rows that sign in, then run.",
+  "launch_args": [],
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "A fixture Cloud machine header, Cloud reachable though this build has no backend (still signed out)", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"sidebar": true, "fill": true, "backend": true}}, "wait": 1.5, "record": true, "shot": false},
+    {"title": "Open the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1.5, "shot": false},
+    {"title": "Type d", "rpc": {"method": "debug.key", "params": {"key": "d", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type e", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type s", "rpc": {"method": "debug.key", "params": {"key": "s", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type k", "rpc": {"method": "debug.key", "params": {"key": "k", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type t", "rpc": {"method": "debug.key", "params": {"key": "t", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type o", "rpc": {"method": "debug.key", "params": {"key": "o", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type p", "rpc": {"method": "debug.key", "params": {"key": "p", "target": "palette"}}, "wait": 1.5, "shot": false},
+    {"title": "Palette: Open Desktop while signed out", "wait": 0.5},
+    {"title": "Close the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1, "shot": false},
+    {"title": "Cloud machine right-click menu while signed out (stays open for the still)", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"menu": true}}, "wait": 1.5}
+  ]
+}

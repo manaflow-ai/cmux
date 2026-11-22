@@ -98,12 +98,79 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
+#[cfg(unix)]
+fn lock_is_held(file: &std::fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+    // SAFETY: flock only probes this descriptor and the shared lock is released
+    // before returning.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    if rc == 0 {
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        false
+    } else {
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
+    }
+}
+
 /// Whether a live daemon holds the lock at `path`, read from the pid it wrote there, without
 /// taking the lock or creating the file: a listing asks this to tell a daemon in a restart's
 /// handover (wait for it) from none at all (start none, `running.rs`).
 #[cfg(unix)]
 pub(super) fn lock_has_live_holder(path: &Path) -> bool {
-    std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
+    std::fs::File::open(path).is_ok_and(|file| lock_is_held(&file))
+}
+
+/// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
+/// the lock or creating the file.
+#[cfg(unix)]
+pub(crate) fn live_holder_pid(path: &Path) -> Option<u32> {
+    let file = std::fs::File::open(path).ok()?;
+    let pid = holder_pid(&file)?;
+    lock_is_held(&file).then_some(pid)
+}
+
+/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
+/// its canonical folder).
+pub(super) fn same_path(left: &Path, right: &Path) -> bool {
+    fn canonical(path: &Path) -> Option<PathBuf> {
+        std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+    }
+    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
+}
+
+/// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the
+/// one in the socket's folder (an `ACPMUX_SOCKET` that names another home's socket). Only a lock's
+/// holder may remove the socket it serves (`server::bind_unix`): a daemon of another home, or a
+/// command, that found it slow to answer took it from under a live daemon. The flock itself says
+/// whether the lock is held (a probe never keeps it); the file says by whom and for which socket.
+#[cfg(unix)]
+pub(crate) fn socket_held_by_other(socket: &Path) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    let mut locks = vec![crate::config::home().join("daemon.lock")];
+    if let Some(folder) = socket.parent() {
+        let lock = folder.join("daemon.lock");
+        if !locks.contains(&lock) {
+            locks.push(lock);
+        }
+    }
+    locks.into_iter().find_map(|lock| {
+        let file = std::fs::File::open(&lock).ok()?;
+        let text = std::fs::read_to_string(&lock).ok()?;
+        let mut lines = text.lines();
+        let pid: u32 = lines.next()?.trim().parse().ok()?;
+        let served = Path::new(lines.next()?.trim());
+        if pid == std::process::id() || served != socket {
+            return None;
+        }
+        // SAFETY: flock on a descriptor this function owns, released before it returns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            return None;
+        }
+        Some(pid)
+    })
 }
 
 /// Windows: the lock covers the file, so its holder's pid cannot be read; ask the lock itself. A
@@ -176,42 +243,69 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
 /// blocking `flock` on a worker thread would outlive the timeout and hold
 /// up runtime teardown.
 #[cfg(unix)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    use std::os::unix::io::AsRawFd;
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+/// Wait for a lock with an optional cleanup budget. A caller waiting for a live
+/// daemon's handover uses [`wait_for_lock_release`], while shutdown cleanup may
+/// still choose a finite bound.
+#[cfg(unix)]
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return true;
+        match lock_released(&file) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(_) => return false,
         }
-        let kind = std::io::Error::last_os_error().kind();
-        if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
-            return false;
-        }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+/// One look at the daemon lock through `file`: whether no daemon holds it now (an interrupted
+/// look reads held, to look again). The look leaves no lock behind: it unlocks before it returns
+/// ([`cmux_file_lock::FileLock::held_elsewhere`]), so a child that another thread forks meanwhile
+/// keeps no daemon lock through its copy of the descriptor, and the next daemon starts.
+fn lock_released(file: &std::fs::File) -> std::io::Result<bool> {
+    match cmux_file_lock::FileLock::held_elsewhere(file, cmux_file_lock::Kind::Exclusive) {
+        Ok(held) => Ok(!held),
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 /// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+#[cfg(windows)]
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
-        match file.try_lock() {
-            Ok(()) => return true,
-            Err(std::fs::TryLockError::WouldBlock) => {}
-            Err(std::fs::TryLockError::Error(_)) => return false,
+        match lock_released(&file) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(_) => return false,
         }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -289,6 +383,10 @@ mod tests {
         for removal in ["rm ", "delete", "remove"] {
             assert!(!why.contains(removal), "{why}");
         }
+        assert!(
+            !lock_released(&crate::config::private_state_rw(&lock).unwrap()).unwrap(),
+            "a held daemon lock read released"
+        );
         // A pid the file still records from a daemon that is gone is not named.
         std::fs::write(&lock, format!("{}\n", i32::MAX)).unwrap();
         let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
@@ -296,5 +394,29 @@ mod tests {
         assert!(why.contains("acpmux daemon status"), "{why}");
         drop(held);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A look that finds the daemon lock free leaves no lock behind, also while the description it
+    /// looked through stays open: a child that another thread forked during the look keeps a copy
+    /// until it execs, and a lock the look took and only closed stays held through that copy. The
+    /// next daemon start (an update's handover waits here first) is then refused "another acpmux
+    /// daemon holds" with no daemon running (LOCK-AUDIT daemon/lock.rs:254).
+    #[test]
+    fn a_release_look_leaves_no_lock_while_its_description_stays_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-look-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+        // The look's description stays open, as a forked child's copy of it does.
+        let looked = crate::config::private_state_rw(&lock).unwrap();
+        let released = lock_released(&looked).unwrap();
+        let next = acquire_lock(&lock).map(drop).map_err(|e| e.to_string());
+        drop(looked);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(released, "a free daemon lock read held");
+        next.expect("a look at a free daemon lock left it held");
     }
 }

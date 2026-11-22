@@ -44,6 +44,24 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// Where the CLI with home `dir` dials its daemon, for a fixture that stands in for it: the
+/// CLI's own rule (`cmux_agent_pane_policy::environment::socket_path`), which moves a socket
+/// whose path would be 96 bytes or longer to `/tmp/acpmux-<uid>/`. Bound at `dir/acpmux.sock`
+/// instead, a fixture whose scratch path was long (a long test tag, a host's long `TMPDIR`) was
+/// never dialed: the CLI started a daemon of its own in `dir`, which knew no session.
+fn fixture_socket(dir: &Path) -> PathBuf {
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let socket = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(None, dir, uid));
+    if let Some(parent) = socket.parent().filter(|p| *p != dir) {
+        // The CLI trusts only a private alias folder (`config.rs` `socket_path_for`).
+        fs::create_dir_all(parent).unwrap();
+        fs::set_permissions(parent, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+        let _ = fs::remove_file(&socket);
+    }
+    socket
+}
+
 fn cli_command(dir: &Path, args: &[&str]) -> std::process::Command {
     let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(args).env("ACPMUX_HOME", dir).env("ACPMUX_LOGIN_ENV", "0").current_dir(dir.join("p"));
@@ -82,8 +100,12 @@ impl Drop for CustomDaemon {
 }
 
 fn start_custom_daemon(dir: &Path, extra: &[&str]) -> CustomDaemon {
+    start_custom_daemon_on(dir, "127.0.0.1:0", extra)
+}
+
+fn start_custom_daemon_on(dir: &Path, listen: &str, extra: &[&str]) -> CustomDaemon {
     let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
-        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+        .args(["daemon", "run", "--listen", listen, "--ready-fd", "1", "--log", "warn"])
         .args(extra)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
@@ -445,6 +467,31 @@ fn daemon_lock_holder_exits_with_systemd_prevented_status() {
     drop(_shutdown);
 }
 
+/// `--insecure-network-listen` opts one run in to a network address; config.json does not keep
+/// it. A restart would save the address and start a daemon that refuses it, leaving none: the
+/// restart refuses before stopping the daemon, and config.json is unchanged.
+#[test]
+fn cli_daemon_restart_refuses_a_network_listen_opted_in_only_for_this_run() {
+    let dir = scratch("cli-restart-network");
+    let _daemon = start_custom_daemon_on(&dir, "0.0.0.0:0", &["--insecure-network-listen"]);
+    let _shutdown = Shutdown(&dir);
+    let before: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout).unwrap();
+    let listen = before["listen"].as_str().expect("network listen").to_owned();
+    assert!(listen.starts_with("0.0.0.0:"), "{before}");
+
+    let saved = fs::read(dir.join("config.json")).unwrap();
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(!restarted.status.success(), "restart unexpectedly succeeded");
+    assert!(text(&restarted).contains("--insecure-network-listen"), "{}", text(&restarted));
+    assert_eq!(fs::read(dir.join("config.json")).unwrap(), saved);
+    let after: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
+            .expect("the daemon still runs");
+    assert_eq!(after["pid"], before["pid"]);
+    assert_eq!(after["listen"], listen);
+}
+
 #[test]
 fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
     let dir = scratch("cli-listener");
@@ -476,7 +523,7 @@ fn a_thought_after_the_reply_does_not_print_the_reply_twice() {
 fn no_wait_lost_acceptance_keeps_the_generated_recovery_identity() {
     let dir = scratch("outbox-close");
     std::os::unix::fs::symlink(dir.join("outside"), dir.join("daemon.log")).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -623,7 +670,7 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
     };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let dir = scratch(&format!("deadline-{phase}-{mode}"));
-    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = tokio::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let cancels = Arc::new(AtomicUsize::new(0));
     let observed_cancels = cancels.clone();
     let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -800,7 +847,7 @@ async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, 
     };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let dir = scratch(&format!("wire-{phase}-{quiet}"));
-    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let listener = tokio::net::UnixListener::bind(fixture_socket(&dir)).unwrap();
     let prompts = Arc::new(AtomicUsize::new(0));
     let count = prompts.clone();
     let server = tokio::spawn(async move {

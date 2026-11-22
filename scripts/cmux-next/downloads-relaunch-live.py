@@ -21,6 +21,7 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -39,8 +40,13 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"downloads-relaunch-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+# The app's downloads folder (CMUX_NEXT_DOWNLOADS_DIR, Debug builds), never the account's ~/Downloads: macOS asks
+# for access to that one in a prompt that covers a fleet Mac's screen.
+DOWNLOADS = os.path.join(SCRATCH, "downloads")
+os.makedirs(DOWNLOADS)
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_NEXT_DOWNLOADS_DIR": DOWNLOADS}
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 failures = []
 RUN = os.urandom(4).hex()
@@ -196,7 +202,7 @@ try:
     end("quit")
     launch()
     after = downloads()
-    print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
+    safe_print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
     for name, before in kept.items():
         found = next((d for d in after if d.get("filename") == name), None)
         check(found is not None and found.get("status") == "finished"

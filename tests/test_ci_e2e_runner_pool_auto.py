@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 from pathlib import Path
+from unittest import mock
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -53,6 +57,55 @@ def test_an_auto_pick_with_an_owned_mac_free_names_it() -> None:
 def test_an_auto_pick_with_no_owned_mac_free_names_a_blacksmith_pool() -> None:
     code, label = auto_pick("")
     assert code == 0 and label and not label.startswith("glaeda-"), (code, label)
+
+
+AWS = "glaeda-aws-std-xcode-26.6"
+MINI = "glaeda-std-xcode-26.6"
+
+
+def frame_pacing_pick(labels: list[str], *, busy: tuple[str, ...] = (), fork: bool = False,
+                      gui_setting: str | None = None) -> str:
+    """Drive the workflow's actual gate environment through the real observer and picker."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-frame-pacing.yml").read_text())
+    gate = next(step for step in workflow["jobs"]["gate"]["steps"] if step.get("id") == "decide")
+    env = {key: str(value) for key, value in gate["env"].items() if "${{" not in str(value)}
+    env.update({"GH_REPO": "manaflow-ai/cmux", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "ROUTE_TOKEN": "fixture", "FORK_PULL_REQUEST": str(fork).lower()})
+    if gui_setting is not None:
+        env["CMUX_CI_GUI_REQUIRED"] = gui_setting
+    runners = [{"name": label, "status": "online", "busy": label in busy,
+                "labels": [{"name": label}]} for label in labels]
+    with mock.patch.object(simple_pool_picker.LiveState, "runners", return_value=runners), \
+         mock.patch.object(simple_pool_picker.LiveState, "snapshot", return_value={}), \
+         contextlib.redirect_stdout(io.StringIO()) as out:
+        code = e2e_runner_pool.main(
+            ["--requested", "auto", "--owned", "1", "--owned-slots", json.dumps(dict.fromkeys(labels, 1)),
+             "--pr-xcode-app", "/Applications/Xcode_26.6.app"], env=env)
+    assert code == 0
+    return out.getvalue().strip()
+
+
+def test_frame_pacing_skips_an_idle_headless_pool() -> None:
+    label = frame_pacing_pick([AWS])
+    assert not label.startswith("glaeda-"), label
+
+
+def test_frame_pacing_selects_available_gui_pool_beside_headless_pool() -> None:
+    assert frame_pacing_pick([AWS, MINI]) == MINI
+
+
+def test_frame_pacing_skips_when_gui_pool_is_busy_even_with_headless_capacity() -> None:
+    label = frame_pacing_pick([AWS, MINI], busy=(MINI,))
+    assert not label.startswith("glaeda-"), label
+
+
+def test_frame_pacing_fork_never_selects_owned_pool() -> None:
+    label = frame_pacing_pick([AWS, MINI], fork=True)
+    assert not label.startswith("glaeda-"), label
+
+
+def test_non_gui_work_can_still_select_headless_capacity() -> None:
+    assert frame_pacing_pick([AWS], gui_setting="false") == AWS
 
 
 if __name__ == "__main__":

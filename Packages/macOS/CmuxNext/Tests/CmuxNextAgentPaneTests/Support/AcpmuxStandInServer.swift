@@ -27,6 +27,7 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         var holding: Set<String> = []
         /// Results to answer instead of the default, by method (raw JSON).
         var results: [String: String] = [:]
+        var errors: [String: String] = [:]
         var held: [(String, Int)] = []
         var generation = 0
     }
@@ -153,8 +154,11 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         case "session/new": #"{"sessionId":"s-new"}"#
         default: "{}"
         }
-        let result = state.withLock { $0.results[method] } ?? standard
-        let reply = #"{"jsonrpc":"2.0","id":"# + rawID + #","result":"# + result + "}"
+        let body = state.withLock { state in
+            if let error = state.errors[method] { return #""error":"# + error }
+            return #""result":"# + (state.results[method] ?? standard)
+        }
+        let reply = #"{"jsonrpc":"2.0","id":"# + rawID + "," + body + "}"
         let hold = state.withLock { state -> Bool in
             guard state.holding.contains(method) else { return false }
             state.held.append((reply, index))
@@ -165,6 +169,9 @@ nonisolated final class AcpmuxStandInServer: Sendable {
 
     /// Answers every `method` request with `result` (raw JSON) from now on.
     func answer(_ method: String, with result: String) { state.withLock { $0.results[method] = result } }
+
+    /// Refuses every `method` request with `error` (raw JSON) from now on.
+    func refuse(_ method: String, with error: String) { state.withLock { $0.errors[method] = error } }
 
     /// Holds the replies to `method` until ``releaseHeld()`` (a harness that takes its time).
     func hold(_ method: String) { state.withLock { _ = $0.holding.insert(method) } }

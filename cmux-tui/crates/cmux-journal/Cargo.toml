@@ -1,0 +1,25 @@
+[package]
+name = "cmux-journal"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "One append-only journal per daemon: group commit, ack after durable, one recovery path (R-DURABILITY)"
+
+[lints]
+workspace = true
+
+[features]
+# The simulated crash file system (`SimStorage`), for crash tests of the crates that use the
+# journal. Never on in a daemon binary.
+sim = []
+
+[dependencies]
+crc32fast = "1.5"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

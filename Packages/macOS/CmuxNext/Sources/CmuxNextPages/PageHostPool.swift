@@ -48,6 +48,12 @@ public final class PageHostPool {
     public internal(set) var spans: [(name: String, milliseconds: Double)] = []
     public var onSpan: ((String, Double) -> Void)?
     public var onSpareReady: ((PageWebView) -> Void)?
+    /// Whether a projection window is open (``WebProjection``). The pool keeps no spare then: a spare holds
+    /// the shipped document, so a claim of the same page loads nothing the projection could send to its
+    /// server, and one parked in the projection window would reload from the worktree and later serve an
+    /// ordinary claim with that document. Claims name the active window, not the page's, so any projection
+    /// counts. The next claim after it closes builds a spare again.
+    var projectionIsOpen: () -> Bool = { WebProjection.shared.isActive }
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -89,15 +95,14 @@ public final class PageHostPool {
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
-        // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
-        latestClaimOptions = options
+        guard !projectionIsOpen() else { dropSpare(); return nil }
+        // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium). Its
+        // claim leaves the spare and its options alone: the spare still serves the WebKit page it was
+        // built for (Settings, ``PageWebKitReason/pooledInstantOpen``), and dropping it on every
+        // Chromium History or Cloud open made the next Settings open build its page cold.
         let decision = engineDecision(descriptor, options)
-        guard decision.engine == .webKit else {
-            // A Chromium claim cannot use the parked WebKit view. Cancel any queued/building
-            // WebKit warmup too; the next WebKit claim will arm it with its own options.
-            dropSpare()
-            return nil
-        }
+        guard decision.engine == .webKit else { return nil }
+        latestClaimOptions = options
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
@@ -129,7 +134,7 @@ public final class PageHostPool {
             host.close()
             return
         }
-        if !host.touched, spare == nil, let content = target?.contentView, canUseSpare {
+        if !host.touched, spare == nil, !projectionIsOpen(), let content = target?.contentView, canUseSpare {
             host.countsTouches = false
             park(host, in: content)
             spare = host

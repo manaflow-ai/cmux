@@ -89,6 +89,7 @@ async fn recovery_sample(wake: bool) -> Duration {
     let dir = tempfile::tempdir().unwrap();
     let config = HostConfig {
         base_url,
+        build_space: None,
         team_id: "team".into(),
         device_id: "mac".into(),
         device_name: "Test Mac".into(),
@@ -100,6 +101,7 @@ async fn recovery_sample(wake: bool) -> Duration {
         owner_user_id: Some("owner".into()),
         include_loopback: true,
         exclude_cgnat: true,
+        session_exposure: None,
         services: ServiceConfig {
             tui_socket_dir: dir.path().into(),
             default_session: "main".into(),

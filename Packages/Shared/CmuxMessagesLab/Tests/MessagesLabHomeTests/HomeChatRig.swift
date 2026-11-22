@@ -23,7 +23,7 @@ final class HomeChatRig {
     let me: ParticipantID
     let chief: ParticipantID
 
-    init(history: Int = 40, width: CGFloat = 700, height: CGFloat = 900) async throws {
+    init(history: Int = 40, width: CGFloat = 700, height: CGFloat = 900, replies: HomeReplyDisplay = .streaming) async throws {
         // The mock owner's own answer to a send comes after the test ends.
         source = MockHomeSource(options: MockHomeSource.Options(chiefHistory: history, latency: .zero, replyDelay: .seconds(3600)))
         store = HomeStore(source: source)
@@ -36,8 +36,9 @@ final class HomeChatRig {
         chief = await source.chief.id
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        // The order, property and stress tests check the stream bubbles (HomeReplyDisplay.streaming).
-        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
+        // The order, property and stress tests check the stream bubbles (HomeReplyDisplay.streaming);
+        // the token cost tests read the app's default (whole messages).
+        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: replies)
         view.frame = NSRect(x: 0, y: 0, width: width, height: height)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
@@ -112,10 +113,11 @@ final class HomeChatRig {
         return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
     }
 
-    /// The Chief posts `parts` under `key` in `threadRoot`'s thread and the store has its echo.
+    /// The Chief posts `parts` under `key` in `threadRoot`'s thread (answering `parent` there, a nested
+    /// reply, when given) and the store has its echo.
     @discardableResult
-    func post(_ parts: [MessagePart], key: IdempotencyKey, threadRoot: MessageID? = nil) async -> Bool {
-        guard await source.post(parts, from: chief, in: Self.conversation, key: key, threadRoot: threadRoot) != nil else { return false }
+    func post(_ parts: [MessagePart], key: IdempotencyKey, threadRoot: MessageID? = nil, parent: MessageID? = nil) async -> Bool {
+        guard await source.post(parts, from: chief, in: Self.conversation, key: key, threadRoot: threadRoot, parent: parent) != nil else { return false }
         await Self.until { [store] in store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil } }
         return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
     }

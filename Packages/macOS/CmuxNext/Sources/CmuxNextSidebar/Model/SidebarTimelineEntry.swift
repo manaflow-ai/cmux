@@ -24,12 +24,16 @@ public nonisolated struct SidebarTimelineEntry: Hashable, Sendable {
     public var text: String?
     /// The agent's display name ("Claude Code", "Codex"); nil when unknown.
     public var agent: String?
+    /// A turn acpmux's notice of other agents' messages started ("[inbox] New messages…"), not
+    /// the person: the card's stats count its work, its History lists it not.
+    public var isNotice: Bool
 
-    public init(kind: Kind, date: Date, text: String? = nil, agent: String? = nil) {
+    public init(kind: Kind, date: Date, text: String? = nil, agent: String? = nil, isNotice: Bool = false) {
         self.kind = kind
         self.date = date
         self.text = text
         self.agent = agent
+        self.isNotice = isNotice
     }
 }
 

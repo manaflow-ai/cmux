@@ -167,7 +167,6 @@ extension MessageCellLayout {
             senderNameFrame: senderNameFrame,
             quoteFrame: nil,
             quoteTextFrame: nil,
-            threadPath: nil,
             imageFrames: [],
             bubbleFrame: nil,
             textFrame: nil,
@@ -341,7 +340,7 @@ final class PollCardView: UIView {
             }
         }
         if animate {
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
+            UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
         } else {
             UIView.performWithoutAnimation(apply)
         }

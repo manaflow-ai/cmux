@@ -33,6 +33,14 @@ pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
     peer_process::executable(peer_key)
 }
 
+/// Linux: [`peer_executable`] with that executable opened: the binary the
+/// peer runs, which still reads once no path names it (its path then ends in
+/// ` (deleted)`). Nil when the key is malformed or stale.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_executable_file(peer_key: &str) -> Option<(PathBuf, File)> {
+    peer_process::executable_file(peer_key)
+}
+
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]
@@ -953,6 +961,11 @@ pub fn foreground_leader(pid: u32) -> Option<u32> {
     foreground_process_group(pid)
 }
 
+/// The executable of process `pid` (the name [`foreground_process_name`] gives its group leader).
+pub fn process_executable(pid: u32) -> Option<String> {
+    process_name(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
@@ -1018,7 +1031,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.
@@ -1394,7 +1407,7 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
 mod job_launch;
-pub use job_launch::{JobLaunch, foreground_job_launch};
+pub use job_launch::{JobLaunch, foreground_job_launch, process_launch};
 
 #[cfg(test)]
 mod tests;

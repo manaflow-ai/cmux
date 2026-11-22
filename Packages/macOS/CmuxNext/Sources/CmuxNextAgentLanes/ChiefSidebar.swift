@@ -11,8 +11,9 @@ public import Observation
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
 /// next to the workspaces, see whether it works or needs you, and see its subagents under it.
-/// Optional: not in the default layout; Add to Sidebar adds it. A click on the item runs Open
-/// Chief (`home.openChief`: the Chief's conversation in the Home workspace's chat pane); a click
+/// The Home item is the Chief too (the person, 2026-11-20: "replace home with chief"): it draws as this item and its
+/// subagents draw under it; this built-in stays for layouts that placed it. A click on either runs Open Chief
+/// (`home.openChief`: the Chief's chat at the full width, or with Chief in Side Panel on, the side panel); a click
 /// on a subagent row shows the tab of its chat, else opens it in a new workspace and shows it.
 /// The App only hands it what it reaches through its services (`Host`).
 @Observable @MainActor
@@ -37,23 +38,39 @@ public final class ChiefSidebar {
     }
 
     /// What the App reaches for the Chief: its conversation id (nil before it is listed), the
-    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, and a new
-    /// workspace on a session there.
+    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, a new
+    /// workspace on a session there, and whether another Chief home of this Mac keeps a session.
     public struct Host {
         public var conversation: () -> String?
         public var chiefHost: () -> String?
         public var tab: (_ session: String, _ host: String) -> String?
         public var reveal: (_ tab: String) -> Bool
         public var openWorkspace: (_ session: String, _ host: String) throws -> ActionWork
+        /// Opens `session` of `host` as a chat tab right of tab `beside` (the link rule's column: reused, else
+        /// made); false when nothing opened. Nil: a link clicked beside a tab opens as one with no tab does.
+        public var openRight: ((_ session: String, _ host: String, _ beside: String) -> Bool)?
+        /// Whether Chief home `host` of this Mac, not the app's own (a named Chief's), keeps
+        /// `session` in its acpmux (#28877); nil: no other home's link opens.
+        public var keeps: (@MainActor (_ session: String, _ host: String) async -> Bool)?
+        /// Chief in Side Panel (`home.chiefDock.sidePanel`): shows the active window's docked Chief and gives it the
+        /// keys, the workspace staying on the stage; false when it does not apply (off, or the window shows the Chief's
+        /// page), so Open Chief opens the Chief's chat there. Nil: always the Chief's page.
+        public var openSidePanel: (@MainActor () -> Bool)?
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
-                    openWorkspace: @escaping (String, String) throws -> ActionWork) {
+                    openWorkspace: @escaping (String, String) throws -> ActionWork,
+                    openRight: ((String, String, String) -> Bool)? = nil,
+                    keeps: (@MainActor (String, String) async -> Bool)? = nil,
+                    openSidePanel: (@MainActor () -> Bool)? = nil) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
             self.reveal = reveal
             self.openWorkspace = openWorkspace
+            self.openRight = openRight
+            self.keeps = keeps
+            self.openSidePanel = openSidePanel
         }
     }
 
@@ -68,6 +85,9 @@ public final class ChiefSidebar {
     /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems` reads the layout):
     /// the subagent fold applies only then, and the App Store's Chief in Sidebar card is on.
     public internal(set) var isPlaced = false
+    /// Whether the sidebar shows a row that is the Chief: the Chief item, or the Home item, which is the Chief (the
+    /// person, 2026-11-20). Its subagents draw under it and its menu has the subagent fold.
+    public internal(set) var showsThread = false
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var statusWatch: Task<Void, Never>?
@@ -75,9 +95,11 @@ public final class ChiefSidebar {
     @ObservationIgnored private var opening: Set<String> = []
 
     /// `lanes`: the Chief home's lanes (its turns and subagents), which its acpmux watch writes
-    /// (`ChatsFeed.startChiefTurnStates`).
-    public init(lanes: AgentLaneStore = .chief) {
+    /// (`ChatsFeed.startChiefTurnStates`). `host`: what the App reaches (tests pass a fake;
+    /// the app sets it in ``bind(into:host:)``).
+    public init(lanes: AgentLaneStore = .chief, host: Host? = nil) {
         self.lanes = lanes
+        self.host = host
     }
 
     /// The subagent rows now (they draw only under the Chief item). Read inside an observation
@@ -95,6 +117,23 @@ public final class ChiefSidebar {
     public func decorate(_ info: inout SidebarItemInfo) {
         (info.activity, info.badge) = (status.activity, status.badge)
     }
+
+    /// The Home item's look: it is the Chief (the person, 2026-11-20: "replace home with chief"; David Beyer: the
+    /// Chief is a thread like the others). The Chief's name and glyph, its `picture` (nil keeps the glyph), its status
+    /// and the subagents that need the person, and the blue unread dot of a workspace row while any of the person's
+    /// `homeUnread` chats is unread, never a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot").
+    public func decorateHome(_ info: inout SidebarItemInfo, homeUnread: Int, picture: SidebarFavicon?) {
+        // The Chief's look (sparkles, the Chief's picture) under the top row's own name, "Chief": the Chief Activity
+        // item keeps its own title (cmux#48416).
+        let chief = SidebarBuiltIn.chief.defaultInfo
+        (info.title, info.symbol, info.icon, info.favicon) = (SidebarBuiltIn.home.title, chief.symbol, chief.icon, picture)
+        info.unreadDot = homeUnread > 0
+        decorate(&info)
+    }
+
+    /// Whether a click on an item with `ref` opens the Chief's chat (``openAction``): the Home item, app or built-in,
+    /// which is the Chief, so it opens on the Chief even when another chat was open there last.
+    public static func opensChief(_ ref: LayoutItemRef) -> Bool { ref == SidebarLayoutDocument.homeRef || ref == .builtIn(.home) }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
     /// subagent fold on any item but the Chief, Archive on a band tile (`isTile`: Pinned, custom and app
@@ -114,7 +153,7 @@ public final class ChiefSidebar {
             guard let registry else { return }
             self?.openChief(registry, origin: invocation.origin)
         })
-        registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.isPlaced == true },
+        registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.showsThread == true },
                       invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
         registry.bind(Self.openSubagentAction, invoke: { [weak self, weak registry] invocation in
@@ -163,8 +202,10 @@ public final class ChiefSidebar {
         }
     }
 
-    /// The Chief's conversation, as Home's own list opens it; Home itself before it is listed.
+    /// The Chief's conversation, as Home's own list opens it; Home itself before it is listed. With Chief in Side
+    /// Panel on, the side panel beside the shown workspace instead (``Host/openSidePanel``).
     private func openChief(_ registry: ActionRegistry, origin: ActionOrigin) {
+        if host?.openSidePanel?() == true { return }
         guard let chief = host?.conversation() else {
             _ = registry.perform("home.show", invocation: .init(origin: origin))
             return
@@ -172,26 +213,72 @@ public final class ChiefSidebar {
         _ = registry.perform("home.openConversation", invocation: .init(arguments: ["conversation": .string(chief)], origin: origin))
     }
 
+    /// Opens a Chief subagent link (`cmux://chief/<home>/session/<session>`, the `aN` links in
+    /// Home's chat). Another Chief home of this Mac (a named Chief's, #28877) opens too, once
+    /// ``Host/keeps`` finds the session in its acpmux; one that does not keep it refuses. False
+    /// when `chiefHost` is no Chief home this app can check, or nothing could show the session.
+    ///
+    /// - Parameters:
+    ///   - session: The subagent's acpmux session id.
+    ///   - chiefHost: The link's Chief host, `chief:<home id>`.
+    ///   - registry: Where an open's work and refusal go.
+    ///   - besideTab: The tab the link was clicked in (Home's, a subagent pill or `aN` link): with no tab showing
+    ///     the session, its chat opens as a real tab on that tab's right (``Host/openRight``; user 2026-11-04,
+    ///     msg 21663: "just open it as pane to right side"), never a new workspace. Nil: as the sidebar row opens it.
+    ///   - reveal: How a tab that shows the session comes forward (the link's window intent);
+    ///     nil: ``Host/reveal``.
+    /// - Returns: Whether the link showed or is opening something.
+    public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry, besideTab: String? = nil,
+                                 reveal: ((String) -> Bool)? = nil) -> Bool {
+        guard let host, let appHost = host.chiefHost() else { return false }
+        if let shown = host.tab(session, chiefHost), (reveal ?? host.reveal)(shown) { return true }
+        if chiefHost == appHost, let besideTab, let openRight = host.openRight, openRight(session, chiefHost, besideTab) { return true }
+        // No tab shows it (its spawn made no workspace, as when this Mac was out of PTYs): open
+        // the workspace its spawn would have, a chat tab on its session (no PTY).
+        if chiefHost == appHost { return openSubagent(session, chiefHost: chiefHost, registry: registry) }
+        // Another home: only a session its acpmux keeps, so a link cannot open an arbitrary id.
+        guard let keeps = host.keeps else { return false }
+        guard opening.insert(session).inserted else { return true }
+        // task-owner: one disk check, then one open
+        Task { [weak self] in
+            let kept = await keeps(session, chiefHost)
+            guard let self else { return }
+            opening.remove(session)
+            guard kept else { return registry.refuse(ChiefToolStrings.noSubagent) }
+            openSubagent(session, chiefHost: chiefHost, registry: registry)
+        }
+        return true
+    }
+
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
-    /// workspace on it in the Chief home's acpmux, shown once it is made.
-    private func openSubagent(_ session: String, registry: ActionRegistry) {
-        guard let host, let chiefHost = host.chiefHost() else { return }
-        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
-        guard !opening.contains(session) else { return }
+    /// workspace on it in the Chief home's acpmux, shown once the app lists it (in this turn when
+    /// the app shows it before the daemon's creates).
+    /// False only when there is no Chief host (a refused open has already said why).
+    @discardableResult
+    private func openSubagent(_ session: String, chiefHost: String? = nil, registry: ActionRegistry) -> Bool {
+        guard let host, let chiefHost = chiefHost ?? host.chiefHost() else { return false }
+        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return true }
+        guard !opening.contains(session) else { return true }
         let work: ActionWork
         do {
             work = try host.openWorkspace(session, chiefHost)
         } catch {
-            return registry.refuse(String(describing: error))
+            // The refusal says why; the caller adds no second ("gone") one.
+            registry.refuse(String(describing: error))
+            return true
         }
         opening.insert(session)
         registry.track(work)
+        // The app shows the new workspace and its chat tab in this turn when it can (P4): that tab comes
+        // forward now, and the work's end brings nothing forward again.
+        let shownNow = host.tab(session, chiefHost).map(host.reveal) ?? false
         // task-owner: one open; ends with the workspace's work
         Task { [weak self] in
             defer { self?.opening.remove(session) }
-            guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
+            guard await work.value == nil, !shownNow, let tab = host.tab(session, chiefHost) else { return }
             _ = host.reveal(tab)
         }
+        return true
     }
 }
 

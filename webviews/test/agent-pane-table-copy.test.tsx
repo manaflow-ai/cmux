@@ -3,7 +3,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ArtifactContext } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { parseMarkdown, Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import {
   copyTable,
   tableClipboard,
@@ -124,6 +125,7 @@ test("the table draws with Copy, columns that fit their text and labeled rows", 
       <Markdown>{source}</Markdown>
     </ArtifactContext.Provider>,
   );
+  // Bare buttons on the corner, no glass pill (code-toolbar-buttons.test.ts).
   expect(html).toContain('class="cv-table-tools"');
   expect(html).toContain('aria-label="Copy table"');
   expect(html).toContain('class="cv-table cv-table--labeled"');

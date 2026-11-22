@@ -3,6 +3,12 @@
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
 set -euo pipefail
 [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
+# Held by the known-bad list (the step before): published nowhere, and no failure is counted.
+if [ "${KNOWN_BAD:-}" = true ]; then
+  echo "skip=true" >> "$GITHUB_OUTPUT"
+  echo "### Build $NIGHTLY_BUILD holds a known-bad commit without its fix; not published to the old feed" >> "$GITHUB_STEP_SUMMARY"
+  exit 0
+fi
 # The old feed may list a Dev build above its Nightly one, and a
 # Nightly build older than that Dev build is still published. Skipped:
 # a build the feed already lists, or one no newer than its newest

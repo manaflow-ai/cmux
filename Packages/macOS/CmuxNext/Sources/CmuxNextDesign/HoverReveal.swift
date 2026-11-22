@@ -342,6 +342,8 @@ private final class HoverRevealProbe: NSView {
     private let trackingOptions: NSTrackingArea.Options
     private let tracksPointer: Bool
     private var closeObserver: Task<Void, Never>?
+    /// The layout screen whose one tracking area tells this probe the pointer (``PanePointerRegion``); nil: its own area.
+    private weak var servingArea: (any PanePointerArea)?
 
     init(tracking: NSTrackingArea.Options, tracksPointer: Bool) {
         trackingOptions = tracking
@@ -366,6 +368,18 @@ private final class HoverRevealProbe: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         let own = trackingAreas.filter { $0.owner === self }
+        // In a pane the screen's one area serves it: no own area, which AppKit would move with the pane in every frame
+        // of a resize (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
+        let area = tracksPointer ? enclosingPanePointerArea : nil
+        if area !== servingArea {
+            servingArea?.removePointerRegion(self)
+            area?.addPointerRegion(self)
+            servingArea = area
+        }
+        if area != nil {
+            for own in own { removeTrackingArea(own) }
+            return
+        }
         // An unchanged rect keeps its area. Replacing it on every call (each layout pass of the
         // sidebar slide) dropped an exit that arrived between the removal and the new area, and the
         // new area, added with the pointer already outside, never reported it, so the reveal stayed
@@ -413,6 +427,7 @@ private final class HoverRevealProbe: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateTrackingAreas() // the screen that serves it, if any, follows its window
         guard let window else { return }
         if let owner {
             HoverRevealFocusRouter.join(owner, window: window)
@@ -430,5 +445,13 @@ private final class HoverRevealProbe: NSView {
         // reveals at once, before any click (no mouseEntered arrives for
         // it). A window that is not on screen cannot be under the pointer.
         readPointer()
+    }
+}
+
+/// In a pane the layout screen's one tracking area tells the probe where the pointer is, by its bounds.
+extension HoverRevealProbe: PanePointerRegion {
+    var panePointerRegion: (view: NSView, rect: CGRect)? { tracksPointer ? (self, bounds) : nil }
+    func panePointerInside(_ inside: Bool) {
+        if owner?.state.pointerInside != inside { owner?.setPointerInside(inside) }
     }
 }

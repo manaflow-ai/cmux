@@ -93,6 +93,7 @@ import {
   CMUX_TUI_HOOK_PROVIDERS,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
@@ -111,6 +112,14 @@ import {
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
+  devboxAgentDesktopInstallCommand,
+  devboxAgentDesktopSha256,
+  devboxAgentDesktopUrl,
+  devboxAgentDesktopVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -122,6 +131,9 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCommand,
+  devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
@@ -301,12 +313,16 @@ try {
   // Cloud terminal.
   await step("work-user", devboxWorkUserSetupCommand());
 
-  // The Dockerfile's devtools list, bubblewrap included: codex's Linux sandbox
-  // prerequisite, so codex uses the distro's bwrap instead of warning on every
-  // launch that it is falling back to its bundled copy.
+  // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config locales jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && locale-gen C.UTF-8 >/dev/null && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+  );
+
+  // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
+  await step(
+    "bubblewrap",
+    devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion()),
   );
 
   await step(
@@ -335,6 +351,15 @@ try {
   await step(
     "cua-driver",
     `curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=${cuaVersion} CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version`,
+  );
+
+  // agent-desktop: the Dockerfile's pinned release archive (URL and SHA-256)
+  // through the same install command (a test keeps them identical). It acts
+  // on the desktop through /etc/cmux/desktop-env.sh, like cua-driver; the
+  // verifier proves a snapshot of a desktop window.
+  await step(
+    "agent-desktop",
+    devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion()),
   );
 
   // Pinned coding agents on the base's Node: the exact Dockerfile pins
@@ -515,6 +540,14 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  // Keep the guest daemon alive across logout and image resume. This writes
+  // the same canonical user unit as `acpmux host setup`, then enables it once
+  // the binary and its state home are present.
+  // The work user's ~/.config/cmux exists before the daemon starts, so no later
+  // step makes a folder on the way to its harness sources: that reloads the
+  // catalog, whose model probe starts Claude (devboxWorkUserCmuxConfigDirCommand).
+  await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());
+  await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
@@ -566,8 +599,8 @@ try {
     devboxTeamKindDefaultCommand(),
   );
 
-  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
-  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
+  // The Ghostty .deb pin, recorded for the acpmux daemon launch
+  // (acpmuxPersonKey.ts); terminal panes carry cmux's own version.
   await step(
     "ghostty-version",
     `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,
@@ -717,11 +750,14 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
-  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
+  // The seeded Claude team configs are still the seed after the settle: nothing
+  // started Claude on them during the bake (devboxClaudeTeamOnboardingCheckCommand).
+  await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

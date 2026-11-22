@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,6 +12,7 @@ import Testing
 /// closed parked content listed only terminals, browsers and agent pages as live, so the next
 /// strip update took a parked page out of the window, and switching back paid the WKWebView
 /// re-attach again (170-215 ms, #20516). Runs a real `PaneController` in a window.
+@Suite(.closesItsWindows)
 @MainActor struct PageTabParkedAcrossStripUpdateTests {
     final class Provider: InternalPageProvider {
         let page = InternalPageID(rawValue: "parking-test")

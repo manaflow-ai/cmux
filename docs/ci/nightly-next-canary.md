@@ -41,6 +41,47 @@ The run refuses when:
 - the build it would serve has no DMG;
 - the feed changed while it was planning (run it again).
 
+### Health gate: real-session health pulls a build
+
+`nightly-next-health.yml` (`scripts/ci/nightly_next_health.py`) runs every 15
+minutes. For each of the feed's three newest Nightly builds (so a build
+superseded within one tick still gets a verdict), it reads Sentry release health
+of that build and the Nightly build before it (environment `nightly-next`, release
+`cmux-next@<short version>+<build>`): sessions by status and app hang events
+over the last 24 h. It writes the build's verdict to
+`https://files-next.cmux.com/nightly-next/next/health/<build>.json`, beside
+`verdicts/<build>.json`:
+
+| Verdict | When |
+| --- | --- |
+| `fail` | 2 or more crashed sessions and crash-free sessions under 99.5% and under the previous build's; or 3 or more app hangs and more than 0.2 hangs a session and more than twice the previous build's rate. |
+| `pass` | 5 sessions, or 15 minutes since its first session, and nothing failed. Judged again on every tick while the build is newest. |
+| `pending` | No session yet, or too few and too young for a pass. |
+| `unknown` | Sentry could not be read; the file says why. |
+
+An `unknown` because Sentry was not read means the gate is blind: it can never
+pull a build. Job `blind` then opens one issue, "nightly-next health gate is
+blind: Sentry is not read" (an open one is never repeated), and ends the run
+red until a tick reads Sentry again. It refuses and pulls nothing. From
+2026-11-19 to 2026-11-22 every verdict was `unknown` (Sentry HTTP 403: the
+`SENTRY_AUTH_TOKEN` lacks `org:read` and `event:read`) while every run stayed
+green.
+
+A `fail` of the newest build pulls it through `nightly-next-rollback.yml` with
+`bad_build` and `if_newest` set to it, so a build published meanwhile is never
+pulled, and the pull starts the fix-forward like any other. Detection is one
+tick (at most 15 minutes after the sessions reach Sentry) plus the run.
+
+Repository variable `NIGHTLY_NEXT_HEALTH_GATE`: `off` runs nothing; `report`
+writes verdicts and pulls nothing; unset or anything else pulls a failing
+build.
+
+The rollback drill's `health` step (`gh workflow run
+nightly-next-rollback-drill.yml --ref nightly-next -f step=health`, after a
+`publish`) runs the gate on the drill feed with a made-up failing reading
+(20 sessions, 5 crashed), so its receipt's `feed_s` times judge, verdict write,
+pull and serve on the production route.
+
 ### What a pull does to installed Macs
 
 Sparkle offers an item only when its `sparkle:version` is above the running
@@ -78,8 +119,18 @@ daemon/app integration tests.
 
 `nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
 checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
-specific build. A scheduled pass is written through
-`nightly-next-verdict.yml` for the existing train and release-ring machinery.
+specific build. A scheduled verdict is written through
+`nightly-next-verdict.yml` for the existing train and release-ring machinery,
+and the build is marked checked only after that dispatch is accepted: a failed
+dispatch fails the run, and the next tick checks the build again. A tick also
+checks a marked build again while its `verdicts/<build>.json` is missing, so a
+verdict run that fails after the dispatch is repaired too. Only the
+artifact check itself decides `pass` or `fail`, and it records `fail` only for
+a definite rejection (length, a missing or invalid notary ticket, Gatekeeper
+`rejected`, no app, the build number). A runner, download or tooling error
+(missing Apple tools, a failed `hdiutil attach`, stapler or spctl unable to
+reach Apple, an spctl failure with no rejection) records no verdict, so it is
+retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
 manual operator action through `nightly-next-rollback.yml`.
 

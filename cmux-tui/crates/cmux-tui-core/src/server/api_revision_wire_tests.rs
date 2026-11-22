@@ -129,7 +129,7 @@ fn api_revision_too_old_refusal_names_the_clients_update_command() {
     );
 
     let identity = run(json!({"cmd":"identify","revisions":true})).unwrap();
-    assert_eq!(identity["version"], crate::release::DISTRIBUTION_VERSION);
+    assert_eq!(identity["version"], crate::release::distribution_version());
     assert!(identity["install"].is_string());
     mux.shutdown();
 }

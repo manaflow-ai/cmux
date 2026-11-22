@@ -36,6 +36,13 @@ import sys
 import tempfile
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -74,6 +81,8 @@ def evaluate(expression, values, cancelled=False):
         return f"__S{len(strings) - 1}__"
 
     text = re.sub(r"'[^']*'", keep, text)
+    # needs.*.result: the results of every job this one needs (drop-build-artifacts reads it).
+    text = text.replace("needs.*.result", "NEEDS_RESULTS()")
     text = re.sub(r"\b(?:github|needs|inputs|vars|steps|env)(?:\.[A-Za-z0-9_-]+)+",
                   lambda m: f"C({m.group(0)!r})", text)
     text = text.replace("&&", " and ").replace("||", " or ")
@@ -87,6 +96,7 @@ def evaluate(expression, values, cancelled=False):
         "contains_": lambda haystack, needle: needle in haystack,
         "cancelled": lambda: cancelled,
         "always": lambda: True,
+        "NEEDS_RESULTS": lambda: [values.get(f"needs.{n}.result", "") for n in values.get("__needs__", [])],
     }
     has_status = re.search(r"\b(?:always|cancelled|success|failure)\(", text)
 
@@ -256,12 +266,23 @@ def main():
     deferring = preflight_values(owns_key="false", owner_run_id="3")
     _check(evaluate(owner_wait["if"], dict(deferring, __needs__=needs(owner_wait))),
            "tree-owner-wait runs when another run owns the key")
+    # build-windows runs only on a dispatch with include_windows; no push builds Windows.
+    windows = all_jobs["build-windows"]
+    _check(not evaluate(windows["if"], dict(owns, **{"needs.tree-owner-wait.result": "skipped",
+                                                    "inputs.include_windows": True, "__needs__": needs(windows)})),
+           "build-windows never runs on a push")
+    _check(not evaluate(windows["if"], dict(owns, **{"github.event_name": "workflow_dispatch",
+                                                    "needs.tree-owner-wait.result": "skipped",
+                                                    "inputs.include_windows": False, "__needs__": needs(windows)})),
+           "build-windows does not run on a dispatch without include_windows")
+    windows_dispatch = {"github.event_name": "workflow_dispatch", "inputs.include_windows": True}
     for name in ("build", "build-windows", "cmux-next-daemon-tests"):
         job = all_jobs[name]
-        skipped = dict(owns, **{"needs.tree-owner-wait.result": "skipped", "__needs__": needs(job)})
+        extra = windows_dispatch if name == "build-windows" else {}
+        skipped = dict(owns, **extra, **{"needs.tree-owner-wait.result": "skipped", "__needs__": needs(job)})
         _check(evaluate(job["if"], skipped), f"{name} starts without tree-owner-wait when the run owns its key")
         for takeover, result, expected in (("true", "success", True), ("false", "success", False), ("", "failure", False)):
-            values = dict(deferring, **{"needs.tree-owner-wait.result": result,
+            values = dict(deferring, **extra, **{"needs.tree-owner-wait.result": result,
                                         "needs.tree-owner-wait.outputs.takeover": takeover, "__needs__": needs(job)})
             _check(evaluate(job["if"], values) == expected,
                    f"{name} with tree-owner-wait {result}, takeover {takeover or '-'}: {'runs' if expected else 'skipped'}")
@@ -287,6 +308,46 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
+    # MUSL_BUILT_ONCE: the Linux targets build once, fat, in `build`; no second Linux build call exists.
+    _check("build-linux" not in all_jobs, "the musl targets build once, in build")
+
+    # 3b. FALLBACK_AFTER_TIMEOUT: the macOS fallback is planned after a build that its timeout cancelled
+    # (2026-11-13, run 43346255778: the leg on an owned Mac ended `cancelled`, the plan read only `failure`,
+    # and the tree was never published), and it builds on the builder the first build did not use.
+    plan = all_jobs["darwin-fallback-plan"]
+    planned = {"__needs__": needs(plan),
+               "needs.tree-preflight.outputs.darwin_builder": "linux"}
+    for build, expected in (("failure", True), ("cancelled", True), ("success", False), ("skipped", False)):
+        _check(evaluate(plan["if"], dict(planned, **{"needs.build.result": build})) == expected,
+               f"darwin-fallback-plan after build {build}: {'runs' if expected else 'skipped'}")
+    _check(not evaluate(plan["if"], dict(planned, **{"needs.build.result": "cancelled"}), cancelled=True),
+           "darwin-fallback-plan plans nothing in a cancelled run")
+    # The Linux targets build in `build` too (fat, #41963), so a cancelled build may lack them: the plan's own
+    # step checks build's Linux artifacts and plans nothing when one is missing.
+    plan_steps = "\n".join(step.get("run", "") for step in plan.get("steps", []))
+    _check("the $linux build failed too" in plan_steps and 'echo "target_set=" >> "$GITHUB_OUTPUT"' in plan_steps,
+           "darwin-fallback-plan plans nothing when the Linux targets failed too")
+    _check(not evaluate(plan["if"], dict(planned, **{"needs.build.result": "cancelled",
+                                                     "needs.tree-preflight.outputs.darwin_builder": "mac"})),
+           "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
+    fallback = all_jobs["build-darwin-fallback"]
+    builder = fallback["with"]["darwin_builder"]
+    for mac_runner, expected in (("an-owned-mac-label", "linux"), ("", "mac")):
+        # `a != '' && 'linux' || 'mac'` yields a string, not a truth value: evaluate both arms.
+        on_mac = evaluate("${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
+                          {"needs.tree-preflight.outputs.darwin_mac_runner": mac_runner, "__needs__": []})
+        _check(builder == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}"
+               and ("linux" if on_mac else "mac") == expected,
+               f"the fallback after a first build {'on an owned Mac' if mac_runner else 'by the Linux cross build'} "
+               f"uses darwin_builder {expected}")
+    _check("darwin_mac_runner" not in fallback["with"],
+           "the fallback never goes back to the owned Mac whose build just ended without artifacts")
+    _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
+           "the fallback builds only the macOS targets the plan found missing")
+    plan_step = next(s for s in plan["steps"] if s.get("id") == "plan")
+    _check(plan_step["env"].get("BUILD_RESULT") == "${{ needs.build.result }}"
+           and plan_step["env"].get("FIRST_ON_MAC") == "${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}",
+           "the plan's annotation names the first build's result and builder")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]

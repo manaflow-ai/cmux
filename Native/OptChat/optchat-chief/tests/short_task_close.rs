@@ -1,9 +1,7 @@
-//! Chief leaves every subagent's workspace open when it finishes (a
-//! teammate's complaint: "too many workspaces"; Lawrence's sidebar, Oct 27:
-//! 822 workspaces open). A short task's workspace now closes when its
-//! subagent finishes: a run of less than `SHORT_TASK` that left nothing
-//! unlanded. A longer task, or one whose report says it did not land, keeps
-//! its workspace. The subagent's chat stays readable (`zoom("aN")`).
+//! Chief once closed a short task's workspace when it finished (a teammate's complaint: "too
+//! many workspaces"; Lawrence's sidebar, Oct 27: 822 workspaces open). That made Chief-made agents
+//! vanish (Aziz, 2026-11-11), so no subagent's workspace closes on its own now: errands sit in the
+//! collapsed "Chief's workspaces" group instead. Only the user's close-on-finish setting closes one.
 
 mod common;
 
@@ -89,12 +87,16 @@ fn idle(session: &str) -> cmux_chief::acp::SessionSummary {
 }
 
 /// a1 runs in its workspace and reports `report` after a run of `ran`.
-/// What the recorder closed.
-fn finish_a1(report: &str, ran: Duration) -> Vec<String> {
+/// What the recorder closed, and a1's recorded workspace after that.
+fn finish_a1(report: &str, ran: Duration) -> (Vec<String>, Option<String>) {
     let mut h = Harness::new(script());
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Spawner::new(
             h.chat.clone(),
@@ -159,18 +161,31 @@ fn finish_a1(report: &str, ran: Duration) -> Vec<String> {
             h.brain.step(input);
         }
     }
-    recorder.closed.lock().unwrap().clone()
+    // A close tells the brain its workspace is gone.
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(200)) {
+        h.brain.step(input);
+    }
+    let workspace = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.workspace.clone());
+    (recorder.closed.lock().unwrap().clone(), workspace)
 }
 
 #[test]
-fn a_short_task_that_landed_closes_its_workspace_when_it_finishes() {
-    let closed = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
-    assert_eq!(closed.len(), 1, "the short task's workspace closes");
+fn a_short_task_that_landed_keeps_its_workspace_when_it_finishes() {
+    // Aziz, 2026-11-11: Chief-made agents vanished from the sidebar. A finished subagent's
+    // workspace stays where it is (the sidebar, or the collapsed "Chief's workspaces" group);
+    // only the user's own close-on-finish setting closes it.
+    let (closed, workspace) = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
+    assert!(closed.is_empty(), "nothing closes on its own: {closed:?}");
+    assert!(workspace.is_some(), "it keeps its workspace");
 }
 
 #[test]
 fn a_long_task_keeps_its_workspace() {
-    let closed = finish_a1("Done: rebuilt the sidebar.", Duration::from_secs(45 * 60));
+    let (closed, _) = finish_a1("Done: rebuilt the sidebar.", Duration::from_secs(45 * 60));
     assert!(
         closed.is_empty(),
         "a long task's workspace stays: {closed:?}"
@@ -179,7 +194,7 @@ fn a_long_task_keeps_its_workspace() {
 
 #[test]
 fn a_short_task_that_did_not_land_keeps_its_workspace() {
-    let closed = finish_a1(
+    let (closed, _) = finish_a1(
         "Not landed: the fix is unpushed, tests are red.",
         Duration::from_secs(5 * 60),
     );

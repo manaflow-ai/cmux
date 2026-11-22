@@ -23,6 +23,12 @@ enum TabHoverCardContent: Equatable {
 /// and memory, and keeps recent thumbnails and samples so a retarget never
 /// blanks the card (R131). Timing, showing and hiding belong to the
 /// coordinator.
+///
+/// The card's size is the tab's: its title, its rows and, under Full previews, the picture frame,
+/// never what lands after the card shows (user 2026-11-20, "feels jank": a sweep across loading GitHub
+/// tabs flipped between a tall card with a picture and a short one without, and a memory row came and
+/// went on each tab). A tab with no picture yet shows its glyph in the frame (as Chrome's card does) and
+/// its picture replaces it in place; the memory row keeps a dash until a sample measures the tab.
 @MainActor
 final class TabHoverCardController: HoverCardSource {
     weak var previewProvider: (any TabPreviewProvider)?
@@ -36,9 +42,19 @@ final class TabHoverCardController: HoverCardSource {
     /// each hover so a Settings change applies at once. Every tab waits the
     /// same, as a sidebar row does (no width scaling, cx-23e1f).
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// How the card's first show plays; nil reads `TabTunables.hoverCardEntrance` on each show
+    /// (the tab bar playground's Hover Card page pins one per strip).
+    var entrance: HoverCardEntrance?
+    /// How the card moves to the next tab or chip while it shows; nil reads `TabTunables.hoverCardRetarget` on
+    /// each show (the tab bar playground's Hover Card page pins one per strip). Switched in place by default
+    /// (Leo 2026-11-18: "the hover preview bounces for some reason").
+    var retarget: HoverCardRetarget?
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
     /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
+    /// A tab's card is a preview the pointer never enters (user 2026-11-16): moving off the tab onto
+    /// the card hides it, as in Chrome. A sidebar row's card stays enterable.
+    var enterable: Bool { false }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
         didSet {
@@ -49,6 +65,11 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private var body: TabHoverCardView?
+    /// The other tab card view, for `HoverCardRetarget.glide` and `.crossfade` only: the next tab shows in it
+    /// while the last tab's view fades out (`HoverCardPanel+Glide.swift`), and the two swap roles on the next
+    /// one. Switched in place (the default) the one view takes the next tab's content: no view
+    /// swap and no new constraints in the card on each tab of a sweep.
+    private var spareBody: TabHoverCardView?
     /// Group chips' summary card body, reused chip to chip.
     private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
@@ -62,12 +83,13 @@ final class TabHoverCardController: HoverCardSource {
     static let hibernatedSampleLifetime: TimeInterval = 10 * 60
     /// The time now (tests move it).
     var now: () -> Date = Date.init
-    /// Tabs whose last fetch had no thumbnail: their cards open without one.
-    private var noThumbnail: Set<TabID> = []
     private var bodyID: HoverTargetID?
-    /// The next card opens from hidden, not by a retarget: a tab whose thumbnail is not
-    /// known yet gets the empty frame its thumbnail fades into.
+    /// The next card opens from hidden, not by a retarget (a glide swaps views only on a retarget).
     private var opensFresh = true
+    /// A picture fetched within this long of the card showing its tab is drawn at once, never faded
+    /// in over the placeholder: a fade that starts a frame after the card reads as a flicker in a sweep.
+    // hover-timing: when a fetched picture fades in, not when the card shows (that is HoverIntentTiming's).
+    static let instantPicture: Duration = .milliseconds(50)
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
@@ -124,7 +146,8 @@ final class TabHoverCardController: HoverCardSource {
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),
+                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave,
+                                enterable: enterable),
             anchor: target.anchor
         )
     }
@@ -133,7 +156,10 @@ final class TabHoverCardController: HoverCardSource {
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
         guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
-        return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+        // Within the strip's bounds too: its visible rect can pass them (`geometryDidChange`, cx-3wu5), and a
+        // point past the strip (on its tab's card, which is not enterable) is off the strip, not between tabs.
+        let point = strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        return strip.bounds.intersection(strip.visibleRect).contains(point)
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
@@ -148,42 +174,45 @@ final class TabHoverCardController: HoverCardSource {
             groupBody = body
             body.configure(strip.groupHoverSummary(item, options: DesignSettings.shared.groupHoverCard, now: now()))
             bodyID = id
-            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in
+            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                                 retarget: retarget ?? TabTunables.hoverCardRetarget.value) { [weak body] in
                 body?.applyColors()
             }
         }
-        let body = body ?? TabHoverCardView()
+        var body = body ?? TabHoverCardView()
+        let move = retarget ?? TabTunables.hoverCardRetarget.value
+        let newCard = bodyID != id
+        // A glide or crossfade to the next tab while a card shows: the next tab goes in the other view, so
+        // the last tab's content fades out as it was drawn, with none of the last tab's picture or samples.
+        if move != .jump, newCard, !opensFresh, cardIsShowing(), let last = self.body {
+            let next = spareBody ?? TabHoverCardView()
+            spareBody = last
+            next.resetResourceHistory()
+            body = next
+        }
         self.body = body
         body.configure(content)
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
         let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
             body.setResources(resources.report ?? lastReport(for: tab))
-            // On a retarget, a tab whose thumbnail is not known yet keeps what the card
-            // shows (the last tab's picture, or no frame) until its own lands: never an
-            // empty frame that collapses again (R131). A card opening fresh shows no frame
-            // until the picture lands (`loadThumbnail` grows it): an empty gray well under
-            // the facts read as broken (Leo 2026-10-20).
-            if !full || noThumbnail.contains(tab) {
-                body.setThumbnailVisible(false)
-            } else if thumbnails.image(for: tab) != nil {
-                body.setThumbnailVisible(true)
-            } else if bodyID != id && opensFresh {
-                body.setThumbnailVisible(false)
-            }
+            // Full previews: every tab's card has the picture frame, whether its picture is known yet
+            // or not (the placeholder glyph until it is), so no card changes size for a picture.
+            body.setThumbnailVisible(full)
+            // This tab's own picture, or its placeholder: never the last tab's.
+            if newCard { body.setThumbnail(full ? thumbnails.image(for: tab) : nil, fades: false) }
         }
-        let newCard = bodyID != id
         if newCard { opensFresh = false }
-        // A retarget keeps the shown thumbnail until this tab's lands; a tab
-        // seen before shows its own at once.
-        if newCard, full, let cached = thumbnails.image(for: tab) { body.setThumbnail(cached) }
         bodyID = id
         // Once per card, not on every content refresh (resource samples).
         if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         if newCard, case .tab = content { startSampling(tab, card: id) }
         // The card hangs from its tab with no gap: it takes the tab's corners.
         return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
-                             cornerRadius: strip.metrics.cornerRadius) { [weak body] in body?.applyColors() }
+                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value,
+                             retarget: move) { [weak body] in
+            body?.applyColors()
+        }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
@@ -230,7 +259,6 @@ final class TabHoverCardController: HoverCardSource {
         let open = Set(strip.model.tabs.map(\.id))
         thumbnails.keep(only: open)
         lastReports = lastReports.filter { open.contains($0.key) }
-        noThumbnail.formIntersection(open)
     }
 
     /// Keeps a sample that measured the tab: a zero or unavailable one would make a
@@ -258,6 +286,16 @@ final class TabHoverCardController: HoverCardSource {
         bodyID = nil
     }
 
+    /// The strip's theme changed: the kept pictures show the old theme, so the next card asks again.
+    func themeChanged() {
+        thumbnails.removeAll()
+        // A card on screen takes its tab's picture in the new theme now (it fades in).
+        if let id = bodyID, coordinator.isShowing(id), let tab = tabID(id), !tab.isGroupChip,
+           TabTunables.hoverPreviews.value == .full {
+            loadThumbnail(for: tab)
+        }
+    }
+
     /// `id`'s title, badges or members changed.
     func refresh(_ id: TabID) {
         coordinator.contentChanged(Self.targetID(id))
@@ -269,26 +307,17 @@ final class TabHoverCardController: HoverCardSource {
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
         let target = Self.targetID(id)
+        let asked = ContinuousClock.now
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
-            // No thumbnail (a page never captured): none, not the previous
-            // tab's picture kept through the retarget or an empty frame.
-            guard let image else {
-                self.noThumbnail.insert(id)
-                self.body?.setThumbnail(nil)
-                self.body?.setThumbnailVisible(false)
-                self.coordinator.contentChanged(target)
-                return
-            }
+            // No picture (a page still loading, one never captured): the placeholder stays, and the
+            // next hover asks again.
+            guard let image else { return }
             self.thumbnails.insert(image, for: id)
-            self.noThumbnail.remove(id)
-            // A card that showed no frame (the last tab had none) grows one for it.
-            let grows = self.body?.showsThumbnail == false
-            // It fades into the new frame, not swapped in over a hidden tab's picture.
-            if grows { self.body?.setThumbnail(nil) }
-            self.body?.setThumbnail(image)
-            if grows { self.coordinator.contentChanged(target) }
+            // It takes the placeholder's place in the same frame, so the card keeps its size; a picture
+            // at hand is drawn at once, a slow one fades in.
+            self.body?.setThumbnail(image, fades: ContinuousClock.now - asked > Self.instantPicture)
         }
     }
 }

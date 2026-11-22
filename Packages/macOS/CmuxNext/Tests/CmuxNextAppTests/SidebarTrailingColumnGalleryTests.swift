@@ -7,7 +7,7 @@ import Testing
 
 /// The trailing column's fixture (Leo 2026-10-28: "if you're hovering over a workspace or whatever, just don't show
 /// the spinner ... why the fuck is it not aligned? Oh, because it's the inner tab thing"): `KindHarness` (every row
-/// kind, groups at depths 0 to 2, inner tab rows that work or are unread) at rest, with a working row hovered and with
+/// kind, groups at depths 0 to 2) at rest, with a working row hovered and with
 /// a loading header hovered, plus `geometry.json`: per row its accessibility identifier, kind, parent and depth, and
 /// every drawn dot, spinner, chevron and hover control as view frames in the list's coordinates (not AX frames).
 /// Artifact `sidebar-trailing-column-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
@@ -46,6 +46,8 @@ import Testing
         var state: String
         var image: String
         var density: String
+        var preset: String
+        var textSize: String
         var width: CGFloat
         var columnCenterX: CGFloat
         var listIsFlipped: Bool
@@ -80,17 +82,15 @@ import Testing
         switch key {
         case .workspace(let id): ("workspace:\(id.rawValue)", "workspace", nil)
         case .group(let id): ("group:\(id.rawValue)", "groupHeader", nil)
-        case .tab(let ws, let tab): ("tab:\(ws.rawValue)/\(tab.rawValue)", "innerTab", "workspace:\(ws.rawValue)")
         default: nil
         }
     }
 
-    static func export(_ h: T.KindHarness, state: String, density: SidebarDensity, image: CGImage, name: String) throws -> State {
+    static func export(_ h: T.KindHarness, state: String, density: SidebarDensity, preset: DensityPreset, textSize: SidebarTextSize, image: CGImage, name: String) throws -> State {
         let (parent, groupDepth) = parents(h.model)
-        // A group's nesting depth; a member one deeper than its group; a tab one deeper than its workspace.
+        // A group's nesting depth; a member one deeper than its group.
         func depth(_ key: String) -> Int {
             if key.hasPrefix("group:") { return groupDepth[key] ?? 0 }
-            if key.hasPrefix("tab:") { return depth("workspace:" + key.dropFirst(4).split(separator: "/")[0]) + 1 }
             return parent[key].map { depth($0) + 1 } ?? 0
         }
         var rows: [Row] = []
@@ -102,7 +102,7 @@ import Testing
             }
             var controls: [(String, NSView)] = []
             if let row = view as? WorkspaceRowView {
-                controls = [("close", row.closeButton), ("more", row.moreButton), ("pin", row.pinButton), ("disclosure", row.disclosureButton)]
+                controls = [("close", row.closeButton), ("more", row.moreButton), ("pin", row.pinButton)]
             } else if let header = view as? GroupHeaderRowView {
                 controls = [("more", header.moreButton), ("add", header.addButton)]
             }
@@ -117,7 +117,7 @@ import Testing
         let content = try #require(h.window.contentView)
         var inContent = content.convert(h.list.bounds, from: h.list)
         if !content.isFlipped { inContent.origin.y = content.bounds.height - inContent.maxY }
-        return State(state: state, image: name, density: density.rawValue, width: h.sidebar.bounds.width, columnCenterX: try T.columnX(h),
+        return State(state: state, image: name, density: density.rawValue, preset: preset.rawValue, textSize: textSize.rawValue, width: h.sidebar.bounds.width, columnCenterX: try T.columnX(h),
                      listIsFlipped: h.list.isFlipped, imagePoints: [content.bounds.width, content.bounds.height],
                      imagePixels: [image.width, image.height], backingScale: CGFloat(image.width) / content.bounds.width,
                      listInImage: box(inContent), rows: rows)
@@ -139,29 +139,37 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var states: [State] = []
-        for density in [SidebarDensity.compact, .comfortable] {
-            try SidebarGroupRailAlignmentTests.with(density, .off) {
-                let h = T.KindHarness(width: 300)
-                defer { h.window.close() }
-                h.window.appearance = NSAppearance(named: .darkAqua)
-                let input = try AANestedGroupsGalleryTests.input("Soft Blue")
-                _ = ThemeScope.app.store.apply(input)
-                let scope = ThemeScope(level: .room)
-                scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
-                let content = try #require(h.window.contentView)
-                content.wantsLayer = true
-                scope.root(content)
-                content.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
-                let hovers: [(String, SidebarRowKey?)] = [("rest", nil), ("hover-working-row", .workspace(T.busy)),
-                                                          ("hover-selected-row", .workspace(T.selected)),
-                                                          ("hover-loading-header", .group(T.folded))]
-                for (state, key) in hovers {
-                    let row = key.flatMap { h.list.rowViews[$0] as? SidebarRowView }
-                    row?.isHovered = true
-                    defer { row?.isHovered = false; row?.layoutSubtreeIfNeeded() }
-                    let image = try Self.render(h), name = "\(density.rawValue)-\(state).png"
-                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
-                    states.append(try Self.export(h, state: state, density: density, image: image, name: name))
+        let design = DesignSettings.shared
+        let saved = design.densityTokens
+        defer { design.densityTokens = saved }
+        for preset in DensityPreset.allCases {
+            design.densityTokens = preset.tokens
+            for textSize in [SidebarTextSize.standard, .larger] {
+                for density in [SidebarDensity.compact, .comfortable] {
+                    try SidebarGroupRailAlignmentTests.with(density, .off, textSize: textSize) {
+                        let h = T.KindHarness(width: 300)
+                        defer { h.window.close() }
+                        h.window.appearance = NSAppearance(named: .darkAqua)
+                        let input = try AANestedGroupsGalleryTests.input("Soft Blue")
+                        _ = ThemeScope.app.store.apply(input)
+                        let scope = ThemeScope(level: .room)
+                        scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
+                        let content = try #require(h.window.contentView)
+                        content.wantsLayer = true
+                        scope.root(content)
+                        content.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+                        let hovers: [(String, SidebarRowKey?)] = [("rest", nil), ("hover-working-row", .workspace(T.busy)),
+                                                                  ("hover-selected-row", .workspace(T.selected)),
+                                                                  ("hover-loading-header", .group(T.folded))]
+                        for (state, key) in hovers {
+                            let row = key.flatMap { h.list.rowViews[$0] as? SidebarRowView }
+                            row?.isHovered = true
+                            defer { row?.isHovered = false; row?.layoutSubtreeIfNeeded() }
+                            let image = try Self.render(h), name = "\(preset.rawValue)-\(density.rawValue)-\(textSize.rawValue)-\(state).png"
+                            try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
+                            states.append(try Self.export(h, state: state, density: density, preset: preset, textSize: textSize, image: image, name: name))
+                        }
+                    }
                 }
             }
         }

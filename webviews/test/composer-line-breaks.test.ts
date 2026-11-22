@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-line-breaks.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -58,7 +59,7 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
     await vite?.close();
   });
 
-  const FIELD = ".acpmux-composer-prompt [contenteditable='true']";
+  const FIELD = COMPOSER_EDITOR;
 
   async function newChat(engine: string): Promise<Page> {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 900, height: 700 } });
@@ -71,6 +72,11 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
         value: {
           writeText: async (text: string) => {
             copied.push(text);
+          },
+          // A message's Copy writes its Markdown and HTML together (richClipboard.ts).
+          write: async (items: ClipboardItem[]) => {
+            copied.push(await (await items[0]!.getType("text/plain")).text());
+            Object.assign(window, { __copiedHtml: await (await items[0]!.getType("text/html")).text() });
           },
           readText: async () => copied.at(-1) ?? "",
         },

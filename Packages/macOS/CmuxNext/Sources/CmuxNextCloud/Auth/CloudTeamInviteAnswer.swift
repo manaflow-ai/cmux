@@ -1,6 +1,6 @@
-/// How one team invite went (``CloudAuth/inviteOne(_:toTeam:)``), in terms a caller without the
-/// auth types can switch on.
-public enum CloudTeamInviteAnswer: Sendable, Hashable {
+/// How one team invite went (``CloudAuth/inviteOne(_:toTeam:)``, Rust's `auth::InviteAnswer`), in terms a
+/// caller without the auth types can switch on.
+public enum CloudTeamInviteAnswer: String, Sendable, Hashable, Decodable {
     /// cmux.com emailed the invitation.
     case sent
     /// The address belongs to someone already in the team.

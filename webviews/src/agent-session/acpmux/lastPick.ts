@@ -4,14 +4,16 @@
 // with the launch (its web view's store is not persistent), so the New Tab context brings the app's
 // copy back (`lastPicks`, seedLastPicks). A missing or blocked store only means the harness's own
 // default.
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { isDefaultChoice } from "./defaultChoice";
 import { postNative } from "./native";
 
 export type LastPick = { harness: string; model: string };
 /// `picked`: this page picked since its storage began. The app's copy a later context carries can
 /// be older than that pick (a context built before it, a reloaded page), so it no longer seeds.
-type Stored = { global?: LastPick; folders?: Record<string, LastPick>; picked?: boolean };
+/// `seq`: how many picks this page's storage has seen, so a pick that names the same harness and model
+/// as before still counts as one (``chipPick``).
+type Stored = { global?: LastPick; folders?: Record<string, LastPick>; picked?: boolean; seq?: number };
 
 const STORAGE_KEY = "cmux.acpmux.lastPick";
 /// The folders kept; the oldest pick goes first.
@@ -69,14 +71,42 @@ export function useLastPick(folder?: string): LastPick | undefined {
   return useMemo(() => (JSON.parse(key) as LastPick | null) ?? undefined, [key]);
 }
 
+/// The pick a new chat's agent and model chips name: `folder`'s own last pick, until a pick is made
+/// while the page is open (`newest.seq` past `seqAtOpen`, even one naming the same harness and model
+/// as before); from then that newest pick, whatever folder is picked after it. A folder pick never
+/// swaps the agent or model the person just picked (cmux#47677: the folder, the place and the model
+/// are each their own pick).
+export function chipPick(
+  inFolder: LastPick | undefined,
+  newest: { pick?: LastPick; seq: number },
+  seqAtOpen: number,
+): LastPick | undefined {
+  return newest.seq > seqAtOpen && newest.pick ? newest.pick : inFolder;
+}
+
+/// ``chipPick`` for this page, drawn again when a pick is remembered or the app's copy arrives.
+export function useChipPick(folder?: string): LastPick | undefined {
+  const inFolder = useLastPick(folder);
+  const key = useSyncExternalStore(subscribe, () => {
+    const stored = read();
+    return JSON.stringify({ pick: stored.global ?? null, seq: stored.seq ?? 0 });
+  });
+  const [seqAtOpen] = useState(() => read().seq ?? 0);
+  return useMemo(() => {
+    const parsed = JSON.parse(key) as { pick: LastPick | null; seq: number };
+    return chipPick(inFolder, { ...(parsed.pick ? { pick: parsed.pick } : {}), seq: parsed.seq }, seqAtOpen);
+  }, [key, inFolder, seqAtOpen]);
+}
+
 function read(): Stored {
   try {
     const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
     if (!parsed || typeof parsed !== "object") return {};
-    const { global, folders, picked } = parsed as Stored;
+    const { global, folders, picked, seq } = parsed as Stored;
     return {
       ...(isPick(global) ? { global } : {}),
       ...(picked === true ? { picked } : {}),
+      ...(typeof seq === "number" && Number.isFinite(seq) ? { seq } : {}),
       folders: Object.fromEntries(Object.entries(folders ?? {}).filter((entry) => isPick(entry[1]))),
     };
   } catch {
@@ -84,22 +114,45 @@ function read(): Stored {
   }
 }
 
-/// Remembers `pick` for every folder and for `folder`. The agent's own "default" is not a pick.
-export function rememberPick(pick: LastPick, folder?: string): void {
+/// The model a harness's own default is remembered as: a pick of the harness that names no model.
+export const DEFAULT_PICK_MODEL = "default";
+
+/// Remembers `pick` for every folder and for `folder`: the harness the next New Tab, new chat and
+/// split starts on. Every harness choice is a pick, also one on the agent's own default model and
+/// one that names no model (an account, a fork, a New Tab agent row): that one keeps the model of
+/// the last pick while it is on the same harness, else names the harness's default.
+/// `post` sends it to the app (a page's `callNative`); else the page's native bridge.
+export function rememberPick(
+  pick: { harness: string; model?: string },
+  folder?: string,
+  post?: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): void {
+  const { harness } = pick;
   // The app keeps what it can take (AgentPaneRequest+Decoding): a longer value is no pick.
-  if (!isPick(pick) || isDefaultChoice({ id: pick.model })) return;
-  if (pick.harness.length > 128 || pick.model.length > 256 || (folder?.length ?? 0) > 4096) return;
+  if (!harness || harness.length > 128 || (pick.model?.length ?? 0) > 256 || (folder?.length ?? 0) > 4096) return;
+  const model = !pick.model
+    ? (storedModel(harness, folder) ?? DEFAULT_PICK_MODEL)
+    : isDefaultChoice({ id: pick.model })
+      ? DEFAULT_PICK_MODEL
+      : pick.model;
+  const picked: LastPick = { harness, model };
   const stored = read();
   const folders = { ...stored.folders };
   if (folder) {
     delete folders[folder];
-    folders[folder] = pick;
+    folders[folder] = picked;
   }
-  write({ global: pick, folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)), picked: true });
+  write({
+    global: picked,
+    folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)),
+    picked: true,
+    seq: (stored.seq ?? 0) + 1,
+  });
   changed();
-  const params = { agent: pick.harness, model: pick.model, ...(folder ? { folder } : {}) };
-  const direct = window.cmuxAcpmuxActions?.["newTab.remember"];
-  void (direct ? direct(params) : postNative("newTab.remember", params)).catch(() => undefined);
+  const params = { agent: harness, model, ...(folder ? { folder } : {}) };
+  const direct = post ? undefined : window.cmuxAcpmuxActions?.["newTab.remember"];
+  const send = post ?? ((method: string, body: typeof params) => (direct ? direct(body) : postNative(method, body)));
+  void send("newTab.remember", params).catch(() => undefined);
 }
 
 /// The last pick in `folder`, else the last pick anywhere.
@@ -108,8 +161,14 @@ export function lastPick(folder?: string): LastPick | undefined {
   return (folder ? stored.folders?.[folder] : undefined) ?? stored.global;
 }
 
-/// The model last picked on `harness`: in `folder` first, then anywhere.
+/// The model last picked on `harness`: in `folder` first, then anywhere. A pick of the harness's
+/// own default names none.
 export function lastModel(harness: string, folder?: string): string | undefined {
+  const model = storedModel(harness, folder);
+  return model && !isDefaultChoice({ id: model }) ? model : undefined;
+}
+
+function storedModel(harness: string, folder?: string): string | undefined {
   const stored = read();
   const inFolder = folder ? stored.folders?.[folder] : undefined;
   if (inFolder?.harness === harness) return inFolder.model;

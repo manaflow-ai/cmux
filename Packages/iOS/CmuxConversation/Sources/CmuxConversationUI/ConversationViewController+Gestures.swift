@@ -277,6 +277,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             openThread(rootID: model.message.id)
             return
         }
+        if let replies = cell.cellLayout?.quoteRepliesFrame, replies.contains(local), let parent = model.message.replyToID {
+            openThread(rootID: parent)
+            return
+        }
         if let quote = cell.cellLayout?.quoteFrame, quote.contains(local), let parent = model.message.replyToID {
             openThread(rootID: parent)
             return
@@ -348,9 +352,12 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
-            alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
+            let tryAgain = UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
                 self?.store.retryUnsend(messageID: messageID)
-            })
+            }
+            alert.addAction(tryAgain)
+            // The likely choice is the preferred action (bold, Return), not Cancel (HIG Alerts).
+            alert.preferredAction = tryAgain
         } else {
             alert = UIAlertController(
                 title: title,
@@ -380,7 +387,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         header.setTrailingMode(selecting ? .cancel : (replyTarget != nil ? .close : .action), animated: true)
         // Messages swaps the back button for the trailing X while selecting.
         header.setBackHidden(selecting, animated: true)
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+        UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             for case let cell as MessageCell in self.collectionView.visibleCells {
                 cell.setSelectionMode(selecting, selected: self.selectedRowIDs.contains(cell.model?.rowID ?? ""), animated: false)
             }
@@ -434,11 +441,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             bar.addSubview(forward)
             bar.alpha = 0
             view.addSubview(bar)
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.25) {
                 bar.alpha = 1
                 self.composerContainer.alpha = 0
             }
         } else if let bar = view.viewWithTag(tag) {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.25) {
                 bar.alpha = 0
                 self.composerContainer.alpha = 1
@@ -544,7 +553,7 @@ extension MessageCell {
             self.selectionShift = selecting && !isOutgoing ? 42 : 0
         }
         if animated {
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, animations: apply)
+            UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, animations: apply)
         } else {
             apply()
         }

@@ -1,11 +1,7 @@
-import React, { useState } from "react";
-import { useT } from "../i18n";
+import React from "react";
 
-/// Rows a section shows before "View all".
-const FOLDED = 5;
-
-/// One titled list in the summary popover. A long list shows its first rows and a "View all"
-/// that opens the rest in place. A section with nothing to list is not drawn: no title over
+/// One titled list in the summary popover. Long lists are drawn in full; the card body owns the
+/// scrolling. A section with nothing to list is not drawn: no title over
 /// "None". `lead` is the list's first row, unfolded; `footer` draws under the list (Outputs'
 /// gallery row), and a section with only a lead or a footer still draws.
 export function SummarySection<T>({
@@ -27,8 +23,6 @@ export function SummarySection<T>({
   /// Draw the section with nothing to list (Sources while its + offers Use tools).
   keep?: boolean;
 }) {
-  const t = useT();
-  const [all, setAll] = useState(false);
   if (items.length === 0 && !lead && !footer && !keep) return null;
   const heading = action ? (
     <div className="acpmux-summary-heading">
@@ -38,19 +32,13 @@ export function SummarySection<T>({
   ) : (
     <h3 className="acpmux-summary-title">{title}</h3>
   );
-  const shown = all ? items : items.slice(0, FOLDED);
   return (
     <section className="acpmux-summary-section" aria-label={title}>
       {heading}
       <ul className="acpmux-summary-list">
         {lead}
-        {shown.map((item) => row(item))}
+        {items.map((item) => row(item))}
       </ul>
-      {items.length > FOLDED && (
-        <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>
-          {all ? t("summary.showFewer") : t("summary.viewAll", { n: items.length })}
-        </button>
-      )}
       {footer}
     </section>
   );

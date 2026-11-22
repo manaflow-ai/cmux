@@ -14,10 +14,12 @@ and `optchat-tell:<id>:<ms>` (a tell or restart message).
 
 Checks, each with a window snapshot in --out:
   live     the chat tab shows the session before the prompt; after the turn its first bubble is
-           the task, labelled "From the Chief", with the Chief's view as one collapsed line
-  reopen   the tab shows another chat, then this one again (a fresh open page, which starts after
-           the 140 KB prompt): the same first bubble
-  tell     a tell from the Chief draws as a second "From the Chief" bubble; the task stays first
+           the task, labelled "Sent from <Chief>", with the Chief's view as one collapsed line
+  reopen   the chat's tab closes and opens again (a fresh open page, which starts after the
+           140 KB prompt): the same first bubble
+
+Each chat opens as the Chief's subagent link opens it: `agent.openSessionTab` (`cmux agent open-tab`).
+  tell     a tell from the Chief draws as a second "Sent from <Chief>" bubble; the task stays first
 
 Usage: chief-prompt-bubble-live.py --tag <tag> --app PATH [--out DIR] [--json PATH]
 Fleet: scripts/measure/chief-prompt-bubble.sh (builds the tagged app first).
@@ -175,6 +177,23 @@ def bubbles():
     return (pane("chat_state") or {}).get("userBubbles") or []
 
 
+def open_tab(session):
+    """The chat of `session` as a tab of the focused pane, shown, as a Chief subagent link opens it."""
+    ran = rpc("action.run", {"action": "agent.openSessionTab", "args": {"session": session}, "focus": True}, timeout=60)
+    tab = ((ran or {}).get("result") or {}).get("tab")
+    print("open tab", session, json.dumps(ran)[:600], flush=True)
+    if tab:
+        # The run answers before the app's store lists the new tab, so its own reveal (and a tab.focus
+        # sent at once) can miss it and leave it behind the pane's current tab: show it once it is known.
+        focus = lambda: rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}, timeout=30) or {}
+        focused = wait(lambda: (lambda r: r if "error" not in r else None)(focus()), 20, 0.5) or focus()
+        print("show tab", tab, json.dumps(focused)[:400], flush=True)
+    shown = wait(lambda: (lambda s: s if s.get("sessionId") == session else None)(pane("chat_state") or {}), 30, 0.5)
+    state = pane("chat_state") or {}
+    print("chat_state", "shown" if shown else "NOT shown", json.dumps({k: state.get(k) for k in ("pane", "sessionId", "error", "connection", "missingSession", "unavailable")})[:400], flush=True)
+    return bool(shown)
+
+
 def turn_done(client, sid, turns):
     info = (client.request("_acpmux/info", {"sessionId": sid}).get("result") or {})
     return info.get("status") not in ("running", "starting") and (info.get("turnCount") or 0) >= turns
@@ -189,7 +208,7 @@ def check_first(label, extra=""):
     row(f"{label}: first bubble is the Chief's task", f"the task with '{TASK_MARK}', no view or label", text[:120],
         text.startswith("Title: Prompt bubble probe") and TASK_MARK in text and "<chat>" not in text
         and "Your task:" not in text)
-    row(f"{label}: marked as from the Chief", "From the Chief", str(first.get("from")), bool(first.get("from")))
+    row(f"{label}: marked as sent from the Chief", "Sent from <Chief>", str(first.get("from")), bool(first.get("from")))
     row(f"{label}: the Chief's view is one collapsed line", "a context summary", str(first.get("context")),
         bool(first.get("context")))
     return shown, snap
@@ -234,7 +253,6 @@ def main():
     if not sid:
         row("a fake chat starts", "a session id", json.dumps(made)[:200], False)
         return
-    other, _ = new_session()
 
     def prompt(session, text, kind):
         pid = f"optchat-{kind}:a999:{int(time.time() * 1000)}"
@@ -242,7 +260,9 @@ def main():
                                                  "_meta": {"acpmux": {"promptId": pid}}}, timeout=120)
 
     # live: the tab shows the session before the Chief's first prompt arrives.
-    print("select", json.dumps(pane("select_session", session=sid))[:200], flush=True)
+    opened = open_tab(sid)
+    row("live: the chat opens in a tab", f"chat_state sessionId {sid}", str((pane("chat_state") or {}).get("sessionId")),
+        opened)
     view = chief_view(opts.view_kb)
     first = f"{view}Your task:\n\n{TASK}"
     print(f"first prompt {len(first.encode())} bytes", flush=True)
@@ -258,11 +278,12 @@ def main():
         not any(e.get("kind") == "user_message" for e in events))
     check_first("live")
 
-    # reopen: another chat, then this one again: a fresh 128 KB open page.
-    prompt(other, "hi", "sub")
-    pane("select_session", session=other)
-    wait(lambda: any("hi" in (b.get("text") or "") for b in bubbles()), 30)
-    pane("select_session", session=sid)
+    # reopen: the tab closes and the chat opens again: a fresh page, so a fresh 128 KB open page.
+    print("close tab", json.dumps(rpc("action.run", {"action": "closeTab", "focus": True}, timeout=30))[:200], flush=True)
+    wait(lambda: (pane("chat_state") or {}).get("sessionId") != sid, 15, 0.5)
+    opened = open_tab(sid)
+    row("reopen: the chat opens in a tab again", f"chat_state sessionId {sid}",
+        str((pane("chat_state") or {}).get("sessionId")), opened)
     check_first("reopen")
 
     # tell: a Chief follow-up is a second bubble from the Chief; the task stays first.

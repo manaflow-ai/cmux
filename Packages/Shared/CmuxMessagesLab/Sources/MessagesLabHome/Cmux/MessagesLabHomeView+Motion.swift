@@ -84,8 +84,10 @@ extension MessagesLabHomeView {
 
 extension RowCell {
     /// A typing row's dots stand still and its breath stops under Reduce Motion or with Home
-    /// animations off; after either they run again from now.
+    /// animations off; after either they run again from now. The status line's shimmer follows.
     func applyReduceMotion() {
+        // The status line's shimmer stops or sweeps again (HomeNoticeShimmer).
+        if let shimmer = noticeShimmer, bitmap.mask === shimmer.mask { shimmer.refresh() }
         guard dots.contains(where: { $0.sublayers?.first?.animation(forKey: "dots") != nil }) else { return }
         let now = CACurrentMediaTime()
         startTypingDots(begin: now)

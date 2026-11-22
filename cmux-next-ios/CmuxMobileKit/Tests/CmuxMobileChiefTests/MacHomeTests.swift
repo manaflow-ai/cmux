@@ -83,9 +83,33 @@ import Testing
 /// A fake Chief owner for Home: `conversation-list`, `home-inbox` and the
 /// person's list state, which comes back as `conversation-inbox-changed`.
 final class FakeHomeOwner: @unchecked Sendable {
+    /// How the phone's host answers a windowed `home-inbox` (`limit`/`offset`, `ids`).
+    enum Windows {
+        /// An owner reached with no host in between: it ignores the params (the whole list).
+        case ignores
+        /// cmux-mobile-host with windows (`InboxWindow`).
+        case honors
+        /// An older cmux-mobile-host: the params are not accepted from a phone.
+        case refuses
+    }
+
     private let lock = NSLock()
     private var rows: [[String: Any]] = MacHomeListTests.reply["rows"] as! [[String: Any]]
     private(set) var commands: [[String: Any]] = []
+    let windows: Windows
+
+    init(windows: Windows = .ignores, rows: [[String: Any]]? = nil) {
+        self.windows = windows
+        if let rows { self.rows = rows }
+    }
+
+    /// The owner drops a conversation (a Chief deleted on the Mac).
+    func remove(_ conversation: String) {
+        lock.withLock { rows.removeAll { $0["id"] as? String == conversation } }
+    }
+
+    /// The owner's order now.
+    var order: [String] { lock.withLock { rows.compactMap { $0["id"] as? String } } }
 
     func line(_ object: [String: Any]) -> Data {
         var data = try! JSONSerialization.data(withJSONObject: object)
@@ -127,7 +151,30 @@ final class FakeHomeOwner: @unchecked Sendable {
             case "conversation-snapshot":
                 return [ok(["conversation": ["id": object["conversation"]!, "participants": []], "messages": []])]
             case "home-inbox":
-                return [ok(["me": "user_local", "cloud": "not_asked", "rows": rows])]
+                let windowed = object["limit"] != nil || object["ids"] != nil
+                switch windows {
+                case .refuses where windowed:
+                    return [line(["id": id, "ok": false,
+                                  "error": ["code": "forbidden", "message": "home-inbox: limit is not accepted from a phone"]])]
+                case .honors where windowed:
+                    if let ids = object["ids"] as? [String] {
+                        let found = rows.enumerated().compactMap { index, row -> [String: Any]? in
+                            guard let rowID = row["id"] as? String, ids.contains(rowID) else { return nil }
+                            var indexed = row
+                            indexed["index"] = index
+                            return indexed
+                        }
+                        let digest = MacHomeRows.orderDigest(rows.compactMap(MacHomeRow.init(wire:)))
+                        return [ok(["me": "user_local", "cloud": "not_asked", "rows": found, "total": rows.count,
+                                    "order": digest])]
+                    }
+                    let offset = object["offset"] as? Int ?? 0
+                    let limit = object["limit"] as? Int ?? rows.count
+                    return [ok(["me": "user_local", "cloud": "not_asked", "rows": Array(rows.dropFirst(offset).prefix(limit)),
+                                "offset": offset, "total": rows.count])]
+                default:
+                    return [ok(["me": "user_local", "cloud": "not_asked", "rows": rows])]
+                }
             case "conversation-inbox-op":
                 let conversation = object["conversation"] as! String
                 let op = object["op"] as! [String: Any]
@@ -162,31 +209,62 @@ final class FakeHomeOwner: @unchecked Sendable {
         await eventually(condition)
     }
 
-    /// A wait wakes on the change it watches, not on a timer: its only other wake-up is
-    /// at the watchdog (the tick is longer), so ending well before that is the change.
+    // The wait tests below measure no time: each gives every wake-up but the one it
+    // tests an hour, so only that one can end the wait within the suite's time limit.
+    // A wall-clock bound failed when another suite held the main thread 25 s.
+
+    /// A wait wakes on the change it watches, not on a tick or the watchdog.
     @Test func aWaitWakesOnTheChangeItWatches() async {
         let flag = WaitFlag()
-        let start = ContinuousClock.now
         Task { flag.done = true }
-        #expect(await eventually(watchdog: .seconds(60), tick: .seconds(120)) { flag.done })
-        #expect(ContinuousClock.now - start < .seconds(30))
+        #expect(await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { flag.done })
     }
 
-    /// The watchdog holds whatever the tick: a condition that never holds ends at it.
+    /// The watchdog ends a wait whatever the tick.
     @Test func theWatchdogEndsAWaitWhateverTheTick() async {
-        let start = ContinuousClock.now
-        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(30)) { false })
-        #expect(ContinuousClock.now - start < .seconds(20))
+        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(3600)) { false })
     }
 
-    /// A cancelled wait ends at once: before, its loop ignored cancellation, so a
-    /// timed-out wait kept its task group from finishing.
+    /// A wait cancelled before it starts ends at once: before, the loop ignored
+    /// cancellation, so a timed-out wait kept its task group from finishing.
     @Test func aCancelledWaitEnds() async {
-        let wait = Task { await eventually { false } }
+        let wait = Task { await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { false } }
         wait.cancel()
         #expect(await wait.value == false)
-        // And a condition that never holds ends at the watchdog.
-        #expect(await !eventually(watchdog: .milliseconds(50)) { false })
+    }
+
+    /// A wait cancelled while it is suspended (its condition checked, waiting on a
+    /// change or a tick) ends at once too: the cancellation wakes it.
+    @Test func aWaitCancelledWhileSuspendedEnds() async {
+        let checks = CheckCount()
+        let wait = Task {
+            await eventually(watchdog: .seconds(3600), tick: .seconds(3600)) { checks.count += 1; return false }
+        }
+        // Checked once: it is now suspended until a change, a tick or a cancel.
+        #expect(await eventually { checks.count > 0 })
+        wait.cancel()
+        #expect(await wait.value == false)
+    }
+
+    /// Time the main thread is held does not use up a wait: the work it waits on was
+    /// held too. Before, a wait that woke past its wall-clock deadline gave up on its
+    /// first look, before that work had its turn (the full kit held the main thread
+    /// over a minute, and four Chief waits failed that way at once).
+    @Test func aHeldMainThreadDoesNotUseUpAWait() async {
+        let flag = WaitFlag()
+        Task {
+            // Starts once the wait below is asleep on a tick, so the tick runs out during
+            // the hold: hold the main thread past its watchdog, then finish a few
+            // main-actor turns after the wait gets its next look.
+            try? await Task.sleep(for: .milliseconds(50))
+            holdTheMainThread(seconds: 0.5)
+            Task {
+                await Task.yield()
+                await Task.yield()
+                flag.done = true
+            }
+        }
+        #expect(await eventually(watchdog: .milliseconds(200)) { flag.done })
     }
 
     @Test func readsTheMacsHomeListOverTheChiefChannel() async throws {
@@ -353,6 +431,16 @@ final class PushLink: MacLink, @unchecked Sendable {
 /// Set by a main-actor task in the wait tests; observable, as the feed is.
 @MainActor @Observable final class WaitFlag {
     var done = false
+}
+
+/// Blocks the calling thread: synchronous, as a UIKit suite holding the main thread is.
+func holdTheMainThread(seconds: TimeInterval) {
+    Thread.sleep(forTimeInterval: seconds)
+}
+
+/// How often a wait checked its condition: plain state, so counting never wakes it.
+@MainActor final class CheckCount {
+    var count = 0
 }
 
 final class PushChannel: LinkChannel, @unchecked Sendable {

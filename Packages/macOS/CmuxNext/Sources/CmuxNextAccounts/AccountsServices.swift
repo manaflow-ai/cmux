@@ -39,14 +39,14 @@ public protocol AccountsServices: AnyObject {
     /// Runs the provider's own login: its CLI in a new cmux terminal tab,
     /// or its page in a cmux browser tab. Returns when the tab is open; the
     /// screen re-detects when the app becomes active again. False when
-    /// nothing opened: no window with a pane on this Mac to open it in.
+    /// nothing opened: no local pane could be opened, including a new workspace.
     @discardableResult
-    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool
+    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool
     /// Runs `claude setup-token` in a terminal tab, so the user can copy the
     /// token into the paste field.
-    func runClaudeSetupToken()
+    func runClaudeSetupToken() async
     /// Opens the provider's key page in a browser tab.
-    func openConsole(_ url: URL)
+    func openConsole(_ url: URL) async
 
     /// Saves a pasted key to cmux's Keychain item (never cmux.json).
     func saveKey(_ key: String, for provider: AIProvider) throws
@@ -70,6 +70,13 @@ public protocol AccountsTeamBackend: AnyObject {
     func renameTeam(id: String, to name: String) async throws
     /// Deletes a team (admins only). When it was the active team, another becomes active.
     func deleteTeam(id: String) async throws
+    /// Pending invitations addressed to the person's verified emails.
+    func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation]
+    /// Joins the team an invitation names; the joined team becomes the active team.
+    @discardableResult
+    func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin
+    /// Declines an invitation; the membership does not change.
+    func declineTeamInvitation(id: String) async throws
 }
 
 extension CloudAuth: AccountsTeamBackend {}

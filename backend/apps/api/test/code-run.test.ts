@@ -237,7 +237,7 @@ describe("Tier 1 code runs (workerd)", () => {
       return r.frames.find((f: { t: string }) => f.t === "result")?.value
     }
     await inDO(scheduler, async (s) => {
-      const a = await submit(s, as("user_aaaaaaaaaaaaaaaaaaaa"), "automation.create", { name: "pay", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+      const a = await submit(s, as("user_aaaaaaaaaaaaaaaaaaaa"), "automation.create", { name: "pay", editors: ["user_bbbbbbbbbbbbbbbbbbbb"], triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
       const head = () => s.boundEngine.currentState.charged_to?.[a.id]
       expect(head()).toBe("user_aaaaaaaaaaaaaaaaaaaa")
       await submit(s, as("user_bbbbbbbbbbbbbbbbbbbb"), "automation.update", { automation: a.id, name: "renamed" })

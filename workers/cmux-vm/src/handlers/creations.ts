@@ -26,7 +26,7 @@ const list = (cursor: string | undefined, limit: number, pending = false) => wit
   if (caller.value.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources cannot list creation history" }));
   if (cursor !== undefined && (pending ? !PENDING_CREATION_CURSOR.test(cursor) : !/^[a-f0-9]{64}$/.test(cursor)))
     return yield* Effect.fail(new BadRequest({ message: "The cursor belongs to a different history view" }));
-  const page = yield* (yield* TenantLimits).listGenerated(caller.value.tenantId, creationDiscoveryScope(caller.value), cursor, limit, pending).pipe(Effect.mapError(() => unavailable()));
+  const page = yield* (yield* TenantLimits).listGenerated(caller.value.tenantId, creationDiscoveryScope(caller.value), cursor, limit, pending).pipe(Effect.mapError(unavailable));
   if (pending && page.pendingIndex === undefined) return yield* Effect.fail(unavailable());
   const items = yield* Effect.forEach(page.items, (generated) => readVmCreation(caller, generated.key).pipe(
     Effect.map((status) => pending && status.state !== "pending" && status.state !== "cancelling" ? null : new VmCreationListItem({ ...publicStatus(status), creationKey: generated.key,

@@ -12,7 +12,7 @@
 //! whose SYN came with no key is reset, never matched by address.
 
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -55,6 +55,17 @@ pub(crate) const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
 /// keepalives and application heartbeats on another lane do not elicit its ACKs.
 const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
+/// The floor under the retransmission timeout once an RTT is measured:
+/// Linux's `TCP_RTO_MIN`. smoltcp defaults to RFC 6298's 1 s, which turns one
+/// lost segment at the tail of a frame into a 1 s stall. Linux peers run
+/// with the same floor against each other's delayed ACKs, and smoltcp delays
+/// an ACK by 10 ms.
+const TCP_MIN_RTO: Duration = Duration::from_millis(200);
+/// How long a peer may hold an ACK, in the tail-loss probe timeout
+/// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
+/// a kernel peer's first delayed ACK. A probe sent too early costs one
+/// segment resent.
+const TCP_PROBE_ACK_DELAY: Duration = Duration::from_millis(25);
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 pub(crate) const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -110,8 +121,15 @@ pub(crate) struct Conn {
     /// Head of the outbound queue not yet accepted by smoltcp.
     pub(crate) pending_write: Option<Bytes>,
     pub(crate) outbound_closed: bool,
+    /// The peer's FIN arrived: a socket that ends after this ended cleanly,
+    /// one that ends without it was reset or timed out.
+    pub(crate) remote_fin: bool,
+    /// Bytes taken from the socket after it closed, before the owner read
+    /// them (TIME-WAIT's timer would clear the socket's buffer).
+    pub(crate) drained: VecDeque<Bytes>,
     /// Set before the connection is dropped for a reason the owner must see
-    /// as an error (its peer was removed).
+    /// as an error (its peer was removed, or the socket was reset or timed
+    /// out before the peer's FIN).
     pub(crate) reset: Arc<AtomicBool>,
 }
 
@@ -137,6 +155,9 @@ pub(crate) struct TcpStack {
     pub(crate) syn_origins: Option<HashMap<FlowKey, PeerKey>>,
     /// [`TcpStack::close_all`] ran: each connection closes after what its owner had queued.
     pub(crate) closing: bool,
+    /// Congestion control for new connections: Cubic, or none when ultra
+    /// mode holds the rate through loss (`CMUX_WG_ULTRA_CC=none`).
+    pub(crate) congestion: tcp::CongestionControl,
 }
 
 impl TcpStack {
@@ -182,6 +203,7 @@ impl TcpStack {
             next_port: random_ephemeral_port(),
             syn_origins: tagged.then(HashMap::new),
             closing: false,
+            congestion: tcp::CongestionControl::Cubic,
         })
     }
 
@@ -195,6 +217,25 @@ impl TcpStack {
     pub(crate) fn poll(&mut self) {
         let now = self.now();
         self.iface.poll(now, &mut self.device, &mut self.sockets);
+    }
+
+    /// The tunnel moved to another route: every connection with data in
+    /// flight resends it at once, with its RTO back at the RTT estimate.
+    pub(crate) fn path_changed(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).path_changed();
+        }
+    }
+
+    /// Ultra mode began repairing this tunnel's losses (Auto turned it on at
+    /// the first loss): the losses that turned it on, and any other of data
+    /// already in flight, cut no congestion window, and a cut one already
+    /// made is undone. Repair covers the link from here on, as it covers a
+    /// tunnel that started in Always, whose TCP never sees those losses.
+    pub(crate) fn link_repairs_losses(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).link_repairs_losses();
+        }
     }
 
     /// When smoltcp next wants a poll, or `None` to wait for an event.
@@ -266,14 +307,27 @@ impl TcpStack {
     }
 
     /// A socket that gives up after `timeout` without an ACK from the peer.
-    pub(crate) fn new_socket(timeout: Duration) -> tcp::Socket<'static> {
+    pub(crate) fn new_socket(
+        timeout: Duration,
+        congestion: tcp::CongestionControl,
+    ) -> tcp::Socket<'static> {
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
             tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
         );
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
-        socket.set_congestion_control(tcp::CongestionControl::Cubic);
+        socket.set_congestion_control(congestion);
+        socket.set_min_rto(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
+        ));
+        // A lone lost segment is resent after about two round trips, not the RTO.
+        socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
+        )));
+        // Under repeated loss, resend only the holes the peer's SACK blocks
+        // show, several per round trip, with one window cut per episode.
+        socket.set_sack_recovery(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));
@@ -297,7 +351,7 @@ impl TcpStack {
         }
         let port = self.allocate_port();
         let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket(user_timeout(remote.port()));
+        let mut socket = Self::new_socket(user_timeout(remote.port()), self.congestion);
         let result = socket.connect(
             self.iface.context(),
             IpEndpoint::new(ip_address(remote.ip()), remote.port()),
@@ -326,7 +380,7 @@ impl TcpStack {
     }
 
     pub(crate) fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket(user_timeout(port));
+        let mut socket = Self::new_socket(user_timeout(port), self.congestion);
         socket
             .listen(IpListenEndpoint::from(port))
             .map_err(|error| WgError::Stack(format!("{error}")))?;
@@ -364,6 +418,8 @@ impl TcpStack {
             outbound: outbound_rx,
             pending_write: None,
             outbound_closed: false,
+            remote_fin: false,
+            drained: VecDeque::new(),
             reset,
         };
         (conn, stream)

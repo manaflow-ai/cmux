@@ -4,15 +4,12 @@ import Foundation
 import os
 
 /// The daemon side of React page calls (SECURITY, request-origin.md): page ops go on their own
-/// daemon connection with the `page_relay` role, so the daemon derives origin `page` for every
-/// one of them, whatever a Swift bug sends. A call is the user's only after a native sheet
-/// approved it: the relay asks the main connection for a one-time confirmation token bound to
-/// the op, its exact params and this relay connection, and attaches it to that one request. The
-/// page never sees the token.
+/// `page_relay` daemon connection, so the daemon derives origin `page` for each, whatever a Swift
+/// bug sends. A call is the user's only after a native sheet approved it: the relay attaches a
+/// one-time token from the main connection, bound to the op, its params and this relay connection.
 ///
-/// One relay connection per page (`page-router-v1`): its `client-hello` names the page
-/// (`cmux.history` -> `history`), so the daemon applies that page's allow list
-/// (cmux-tui/spec/page-router.json). A call the list marks `gesture` goes out with a confirmation
+/// One relay connection per page (`page-router-v1`): its `client-hello` names the page (`cmux.history`
+/// -> `history`), so the daemon applies its allow list (spec/page-router.json). A `gesture` call gets a confirmation
 /// token when a real key or pointer event backs it (``PageCallContext/userGesture``).
 ///
 /// Events (`page-events-v1`, cx-hnmbt.9): the relay connection also subscribes when its page hears
@@ -20,8 +17,8 @@ import os
 /// hands each one, as the daemon sent it, to the page streams that asked for it. After a reconnect
 /// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
 ///
-/// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
-/// main connection as before, with a logged warning that they are not narrowed.
+/// Without `origin-claim-v1` calls go on the main connection, which nothing narrows: only the page's
+/// spec reads, or its gesture/confirm ops on an event or sheet (``PageOperations``; cmux#37302).
 @MainActor
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "dev.cmux.next", category: "page-relay")
@@ -78,11 +75,14 @@ final class PageRelayChannel {
     /// when `context` was confirmed on a native sheet.
     func send(operation: String, params: [String: CmuxNextDaemon.JSONValue], idempotencyKey: String?,
               context: PageCallContext) async throws -> CmuxNextDaemon.JSONValue {
-        guard let service, let main = service.connection else { throw DaemonError.notConnected }
-        guard service.supports(DaemonClientRole.originClaimCapability) else {
+        guard let service else { throw DaemonError.notConnected }
+        let claims = DaemonClientRole.originClaimCapability
+        guard service.supports(claims) || PageOperations.allowsUnnarrowed(identity.page, operation, confirmed: context.isConfirmedUser, gesture: { spendGesture(context) }) else { throw DaemonError.missingCapabilities([claims]) }
+        guard let main = service.connection else { throw DaemonError.notConnected }
+        guard service.supports(claims) else {
             if !warned {
                 warned = true
-                Self.logger.warning("the daemon has no origin-claim-v1: page calls are not narrowed to origin page")
+                Self.logger.warning("the daemon has no origin-claim-v1: page calls follow the app's copy of the page spec")
             }
             return try await ResourceRelayClient(connection: main).send(operation: operation, params: params, idempotencyKey: idempotencyKey)
         }

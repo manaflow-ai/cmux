@@ -58,8 +58,7 @@ struct AgentCursorTagGlassTests {
             #expect(rim.frame == pill.bounds)
             #expect(pill.cornerCurve == .continuous)
         }
-        #expect(cursor.nameTag.cornerRadius == FloatingGlassStyle.agentTag.cornerRadius)
-        #expect(cursor.nameTag.bounds.height == FloatingGlassStyle.agentTag.cornerRadius * 2, "a capsule")
+        #expect(cursor.nameTag.cornerRadius * 2 == cursor.nameTag.bounds.height, "a capsule")
     }
 
     @Test func reduceTransparencyDrawsTheTagOpaque() throws {

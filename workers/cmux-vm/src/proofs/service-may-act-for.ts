@@ -17,11 +17,14 @@ const ServiceMayActForProof = defineProof("ServiceMayActFor");
 /** The service key `K` may act for the team `T`. */
 export interface ServiceMayActFor<K, T> extends Proof<"ServiceMayActFor", [K, T]> {}
 
-export const serviceMayActFor = <K, T>(key: Named<K, ServiceKey>, team: Named<T, TenantId>): ServiceMayActFor<K, T> | null =>
+/** What a service principal is built from: a service key, or a CI trust row (src/auth/ci-trust.ts). */
+export type ServiceIdentity = Pick<ServiceKey, "id" | "scopes" | "labels" | "teams">;
+
+export const serviceMayActFor = <K, T>(key: Named<K, ServiceIdentity>, team: Named<T, TenantId>): ServiceMayActFor<K, T> | null =>
   key.value.teams === null || key.value.teams.has(team.value) ? ServiceMayActForProof.prove(key, team) : null;
 
 /** The Principal of a service key acting for a team; it cannot be built without the proof. */
-export const servicePrincipal = <K, T>(key: Named<K, ServiceKey>, team: Named<T, TenantId>, _proof: ServiceMayActFor<K, T>): Principal => ({
+export const servicePrincipal = <K, T>(key: Named<K, ServiceIdentity>, team: Named<T, TenantId>, _proof: ServiceMayActFor<K, T>): Principal => ({
   tenantId: team.value,
   actor: { kind: "service", serviceId: key.value.id },
   scopes: key.value.scopes,

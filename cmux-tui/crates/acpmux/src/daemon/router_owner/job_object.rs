@@ -19,7 +19,7 @@ impl RouterOwner for JobOwner {
         if ask_router(b"{\"op\":\"status\"}\n").is_ok() {
             let _ = ask_router(b"{\"op\":\"shutdown\"}\n");
         }
-        match crate::daemon::windows::spawn_router(&home(), crate::hub::BUILD) {
+        match crate::daemon::windows::spawn_router(&home(), crate::hub::build()) {
             Ok(job) => Some(JobOwner { _job: job }),
             Err(e) => {
                 tracing::warn!("could not start the local router: {e}");

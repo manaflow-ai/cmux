@@ -65,18 +65,17 @@ public final class CEFAgentRelay {
     /// True once the Chromium browser exists.
     public var hasBrowser: Bool { tab?.browserID != nil }
 
-    /// No pane shows the tab, nor any other tab of its pane's Chromium window:
-    /// that window is in no app window, so Chromium draws no frame for it
-    /// (screenshots never answer). The App then moves the tab's content
-    /// view into its off-screen render window, which presents the tab there.
-    /// False while a pane shows another tab of the same window: the tab is a
-    /// background tab of a drawn window then, and moving it would take the
-    /// window from that pane.
+    /// No pane shows the tab: Chromium draws no frame for it (screenshots
+    /// never answer, animation frames run at 1 a second). The App then moves
+    /// the tab's content view into its off-screen render window, which
+    /// presents the tab there. A background tab of a pane that shows another
+    /// tab first moves to a Chromium window of its own
+    /// (`CEFPaneHost.lendToAgent`), so the pane keeps its page window.
     public var needsRenderWindow: Bool {
         // A tab its pane parked hidden (PaneContentView+Parking) is in the
         // window but not drawn: a background tab too.
         guard let tab, !tab.isClosed, tab.contentView.window == nil || tab.contentView.isHiddenOrHasHiddenAncestor else { return false }
-        return tab.host.visibleTab == nil
+        return tab.host.visibleTab == nil || tab.host.lendsToAgent(tab)
     }
 
     /// Creates the Chromium browser of a tab that was never shown, in the
@@ -85,6 +84,13 @@ public final class CEFAgentRelay {
     public func createBrowser() {
         guard let tab, !tab.isClosed else { return }
         tab.host.ensureCreated(tab)
+    }
+
+    /// Creates the browser in the background when it has none (``createBrowser()``) and awaits it
+    /// (``browserCreated()``): true once it exists. Agents drive hidden tabs.
+    public func started() async -> Bool {
+        if !hasBrowser { createBrowser() }
+        return await browserCreated()
     }
 
     /// Resumes with true once the browser exists, false when its creation

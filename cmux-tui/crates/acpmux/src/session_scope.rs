@@ -32,7 +32,7 @@
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3); its harnesses start at background CPU class (`cpu_class.rs`).
+//! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;
@@ -970,7 +970,9 @@ mod tests {
             let _ = std::fs::remove_file(&stall);
             let _ = release.recv();
         });
-        ready.recv().unwrap();
+        ready
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the holder never reached its stalled `systemctl`");
         // The holder is in its stalled `systemctl` (so it holds the lock).
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while !marker.exists() {

@@ -47,7 +47,8 @@ nonisolated enum TrustSettingsSchema {
                 help: SettingsText.keyed("settings.agents.trust.ownOrgs.help", "A repository is trusted when all of its GitHub remotes belong to these users or organizations."),
                 kind: .stringList,
                 default: .array(TrustSettings.trustOwnOrgsDefault.map { .string($0) }),
-                keywords: ["trust", "github", "organization", "owner", "remote", "repository"]
+                keywords: ["trust", "github", "organization", "owner", "remote", "repository"],
+                placeholder: SettingsText.keyed("settings.placeholder.githubOwner", "Add a user or organization")
             ),
         ]
     }

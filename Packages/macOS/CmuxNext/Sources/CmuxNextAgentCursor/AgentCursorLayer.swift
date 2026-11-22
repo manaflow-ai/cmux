@@ -146,7 +146,6 @@ public final class AgentCursorLayer {
         caption.shadowOpacity = 0.16
         caption.shadowRadius = 5
         caption.shadowOffset = .zero
-        caption.cornerRadius = Self.tagStyle.cornerRadius
         caption.anchorPoint = .zero
         caption.opacity = 0
         captionText.font = Self.captionFont
@@ -163,7 +162,6 @@ public final class AgentCursorLayer {
         nameTag.shadowOffset = CGSize(width: 0, height: 1.5)
         nameDot.fillColor = Self.gray
         nameTag.addSublayer(nameDot)
-        nameTag.cornerRadius = Self.tagStyle.cornerRadius
         nameTag.anchorPoint = .zero
         nameText.font = Self.captionFont
         nameText.fontSize = Self.tagFontSize
@@ -189,6 +187,7 @@ public final class AgentCursorLayer {
             let lead = padding + dot + gap
             let width = Self.captionWidth(name, size: Self.tagFontSize) + lead + padding
             nameTag.frame = CGRect(origin: Self.tagOffset, size: CGSize(width: width, height: Self.tagHeight))
+            nameTag.cornerRadius = Metrics.capsuleRadius(nameTag.bounds.size) // a capsule
             Self.layoutRim(nameRim, in: nameTag.bounds)
             nameDot.path = CGPath(ellipseIn: CGRect(x: padding, y: (Self.tagHeight - dot) / 2, width: dot, height: dot), transform: nil)
             let lineHeight = ceil(Self.tagFontSize * 1.3)
@@ -328,6 +327,7 @@ public final class AgentCursorLayer {
         let wasShowing = isCaptionShowing
         let size = CGSize(width: width, height: Self.captionHeight)
         for layer in [caption, glassCaption] { layer.bounds = CGRect(origin: .zero, size: size) }
+        caption.cornerRadius = Metrics.capsuleRadius(size) // a capsule
         let lineHeight = ceil(Self.captionFontSize * 1.3)
         captionText.frame = CGRect(x: padding, y: (Self.captionHeight - lineHeight) / 2,
                                    width: width - padding * 2, height: lineHeight)
@@ -389,7 +389,7 @@ public final class AgentCursorLayer {
         guard let stroke = rim.mask as? CAShapeLayer else { return }
         stroke.frame = bounds
         let inset = bounds.insetBy(dx: stroke.lineWidth / 2, dy: stroke.lineWidth / 2)
-        let radius = min(max(tagStyle.cornerRadius - stroke.lineWidth / 2, 0), min(inset.width, inset.height) / 2)
+        let radius = Metrics.capsuleRadius(inset.size) // concentric with the capsule: half the inset pill
         stroke.path = inset.width > 0 && inset.height > 0
             ? CGPath(roundedRect: inset, cornerWidth: radius, cornerHeight: radius, transform: nil) : nil
     }

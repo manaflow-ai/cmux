@@ -80,13 +80,7 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // Real rendered accessibility surfaces, not guessed card heights. Includes the transcript viewport:
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
-  const selectors = [
-    ".acpmux-pr-dock",
-    ".acpmux-trust-ask",
-    ".acpmux-permission-panel",
-    ".acpmux-composer-queue",
-    ".acpmux-composer-box",
-  ];
+  const selectors = [".acpmux-trust-ask", ".acpmux-permission-panel", ".acpmux-composer-queue", ".acpmux-composer-box"];
   const layers = selectors.flatMap((selector) =>
     [...ctx.document.querySelectorAll(selector)].map((node) => ({
       selector,
@@ -108,14 +102,14 @@ function geometry(ctx: PlayContext) {
         throw new Error(`Bottom stack overlaps: ${a.selector} / ${b.selector} (${height}px)`);
     }
 }
+// The trust question never hides the chat's other asks (Leo 2026-10-21, P0): the permission
+// card stays under it, answerable.
 const checkTrust: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   geometry(ctx);
-  if (ctx.document.querySelector(".acpmux-permission-card"))
-    throw new Error("Tool permission is visible before folder trust");
 };
 const checkPrQueue: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
@@ -163,11 +157,11 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  // These chats offer no modes: Access still mounts for the folder grant, so trust stays revocable.
-  await ctx.click({ selector: ".acpmux-access-trigger" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grant-remove") !== null);
-  await ctx.click({ selector: ".acpmux-access-grant-remove" });
-  await checkTrust(ctx);
+  // The granted trust is revoked from the chat menu's Revoke Granted Access (or Session Info's
+  // Environment), never from the composer's mode menu
+  // (Leo, 2026-10-29): these chats offer no modes, so the composer draws no Access menu for it.
+  if (ctx.document.querySelector(".acpmux-access-trigger, .acpmux-access-grant"))
+    throw new Error("The composer shows a mode menu for granted access");
 };
 const waitingInLine: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask"));
@@ -183,7 +177,8 @@ const trusted: Play = async (ctx) => {
     role: "button",
     name: ctx.document.querySelector(".acpmux-permission-ask") ? "Always allow" : "Allow for this chat",
   });
-  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
+  // It folds out on the fold's clock (App.tsx `trustFold`), then goes.
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-trust-ask"));
   geometry(ctx);
 };
 // The chat's folder is a repository: the pane offers Trust repo first (one answer for every
@@ -196,7 +191,7 @@ const trustedRepo: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
   await ctx.click({ role: "button", name: "Trust repo" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
-  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-trust-ask"));
 };
 // A short pane (Leo 2026-10-22: "the access to the composer got fucked"): the question, the
 // queue and a long draft over the composer still leave the card and the quiet row under it whole,
@@ -235,6 +230,30 @@ export default agentPaneEntry({
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },
     "trust-then-individual": { snapshot: individual, native, play: trustThenPermission },
+    // The trust question's fold out once answered (App.tsx `trustFold`), the three looks over the
+    // permission card: `slide`, shipped, is trust-then-permission itself (the shared fold: its text
+    // fades over the exit lead, then the card slides down under the card below as its box closes);
+    // `wipe` holds the card still and cuts it from its top (bottomStack.css `data-trust-fold`);
+    // `fade` gives the text a whole quick step of exit lead before the box moves (exitLead.ts
+    // `quick`); `jump`, before, drops the card in one frame.
+    "trust-fold-wipe": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "trust-fold": "wipe" },
+      play: trustThenPermission,
+    },
+    "trust-fold-fade": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "exit-lead": "quick" },
+      play: trustThenPermission,
+    },
+    "trust-fold-jump": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "fold-look": "jump" },
+      play: trustThenPermission,
+    },
     "trusted-permission-queue": { snapshot: grouped, native, play: trusted },
     "trusted-individual-queue": { snapshot: individual, native, play: trusted },
     "trusted-individual-waiting": {

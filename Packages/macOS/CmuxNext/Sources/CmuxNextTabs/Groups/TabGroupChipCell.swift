@@ -2,10 +2,13 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// A group chip drawn with CALayers: a muted color pill with the group's
-/// icon and name (or a dot with neither) and, when collapsed, the member
-/// count. Used by the strip and the saved groups bar.
-final class TabGroupChipCell {
+/// A group chip drawn with CALayers: a pill of the group's color with the
+/// group's icon and name (or a dot with neither) and, when collapsed, the
+/// member count. Used by the strip and the saved groups bar. The pill is the
+/// sidebar group headers' tinted glass with a rim (#36225, ``GroupChipGlass``)
+/// unless `sidebar.groupHeader.background` asks for solid; the look changes
+/// only the pill's fill, rim and ink, never its size.
+final class TabGroupChipCell: ReduceTransparencyFollower {
     let layer = CALayer()
     let accessibility = TabAccessibilityElement()
 
@@ -29,6 +32,8 @@ final class TabGroupChipCell {
     var metrics = TabStripMetrics.standard { didSet { if oldValue != metrics { contentChanged() } } }
     var font = Typography.caption { didSet { if oldValue != font { contentChanged() } } }
     var themeScope: ThemeScope = .app { didSet { updateColors(animated: false) } }
+    /// The glass settings the chip follows (`GroupChipGlass.current`); the strip sets it when they change.
+    var look = GroupChipGlass.current { didSet { if oldValue != look { updateColors(animated: false) } } }
     /// Backing scale of the host window. Starts at 1 to match a new layer's
     /// `contentsScale`, so the first real assignment always reaches the layers.
     var scale: CGFloat = 1 {
@@ -42,6 +47,10 @@ final class TabGroupChipCell {
     }
 
     let pill = CALayer()
+    /// The glass's specular rim: a hairline inside the pill, lit at the top and fading to the bottom
+    /// (the `group` surface role's, as `GlassRimView` draws it on a sidebar header). Hidden when solid.
+    let rim = CAGradientLayer()
+    private let rimStroke = CAShapeLayer()
     private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
     private let countLayer = ChromeTextLayer()
@@ -61,9 +70,15 @@ final class TabGroupChipCell {
             "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
             "string": NSNull(), "foregroundColor": NSNull(), "mask": NSNull(), "zPosition": NSNull(),
         ]
-        for sublayer in [layer, pill, nameLayer, countLayer, nameMask, iconLayer] { sublayer.actions = none }
+        for sublayer in [layer, pill, nameLayer, countLayer, nameMask, iconLayer, rim, rimStroke] { sublayer.actions = none }
         iconLayer.contentsGravity = .resizeAspect
-        pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "shadowOpacity": Self.fade]
+        pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "shadowOpacity": Self.fade,
+                        "borderWidth": NSNull(), "borderColor": NSNull()]
+        rim.startPoint = CGPoint(x: 0.5, y: 0)
+        rim.endPoint = CGPoint(x: 0.5, y: 1)
+        rimStroke.fillColor = nil
+        rimStroke.strokeColor = NSColor.black.cgColor
+        rim.mask = rimStroke
         pill.cornerCurve = .continuous
         nameMask.startPoint = CGPoint(x: 0, y: 0.5)
         nameMask.endPoint = CGPoint(x: 1, y: 0.5)
@@ -73,9 +88,11 @@ final class TabGroupChipCell {
         pill.addSublayer(iconLayer)
         pill.addSublayer(nameLayer)
         pill.addSublayer(countLayer)
+        pill.addSublayer(rim)
         accessibility.setAccessibilityRole(.disclosureTriangle)
         accessibility.setAccessibilitySubrole(nil)
         contentChanged()
+        ReduceTransparency.shared.register(following: self)
     }
 
     /// Takes its duration from the `Motion.transaction` it runs in.
@@ -158,8 +175,11 @@ final class TabGroupChipCell {
         let side = isDot ? m.groupChipDotSize : height
         let width = min(TabGroupChipLayout.pillWidth(content, metrics: m), max(0, bounds.width - 2 * m.groupChipOuterInset))
         pill.frame = pixel(CGRect(x: m.groupChipOuterInset, y: (bounds.height - side) / 2, width: width, height: side))
-        pill.cornerRadius = isDot ? side / 2 : max(0, m.cornerRadius - Metrics.space1)
+        // The chip sits on the tab pills' line: concentric with a tab pill there.
+        let tabRow = CGRect(x: 0, y: (bounds.height - m.tabHeight) / 2, width: bounds.width, height: m.tabHeight)
+        pill.cornerRadius = isDot ? side / 2 : m.nestedCornerRadius(pill.frame, in: tabRow)
         pill.opacity = width > 0 ? 1 : 0
+        layoutRim(radius: pill.cornerRadius)
 
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let textY = pixel((side - lineHeight) / 2)
@@ -190,6 +210,25 @@ final class TabGroupChipCell {
         countLayer.opacity = shownCount > 0 ? 1 : 0
     }
 
+    /// The rim follows the pill's bounds and corner on every layout, so a springing width never shows it out of place.
+    private func layoutRim(radius: CGFloat) {
+        let bounds = pill.bounds
+        let hairline = 1 / max(scale, 1)
+        rim.frame = bounds
+        rimStroke.frame = bounds
+        rimStroke.lineWidth = look.borders.width(hairline)
+        let inset = bounds.insetBy(dx: hairline / 2, dy: hairline / 2)
+        // CoreGraphics refuses a corner wider than half the rect.
+        let corner = min(max(radius - hairline / 2, 0), max(min(inset.width, inset.height) / 2, 0))
+        rimStroke.path = inset.width > 0 && inset.height > 0
+            ? CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil) : nil
+    }
+
+    /// The pane goes opaque or back to glass with Reduce Transparency, which is a notification, not an observed setting.
+    func reduceTransparencyChanged() {
+        updateColors(animated: false)
+    }
+
     func updateColors(animated: Bool) {
         Motion.feedback.transaction(animated ? .hover : nil) { applyColors() }
     }
@@ -197,17 +236,56 @@ final class TabGroupChipCell {
     private func applyColors() {
         themeScope.perform {
             pill.shadowColor = Palette.shadow.cgColor
-            var fill = group.tint.chipFill
+            let tokens = themeScope.tokens
+            // Hover and press step over the glass pane, as on a sidebar header (`GroupGlassPaint` steps).
+            let steps = isPressed ? [tokens.pressedFill] : isHovered ? [tokens.hoverFill] : []
+            let opaque = ReduceTransparency.shared.isEnabled
+            if let paint = look.paint(tint: group.tint, tokens: tokens, steps: steps, opaque: opaque) {
+                applyGlass(paint, tokens: tokens, opaque: opaque)
+                return
+            }
+            // No color: the theme's neutral step, as the band behind its tabs, so the chip still reads as a group's
+            // chip rather than a bare label (Leo 2026-11-05: "a grouped up thing").
+            var fill = group.tint.isNone ? Palette.sidebarStep : group.tint.chipFill
             if isPressed {
                 fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill
             } else if isHovered {
                 fill = fill.blended(withFraction: 0.08, of: Palette.textPrimary) ?? fill
             }
             pill.backgroundColor = fill.cgColor
+            setEdge(rim: nil, border: nil)
             nameLayer.foregroundColor = Palette.textPrimary.cgColor
             countLayer.foregroundColor = Palette.textSecondary.cgColor
             iconLayer.contents = group.icon?.groupChipImage(tint: Palette.textPrimary, size: metrics.groupChipIconSize, scale: scale)
         }
+    }
+
+    /// The glass pill: the translucent tinted pane, its rim, and one ink held readable over it. Under Reduce
+    /// Transparency the pane is opaque and edged with a hairline instead of the rim, as the sidebar's.
+    private func applyGlass(_ paint: GroupGlassPaint, tokens: ThemeTokens, opaque: Bool) {
+        pill.backgroundColor = paint.fill.nsColor.cgColor
+        let rimColors = GroupChipGlass.rim(isDark: tokens.isDark)
+        setEdge(rim: opaque ? nil : rimColors, border: opaque ? tokens.separator.nsColor : nil)
+        let ink = paint.ink.nsColor
+        nameLayer.foregroundColor = ink.cgColor
+        countLayer.foregroundColor = ink.withAlphaComponent(Self.countInkAlpha).cgColor
+        iconLayer.contents = group.icon?.groupChipImage(tint: ink, size: metrics.groupChipIconSize, scale: scale)
+    }
+
+    /// The count's share of the ink on glass: secondary, as a sidebar header's count.
+    static let countInkAlpha: CGFloat = 0.7
+
+    private func setEdge(rim colors: (top: NSColor, bottom: NSColor)?, border: NSColor?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        rim.isHidden = colors == nil
+        if let colors { rim.colors = [colors.top.cgColor, colors.bottom.cgColor] }
+        // The look's borders, not a read at layout: a change to `appearance.borders` reaches the rim and border
+        // with the recolor, without waiting for a relayout.
+        rimStroke.lineWidth = look.borders.width(1 / max(scale, 1))
+        pill.borderWidth = border == nil ? 0 : look.borders.width(1)
+        pill.borderColor = border?.cgColor
+        CATransaction.commit()
     }
 
     private func pixel(_ value: CGFloat) -> CGFloat {

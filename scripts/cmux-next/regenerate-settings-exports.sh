@@ -29,10 +29,13 @@
 #     --arg=settings-exports.patch --artifact settings-exports.patch --ref <full sha> --key <unique key>
 #   cmux-ci artifact <step id> settings-exports.patch
 set -euo pipefail
+# cmux-ci-warm-contract: swiftpm-v1
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet regenerate-settings-exports.sh "swift test" "cmux-next generated files / base autofix action exports"
+# shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 # One EXIT trap for every temporary path: a second `trap ... EXIT` would replace
 # the first and leak what it cleaned up.
 cmux_next_cleanup_paths=()
@@ -57,11 +60,11 @@ exports=()
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
 (( ${#exports[@]} )) || { echo "::error::$list lists no export" >&2; exit 1; }
 
+cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
 cd "$root/Packages/macOS/CmuxNext"
-swift build --build-tests
 # SwiftPM copies raw catalogs but can keep old compiled tables on a reused
 # runner; the exported texts come from the compiled tables.
-CMUX_SWIFT_BIN_PATH="$(swift build --show-bin-path)" "$root/scripts/cmux-next/compile-string-catalogs.sh"
+CMUX_SWIFT_BIN_PATH="$(swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --show-bin-path)" "$root/scripts/cmux-next/compile-string-catalogs.sh"
 # The exports are written before each test compares them, so an export test
 # that fails for another reason still leaves them current (and says so). One
 # that fails before it writes leaves an old copy: each export must be newer
@@ -70,8 +73,8 @@ marker="$(mktemp)"
 cmux_next_cleanup_paths+=("$marker")
 sleep 1 # the marker's mtime must be older than anything the tests write
 status=0
-CMUX_UPDATE_MDM_SCHEMA=1 swift test --skip-build --filter ManagedPreferencesManifestTests || status=$?
-CMUX_UPDATE_ACTION_SURFACES=1 swift test --skip-build --filter SettingsSchemaExportTests || status=$?
+CMUX_UPDATE_MDM_SCHEMA=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter ManagedPreferencesManifestTests || status=$?
+CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter SettingsSchemaExportTests || status=$?
 (( status == 0 )) || echo "::warning::a settings export test failed (exit $status); the exports were still regenerated"
 cd "$root"
 # A file the exporters wrote that this list does not name would be left stale
@@ -82,6 +85,9 @@ while IFS= read -r path; do
   grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
 done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
 for file in "${exports[@]}"; do
+  # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
+  # what this run regenerated is handed over.
+  rm -f -- "$out/$file"
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
   # An export test that failed before it wrote leaves the old copy: a failed regeneration, not a fresh one.
   [[ "$file" -nt "$marker" ]] || { echo "::error::the settings export did not rewrite $file" >&2; exit 1; }

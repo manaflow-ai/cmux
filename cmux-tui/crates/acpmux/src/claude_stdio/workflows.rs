@@ -46,7 +46,7 @@ const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
     /// The run's transcript dir, once its launch named it.
-    dir: Option<PathBuf>,
+    pub(super) dir: Option<PathBuf>,
     /// Each agent's item as last seen and its fields as last sent, by
     /// Claude's agent index.
     agents: HashMap<u64, (Value, Map<String, Value>)>,
@@ -225,6 +225,12 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        // A plain agent's task id is the agent id SendMessage names it by.
+        if workflow.is_none()
+            && let Some(task) = text("task_id")
+        {
+            update.set("agentId", json!(task));
         }
         if let Some(last) = text("lastMessage").or_else(|| text("last_message")) {
             update.set("lastMessage", json!(preview(last)));

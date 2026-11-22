@@ -6,6 +6,7 @@
 // same report as the person's bubble (claude-sr2, 2026-10-24). A task's result (`acpmux task done`,
 // acpmux hub/tasks.rs) is the lane's card too, opening its chat.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 
@@ -41,7 +42,43 @@ function taskResult(minutes: number) {
     : user(TASK_CARD, minutes);
 }
 
-function snapshot(from?: string, last = report(3, from)) {
+/// codex-lane runs on studio-mac beside two more chats; one chat there is archived (off its menu).
+const ON_STUDIO = { host: "studio-mac", hostKind: "cloud" as const };
+const studioSessions = [
+  session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+  session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane", harness: "codex", ...ON_STUDIO }),
+  session({
+    sessionId: "studio-2",
+    title: "perf-diff-poll-events",
+    name: "perf-diff-poll-events",
+    harness: "codex",
+    ...ON_STUDIO,
+  }),
+  session({
+    sessionId: "studio-3",
+    title: "studio-mac/session-info",
+    name: "studio-mac/session-info",
+    peer: "studio-mac",
+    ...ON_STUDIO,
+  }),
+  session({ sessionId: "studio-4", title: "old-lane", name: "old-lane", archived: true, ...ON_STUDIO }),
+];
+
+/// Opens the sender's machine menu.
+const openMachine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-menu="sender-machine"]'));
+  ctx.document.querySelector<HTMLButtonElement>('[data-menu="sender-machine"]')!.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 2);
+};
+
+function snapshot(
+  from?: string,
+  last = report(3, from),
+  sessions = [
+    session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+    session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane" }),
+  ],
+) {
   return chat(
     [
       user("Land #24927 once its review passes, then report here.", 9),
@@ -51,10 +88,7 @@ function snapshot(from?: string, last = report(3, from)) {
     ],
     {
       title: "claude-sr2",
-      sessions: [
-        session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
-        session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane" }),
-      ],
+      sessions,
     },
   );
 }
@@ -72,6 +106,15 @@ export default agentPaneEntry({
     named: {
       note: "acpmux recorded codex-lane as the sender: its card, with the chip.",
       snapshot: snapshot("codex-lane"),
+    },
+    machine: {
+      note: "codex-lane runs on studio-mac: the line names the machine after the name, and the machine is a control of its own.",
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+    },
+    "machine-menu": {
+      note: "Play: the machine opens a menu of the chats on studio-mac (archived ones left out), each opening beside this chat, and Copy machine name.",
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+      play: openMachine,
     },
     "task-result": {
       note: "codex-lane ended its task with acpmux task done: one card from the lane, its PR and squash under the summary.",

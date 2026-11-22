@@ -55,6 +55,28 @@ nonisolated enum AcpmuxVersionHandoff {
         return .restart
     }
 
+    /// Whether the daemon's agent launch policy (`_acpmux/status` `agentLaunch`) is not the one this
+    /// app would start it with (`environment`, its daemon environment). The daemon reads the
+    /// policy from the environment it started with, and it outlives the app: a GUI test run of a
+    /// tag starts it with `ACPMUX_AGENT_LAUNCH=deny`, and every later launch of that tag reused it,
+    /// so each new chat said "agent launch is disabled in this build session" (cmuxterm-hq#5545).
+    /// The other way round, a test app reusing a person's daemon would start real agents. A daemon
+    /// that does not report its policy is taken as it is.
+    static func launchPolicyDiffers(daemon: String?, environment: [String: String]) -> Bool {
+        guard let daemon else { return false }
+        return (daemon.lowercased() == "deny") != AcpmuxEnvironment.agentLaunchDisabled(environment)
+    }
+
+    /// Whether a lookup that may start daemons stops the one `status` describes: another build or a
+    /// replaced bundle (``decide(_:_:_:chatsOnDisk:replaced:)``), or another agent launch policy
+    /// (``launchPolicyDiffers(daemon:environment:)``) when its chats survive the restart.
+    static func restarts(_ status: AcpmuxStatus, bundled: String?, replaced: Bool, policyDiffers: Bool) -> Bool {
+        if decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: replaced) == .restart {
+            return true
+        }
+        return policyDiffers && keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk)
+    }
+
     /// Whether daemon `pid` runs an executable whose file is gone: the app's bundle was replaced
     /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
     /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
@@ -95,21 +117,25 @@ nonisolated enum AcpmuxVersionHandoff {
     /// a replaced bundle's executable, and keeps its agents across a restart.
     /// Returns true when it stopped that daemon, so the caller starts the
     /// bundled one.
-    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons) async -> Bool {
         let bundled = await bundledBuild(environment)
+        AgentPaneLaunchTimings.shared.mark("acpmux.bundled_build_read")
         let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)
-        guard decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
-              let pid = status.pid else {
+        let policy = launchPolicyDiffers(daemon: status.agentLaunch, environment: environment.childEnvironment)
+        guard restarts(status, bundled: bundled, replaced: isReplaced, policyDiffers: policy), let pid = status.pid else {
             return false
+        }
+        if policy {
+            logger.info("acpmux \(pid) runs agent launch \(status.agentLaunch ?? "?", privacy: .public); this app's is \(AcpmuxEnvironment.agentLaunchDisabled(environment.childEnvironment) ? "deny" : "allow", privacy: .public)")
         }
         let key = handOffKey(environment, bundled: bundled, pid: pid)
         // The key is used up and Settings' daemon line marked restarting in one step, so a read
-        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:)``). The
+        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:daemons:)``). The
         // line says restarting until the lookup that starts the bundled one settles
         // (AgentPaneHost.findOrStart), or until this handoff fails.
         let inserted = handedOff.withLock { keys in
             let inserted = keys.insert(key).inserted
-            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            if inserted { daemons.mark(home: environment.home, restarting: true) }
             return inserted
         }
         guard inserted else {
@@ -117,36 +143,79 @@ nonisolated enum AcpmuxVersionHandoff {
             return false
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
+        let trigger = isReplaced ? "replaced executable" : policy ? "agent launch policy differs" : "another build"
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+            try await handOffShutdown(environment, pid: pid,
+                                      reason: "version handoff: \(trigger) (build \(status.build ?? "?") -> \(bundled ?? "?"))")
+            AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
-            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
+            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public); the next lookup tries again")
+            // A request that never reached the daemon used nothing up: the socket's one handoff
+            // stays for the next lookup. Kept used, it left the replaced daemon running for the
+            // whole launch, and every chat's person proof with it ("Unverified sender", 2026-11-10).
+            handedOff.withLock { keys in
+                keys.remove(key)
+                daemons.mark(home: environment.home, restarting: false)
+            }
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
-        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
+    }
+
+    /// Stops `environment`'s daemon `pid` for a handoff: `_acpmux/shutdown` (agents kept), and when
+    /// that ask misses its `deadline` (a busy daemon's request path waits behind a slow chat), SIGTERM,
+    /// which acpmux takes as the same restart handoff (``AcpmuxDaemonStop/finishHandOff(_:pid:)``).
+    /// Without it the old build's daemon ran on until it answered (over a minute at Leo's 08:05Z
+    /// restart) while the new app waited for it. Throws the ask's failure when nothing was sent.
+    /// `reason` is logged by the daemon with its stop (every stop names why).
+    @concurrent static func handOffShutdown(
+        _ environment: AcpmuxEnvironment, pid: Int32, reason: String, deadline: Duration = .seconds(2),
+        shutdown: @Sendable (AcpmuxEnvironment, String, Duration) async throws -> Void = AcpmuxVersionHandoff.askShutdown,
+        finish: @Sendable (AcpmuxEnvironment, Int32) async -> Bool = AcpmuxVersionHandoff.finishBySignal
+    ) async throws {
+        do {
+            try await shutdown(environment, reason, deadline)
+        } catch let missed as AgentPaneDeadlineExceeded {
+            guard await finish(environment, pid) else { throw missed }
+            logger.notice("acpmux \(pid): \(missed.description, privacy: .public); stopped by SIGTERM instead")
+        }
+    }
+
+    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue).
+    /// `_acpmux/shutdown` to `environment`'s daemon within `deadline` (``handOffShutdown``'s ask).
+    @Sendable static func askShutdown(_ environment: AcpmuxEnvironment, reason: String, deadline: Duration) async throws {
+        try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, reason: reason,
+                                              deadline: deadline)
+    }
+
+    /// SIGTERM to `environment`'s daemon `pid` (``handOffShutdown``'s fallback).
+    @Sendable static func finishBySignal(_ environment: AcpmuxEnvironment, pid: Int32) async -> Bool {
+        await AcpmuxDaemonStop().finishHandOff(environment, pid: pid)
     }
 
     /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
     /// ``AcpmuxDaemonSummary``): whether it runs a replaced bundle's executable, and whether
-    /// ``handOffIfStale(_:environment:)`` would stop it now. An attached daemon is never
+    /// ``handOffIfStale(_:environment:daemons:)`` would stop it now. An attached daemon is never
     /// handed off (a lookup never starts or stops one), nor a socket this launch handed off once.
     static func handsOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
                          bundled: String?) -> (replaced: Bool, handsOff: Bool) {
         let isReplaced = runsReplacedExecutable(status, environment: environment, log: false)
-        guard !environment.isAttached,
-              decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
+        let policy = launchPolicyDiffers(daemon: status.agentLaunch, environment: environment.childEnvironment)
+        guard !environment.isAttached, restarts(status, bundled: bundled, replaced: isReplaced, policyDiffers: policy),
               let pid = status.pid else { return (isReplaced, false) }
         let key = handOffKey(environment, bundled: bundled, pid: pid)
         return (isReplaced, !handedOff.withLock { $0.contains(key) })
     }
 
-    /// The once-per-socket key of a handoff (``handedOff``).
+    /// The once-per-socket key of a handoff (``handedOff``), per launch policy too: a handoff to
+    /// the bundled build must not use up the one that later takes a daemon a GUI test restarted
+    /// with launches off (cmuxterm-hq#5545).
     private static func handOffKey(_ environment: AcpmuxEnvironment, bundled: String?, pid: Int32) -> String {
-        "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+        let policy = AcpmuxEnvironment.agentLaunchDisabled(environment.childEnvironment) ? "deny" : "allow"
+        return "\(environment.socketPath) \(bundled ?? "pid \(pid)") launch=\(policy)"
     }
 
     /// Whether the daemon `status` describes runs an executable an update replaced, or (DEBUG)
@@ -187,7 +256,7 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     /// `armed` runs once the exit watch is resumed and before the check for an exit that came
     /// first, so a signal sent there cannot end the process unseen. The watch's registration with
     /// the kernel may still be in flight then: a caller that must signal only the process it
-    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// found registers its own kernel exit watch (kqueue `EVFILT_PROC`) before it checks that process.
     /// It returns the answer when there is nothing to wait for (nil: wait).
     public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid

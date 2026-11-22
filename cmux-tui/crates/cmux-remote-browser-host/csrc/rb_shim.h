@@ -84,8 +84,10 @@ typedef struct {
                            int can_go_back, int can_go_forward);
   // The page's cursor changed (`cef_cursor_type_t`).
   void (*on_cursor)(void* context, int browser_id, int cursor_type);
-  // The page asked for a new tab or window; the shim cancelled the native
-  // popup. `disposition` is a `cef_window_open_disposition_t`.
+  // The page asked for a new tab or window (a popup, or a link Chromium opens
+  // in a new tab: Cmd-click, the context menu's Open Link in New Tab); the
+  // shim cancelled the native one. `disposition` is a
+  // `cef_window_open_disposition_t`.
   void (*on_open_tab)(void* context, int browser_id, const char* url_utf8,
                       int disposition, int user_gesture);
   // Whether a file: URL may load (a navigation or a subresource: frame,
@@ -96,6 +98,16 @@ typedef struct {
   // DIP (= the page's CSS pixels); `caret` is NULL when there is none.
   void (*on_text_input)(void* context, int browser_id, int input_type,
                         const int* rects, int rect_count, const int* caret);
+  // Chromium dropped one pending dialog without an answer: the frame that
+  // asked went away (an iframe removed while its alert showed) or the tab
+  // closed. The shim answered and forgot its callback; the host cancels it on
+  // the viewers. NULL: dialogs end only with on_dialog_reset.
+  void (*on_dialog_dropped)(void* context, int browser_id, int64_t token);
+  // A find result (rb_shim_find): the match count and the active match
+  // (1-based, 0 or less while none is chosen); `final_update` is 1 for the
+  // search's last report.
+  void (*on_find_result)(void* context, int browser_id, int count,
+                         int active, int final_update);
 } rb_shim_callbacks_t;
 
 // Runs the process: helper processes return their exit code at once; the
@@ -120,6 +132,15 @@ int rb_shim_set_screen(int width_dip, int height_dip, double scale);
 int rb_shim_open_tab(int request, const char* url, int width_dip,
                      int height_dip);
 void rb_shim_close_tab(int browser_id);
+// A shared host (one process, many tabs): sets the virtual screen and resizes
+// only `browser_id`'s window (-1: none yet).
+int rb_shim_set_tab_screen(int browser_id, int width_dip, int height_dip,
+                           double scale);
+// rb_shim_open_tab in a request context of its own whose cache (cookies,
+// storage, HTTP cache) is `cache_dir`, a directory under rb_shim_run's
+// cache_dir.
+int rb_shim_open_tab_in(int request, const char* url, int width_dip,
+                        int height_dip, const char* cache_dir);
 
 int rb_shim_capture(int browser_id, int on, int min_period_us);
 int rb_shim_capture_refresh(int browser_id);
@@ -174,6 +195,17 @@ int rb_shim_go_back(int browser_id);
 int rb_shim_go_forward(int browser_id);
 int rb_shim_reload(int browser_id, int ignore_cache);
 int rb_shim_stop_load(int browser_id);
+
+// Find in page: a new search (`find_next` 0) or the next / previous match of
+// the running one; results come to on_find_result. Stop ends the search and
+// clears its highlights, keeping the active match selected when
+// `keep_selection`. Return 0 for an unknown browser.
+int rb_shim_find(int browser_id,
+                 const char* text_utf8,
+                 int forward,
+                 int match_case,
+                 int find_next);
+int rb_shim_stop_finding(int browser_id, int keep_selection);
 
 #ifdef __cplusplus
 }

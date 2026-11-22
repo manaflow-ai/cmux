@@ -195,7 +195,22 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
   }
 
   /** Clicks the files tree row of `name`, scrolling the tree's own list to it first. */
+  /** Shows or hides the files list with its toggle, and waits for its motion to end. */
+  async function setFilesShown(page: Page, shown: boolean) {
+    const hidden = await page.evaluate(() => document.body.dataset.filesHidden === "true");
+    if (hidden !== shown) return;
+    await page.click("#files-toggle");
+    await page.waitForFunction(
+      (shown) =>
+        document.body.dataset.filesHidden === String(!shown) &&
+        !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion,
+      shown,
+    );
+    await quiet(page);
+  }
+
   async function clickTreeRow(page: Page, name: string, approximateRow: number) {
+    await setFilesShown(page, true);
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const point = await page.evaluate(
         ([name, approximateRow]) => {
@@ -263,8 +278,10 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     throw new Error(`no tree row for ${name}`);
   }
 
-  /** Jump to a file through the toolbar's jump-to-file palette, and wait for its header to land. */
+  /** Jump to a file through the toolbar's jump-to-file palette, and wait for its header to land. The
+   *  button shows while the files list is hidden (toolbar-model.ts jumpToFileShown). */
   async function jumpToFile(page: Page, name: string) {
+    await setFilesShown(page, false);
     await page.click("button[aria-label='Jump to file']");
     await page.fill("input.jump-palette-input", name);
     await page.keyboard.press("Enter");
@@ -312,6 +329,55 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         await browser?.close();
       });
 
+      for (const action of ["cancel", "save"] as const) {
+        test(`closing a comment draft with ${action} releases the gutter button`, async () => {
+          const commentsPage = await browser.newPage({ viewport: VIEWPORT });
+          try {
+            await installPaintedFrames(commentsPage);
+            await commentsPage.goto(`${base}/test/browser/diff-virtualization.html?fixture=comments`);
+            await commentsPage.waitForFunction(
+              () => document.getElementById("files-sidebar")?.dataset.fileCount === "1",
+              null,
+              { timeout: 60_000 },
+            );
+            await quiet(commentsPage);
+            const gutter = commentsPage.locator('[data-column-number="4"]').first();
+            const utility = commentsPage.locator("[data-utility-button]");
+            const composer = commentsPage.locator(".comment-composer");
+            // On CI the row is sometimes drawn again after the viewer settles, which drops the hover's +
+            // (never shown, or detached under the press): a press that opened no composer hovers in again
+            // and presses the + where it is drawn, as a person would, a few times before failing.
+            for (let attempt = 1; ; attempt++) {
+              await commentsPage.mouse.move(0, 0);
+              await gutter.hover();
+              const plus = await utility.boundingBox({ timeout: 2_000 }).catch(() => null);
+              if (plus != null) await commentsPage.mouse.click(plus.x + plus.width / 2, plus.y + plus.height / 2);
+              const opened = await composer.waitFor({ timeout: 2_000 }).then(
+                () => true,
+                () => false,
+              );
+              if (opened) break;
+              if (attempt === 5) throw new Error("hovering line 4 and pressing its + opened no comment composer");
+            }
+            expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).not.toBeNull();
+            // The pointer has left the gutter, just as when clicking the comment's footer.
+            if (action === "save") await composer.locator("textarea").fill("Review this line.");
+            await composer
+              .getByRole("button", { name: action === "cancel" ? "Cancel" : "Comment", exact: true })
+              .click();
+            await composer.waitFor({ state: "detached" });
+            expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).toBeNull();
+            expect(await commentsPage.locator("[data-utility-button]").count()).toBe(0);
+            expect(await commentsPage.locator(".comment-card").count()).toBe(action === "save" ? 1 : 0);
+            // Normal hover still offers a new comment after the old selection is released.
+            await commentsPage.locator('[data-column-number="5"]').first().hover();
+            await commentsPage.locator("[data-utility-button]").waitFor({ state: "visible" });
+          } finally {
+            await commentsPage.close();
+          }
+        });
+      }
+
       test("mounted files and line rows stay bounded by the viewport anywhere in the diff", async () => {
         const scrollHeight = await page.evaluate(() => document.querySelector(".code-view-root")!.scrollHeight);
         // 2,000 files are far taller than the viewport (each small file is ~600px).
@@ -335,6 +401,49 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         await jumpToFile(page, "file1500.ts");
         expect((await headerOffset(page, "file1500.ts"))?.offset).toBe(0);
         expect((await page.evaluate(census)).files).toBeLessThanOrEqual(MAX_FILES);
+      });
+
+      test("Cmd-= and Cmd-0 on a 2,000-file diff resize every row and keep jumps exact", async () => {
+        /** A mounted change row's drawn height and font size. */
+        const row = () =>
+          page.evaluate(() => {
+            for (const host of document.querySelectorAll("#viewer diffs-container")) {
+              const line = host.shadowRoot?.querySelector<HTMLElement>("[data-line][data-line-type]");
+              if (line != null && line.getBoundingClientRect().height > 0) {
+                return { height: line.getBoundingClientRect().height, size: getComputedStyle(line).fontSize };
+              }
+            }
+            return null;
+          });
+        const zoom = async (action: string, times = 1) => {
+          for (let step = 0; step < times; step += 1) {
+            expect(
+              await page.evaluate((action) => window.__cmuxPerformDiffViewerNavigationAction!(action), action),
+            ).toBe(true);
+          }
+          await quiet(page);
+        };
+        try {
+          await scrollViewer(page, 0);
+          expect(await row()).toEqual({ height: 20, size: "12px" });
+          // Three steps up: 15 px code on 25 px rows (fontZoom.ts), in the rows and in CodeView's metrics.
+          await zoom("diffViewerZoomIn", 3);
+          expect(await row()).toEqual({ height: 25, size: "15px" });
+          // Jumps use the declared row height: a file far below still lands exactly at the top.
+          await jumpToFile(page, "file1500.ts");
+          expect((await headerOffset(page, "file1500.ts"))?.offset).toBe(0);
+          await scrollViewer(page, await topOf(page, "src/mod12/file1234.ts"));
+          expect((await headerOffset(page, "file1234.ts"))?.offset).toBe(0);
+          const mounted = await page.evaluate(census);
+          expect(mounted.files).toBeLessThanOrEqual(MAX_FILES);
+          expect(mounted.rows).toBeLessThanOrEqual(MAX_ROWS);
+        } finally {
+          // Cmd-0 goes back to the default, and the other cases see the default rows.
+          await zoom("diffViewerZoomReset");
+        }
+        expect(await row()).toEqual({ height: 20, size: "12px" });
+        await jumpToFile(page, "file0700.ts");
+        expect((await headerOffset(page, "file0700.ts"))?.offset).toBe(0);
       });
 
       test("collapsing a file from its stuck header keeps that header at the top", async () => {

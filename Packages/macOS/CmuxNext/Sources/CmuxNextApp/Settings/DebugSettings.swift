@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextSettings
 
-// DEBUG builds: `debug.tunables` (the Debug Settings window and tunable store, DebugTunables) and
+// DEBUG and bench builds: `debug.tunables` (the Debug Settings window and tunable store, DebugTunables) and
 // `debug.menu_item` (performs a main-menu item the way a click does, so automation proves a menu
 // entry point such as Settings… without synthesizing mouse input). The Swift Settings window and
 // its `debug.settings` verb went with R82 commit 6; the React Settings page is driven through

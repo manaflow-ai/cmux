@@ -509,6 +509,7 @@ impl App {
                 KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
                 KeyCode::Char('n') => self.run_action(Action::Deny, &[]),
                 KeyCode::Char('x') => self.run_action(Action::Cancel, &[]),
+                KeyCode::Char('R') => self.run_action(Action::Retry, &[]),
                 _ => {}
             },
             Focus::Sidebar => match key.code {
@@ -587,7 +588,7 @@ impl App {
                         if self.editor_mut().enter_means_newline() {
                             self.editor_mut().replace_trailing_backslash_with_newline();
                         } else {
-                            self.send_prompt(false);
+                            self.send_prompt(self.enter_steers());
                         }
                     }
                     _ => {

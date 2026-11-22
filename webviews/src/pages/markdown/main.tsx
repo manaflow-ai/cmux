@@ -21,6 +21,8 @@ import {
   MARKDOWN_FLUSH_OP,
   MARKDOWN_LIST_FILES_OP,
   MARKDOWN_RESOLVE_LINKS_OP,
+  MARKDOWN_RUN_ALL_OP,
+  MARKDOWN_RUN_BLOCK_OP,
   MARKDOWN_SELECTION_OP,
   MARKDOWN_SET_TABLE_WIDTHS_OP,
   resolveImageURL,
@@ -35,6 +37,10 @@ import { MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
+import type { RunLabel } from "./runButtons";
+import { runbookPrompt } from "./runbook";
+import { EditorFind } from "../editor/editorFind";
+import { markdownFindTarget } from "./markdownFind";
 import { L } from "./strings";
 import { hostTableWidths, storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -56,6 +62,27 @@ const LABELS: Record<EditorLabel, string> = {
   comment: L.comment,
   deleteComment: L.deleteComment,
 };
+
+const RUN_LABELS: Record<RunLabel, string> = {
+  run: L.run,
+  runTitle: L.runTitle,
+  runAsk: L.runAsk,
+  runAskLines: L.runAskLines,
+  runConfirm: L.runConfirm,
+  runCancel: L.runCancel,
+  runSent: L.runSent,
+};
+
+/** Run all: the runbook's steps and the prompt contract to an agent chat in the file's repository. */
+function runAll(store: MarkdownStore, client: PageClient | null, editor: MarkdownEditor | null): void {
+  const path = store.getState().config?.path;
+  if (!client || !path || !editor) return;
+  const steps = editor.runbookSteps();
+  if (!steps.length) return;
+  void client.call(MARKDOWN_RUN_ALL_OP, { path, prompt: runbookPrompt(path, steps) }).catch((error: unknown) => {
+    console.warn("cmux markdown run all", error);
+  });
+}
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
 const LINK_LABELS: Record<LinkLabel, string> = {
@@ -153,9 +180,20 @@ function editorHost(
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
-      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
+      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed), strings.t(L.diagramUnavailable));
     },
     label: (key) => strings.t(LABELS[key]),
+    // A Run button's click sends its block to a new terminal in the file's repository.
+    run: client
+      ? {
+          runBlock: async (command) => {
+            const path = config()?.path;
+            if (!path) throw new Error("no file");
+            await client.call(MARKDOWN_RUN_BLOCK_OP, { path, command });
+          },
+          label: (key) => strings.t(RUN_LABELS[key]),
+        }
+      : undefined,
     htmlPreview: (html) => htmlPreview(html, imageURL, blockedImage),
     setCodeThemes(themes) {
       return highlighter?.setThemes(themes);
@@ -248,6 +286,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     afterShow: (run) => requestAnimationFrame(() => run()),
   });
   const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
+  const find = bindMarkdownFind(store, scroller);
   // A callback ref: React calls it with the element on mount and null on unmount.
   // Another document (a link, back, a reload from disk) brings its own comments in its config.
   let shownConfig = store.getState().config;
@@ -271,6 +310,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       overlays,
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
+      onRunnable: (runnable) => store.setRunnable(runnable),
     });
     editor = next;
     void next.create().then(() => {
@@ -282,6 +322,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
+      // The owner link back up reads the file again when the page lost it (MarkdownPage's quiet wait).
+      onConnection: (connected) => store.linkChanged(connected),
       // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-R `reload` (the
       // file again from disk), `open` a path typed in the omnibar (`text`), Cmd-K is `link`,
       // Cmd-= / Cmd-- / Cmd-0 the text size; `goToTop` is the `markdownGoToTop` action (a user's
@@ -298,6 +340,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
+        // Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E and Hide Find Bar: the app's shared find actions.
+        else if (command === "find") find.show(text);
+        else if (command === "findNext") find.next();
+        else if (command === "findPrevious") find.previous();
+        else if (command === "useSelectionForFind") find.useSelection();
+        else if (command === "hideFind") find.hide();
       },
     });
     // A right-click tells the host whether it was on a table (its menu then offers Reset Column
@@ -352,6 +400,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
         reading={readingActions(store, zoom)}
+        onRunAll={client ? () => runAll(store, client, editor) : undefined}
+        find={find}
       />
     </UiProvider>,
   );
@@ -362,6 +412,54 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
 
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "markdown") mountMarkdownPage(root);
+
+/**
+ * Find over the page (markdownFind.ts) in the code editor's find state. While the pill shows, an
+ * edit, a document the editor redraws, a link to another file or a switch between rich text and
+ * source searches again, once per frame, keeping the active match's place.
+ */
+function bindMarkdownFind(store: MarkdownStore, scroller: () => HTMLElement | null): EditorFind {
+  const find = new EditorFind();
+  find.attach(
+    markdownFindTarget({
+      mode: () => store.getState().mode,
+      doc: () => scroller()?.querySelector<HTMLElement>(".md-doc") ?? null,
+      source: () => scroller()?.querySelector<HTMLTextAreaElement>(".md-source") ?? null,
+      scroller,
+    }),
+  );
+  let frame = 0;
+  const refresh = () => {
+    if (frame || !find.getState().open) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      find.refresh();
+    });
+  };
+  // Highlights and selections are not DOM changes, so painting never wakes the observer.
+  const observer = new MutationObserver(refresh);
+  let observed: HTMLElement | null = null;
+  let mode = store.getState().mode;
+  const follow = () => {
+    const open = find.getState().open;
+    const target = open ? scroller() : null;
+    if (target !== observed) {
+      observer.disconnect();
+      observed?.removeEventListener("input", refresh);
+      observed = target;
+      observed?.addEventListener("input", refresh);
+      if (observed) observer.observe(observed, { subtree: true, childList: true, characterData: true });
+    }
+    const next = store.getState().mode;
+    if (next !== mode) {
+      mode = next;
+      refresh();
+    }
+  };
+  find.subscribe(follow);
+  store.subscribe(follow);
+  return find;
+}
 
 /** `text` as JSON, null when it is not. */
 function parseJSON(text: string | undefined): unknown {

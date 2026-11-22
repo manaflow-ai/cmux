@@ -9,12 +9,12 @@ import CmuxNextSettings
 /// center of its sidebar row; a `drag`'s `to_edge` (`left`, `right`, `top`, `bottom`) is 10% in from that edge of the
 /// shown workspace's content, where a row dropped with `sidebar.multiView` goes beside it.
 extension DebugMouse {
-    /// The center of the sidebar row of the workspace named or keyed `name` (top-left window-local points).
+    /// The center of the sidebar row of the workspace named or keyed `name`, else of the name of the group called `name` (top-left window-local points).
     static func rowPoint(_ name: String, controller: WindowController, window: NSWindow) -> NSPoint? {
         let services = controller.services
         let members = services.windows.registry.members(of: controller.state.id)
-        guard let id = members.first(where: { $0 == name }) ?? members.first(where: { services.workspace(id: $0)?.name == name }) else { return nil }
-        guard let screen = controller.sidebar.container.sidebarView.rowFrameOnScreen(for: SidebarWorkspaceID(id)) else { return nil }
+        let id = members.first(where: { $0 == name }) ?? members.first(where: { services.workspace(id: $0)?.name == name }), sidebar = controller.sidebar.container.sidebarView
+        guard let screen = id.flatMap({ sidebar.rowFrameOnScreen(for: SidebarWorkspaceID($0)) }) ?? sidebar.groupNameFrameOnScreen(named: name) else { return nil }
         let center = window.convertPoint(fromScreen: NSPoint(x: screen.midX, y: screen.midY))
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
@@ -23,11 +23,7 @@ extension DebugMouse {
     /// leftmost) or a divider's mouse-area id or its prefix (`split:`, `column:`, `row:`), so a tour can hover or drag a
     /// divider on any runner's window size.
     static func dividerPoint(_ name: String, controller: WindowController, window: NSWindow) -> NSPoint? {
-        guard let root = controller.content?.layoutView else { return nil }
-        let areas = root.dividerMouseAreas.sorted { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }
-        guard let area = name == "first" ? areas.first : areas.first(where: { $0.id == name }) ?? areas.first(where: { $0.id.hasPrefix(name) })
-        else { return nil }
-        let center = root.convert(NSPoint(x: area.rect.midX, y: area.rect.midY), to: nil)
+        guard let center = controller.content?.layoutView.debugDividerCenter(named: name) else { return nil }
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 

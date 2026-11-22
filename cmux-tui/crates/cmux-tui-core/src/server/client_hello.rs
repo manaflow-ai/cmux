@@ -110,6 +110,7 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-live",
             "conversation-inbox-op",
             "home-inbox",
+            "chief-work",
             "conversation-attachment-upload",
             "conversation-attachment-read",
             "conversation-attachment-link",
@@ -262,6 +263,9 @@ impl HelloGate {
         if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone()) {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
+        if role == HelloRole::Main {
+            mux.control_clients.note_frontend();
+        }
         self.page_relay = role == HelloRole::PageRelay;
         self.page_events =
             page.as_deref().is_some_and(|page| !page_router_table::page_events(page).is_empty());
@@ -402,3 +406,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]
 mod untrusted_mint_tests;
+
+#[cfg(all(test, unix))]
+#[path = "connection_panic_tests.rs"]
+mod connection_panic_tests;

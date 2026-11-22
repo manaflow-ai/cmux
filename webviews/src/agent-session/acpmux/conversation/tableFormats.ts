@@ -1,6 +1,6 @@
 // A reply's Markdown table as the clipboard carries it (TableBlock.tsx Copy): the Markdown for a
 // chat or an editor, TSV and an HTML table so Sheets, Numbers, Notes and Docs paste real cells.
-import type { Align } from "./Markdown";
+import type { Align } from "./markdownModel";
 import { inlinePlainText } from "./messageMenu";
 
 export type Table = { align: Align[]; header: string[]; rows: string[][] };
@@ -30,7 +30,11 @@ function cellText(cell: string): string {
 
 export function tableMarkdown(table: Table): string {
   const count = columnCount(table);
-  const line = (cells: string[]) => `| ${padded(cells, count).join(" | ")} |`;
+  // A pipe in a cell is written escaped again, or the copied table would grow a column.
+  const line = (cells: string[]) =>
+    `| ${padded(cells, count)
+      .map((cell) => cell.replace(/\|/g, "\\|"))
+      .join(" | ")} |`;
   const rule = padded([], count).map((_, i) => {
     const align = table.align[i];
     return align === "center" ? ":---:" : align === "right" ? "---:" : align === "left" ? ":---" : "---";

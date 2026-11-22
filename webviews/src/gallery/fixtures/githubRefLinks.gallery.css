@@ -1,0 +1,27 @@
+/* Gallery-only looks for a GitHub reference in a reply; the app draws the `chip` look. */
+.github-ref-preview {
+  padding: 16px;
+  color: var(--cv-text);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+/* Before: a short name (`subrouter-internal#54`, `cmux#N`, `lw#N`) was plain text; `hq#N` and
+   `owner/repo#N` already linked. */
+.github-ref-preview.is-before
+  .cv-chip.is-ref:is([href*="/subrouter-internal/"], [href*="/manaflow-ai/cmux/"], [href*="/leo-workspace/"]) {
+  color: inherit;
+  pointer-events: none;
+}
+.github-ref-preview.is-before
+  .cv-chip.is-ref:is([href*="/subrouter-internal/"], [href*="/manaflow-ai/cmux/"], [href*="/leo-workspace/"])
+  .cv-chip__label {
+  text-decoration: none;
+}
+.github-ref-preview.is-before
+  .cv-chip.is-ref:is([href*="/subrouter-internal/"], [href*="/manaflow-ai/cmux/"], [href*="/leo-workspace/"])
+  .cv-chip__icon--gh,
+/* A plain link: no GitHub mark. */
+.github-ref-preview:is(.is-plain-link, .is-link-card) .cv-chip.is-ref .cv-chip__icon--gh {
+  display: none;
+}

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPages
@@ -9,15 +10,15 @@ import Foundation
 import Testing
 
 /// The Mobile Pairing page reads and writes the switch the iPhone host follows
-/// (`mobile.allowIPhoneConnections`), not the irx listener's `phone.allowConnections`, and shows
-/// this Mac's pairing link as a QR code only once the host is online.
+/// (`mobile.allowIPhoneConnections`) and shows this Mac's pairing link as a QR code only once
+/// the host is online.
 @MainActor @Suite struct MobilePairingPageProviderTests {
     /// A stand-in app: a signed-in account and one settings value the page writes.
     @MainActor final class Fake {
         var allowed = false
         var writes: [([String], JSONValue)] = []
         var invite: MobileHostPairInvite?
-        let host = IPhoneHostService()
+        let host = IPhoneHostService(loginKeychain: LoginKeychain())
 
         func provider() -> MobilePairingPageProvider {
             MobilePairingPageProvider(dependencies: .init(
@@ -33,7 +34,6 @@ import Testing
 
     @Test func theSwitchIsTheOneTheIPhoneHostFollows() {
         #expect(MobilePairingPageProvider.switchPath == ["mobile", "allowIPhoneConnections"])
-        #expect(MobilePairingPageProvider.switchPath != SessionSettings.allowConnectionsPath)
     }
 
     static let invite = MobileHostPairInvite(

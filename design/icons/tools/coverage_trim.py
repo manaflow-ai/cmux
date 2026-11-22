@@ -39,7 +39,7 @@ def main():
     ink = json.loads(Path(sys.argv[1]).read_text())
     record_path = ROOT / "measure" / "coverage-trims.json"
     record = json.loads(record_path.read_text()) if record_path.exists() else {}
-    for path in sorted((ROOT / "icons").glob("*.json")):
+    for path in sorted((ROOT / "source").glob("*.json")):
         data = json.loads(path.read_text())
         for icon in data["icons"]:
             targets = [(icon["name"], f"{icon['name']}|line", icon, ("line", "solid", "cat"))]

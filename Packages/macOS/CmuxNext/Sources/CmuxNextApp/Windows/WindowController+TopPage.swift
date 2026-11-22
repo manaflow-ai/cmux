@@ -26,7 +26,7 @@ extension WindowController {
     /// Shows the Home page in place of the store's home workspace while the
     /// Home item stands for it (its row is hidden then). False: show `workspace`.
     func showsHomePage(instead workspace: WorkspaceModel) -> Bool {
-        guard services.home.dock.isClassic, workspace.kind == "home", SidebarBridge.hidesHome(services.sidebarLayout.document) else { return false }
+        guard services.home.dock.isClassic, workspace.kind == "home", services.sidebarLayout.document.hidesHome else { return false }
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.page != .home { state.page = .home }
         return showTopPage(.home)
@@ -46,7 +46,13 @@ extension WindowController {
     /// shows nothing (cx-cmge7), so such a show uses a top page instead.
     var holdsVisiblePageTab: Bool {
         guard let workspace = workspaceContent, !workspace.modelPanes.isEmpty else { return false }
-        return !(services.home.dock.isClassic && workspace.workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+        return !(services.home.dock.isClassic && workspace.workspace.kind == "home" && services.sidebarLayout.document.hidesHome)
+    }
+
+    /// Leaving the top page shows a workspace, not classic Home's page again (`showWorkspace`, `showsHomePage`).
+    var leavingShowsWorkspace: Bool {
+        guard let id = state.workspaceID ?? services.windows.registry.members(of: state.id).first, let (workspace, _) = services.machines.workspace(id: id) else { return false }
+        return !(services.home.dock.isClassic && workspace.kind == "home" && services.sidebarLayout.document.hidesHome)
     }
 
     /// Leaves the top page for the window's workspace at once

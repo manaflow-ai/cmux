@@ -141,3 +141,136 @@ fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
         browser.kill();
     });
 }
+
+/// A topology close through the resource API (`tab.close`, `pane.close`),
+/// with a request key as the CLI sends it.
+fn close(mux: &std::sync::Arc<Mux>, operation: &str, selector: &str, id: &str, key: &str) {
+    let envelope = serde_json::json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": key, "operation": operation,
+        "params": {"machine": "current", "session": "current", selector: id},
+        "idempotency_key": key,
+    });
+    let response =
+        crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap();
+    assert_eq!(response["ok"], true, "{operation}: {response}");
+}
+
+/// The stored tabs of `workspace`, as (tab, pane) public ids.
+fn stored_tabs(mux: &Mux, workspace: &WorkspacePublicId) -> Vec<(String, String)> {
+    let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+    let screens = topology
+        .screens
+        .iter()
+        .filter(|screen| &screen.workspace_id == workspace)
+        .map(|screen| screen.public_id.to_string())
+        .collect::<HashSet<_>>();
+    let panes = topology
+        .panes
+        .iter()
+        .filter(|pane| screens.contains(pane.screen_id.as_str()))
+        .map(|pane| pane.public_id.to_string())
+        .collect::<HashSet<_>>();
+    topology
+        .tabs
+        .iter()
+        .filter(|tab| panes.contains(tab.pane_id.as_str()))
+        .map(|tab| (tab.public_id.to_string(), tab.pane_id.to_string()))
+        .collect()
+}
+
+/// CLI-1 (TYPING UNDER LOAD, STATUS 6075): under the L6 load a CLI
+/// `tab close` took 955 ms p50 and grew with the session, because every
+/// close read and restated the whole topology under the registry and state
+/// locks. A close inside one workspace projects that workspace only. The
+/// projection counters are the regression signal (a seeded public fold
+/// already drops a full projection's unchanged rows from the events); the
+/// debug cross-check compares each scoped close with the full projection.
+#[test]
+fn closing_a_tab_or_a_pane_restates_no_resource_of_another_workspace() {
+    let mux = Mux::new_for_test("scoped-projection-close", SurfaceOptions::default());
+    mux.new_workspace(Some("a".into()), Some((80, 24))).unwrap();
+    mux.new_workspace(Some("b".into()), Some((80, 24))).unwrap();
+    let ((a, a_public), (b, b_public)) = (workspace(&mux, "a"), workspace(&mux, "b"));
+    for _ in 0..3 {
+        mux.create_terminal_in_workspace(a, None, None, None, Some((80, 24))).unwrap();
+        mux.create_terminal_in_workspace(b, None, None, None, Some((80, 24))).unwrap();
+    }
+    let placement = mux.create_terminal_in_workspace(a, None, None, None, Some((80, 24))).unwrap();
+    mux.split(placement.pane, crate::SplitDir::Right, Some((80, 24))).unwrap();
+    let (b_ids, mut revision) = subtree_ids(&mux, &b_public);
+    assert!(b_ids.len() >= 8, "workspace b has a screen, a pane and four tabs: {b_ids:?}");
+
+    let tabs = stored_tabs(&mux, &a_public);
+    let pane_tabs = |pane: &str| tabs.iter().filter(|(_, p)| p == pane).count();
+    let (tab, _) = tabs.iter().find(|(_, pane)| pane_tabs(pane) > 1).unwrap().clone();
+    let (_, split_pane) = tabs.iter().find(|(_, pane)| pane_tabs(pane) == 1).unwrap().clone();
+    for (operation, selector, id) in [("tab.close", "tab", tab), ("pane.close", "pane", split_pane)]
+    {
+        let (scoped, full) = (stat(&mux, "scoped_projections"), stat(&mux, "full_projections"));
+        close(&mux, operation, selector, &id, &format!("cli-1-{operation}"));
+        let page = mux.workspace_registry.lock().unwrap().resource_events_after(revision).unwrap();
+        assert!(!page.batches.is_empty(), "{operation} committed a resource revision");
+        for batch in &page.batches {
+            for change in batch.changes.as_array().unwrap() {
+                let id = change["id"].as_str().unwrap_or_default();
+                assert!(
+                    !b_ids.contains(id),
+                    "{operation} in workspace a restated workspace b's {} {id}: {}",
+                    change["resource"],
+                    batch.changes
+                );
+            }
+        }
+        assert_eq!(stat(&mux, "scoped_projections"), scoped + 1, "{operation} projected one scope");
+        assert_eq!(stat(&mux, "full_projections"), full, "{operation} read no full topology");
+        revision = subtree_ids(&mux, &b_public).1;
+    }
+    assert_eq!(stat(&mux, "crosscheck_mismatches"), 0);
+    assert_eq!(subtree_ids(&mux, &b_public).0, b_ids, "workspace b is unchanged");
+}
+
+/// Review of #32157: a close's scope is where its target lives when the
+/// close commits, not the workspace its stored request path names. A tab
+/// moved to another workspace between the close's intent and its commit
+/// must not stay stored there after the close.
+#[test]
+fn a_tab_moved_to_another_workspace_before_its_close_commits_is_not_left_stored() {
+    use crate::workspace_registry::resource_store::prune_unchanged_resource_changes;
+    super::scoped_projection::without_crosscheck(|| {
+        let mux = Mux::new_for_test("scoped-projection-close-moved", SurfaceOptions::default());
+        mux.new_workspace(Some("a".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("b".into()), Some((80, 24))).unwrap();
+        let ((a, a_public), (b, _)) = (workspace(&mux, "a"), workspace(&mux, "b"));
+        for _ in 0..2 {
+            mux.create_terminal_in_workspace(a, None, None, None, Some((80, 24))).unwrap();
+        }
+        mux.create_terminal_in_workspace(b, None, None, None, Some((80, 24))).unwrap();
+        let tabs = stored_tabs(&mux, &a_public);
+        let pane_tabs = |pane: &str| tabs.iter().filter(|(_, p)| p == pane).count();
+        let (tab, _) = tabs.iter().find(|(_, pane)| pane_tabs(pane) > 1).unwrap().clone();
+        let surface = mux.with_state(|state: &State| {
+            let id = crate::resource::TabPublicId::parse(tab.clone()).unwrap();
+            state.resource_indexes.tabs.get(&id).copied().unwrap()
+        });
+        let weak = std::sync::Arc::downgrade(&mux);
+        mux.set_resource_close_before_commit_hook_for_test(Some(std::sync::Arc::new(move || {
+            if let Some(mux) = weak.upgrade() {
+                mux.move_tab_to_workspace(surface, Some(b)).unwrap();
+            }
+        })));
+        close(&mux, "tab.close", "tab", &tab, "cli-1-moved-before-close");
+        mux.set_resource_close_before_commit_hook_for_test(None);
+
+        let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        assert!(
+            !topology.tabs.iter().any(|stored| stored.public_id.as_str() == tab),
+            "the closed tab {tab} is still stored after it moved to workspace b"
+        );
+        let full = mux.resource_effect_projection().unwrap();
+        let registry = mux.workspace_registry.lock().unwrap();
+        let db = registry.connection.get();
+        let transaction = db.unchecked_transaction().unwrap();
+        let written = prune_unchanged_resource_changes(&transaction, &full.patch).unwrap();
+        assert!(written.changes.is_empty(), "the close left rows behind: {written:?}");
+    });
+}

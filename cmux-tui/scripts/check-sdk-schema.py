@@ -34,11 +34,17 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
     "ConversationTabSplitParams": "ConversationTabSplit",
+    "TabPlaceRequest": "TabPlace",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
+    "LayoutSizeWire": "LayoutSizeValue",
+    "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
+    "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
+    "crate::command_context::Intent": "TerminalCommandContextIntent",
+    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -47,7 +53,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
 # in the comment is the authority for its fields.
 RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
-    # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
+    # cmux-bookmarks-core `BookmarkImportNode` (re-exported by workspace_registry/personal_bookmarks.rs).
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
 }
 
@@ -167,6 +173,9 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if attribute:
             attributes.append(attribute.group(1))
             continue
+        # Lint attributes (`#[allow(...)]`, `#[expect(...)]`) do not change the wire shape.
+        if re.fullmatch(r"#\[(?:allow|expect)\(.*\)\]", line):
+            continue
         # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
         field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)
         if not field:
@@ -174,7 +183,11 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         name, rust_type = field.groups()
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
-        fields[name] = RuntimeField(rust_type, tuple(attributes))
+        # `#[serde(skip)]` is never read from the wire: the field is state of the
+        # handler, not a part of the request.
+        skipped = any(part.strip() == "skip" for value in attributes for part in value.split(","))
+        if not skipped:
+            fields[name] = RuntimeField(rust_type, tuple(attributes))
         attributes.clear()
     if attributes:
         fail(f"orphan serde attributes in {label}")

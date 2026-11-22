@@ -2,9 +2,10 @@ public import CmuxNextAgentActivity
 public import Foundation
 public import Observation
 
-/// The person's marks on the Priority view's chats, kept on this Mac: pinned, read, snoozed and
-/// archived, and whether the view is folded. A read or snooze mark holds for the lane state it was
-/// made on (its `stamp`): when the chat moves on (a new question, a new result) it shows again.
+/// The person's marks on the Priority view's chats, kept on this Mac: pinned, read, snoozed,
+/// archived and dragged to a place, and whether the view is folded. A read or snooze mark holds
+/// for the lane state it was made on (its `stamp`): when the chat moves on (a new question, a new
+/// result) it shows again.
 @Observable @MainActor
 public final class AgentPriorityMarks {
     public static let shared = AgentPriorityMarks(defaults: .standard)
@@ -18,6 +19,9 @@ public final class AgentPriorityMarks {
         /// Archived from the view; acpmux hides it from its lists too.
         public var archived: Set<String> = []
         public var collapsed = false
+        /// Session id to the place (0 is the top) the person dragged it to: it shows there until
+        /// they drag it again, whatever its state (Leo 2026-10-21).
+        public var placed: [String: Int] = [:]
 
         public nonisolated struct Snooze: Codable, Hashable, Sendable {
             public var stamp: String
@@ -25,6 +29,19 @@ public final class AgentPriorityMarks {
         }
 
         public init() {}
+
+        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed }
+
+        /// Each mark may be missing: marks saved by an older build still load.
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            pinned = try c.decodeIfPresent(Set<String>.self, forKey: .pinned) ?? []
+            read = try c.decodeIfPresent([String: String].self, forKey: .read) ?? [:]
+            snoozed = try c.decodeIfPresent([String: Snooze].self, forKey: .snoozed) ?? [:]
+            archived = try c.decodeIfPresent(Set<String>.self, forKey: .archived) ?? []
+            collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
+            placed = try c.decodeIfPresent([String: Int].self, forKey: .placed) ?? [:]
+        }
 
         public func isSnoozed(_ id: String, stamp: String, now: Date) -> Bool {
             guard let snooze = snoozed[id] else { return false }
@@ -70,6 +87,14 @@ public final class AgentPriorityMarks {
 
     public func setCollapsed(_ collapsed: Bool) { state.collapsed = collapsed }
 
+    /// The person dragged `id` in the Priority view, which now shows `order`: it keeps that place,
+    /// and each chat dragged before keeps the place it shows at now.
+    public func place(_ id: String, in order: [String]) {
+        var placed = state.placed
+        for (index, other) in order.enumerated() where other == id || placed[other] != nil { placed[other] = index }
+        state.placed = placed
+    }
+
     /// Drops the marks of sessions acpmux no longer lists, so the saved marks stay small.
     public func prune(keeping ids: Set<String>) {
         var next = state
@@ -77,6 +102,7 @@ public final class AgentPriorityMarks {
         next.archived.formIntersection(ids)
         next.read = next.read.filter { ids.contains($0.key) }
         next.snoozed = next.snoozed.filter { ids.contains($0.key) }
+        next.placed = next.placed.filter { ids.contains($0.key) }
         if next != state { state = next }
     }
 

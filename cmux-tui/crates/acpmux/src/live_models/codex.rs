@@ -36,7 +36,8 @@ async fn request(child: &mut Probe, id: u64, method: &str, params: Value) -> Res
     }
 }
 
-pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
+/// `initialize` (request 1), then the `initialized` notification.
+async fn initialize(child: &mut Probe) -> Result<()> {
     let client = json!({"name": "acpmux", "title": "acpmux", "version": env!("CARGO_PKG_VERSION")});
     request(
         child,
@@ -45,7 +46,18 @@ pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
         json!({"clientInfo": client, "capabilities": {"experimentalApi": true}}),
     )
     .await?;
-    child.send(&json!({"method": "initialized"})).await?;
+    child.send(&json!({"method": "initialized"})).await
+}
+
+/// The account's plan usage limits at rest: `account/rateLimits/read`'s result
+/// (`{rateLimits, rateLimitsByLimitId?}`), as the app-server answers it.
+pub(super) async fn rate_limits(child: &mut Probe) -> Result<Value> {
+    initialize(child).await?;
+    request(child, 2, "account/rateLimits/read", Value::Null).await
+}
+
+pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
+    initialize(child).await?;
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
     for page in 0..MAX_PAGES {
@@ -111,7 +123,17 @@ fn row_model(row: &Value) -> Option<LiveModel> {
             .cloned()
             .unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
+        upgrade: upgrade(row, id),
     })
+}
+
+/// The model Codex's catalog moves this one to: `upgrade` (an id), else `upgradeInfo.model`.
+/// gpt-5.6-terra and gpt-5.5 name gpt-6-sol there, so they are legacy; gpt-6.1-sol names none.
+fn upgrade(row: &Value, id: &str) -> Option<String> {
+    text(row, "upgrade")
+        .or_else(|| row.get("upgradeInfo").and_then(|info| text(info, "model")))
+        .filter(|to| *to != id)
+        .map(str::to_owned)
 }
 
 /// Whether a tier faster than the default exists (`serviceTiers`, else

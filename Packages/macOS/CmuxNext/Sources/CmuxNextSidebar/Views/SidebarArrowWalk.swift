@@ -2,7 +2,7 @@ import AppKit
 
 /// Up and Down walk every visible row of the sidebar in visual order
 /// (sidebar-sections.md 6, cx-qno.10): the items above the list, the
-/// list's stops (group headers and workspace rows, `SidebarGroupKeys`),
+/// list's stops (group headers, disclosures and workspace rows, `SidebarGroupKeys`),
 /// then the items below it and the footer. Past the list's first or last
 /// stop, keyboard focus moves to the nearest item, and from an item back to
 /// the list's nearest stop.

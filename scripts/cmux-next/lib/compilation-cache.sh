@@ -78,6 +78,28 @@ cmux_next_cas_failed() {
   grep -Eqi 'cach(e|ed|ing)|OnDiskCAS' <<<"$errors"
 }
 
+# Whether a failed build contains one of the compiler's runtime CAS failure
+# diagnostics. This deliberately excludes arbitrary source errors that happen
+# to mention "CAS" or "cache" (for example, an unresolved identifier); callers
+# that retry with a different cache backend must use this stricter predicate.
+# Usage: cmux_next_runtime_cas_failed <log>
+cmux_next_runtime_cas_failed() {
+  [[ -f "$1" ]] || return 1
+  # An explicit module precompile reports its CAS failure on its own line after the error
+  # ("error: There was an error precompiling module ..." then "CAS operation failed: corrupt object '<hash>'";
+  # run 42527779911), so that line counts as a diagnostic too.
+  # A compiler that crashes reading the CAS ("error: fatal error encountered during compilation", then a stack
+  # through llvm::cas::CASBackedFileSystem::openFileForRead; run 42535989825) names the cache only in its stack
+  # frames, so a frame inside llvm::cas counts as a diagnostic too. A crash elsewhere has no such frame.
+  local diag='^(([^[:space:]]+: )?(fatal )?error: |CAS operation failed: |[0-9]+ +swift-frontend +0x[0-9a-f]+ llvm::cas::)' errors
+  errors="$(awk '/^xcodebuild exit status:/ { exit } { print }' "$1" | grep -E "$diag" || true)"
+  # A cached module whose CAS object reads back corrupt ("module file X.pcm not found: unloadable casid ...:
+  # corrupt object '<hash>'", then "clang importer creation failed"; run 42100189059) is the cache failing too,
+  # as is one whose object the CAS no longer holds ("module file X.pcm not found: missing module cache key ...:
+  # module file is not available in the CAS"; run 42524304475).
+  grep -Eqi "CAS error(:| encountered during)|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))|unloadable casid|corrupt object '[0-9a-f]+'|missing module cache key|not available in the CAS|^CAS operation failed: |swift-frontend +0x[0-9a-f]+ llvm::cas::" <<<"$errors"
+}
+
 # Drop the CAS (after a cache failure, or when it is over the bound). A CAS
 # that will not go away is never read again in this run: the retry builds
 # with the cache off, and the next run's cache failure drops it again.

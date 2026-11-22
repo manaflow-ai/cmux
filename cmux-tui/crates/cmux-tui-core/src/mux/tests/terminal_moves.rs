@@ -63,7 +63,7 @@ fn create_move_during_launch_binds_only_latest_canonical_workspace() {
     )
     .unwrap();
     insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
-    let (placement, canonical_workspace, changed, _) =
+    let (placement, canonical_workspace, changed, _, _) =
         mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
     assert!(changed);
     assert_eq!(canonical_workspace, second.key);

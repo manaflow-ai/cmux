@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -17,7 +18,7 @@ let dom: JSDOM;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
-    url: "cmux-page://cmux.changelog/#/?from=1.0.0-nightly.3940000000001&to=1.0.0-nightly.3940000000003",
+    url: "cmux-page://cmux.changelog/#/?design=ledger&from=1.0.0-nightly.3940000000001&to=1.0.0-nightly.3940000000003",
   });
   Object.assign(scope, {
     window: dom.window,
@@ -29,11 +30,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 function notes(build: string, items: { title: string; pr: number }[]) {

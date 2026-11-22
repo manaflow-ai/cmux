@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CmuxHomeCore
 import CmuxHomeRender
@@ -18,6 +19,10 @@ final class HomeVideo {
     weak var controller: ChatController?
     private var badges: [String: CALayer] = [:]
     private var masks: [String: CAShapeLayer] = [:]
+    /// cmux: the expand button at a played video's top right (opens the large viewer).
+    private var expands: [String: CALayer] = [:]
+    /// cmux: the open large viewer (one per pane).
+    private(set) weak var viewer: HomeVideoViewer?
 
     init() {
         playback.onChange = { [weak self] _ in self?.place() }
@@ -31,6 +36,36 @@ final class HomeVideo {
     func toggle(_ ref: PartRef, attachment: AttachmentRef, source: any HomeVideoSource) {
         playback.toggle(Self.key(ref), ref: attachment, media: source)
         place()
+    }
+
+    /// cmux: the expand button's frame in a video bubble of `body` (row coordinates): 26 pt at
+    /// the top right, 7 pt in. It shows once the video played (the poster shows the play disc).
+    nonisolated static func expandRect(body: CGRect) -> CGRect {
+        CGRect(x: body.maxX - 7 - 26, y: body.minY + 7, width: 26, height: 26)
+    }
+
+    /// cmux: opens the video in the large viewer over `host` (a double-click, the expand button,
+    /// View Larger). A playing bubble pauses; the viewer starts where it was, and on close the
+    /// bubble stays paused at its frame.
+    func openLarge(_ ref: PartRef, attachment: AttachmentRef, source: any HomeVideoSource, in host: NSView) {
+        let key = Self.key(ref)
+        let start = playback.currentTime(key)
+        playback.pause(key)
+        viewer?.close()
+        let size = attachment.width.flatMap { w in attachment.height.map { CGSize(width: w, height: $0) } }
+        let v = HomeVideoViewer(frame: host.bounds, videoSize: size)
+        v.onClose = { [weak self, weak host] _ in
+            self?.place()
+            if let controller = self?.controller { controller.focusCompose() } else { host?.window?.makeFirstResponder(host) }
+        }
+        host.addSubview(v, positioned: .above, relativeTo: nil)
+        host.window?.makeFirstResponder(v)
+        viewer = v
+        // task-owner: one fetch; the viewer plays it if it is still open.
+        Task { [weak v, weak source] in
+            guard let source, let url = try? await source.originalURL(for: attachment), let v, v.superview != nil else { return }
+            v.play(url, from: start)
+        }
     }
 
     func badgeVisible(_ ref: PartRef) -> Bool {
@@ -51,12 +86,14 @@ final class HomeVideo {
         for key in Set(playback.activeKeys).union(badges.keys) {
             guard let layer = playback.layer(key) else {
                 badges[key]?.removeFromSuperlayer()
+                expands[key]?.removeFromSuperlayer()
                 continue
             }
             guard let cell = cells[key], let spec = cell.spec, case let .part(p) = spec.kind else {
                 playback.rowLeft(key)
                 layer.removeFromSuperlayer()
                 badges[key]?.removeFromSuperlayer()
+                expands[key]?.removeFromSuperlayer()
                 continue
             }
             // On the row's content, which RowCell.snapRow moves onto the window's device pixels (MessagesLab c1457e5).
@@ -78,7 +115,37 @@ final class HomeVideo {
             let state = playback.state(key)
             badge.isHidden = state == .playing
             badge.opacity = state == .loading ? 0.5 : 1
+            let expand = expands[key] ?? Self.makeExpand()
+            expands.updateValue(expand, forKey: key) // crash program: dictionary write
+            if expand.superlayer !== cell.layer { cell.layer.addSublayer(expand) }
+            for l in [expand] + (expand.sublayers ?? []) where l.contentsScale != scale { l.contentsScale = scale }
+            expand.frame = Self.expandRect(body: body)
         }
+    }
+
+    /// cmux: the expand button: a dark rounded square under two white corner arrows.
+    private static func makeExpand() -> CALayer {
+        let box = CALayer()
+        box.bounds = CGRect(x: 0, y: 0, width: 26, height: 26)
+        box.cornerRadius = 7
+        box.backgroundColor = CGColor(gray: 0, alpha: 0.55)
+        let arrows = CAShapeLayer()
+        arrows.frame = box.bounds
+        let path = CGMutablePath()
+        // Top right corner and bottom left corner, each an L with a diagonal to the centre.
+        path.move(to: CGPoint(x: 15, y: 7)); path.addLine(to: CGPoint(x: 19, y: 7)); path.addLine(to: CGPoint(x: 19, y: 11))
+        path.move(to: CGPoint(x: 19, y: 7)); path.addLine(to: CGPoint(x: 14.5, y: 11.5))
+        path.move(to: CGPoint(x: 11, y: 19)); path.addLine(to: CGPoint(x: 7, y: 19)); path.addLine(to: CGPoint(x: 7, y: 15))
+        path.move(to: CGPoint(x: 7, y: 19)); path.addLine(to: CGPoint(x: 11.5, y: 14.5))
+        arrows.path = path
+        arrows.strokeColor = CGColor(gray: 1, alpha: 0.92)
+        arrows.fillColor = nil
+        arrows.lineWidth = 1.6
+        arrows.lineCap = .round
+        arrows.lineJoin = .round
+        box.addSublayer(arrows)
+        box.contentsScale = DisplayScale.current
+        return box
     }
 
     /// RowDrawing's video disc: black at 50% under a white triangle at 85%.

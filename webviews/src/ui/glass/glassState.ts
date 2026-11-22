@@ -30,6 +30,8 @@ export const LENS_ATTRIBUTE = "data-glass-lens";
 /** On `<html>` of a page whose host draws the glass natively under it (the sidebar's Updated card,
  * surface.tsx): the lens draws nothing there, since its wallpaper copy would cover the host's glass. */
 export const NATIVE_GLASS_ATTRIBUTE = "data-glass-native";
+/** On `<html>` while a live background (ui/liveBackground) draws in the page: the lens stands down. */
+export const LIVE_BACKGROUND_ATTRIBUTE = "data-live-background";
 /** The one class a glass surface adds. */
 export const GLASS_CLASS = "ui-glass";
 

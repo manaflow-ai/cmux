@@ -22,6 +22,8 @@ use std::sync::PoisonError;
 use std::time::Duration;
 
 /// How long one update may take (a large npm package on a slow link).
+// timeout: an explicit updater operation needs a cleanup bound; health refresh
+// and agent wake paths run independently and keep their cached state.
 const UPDATE_LIMIT: Duration = Duration::from_secs(15 * 60);
 
 /// Programs that raise rights; never run on their own.
@@ -96,7 +98,9 @@ async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool
     .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok((ok, text)) => {
-            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+            let last =
+                crate::stderr::clean_stderr_lines(&text).into_iter().rev().find(|l| !l.is_empty());
+            (ok, last.unwrap_or_default())
         }
         Err(e) => (false, e),
     }

@@ -6,8 +6,7 @@ import UniformTypeIdentifiers
 
 /// Any file attaches (Lawrence 2026-10-20: "“index.html” can’t be attached …
 /// need to fix this"): bytes that read as UTF-8 go as text whatever the
-/// name says, other bytes as a generic file; only a folder, an empty file
-/// or one over the size cap is refused.
+/// name says, other bytes as a generic file; folders and empty files are refused.
 @MainActor
 @Suite struct AnyFileAttachmentTests {
     private func store(_ root: URL) -> HomeStore {

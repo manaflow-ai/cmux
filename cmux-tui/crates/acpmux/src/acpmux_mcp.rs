@@ -1,17 +1,29 @@
 //! `acpmux acpmux-mcp`: the `acpmux` MCP stdio server every local agent session gets
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
-//! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
-//! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
-//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! coordinator, a chat on a peer) and read the sessions, instead of piping text into a shell,
+//! which a chat draws as a command block. The public CLI front door is `cmux agent`; the acpmux
+//! engine and its aliases remain available. Behind the `cmux` server its tools
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
+//! session's messages holding some words, `session_search.rs`) and the team mailbox tools
+//! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
+//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
+//! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
+//! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
+//! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
+//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`). `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
+//! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
 //! socket only. So it can do nothing that CLI cannot, and the daemon records a message it sends
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
-//! A remote-origin session gets no tools at all (`agent_tools::left_out`).
+//! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
+//! with this server's environment, which the agent gave it.
+//! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
+//! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
+//! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,9 +35,7 @@ use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "acpmux";
-/// The session the tools act for, set in this server's env with its caller token.
-pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+pub use crate::acpmux_mcp_names::{SERVER_NAME, SESSION_ENV};
 /// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
 /// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
@@ -34,45 +44,82 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// What every chat with this server is told about background work: the Codex steer (its
 /// unified exec background terminals end when the agent hibernates, and only the whole feature
 /// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
-const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long build or test \
-run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
-agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
-keeps running, and bg_list and bg_output read it later by its id.";
+const BG_STEER: &str = "Start long-running commands (dev servers, watchers, long builds or tests) \
+with bg_start, not a background shell of your own, which ends when this chat's agent hibernates \
+after 2 idle minutes; bg_output reads it later.";
+/// How every chat with the background tools is asked to pace its work: the reads and searches a
+/// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
+/// Some chats did read early and concurrently and others went one call at a time on the same
+/// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
+const PARALLEL_STEER: &str = "Run the reads and searches you already know you need as one batch \
+of independent tool calls, and keep working while a bg_start task runs.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
+/// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
+/// holds thousands of sessions (8,636 on one Mac, 29 MB as whole rows), and a reply that large
+/// closed the MCP connection of every harness that asked for it.
+const LS_DEFAULT_LIMIT: usize = 100;
+const LS_MAX_LIMIT: usize = 500;
+/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
+const LS_FIELDS: &[&str] =
+    &["name", "status", "title", "peer", "sessionId", "harness", "cwd", "updatedAt"];
 
+#[path = "acpmux_mcp_artifacts.rs"]
+pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
-mod bg;
+pub(crate) mod bg;
+#[path = "acpmux_mcp_bg_list.rs"]
+mod bg_list;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
+#[path = "acpmux_mcp_goal.rs"]
+mod goal;
+#[path = "acpmux_mcp_guest.rs"]
+mod guest;
+#[path = "acpmux_mcp_pr.rs"]
+mod pr;
+#[path = "acpmux_mcp_send.rs"]
+mod send;
+#[path = "acpmux_mcp_send_status.rs"]
+mod send_status;
+#[path = "acpmux_mcp_watch.rs"]
+mod watch;
+#[path = "acpmux_mcp_who_else.rs"]
+mod who_else;
+#[path = "acpmux_mcp_wrap_up.rs"]
+mod wrap_up;
+/// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
+pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+        list.push(pr::tool());
+        list.push(wrap_up::tool());
+        list.push(who_else::tool());
+        list.extend(goal::tools());
+        list.extend(watch::tools());
+        list.push(send_status::tool());
+    }
+    all
+}
+
+/// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
+/// sign-in for them (`artifacts::advertised`).
+fn tools_with_artifacts(artifacts: bool) -> Value {
+    let mut all = tools();
+    if artifacts && let Some(list) = all.as_array_mut() {
+        list.extend(artifacts::definitions());
     }
     all
 }
 
 fn base_tools() -> Value {
-    json!([
-        {
-            "name": "send",
-            "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-                    "text": {"type": "string", "description": "The message, self-contained."},
-                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-                    "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-                    "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
-                },
-                "required": ["to", "text"]
-            }
-        },
+    let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours: a notice lists threads with new messages at your next tool step. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
@@ -92,11 +139,13 @@ fn base_tools() -> Value {
         },
         {
             "name": "ls",
-            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title. Use it to find the session to message.",
+            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions are left out unless status is closed, and the list stops at limit and says how many more match. Use it to find the session to message.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, closed or waiting."}
+                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, waiting, disconnected or closed."},
+                    "query": {"type": "string", "description": "Only sessions whose name, title or peer contains this text (any case)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 100)."}
                 }
             }
         },
@@ -119,6 +168,14 @@ fn base_tools() -> Value {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
+            }
+        },
+        {
+            "name": "machine_info",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         },
         {
@@ -154,30 +211,197 @@ fn base_tools() -> Value {
                 },
                 "required": ["id"]
             }
+        },
+        {
+            "name": "search",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The words to find, in any case and order, within one message."},
+                    "name": {"type": "string", "description": "The session's name, id, or host/name (default: this chat)."},
+                    "role": {"type": "string", "enum": ["user", "assistant", "tool"], "description": "Only prompts, replies or tool titles."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": crate::session_search::MAX_LIMIT, "description": "At most this many hits (default 20)."}
+                },
+                "required": ["query"]
+            }
         }
-    ])
+    ]);
+    if let Some(list) = all.as_array_mut() {
+        list.insert(0, send::tool());
+        list.push(crate::github_status::definition());
+    }
+    all
+}
+
+/// The tools a session may use here: every one, or under a `CMUX_MCP_TOOLS` allowlist (a
+/// Chief turn's, `agent_tools::scoped`) only those it names as `acpmux_<tool>`, the name the
+/// folding `cmux` server gives each. Folded, `cmux` applies the same list; standalone (cmux
+/// off or missing) this is the only filter, so `bg_*` and `team_*` reach no turn that does not
+/// list them, whatever the harness.
+fn allowed(all: Value, allow: Option<&str>) -> Value {
+    let Some(allow) = allow else { return all };
+    let allow: Vec<String> = allow.split(',').map(|t| t.trim().to_owned()).collect();
+    let keep = |tool: &Value| {
+        tool["name"].as_str().is_some_and(|n| allow.contains(&format!("{SERVER_NAME}_{n}")))
+    };
+    Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
+}
+
+/// The server's instructions: the background and parallel steers where the background tools are
+/// listed, and the GitHub one where `github_status` is.
+fn instructions(tools: &Value) -> Option<String> {
+    let mut parts = Vec::new();
+    if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
+        parts.push(BG_STEER);
+        parts.push(PARALLEL_STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == crate::github_status::TOOL) {
+        parts.push(crate::github_status::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == wrap_up::NAME) {
+        parts.push(wrap_up::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == who_else::NAME) {
+        parts.push(who_else::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
+        parts.push(goal::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
+        parts.push(watch::STEER);
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+    // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
+    let artifacts = artifacts::from_config();
+    // An app outside acpmux that `acpmux desktop link` gave this server (`acpmux_mcp_guest.rs`).
+    if let Some(app) = std::env::var(crate::desktop_link::GUEST_ENV)
+        .ok()
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty())
+    {
+        return guest::run(app, artifacts).await;
+    }
+    crate::tools_mcp::serve(vec![served_with(&Arc::default(), artifacts)?]).await
+}
+
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    served_with(daemon, artifacts::from_config())
+}
+
+fn served_with(
+    daemon: &Arc<crate::tools_mcp::Daemon>,
+    artifacts: Option<Arc<artifacts::Artifacts>>,
+) -> Result<crate::tools_mcp::Served> {
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
+    let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
+    // Under an allowlist, a call outside it is refused like an unknown tool.
+    let names: Option<Arc<Vec<String>>> = allow
+        .is_some()
+        .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
+    // The background steer only where the background tools are listed.
+    let steer = instructions(&tools);
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
-        tools(),
-        Some(BG_STEER.to_owned()),
-        |daemon, session, params| async move {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if bg::TOOLS.contains(&name) {
-                return bg::call(&daemon, &session, name, &args).await;
+        tools,
+        steer,
+        daemon,
+        move |daemon, session, params| {
+            let artifacts = artifacts.clone();
+            let names = names.clone();
+            async move {
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                if let Some(names) = &names
+                    && !names.iter().any(|n| n == name)
+                {
+                    return error_result(crate::mcp_hint::unknown_tool(
+                        name,
+                        names.iter().map(String::as_str),
+                    ));
+                }
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if artifacts::TOOLS.contains(&name) {
+                    return match (&artifacts, args.is_object()) {
+                        (_, false) => error_result("arguments must be an object".to_owned()),
+                        (Some(client), true) => artifacts::call(client, name, &args).await,
+                        (None, true) => error_result(
+                            "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
+                        ),
+                    };
+                }
+                // The Claude Code subagent whose tool call this is, by its tool use id
+                // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
+                // it and brings its end to it. Else the subagent this server runs as: a workflow
+                // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
+                // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands. An
+                // agent's own server never has it: the daemon removes every `ACPMUX_*` variable
+                // of its own env from a harness's, and the mark from the harness profile's env
+                // too (`agent/command.rs`), so only the runner's server can.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
+                    .or_else(|| {
+                        crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
+                    });
+                if bg::TOOLS.contains(&name) {
+                    let mut args = args;
+                    // Every bg call names its caller: a start runs as it, and a list or stop
+                    // acts on its own tasks (`hub::BgScope`). Never the agent's own value.
+                    if let Some(fields) = args.as_object_mut() {
+                        fields.remove("callerSubagent");
+                        if let Some(sub) = &sub {
+                            fields.insert("callerSubagent".to_owned(), sub.clone());
+                        }
+                    }
+                    return bg::call(&daemon, &session, name, &args).await;
+                }
+                if name == pr::NAME {
+                    return pr::call(&daemon, &session, &args).await;
+                }
+                if name == wrap_up::NAME {
+                    return wrap_up::call(&args);
+                }
+                if name == send_status::NAME {
+                    return send_status::call(&daemon, &session, &args).await;
+                }
+                if name == who_else::NAME {
+                    return who_else::call(&daemon, &session, &args).await;
+                }
+                if goal::TOOLS.contains(&name) {
+                    return goal::call(&daemon, &session, name, &args).await;
+                }
+                if name == crate::github_status::TOOL {
+                    let sources = crate::github_status::Sources::current();
+                    let status = crate::github_status::resolve(&sources).await;
+                    return crate::github_status::result(&status);
+                }
+                if matches!(name, "inbox_read" | "inbox_reply") {
+                    return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                if name == "search" {
+                    return search_tool(&daemon, &session, &args).await;
+                }
+                if name == "machine_info" {
+                    return machine_info(&daemon, &session).await;
+                }
+                call_as(&daemon, &params, sub.as_ref()).await
             }
-            if matches!(name, "inbox_read" | "inbox_reply") {
-                return inbox_tool(&daemon, &session, name, &args).await;
-            }
-            call(&daemon, &params).await
         },
     )
-    .await
+}
+
+async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
+    match daemon.request(method::MUX_MACHINE_INFO, json!({"sessionId": session})).await {
+        Ok(result) => {
+            ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()), result)
+        }
+        Err(error) => refusal(error),
+    }
 }
 
 fn ok(text: String, structured: Value) -> Value {
@@ -192,17 +416,25 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
 }
 
+#[cfg(test)]
 pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
+    call_as(daemon, params, None).await
+}
+
+/// A tool call of the acpmux tools below; `sub` is the subagent that makes it
+/// (`subagent_call.rs`), which its `send` names.
+async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send(daemon, &args).await,
+        "send" => send::send(daemon, &args, sub).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
+        name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
@@ -236,12 +468,14 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
                 Err(e) => refusal(e),
             }
         }
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
-/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+/// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
@@ -287,72 +521,50 @@ fn team_result_text(result: &Value) -> String {
     }
 }
 
-/// `send`: what `acpmux send --no-wait` does (`cli/run/send_async.rs`): the message goes to this
-/// daemon's outbox (`_acpmux/send_queue`), which delivers it as this session (its caller token)
-/// and retries a slow target or a peer that is down. It answers with the delivery once it
-/// settles, or after [`STATUS_WAIT`] with the message on its way.
-async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
-    let (Some(to), Some(text)) = (arg(args, "to"), args.get("text").and_then(Value::as_str)) else {
-        return error_result("to and text are required".to_owned());
+/// `search`: one session's messages holding every word of `query` (`session_search.rs`), this
+/// server's own chat unless `name` names another.
+pub(crate) async fn search_tool(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    let Some(query) = arg(args, "query") else {
+        return error_result("query is required".to_owned());
     };
-    if text.trim().is_empty() {
-        return error_result("text is empty".to_owned());
+    let id = match arg(args, "name") {
+        Some(name) => match crate::cli::run::resolve_id(daemon, name).await {
+            Ok(id) => id,
+            Err(e) => return refusal(e),
+        },
+        None if session.is_empty() => {
+            return error_result("this server runs in no acpmux chat: name a session".to_owned());
+        }
+        None => session.to_owned(),
+    };
+    let params = json!({
+        "sessionId": id,
+        "query": query,
+        "role": args.get("role"),
+        "limit": args.get("limit"),
+    });
+    match daemon.request(method::MUX_SESSION_SEARCH, params).await {
+        Ok(r) => {
+            let hits = r.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
+            let text = if hits.is_empty() {
+                "No message holds every word.".to_owned()
+            } else {
+                hits.iter()
+                    .map(|h| {
+                        format!(
+                            "seq {} ({}): {}",
+                            h.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            h.get("role").and_then(Value::as_str).unwrap_or(""),
+                            h.get("snippet").and_then(Value::as_str).unwrap_or(""),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            ok(text, r)
+        }
+        Err(e) => refusal(e),
     }
-    let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
-    let class = match send_class(args) {
-        Ok(class) => class,
-        Err(e) => return error_result(e),
-    };
-    let key = match crate::cli::orchestrate::expand_session_key(to) {
-        Ok(key) => key,
-        Err(e) => return refusal(e),
-    };
-    let mut prompt = PromptId::new(None);
-    prompt.class = class;
-    prompt.pr = args.get("pr").and_then(Value::as_u64);
-    prompt.thread = arg(args, "thread").map(str::to_owned);
-    let request = prompt.params(&key, text, steer, None);
-    let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
-        Ok(queued) => queued,
-        Err(e) => return refusal(e),
-    };
-    let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let wait = json!({"deliveryId": delivery, "waitMs": STATUS_WAIT.as_millis() as u64});
-    let status = daemon.request(method::MUX_SEND_STATUS, wait).await.unwrap_or(queued);
-    let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
-    // A refusal the target gave at once (its folder's trust, a paused agent pair) is this
-    // send's error, as `acpmux send --no-wait` says it.
-    if matches!(state.as_str(), "failed" | "held") {
-        let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
-        return error_result(format!("Not sent to {to} (delivery {delivery}): {error}"));
-    }
-    let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-    let prompt_id = prompt.id.clone();
-    let session_id = accepted.get("sessionId").cloned().unwrap_or_else(|| json!(key));
-    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": session_id,
-        "promptId": prompt_id, "status": state, "accepted": accepted});
-    if state != "delivered" {
-        structured["delivery"] = json!("sending");
-        return ok(
-            format!(
-                "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
-            ),
-            structured,
-        );
-    }
-    let steered = accepted.get("steer") == Some(&json!(true));
-    let waits = accepted.get("queued") == Some(&json!(true));
-    let (how_id, how) = if steered {
-        ("next_step", "steered into its running turn: it reads it at its next tool step")
-    } else if waits {
-        ("queued", "queued behind its running turn: it reads it when that turn ends")
-    } else {
-        ("started", "it started a turn with it")
-    };
-    structured["delivery"] = json!(how_id);
-    ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
 }
 
 /// `inbox_read` and `inbox_reply`, for this server's own chat (`hub/inbox.rs`).
@@ -398,23 +610,91 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    let all = match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
-        Ok(v) => v,
+    ls_via(daemon, args, crate::cli::list_read::Via::daemon()).await
+}
+
+/// [`ls`], read `via` the v2 list (the live view's rows, or with `status: closed` the closed
+/// rows of the whole view, each fetched as the list writes it) or the v1 list.
+pub(crate) async fn ls_via(
+    daemon: &Arc<Client>,
+    args: &Value,
+    via: crate::cli::list_read::Via,
+) -> Value {
+    use crate::cli::list_read;
+    // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
+    let closed = arg(args, "status") == Some("closed");
+    let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
+    // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
+    // one is listed (decision 213).
+    let remote_closed = closed
+        && list_read::closed_remote_listed(
+            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+        );
+    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
+    let source = match source {
+        Ok(source) => source,
         Err(e) => return refusal(e),
     };
+    let listed = match source {
+        Some(mut source) => {
+            let view = if closed {
+                acpmux_client::wire::ListView::All
+            } else {
+                acpmux_client::wire::ListView::Live
+            };
+            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
+        }
+        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
+    };
+    match listed {
+        Ok(mut all) => {
+            // The other machines' sessions a host with no peer to them lists through its send
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
+            let far = crate::cli::send_relay::relay_rows(true).await;
+            if !far.is_empty()
+                && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
+            {
+                crate::cli::send_relay::merge_rows(rows, far);
+            }
+            ls_result(&all, args)
+        }
+        Err(e) => refusal(e),
+    }
+}
+
+/// What `ls` answers for the daemon's whole list: the sessions `status` and `query` keep (closed
+/// ones only when `status` asks for them), newest first, at most `limit`, each as its
+/// [`LS_FIELDS`], and how many more there were.
+fn ls_result(all: &Value, args: &Value) -> Value {
     let status = arg(args, "status");
-    let rows: Vec<Value> = all["sessions"]
+    let query = arg(args, "query").map(str::to_lowercase);
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map_or(LS_DEFAULT_LIMIT, |n| (n as usize).clamp(1, LS_MAX_LIMIT));
+    let field = |s: &Value, k: &str| s[k].as_str().unwrap_or_default().to_owned();
+    let mut rows: Vec<&Value> = all["sessions"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|s| status.is_none_or(|want| s["status"].as_str() == Some(want)))
-        .cloned()
+        .filter(|s| match status {
+            Some(want) => s["status"].as_str() == Some(want),
+            None => s["status"].as_str() != Some("closed"),
+        })
+        .filter(|s| {
+            query.as_deref().is_none_or(|q| {
+                ["name", "title", "peer"].iter().any(|k| field(s, k).to_lowercase().contains(q))
+            })
+        })
         .collect();
     if rows.is_empty() {
-        return ok("No sessions.".to_owned(), json!({"sessions": []}));
+        return ok("No sessions.".to_owned(), json!({"sessions": [], "more": 0}));
     }
-    let field = |s: &Value, k: &str| s[k].as_str().unwrap_or_default().to_owned();
-    let lines: Vec<String> = rows
+    rows.sort_by_key(|s| std::cmp::Reverse(s["updatedAt"].as_u64().unwrap_or(0)));
+    let more = rows.len().saturating_sub(limit);
+    rows.truncate(limit);
+    let mut lines: Vec<String> = rows
         .iter()
         .map(|s| {
             let name = match (s["peer"].as_str(), field(s, "name")) {
@@ -430,7 +710,24 @@ async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         })
         .collect();
-    ok(lines.join("\n"), json!({"sessions": rows}))
+    if more > 0 {
+        lines.push(format!(
+            "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
+        ));
+    }
+    let slim: Vec<Value> = rows
+        .iter()
+        .map(|s| {
+            let row: serde_json::Map<String, Value> = LS_FIELDS
+                .iter()
+                .filter_map(|k| {
+                    s.get(*k).filter(|v| !v.is_null()).map(|v| ((*k).to_owned(), v.clone()))
+                })
+                .collect();
+            Value::Object(row)
+        })
+        .collect();
+    ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
 #[cfg(test)]

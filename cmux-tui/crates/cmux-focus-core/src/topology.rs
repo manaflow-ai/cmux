@@ -6,7 +6,7 @@
 //! tab indexes, so a lookup by id is O(1) (`Topology::index`).
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// The kind of a tab's content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -31,6 +31,12 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
     pub kind: Kind,
+    /// A terminal tab's host terminal id: the client mints it for a new
+    /// terminal, so a creation's stand-in tab and the daemon's tab that
+    /// replaces it name the same terminal (the input router's sink, see
+    /// [`crate::input`]). None when the app does not know it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -53,10 +59,17 @@ impl Pane {
 
 /// One column of a screen: its stable id (the layout column id; a split
 /// screen's one column uses the screen id) and its pane ids in layout order.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Column {
     pub id: String,
     pub panes: Vec<String>,
+    /// Pane id -> the first pane of the subtree that takes its space when it
+    /// closes (cmux classic's Bonsplit `closePaneRecursively` focus target),
+    /// from the column's split tree. A pane without one (the column's only
+    /// pane) is absent. The close rule falls back to it when no surviving
+    /// pane is in the focus history (issue 38194).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub siblings: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -141,6 +154,7 @@ impl Topology {
                 vec![Column {
                     id: String::new(),
                     panes: self.panes.iter().map(|p| p.id.clone()).collect(),
+                    ..Column::default()
                 }]
             });
         }

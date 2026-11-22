@@ -122,7 +122,9 @@ watch_launches() {
       deadline=$((SECONDS + 20))
       until grep -q '^selftest' "$out/dumps/probe-$pid.tsv" 2>/dev/null; do
         if (( SECONDS > deadline )); then
-          echo "blocking-probe: FAIL: pid $pid has no probe self-test row 20 s after launch: the probe did not load or did not interpose" | tee "$out/selftest-failed"
+          # In a subshell that ignores SIGPIPE (tee inherits it): output nobody reads would otherwise end this
+          # function (set -e on the failed pipeline) before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+          ( trap '' PIPE; echo "blocking-probe: FAIL: pid $pid has no probe self-test row 20 s after launch: the probe did not load or did not interpose" | tee "$out/selftest-failed" ) || true
           kill "$sweep_pid" 2>/dev/null
           return 1
         fi

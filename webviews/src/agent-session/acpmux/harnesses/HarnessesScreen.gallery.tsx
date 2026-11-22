@@ -9,29 +9,60 @@ import { HarnessesScreen } from "./HarnessesScreen";
 type Props = {
   acpmux: AcpmuxSnapshot["catalog"];
   signedOut: string[];
+  /// Harnesses whose sign-in acpmux found expired.
+  expired?: string[];
   /// acpmux has not listed its harnesses yet.
   checking?: boolean;
-  /// An install command run in place keeps running, or fails.
-  install?: "running" | "fails";
+  /// An install command run in place keeps running, or fails: with npm's own error, after the network
+  /// dropped (curl could not resolve the host), with advice for a terminal user ("--force"), or it waits
+  /// for the network to come back.
+  install?: "running" | "fails" | "dropped" | "advice" | "offline";
   /// The update `harness.health` offers.
   update?: string;
   signInFails?: boolean;
+  /// `harness.health` rejects.
+  healthFailure?: boolean;
+  /// The host rejects this launch.
+  launchFailure?: "chat.new";
+  /// Harnesses whose health answers with no `auth` at all: the sign-in is unknown.
+  authMissing?: string[];
 };
 
 /// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
 /// page asks.
-function GalleryHarnesses({ acpmux, signedOut, checking, install, update, signInFails }: Props) {
+function GalleryHarnesses({
+  acpmux,
+  signedOut,
+  expired,
+  checking,
+  install,
+  update,
+  signInFails,
+  healthFailure,
+  launchFailure,
+  authMissing,
+}: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const reads = useRef(0);
   const native = useMemo(
     () =>
       (method: string, params: Record<string, unknown> = {}) => {
+        if (method === "harness.health" && healthFailure) return Promise.reject(new Error("Health check unavailable"));
+        if (method === launchFailure) return Promise.reject(new Error("Host could not open the tab"));
         if (method === "harness.health")
           return Promise.resolve({
             health: {
               id: params.id,
-              auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn",
+              ...(authMissing?.includes(String(params.id))
+                ? {}
+                : {
+                    auth: signedOut.includes(String(params.id))
+                      ? "signedOut"
+                      : expired?.includes(String(params.id))
+                        ? "expired"
+                        : "signedIn",
+                  }),
               ...(update ? { update: { command: update, elevated: false } } : {}),
             },
           });
@@ -45,6 +76,23 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update, signIn
               next: 2,
               exit: { code: 243 },
             });
+          if (install === "dropped")
+            return Promise.resolve({
+              output: "curl: (6) Could not resolve host: opencode.ai\n",
+              next: 2,
+              exit: { code: 6 },
+            });
+          if (install === "advice")
+            return Promise.resolve({
+              output: "Installation failed. Try running with --force to override checks\n",
+              next: 2,
+              exit: { code: 1 },
+            });
+          if (install === "offline" && reads.current === 2)
+            return Promise.resolve({
+              output: "curl: (6) Could not resolve host: opencode.ai\ncmux-install: waiting for the network\n",
+              next: 2,
+            });
           return new Promise<never>(() => {});
         }
         // Record the request before simulating a rejected terminal launch so the play can
@@ -56,7 +104,7 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update, signIn
           });
         return Promise.resolve({});
       },
-    [signedOut, install, update, signInFails],
+    [signedOut, expired, install, update, signInFails, healthFailure, launchFailure, authMissing],
   );
   return (
     <div
@@ -95,6 +143,15 @@ const signIn: Play = async (ctx) => {
   await asked(ctx, 'tab.open {"kind":"terminal","text":"codex login"');
 };
 
+const failedLaunch =
+  (harness: string): Play =>
+  async (ctx) => {
+    const selector = `[data-harness-row="${harness}"]`;
+    await ctx.waitFor(() => ctx.document.querySelector(`${selector} button`) !== null);
+    await ctx.click({ selector: `${selector} button` });
+    await ctx.waitFor(() => ctx.document.querySelector(`${selector}[data-harness-status="failed"]`) !== null);
+  };
+
 const installOpenCode: Play = async (ctx) => {
   await ctx.click({ selector: '[data-harness-row="opencode"] button' });
   await ctx.waitFor(
@@ -119,7 +176,9 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-harnesses-head" }],
   covers: ["agent-session/acpmux/harnesses/HarnessesScreen.tsx#HarnessesScreen"],
-  styles: () => import("../styles.css"),
+  // The agent pane's cascade: App.tsx loads the Session status card's sheet beside this page's
+  // (HarnessStatusCard.tsx), so the stage does too, and a class the two share shows here as in the app.
+  styles: () => Promise.all([import("../styles.css"), import("../harnessStatus.css")]),
   checks: {
     layoutShiftMax: {
       value: 0,
@@ -133,6 +192,10 @@ export default componentEntry<Props>({
       props: { acpmux: thisMac, signedOut: ["codex"] },
       play: signIn,
     },
+    "sign-in-expired": {
+      note: "Claude Code's sign-in expired: Sign In, never Ready. Codex signed out, Grok ready.",
+      props: { acpmux: thisMac, signedOut: ["codex"], expired: ["claude"] },
+    },
     hover: {
       note: "Harness action hover states without an automatic play.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
@@ -141,6 +204,23 @@ export default componentEntry<Props>({
       note: "Opening the sign-in terminal fails; the row keeps the failure and a Sign In retry.",
       props: { acpmux: thisMac, signedOut: ["codex"], signInFails: true },
       play: signIn,
+    },
+    "signed-out-no-login": {
+      note: "Claude is installed but signed out with no login command: setup recovery, never Start Chat.",
+      props: { acpmux: thisMac, signedOut: ["claude"] },
+    },
+    "health-failed": {
+      note: "A failed health read is unavailable with a recovery action, never Ready or an endless spinner.",
+      props: { acpmux: thisMac, signedOut: [], healthFailure: true },
+    },
+    "auth-unknown": {
+      note: "Grok's health answers with no sign-in at all: unknown is not ready, so Check Again, never Start Chat.",
+      props: { acpmux: thisMac, signedOut: ["codex"], authMissing: ["grok"] },
+    },
+    "chat-launch-failed": {
+      note: "A rejected Start Chat keeps the setup page open with the error and a retry.",
+      props: { acpmux: thisMac, signedOut: [], launchFailure: "chat.new" },
+      play: failedLaunch("grok"),
     },
     "custom-harness": {
       note: "Custom harness… starts the harness guide chat in this tab.",
@@ -161,8 +241,23 @@ export default componentEntry<Props>({
       play: installOpenCode,
     },
     "install-failed": {
-      note: "The install failed: the row says why and offers one fix, the setup guide.",
+      note: "The install failed: the row says why and offers Retry, then the setup guide.",
       props: { acpmux: thisMac, signedOut: [], install: "fails" },
+      play: installOpenCode,
+    },
+    "install-waiting-network": {
+      note: "The network dropped during the install: the row waits for it in plain words and installs again by itself.",
+      props: { acpmux: thisMac, signedOut: [], install: "offline" },
+      play: installOpenCode,
+    },
+    "install-network-dropped": {
+      note: "The install failed on a dropped network: plain words, Retry first, the raw line only in the tooltip.",
+      props: { acpmux: thisMac, signedOut: [], install: "dropped" },
+      play: installOpenCode,
+    },
+    "install-terminal-advice": {
+      note: 'The installer failed with advice for a terminal ("--force"): the row never shows it, it offers Retry.',
+      props: { acpmux: thisMac, signedOut: [], install: "advice" },
       play: installOpenCode,
     },
     "update-offered": {

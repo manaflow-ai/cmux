@@ -23,6 +23,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MAIN_DOCK, MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
@@ -47,7 +48,7 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  /** The trailing cluster's controls, left to right by position (mic, then Send or Stop). */
   trailing: string[];
   /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
@@ -60,8 +61,11 @@ type Row = {
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
+  /** The composer's pickers, passed into the page function that measures the row. */
+  type Pickers = { MODEL_PICKER: string; PLUS_PICKER: string };
+  const PICKERS: Pickers = { MODEL_PICKER, PLUS_PICKER };
   /** Runs in the page: the row's geometry. */
-  function measure(): Row {
+  function measure({ MODEL_PICKER, PLUS_PICKER }: Pickers): Row {
     const rect = (element: Element): Rect => {
       const { left, right, top, bottom, width } = element.getBoundingClientRect();
       return { left, right, top, bottom, width };
@@ -72,8 +76,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const box = document.querySelector(".acpmux-composer-box")!;
     const footer = document.querySelector(".acpmux-composer-strip");
     const named: [string, string][] = [
-      ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
-      ["model", ".acpmux-model .acpmux-picker-button"],
+      ["plus", PLUS_PICKER],
+      ["model", MODEL_PICKER],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -122,23 +126,21 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         .map((button) =>
           button.classList.contains("acpmux-mic")
             ? "mic"
-            : button.classList.contains("acpmux-steer-now")
-              ? "steer"
-              : button.classList.contains("acpmux-cancel")
-                ? "stop"
-                : button.classList.contains("acpmux-send")
-                  ? "send"
-                  : button.className,
+            : button.classList.contains("acpmux-cancel")
+              ? "stop"
+              : button.classList.contains("acpmux-send")
+                ? "send"
+                : button.className,
         ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
         model: label(
-          ".acpmux-model .acpmux-picker-button",
+          MODEL_PICKER,
           '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
           ".acpmux-model",
         ),
         effort: label(
-          ".acpmux-model .acpmux-picker-button",
+          MODEL_PICKER,
           '.acpmux-model-detail[data-fit-forms~="full"]:not(.acpmux-fit-label)',
           ".acpmux-model",
         ),
@@ -149,7 +151,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           '.acpmux-context, .acpmux-context-ring, [role="progressbar"], [class*="spinner"], [class*="-ring"]',
         ),
       ].map((element) => element.className.toString() || element.tagName),
-      // LockIcon (ComposerPickers.tsx): its shackle path.
+      // A lock's shackle path: the row draws none (the mode menu no longer holds grants).
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
       effortChip: document.querySelector(".acpmux-effort") !== null,
@@ -227,7 +229,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       await page.keyboard.type(draft);
       await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
     }
-    const measured = await page.evaluate(measure);
+    const measured = await page.evaluate(measure, PICKERS);
     await page.close();
     return measured;
   };
@@ -298,23 +300,26 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       await page.goto(stageURL("queued"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
-      const drawn = await page.evaluate(() => {
-        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
-        const main = rect(".acpmux-main")!;
-        const foot = rect(".acpmux-composer-foot")!;
-        const box = rect(".acpmux-composer-box")!;
-        const queue = rect(".acpmux-composer-queue");
-        const transcript = rect(".acpmux-main .acpmux-scroll")!;
-        const stack = rect(".acpmux-main > .acpmux-dock")!;
-        return {
-          footInside: foot.bottom <= main.bottom + 0.5,
-          footUnderBox: foot.top >= box.bottom - 0.5,
-          queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
-          transcriptRoom: Math.round(stack.top - transcript.top),
-          footBottom: Math.round(foot.bottom),
-          paneBottom: Math.round(main.bottom),
-        };
-      });
+      const drawn = await page.evaluate(
+        ({ MAIN_DOCK }) => {
+          const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+          const main = rect(".acpmux-main")!;
+          const foot = rect(".acpmux-composer-foot")!;
+          const box = rect(".acpmux-composer-box")!;
+          const queue = rect(".acpmux-composer-queue");
+          const transcript = rect(".acpmux-main .acpmux-scroll")!;
+          const stack = rect(MAIN_DOCK)!;
+          return {
+            footInside: foot.bottom <= main.bottom + 0.5,
+            footUnderBox: foot.top >= box.bottom - 0.5,
+            queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
+            transcriptRoom: Math.round(stack.top - transcript.top),
+            footBottom: Math.round(foot.bottom),
+            paneBottom: Math.round(main.bottom),
+          };
+        },
+        { MAIN_DOCK },
+      );
       await page.close();
       console.log(`queued at ${height} px`, JSON.stringify(drawn));
       expect({
@@ -367,19 +372,21 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop has Send's footprint as a plain glyph in the secondary text color`, async () => {
-      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
-      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
-      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
-      // and line, not its x.
+    test(`at ${width} px Stop takes Send's slot as a plain glyph in the secondary text color`, async () => {
+      // One send control (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"): no Send until there is
+      // a draft, so the idle row Stop is held against has a prompt typed; there Send comes before
+      // the mic, which keeps the right edge (Claude desktop's ↵). While a turn runs with an empty
+      // prompt, Stop stands in that same slot.
       const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
+      const off = (["width", "left", "top", "bottom"] as const).filter(
+        (side) => Math.abs(send[side] - stop[side]) > 0.5,
+      );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(idle.trailing.slice(-2)).toEqual(["send", "mic"]);
       expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
       // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"; then the secondary text
       // color, only a hover background): no fill, the square in the secondary text color, a step

@@ -47,6 +47,22 @@ extension LiveWorkspaceCreationBackend: WorkspaceGroupBackend {
         await settleGroups()
     }
 
+    /// New Workspace Group: `workspace_group.create {name, color, room}` in the room the Mac's
+    /// first window shows (the room a new workspace goes to), with nothing in it yet.
+    public func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup {
+        let client = try daemonClient(macID)
+        // No workspace pins it: the first room that follows this session, else the default one.
+        let room = sync.tree?.registryID.flatMap { registry in sync.arrangement?.room(forWorkspace: "", registryID: registry) }
+            ?? SidebarArrangement.defaultRoom
+        let created = try await resource(client, "workspace_group.create", ["name": name, "color": color.rawValue, "room": room],
+                                         key: "cmux-next-ios-group-create")
+        guard let id = Self.createdGroupID(created) else {
+            throw WorkspaceCreationError("The Mac made the group but didn't say which one")
+        }
+        await settleGroups()
+        return groups(on: macID).first { $0.id == id } ?? MacWorkspaceGroup(id: id, name: name, color: color.rawValue, room: room)
+    }
+
     public func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws {
         let client = try daemonClient(macID)
         var params: [String: Any] = ["workspace_group": group.id]

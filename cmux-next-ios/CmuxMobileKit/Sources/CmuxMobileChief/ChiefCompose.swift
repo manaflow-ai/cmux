@@ -6,9 +6,8 @@ import CmuxMobileModel
 import Foundation
 import UIKit
 
-/// A conversation Home opens on its own stack: Chief (from select mode's
-/// Forward), Chief with the composer focused (Home's compose button), or an
-/// agent's chat.
+/// A conversation Home opens on its own stack: a Chief, an agent's chat, a
+/// conversation of the Mac's list, or a Cloud conversation New Message made.
 public enum HomeConversationRoute: Hashable, Sendable {
     /// A Chief conversation: the Cloud Chief or the Mac Chief.
     case chief(ChiefRoute.Place)
@@ -16,13 +15,15 @@ public enum HomeConversationRoute: Hashable, Sendable {
     case agent(AgentChatDestination)
     /// A conversation of the Mac's Home list other than the Mac Chief's.
     case mac(MacConversationRoute)
+    /// A Cloud conversation: a teammate DM or group New Message made, or another Cloud Chief's.
+    case cloud(CloudConversationRoute)
 
     /// The navigation value to push for Chief, nil for an agent.
     public var chiefRoute: ChiefRoute? {
         switch self {
         case let .chief(place): ChiefRoute(place: place)
         case let .chiefComposing(place): ChiefRoute(focusesComposer: true, place: place)
-        case .agent, .mac: nil
+        case .agent, .mac, .cloud: nil
         }
     }
 }
@@ -130,6 +131,9 @@ public final class ChiefComposer {
     let store: AppStore
     let session: ChiefSession
     let open: (HomeConversationRoute) -> Void
+    /// Home's New Message (the Mac's, ``HomeNewMessage``); without it Forward
+    /// opens the sheet over Chief and the agent chats alone.
+    var newMessage: (() -> HomeNewMessage)?
 
     public init(store: AppStore, session: ChiefSession = .shared, open: @escaping (HomeConversationRoute) -> Void) {
         self.store = store
@@ -162,6 +166,10 @@ public final class ChiefComposer {
 
     /// Forward from select mode: New Message prefilled with the draft.
     public func present(forwarding draft: ConversationForwardDraft) {
+        if let newMessage {
+            newMessage().present(forwarding: draft)
+            return
+        }
         guard present() else { return }
         pending?.setDraft(forwarding: draft)
     }
@@ -172,14 +180,8 @@ public final class ChiefComposer {
         if creation.info.id != ChiefDirectory.chiefContactID,
            let recipient = directory.recipient(id: creation.info.id),
            case let .agent(destination) = recipient.route,
-           let workspace = store.workspace(id: destination.workspaceID),
-           let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) {
-            let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
-            let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
-            open(.agent(destination))
-            // The whole message is the prompt: its text and every image, in order
-            // (`send` drops a message with neither).
-            chat.send(prompt: message.text, attachments: Self.attachments(message.images))
+           store.workspace(id: destination.workspaceID) != nil {
+            Self.send(message, to: destination, store: store, open: open)
             return
         }
         var routed = message
@@ -195,17 +197,45 @@ public final class ChiefComposer {
         session.send(routed)
     }
 
-    /// New Message's images as an agent prompt's attachments, bytes and order kept.
+    /// Opens an agent tab's chat and sends `message` there as its prompt.
+    static func send(_ message: ConversationComposeMessage, to destination: AgentChatDestination, store: AppStore,
+                     open: (HomeConversationRoute) -> Void) {
+        guard let workspace = store.workspace(id: destination.workspaceID),
+              let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) else { return }
+        let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
+        let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
+        open(.agent(destination))
+        // The whole message is the prompt: its text and every image, in order, then a recording
+        // as a file (agents take no voice messages; `send` drops a message with none of these).
+        var files = attachments(message.images)
+        files += message.files.map { AgentAttachment(kind: .file, name: $0.info.name, data: $0.data) }
+        if let audio = message.audio {
+            // The recorder writes WAV (`ConversationAudioRecorder`).
+            files.append(AgentAttachment(kind: .file, name: "Audio.wav", data: audio.data))
+        }
+        chat.send(prompt: message.text, attachments: files)
+    }
+
+    /// New Message's images as agent prompt attachments, normalized to formats agents accept.
     static func attachments(_ images: [ConversationComposeImage]) -> [AgentAttachment] {
         images.enumerated().map { index, image in
-            let ext = switch image.mimeType.lowercased() {
-            case "image/png": "png"
-            case "image/gif": "gif"
-            case "image/webp": "webp"
-            case "image/heic": "heic"
-            default: "jpg"
+            let source = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
+            let data: Data
+            let kind: AgentAttachment.Kind
+            let ext: String
+            switch source.imageMIMEType {
+            case "image/png": data = image.data; kind = .image; ext = "png"
+            case "image/jpeg": data = image.data; kind = .image; ext = "jpg"
+            case "image/gif": data = image.data; kind = .image; ext = "gif"
+            case "image/webp": data = image.data; kind = .image; ext = "webp"
+            default:
+                if let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
+                    data = jpeg; kind = .image; ext = "jpg"
+                } else {
+                    data = image.data; kind = .file; ext = "bin"
+                }
             }
-            return AgentAttachment(kind: .image, name: "Image \(index + 1).\(ext)", data: image.data)
+            return AgentAttachment(kind: kind, name: "Image \(index + 1).\(ext)", data: data)
         }
     }
 

@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct SSHConnectRecoveryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SSHConnectRecoveryTests {
     @Test func networkAndDaemonFailuresOfferRecovery() {
         for status: SSHConnectionMachine.Status in [.unreachable("nohost.invalid"), .failed("daemon exited"),
                                                    .authFailed("denied"), .hostKeyUntrusted("changed"), .installFailed("download failed")] {

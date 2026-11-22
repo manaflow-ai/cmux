@@ -1,0 +1,17 @@
+[package]
+name = "cmux-daemon-launch-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "How the macOS app starts and keeps its cmux-tui daemon (the macOS app asks over the app FFI): the version handoff, the server ensure command line, environment and answer, the start failure and stuck-owner rules, the unresponsive-owner watch, the login and terminal environments, Ghostty shell integration, the bundled CLI layer, the install key and the legacy channel session"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+# The install key's hello proof and install id rule (the daemon checks the same bytes).
+cmux-local-auth = { path = "../cmux-local-auth" }

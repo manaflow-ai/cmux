@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
@@ -14,18 +15,9 @@ enum SidebarContextMenus {
                      trailing: [NSMenuItem] = [], workspaceMachineID: String? = nil) -> NSMenu? {
         let registry = services.registry
         switch target {
-        case .tab(let workspace, let tab):
-            // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            let owner = services.machines.daemon(forWorkspace: workspace.rawValue)
-            let model = owner.flatMap { services.locateTab(tab.rawValue, onMachine: $0.machineID)?.0 }
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
-                                              machineID: owner?.machineID)
-            menu.themeRows(in: scope)
-            return menu
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
-            if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {
+            if ids.count == 1, let machine = ids.first.map(\.rawValue).flatMap(ConnectingRowWindows.machine(of:)) {
                 return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine)).themeRows(in: scope)
             }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
@@ -34,11 +26,12 @@ enum SidebarContextMenus {
             let owner = (workspaceMachineID ?? model.workspace(first)?.machineID.rawValue).flatMap { services.machines.daemon(machine: $0) }
             let highlighted = owner?.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
             // Several selected rows get Chrome's menu for several tabs (ContextMenuEssentials.selectionMenus).
-            let catalog = ContextMenuCatalog.shared, selection = ids.count > 1
-            let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
+            // The one-row menu is the person's arrangement (Settings > Menus); the selection menu is not arranged.
+            let selection = ids.count > 1
+            let all = selection ? ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow) : registry.contextMenuEntries(for: .workspaceRow)
             let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
-            let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
+            let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries, customize: false)
             if let owner { registry.scopeMenuAction(menu, action: "notifications.dismissHighlight", toMachine: owner.machineID) }
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
             // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
@@ -49,6 +42,8 @@ enum SidebarContextMenus {
                 menu.addItem(.separator())
                 for item in trailing { menu.addItem(item) }
             }
+            // Customize Menu… ends the menu, after a pinned tile's own rows.
+            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow, target: target) }
             if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu
@@ -72,19 +67,24 @@ enum SidebarContextMenus {
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
-            // This Mac alone: its header is the list's "Projects" title and draws no machine icon.
-            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+            // This Mac alone: its header is the list's "Projects" title and draws no machine icon; it keeps Share This Mac.
+            return SidebarScreenIntentActions.addShareThisMacRow(to: registry.makeContextMenu(for: .sidebarBackground), registry: registry).themeRows(in: scope)
         case .section(.machine(let machine)):
-            return machineMenu(machine.rawValue, services: services).themeRows(in: scope)
+            return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
-            let band: NSMenu? = registry.makeContextMenu(for: .sidebarFooter)
-            if let band, band.items.contains(where: { !$0.isSeparatorItem }) { return band.themeRows(in: scope) }
+            let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)
+            if band.items.contains(where: { !$0.isSeparatorItem }) {
+                registry.appendCustomizeItem(to: band, for: .sidebarFooter)
+                return band.themeRows(in: scope)
+            }
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .profile(let id):
-            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
+            let target = ActionTargetRef(kind: .profile, id: id.rawValue), menu = registry.makeContextMenu(for: .profile, target: target), space = model.profiles.first { $0.id == id }
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: space?.name ?? "", rename: "space.rename", current: space?.color, noColor: space?.color == nil) // the group menu's header
+            return menu.themeRows(in: scope)
         case .nowPlaying:
             // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
             // shows), Hide, Hide Until Relaunch, Never Show Media Card.
@@ -116,7 +116,7 @@ enum SidebarContextMenus {
     /// Mac's and a paired server's are the sidebar's), with what every
     /// machine offers (`machineSection`: its icon) after the first group,
     /// or at the end of its Options folder when the top level is full.
-    static func machineMenu(_ machine: String, services: AppServices) -> NSMenu {
+    static func machineMenu(_ machine: String, header: SidebarMachine? = nil, services: AppServices) -> NSMenu {
         let registry = services.registry, machines = services.machines
         let target = ActionTargetRef(kind: .machine, id: machine)
         let menu = if machines.sshSession(machine) != nil {
@@ -126,11 +126,13 @@ enum SidebarContextMenus {
         } else {
             registry.makeContextMenu(for: .cloudMachine, target: target)
         }
-        let shared = registry.makeContextMenu(for: .machineSection, target: target)
+        // Its rows join the header's menu, which ends with its own Customize Menu…; its screen rows follow the header's screen button.
+        let shared = registry.makeContextMenu(for: .machineSection, target: target, entries: registry.contextMenuEntries(for: .machineSection, removing: SidebarScreenIntentActions.hiddenMenuRows(header)), customize: false)
         let items = shared.items
         shared.removeAllItems()
         guard !items.isEmpty else { return menu }
-        if menu.items.filter({ !$0.isSeparatorItem }).count >= Self.topLevelLimit,
+        // Customize Menu… ends every menu and is not one of its rows (topLevelLimit counts rows).
+        if menu.items.filter({ !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }).count >= Self.topLevelLimit,
            let options = menu.items.first(where: { $0.title == MenuFolder.options.title })?.submenu {
             options.addItem(.separator())
             for item in items { options.addItem(item) }

@@ -6,6 +6,17 @@ use std::fmt;
 pub(super) const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
 
 #[derive(Debug)]
+pub(super) struct AgentHookPrecedingProjectionPending;
+
+impl fmt::Display for AgentHookPrecedingProjectionPending {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an earlier agent hook projection is pending")
+    }
+}
+
+impl std::error::Error for AgentHookPrecedingProjectionPending {}
+
+#[derive(Debug)]
 pub(super) struct AgentHookTerminalUnavailable;
 
 impl fmt::Display for AgentHookTerminalUnavailable {
@@ -35,6 +46,7 @@ pub(super) fn agent_hook_retry_class(
     error: &anyhow::Error,
 ) -> crate::workspace_registry::AgentHookRetryClass {
     if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
+        || error.downcast_ref::<AgentHookPrecedingProjectionPending>().is_some()
         || error.chain().any(|cause| {
             matches!(
                 cause.downcast_ref::<rusqlite::Error>(),

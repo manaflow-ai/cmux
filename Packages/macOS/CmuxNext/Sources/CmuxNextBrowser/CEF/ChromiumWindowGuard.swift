@@ -21,11 +21,18 @@ final class ChromiumWindowGuard {
     private(set) var recent: [Blocked] = []
     private let recentLimit = 8
     private var observers: [any NSObjectProtocol] = []
+    /// A window became key (``AgentRenderKeyReturn`` gives back keys a parked agent page took).
+    var onBecameKey: ((NSWindow) -> Void)?
+    /// A window's occlusion changed (``ChromiumPageWindowVisibility/parentOcclusionChanged(_:post:)`` passes it on to
+    /// the window's embedded page windows).
+    var onOcclusionChanged: ((NSWindow) -> Void)?
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
-    private lazy var widgetClass: AnyClass? = NSClassFromString("NativeWidgetMacNSWindow")
-    private lazy var browserWindowClass: AnyClass? = NSClassFromString("BrowserNativeWidgetWindow")
+    // CEF loads its window classes lazily, after CefInitialize. Resolve them for each check so a
+    // guard started before the first page still sees the class when Chromium creates it.
+    private var widgetClass: AnyClass? { NSClassFromString("NativeWidgetMacNSWindow") }
+    private var browserWindowClass: AnyClass? { NSClassFromString("BrowserNativeWidgetWindow") }
 
     init(logger: Logger, isPlacedDevTools: @escaping (NSWindow) -> Bool) {
         self.logger = logger
@@ -40,7 +47,13 @@ final class ChromiumWindowGuard {
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
-                MainActor.assumeIsolated { self?.check(window) } // main-proof: observer on queue: .main
+                let becameKey = note.name == NSWindow.didBecomeKeyNotification
+                let occlusion = note.name == NSWindow.didChangeOcclusionStateNotification
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    self?.check(window)
+                    if becameKey { self?.onBecameKey?(window) }
+                    if occlusion { self?.onOcclusionChanged?(window) }
+                }
             })
         }
         for window in NSApp.windows { check(window) }
@@ -71,6 +84,12 @@ final class ChromiumWindowGuard {
     }
 
     private func check(_ window: NSWindow) {
+        // Chromium never restores its page windows; cmux persists its own windows through the
+        // daemon. Apply this per window because the CEF shim runs before lazy CEF window classes
+        // necessarily exist, and newer forks may bypass its private restoration selector.
+        if let widgetClass, window.isKind(of: widgetClass), window.isRestorable {
+            window.isRestorable = false
+        }
         let verdict = ChromiumWindowRule.verdict(facts(for: window))
         guard verdict != .allow else { return }
         let blocked = Blocked(className: NSStringFromClass(type(of: window)), title: window.title, verdict: verdict)

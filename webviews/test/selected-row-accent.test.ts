@@ -1,7 +1,8 @@
 // Selected rows in the agent pane (New Tab's rows and chats list, the omnibar and
 // checked question rows) tint with the theme accent when `appearance.accent` sets one. With the
 // default neutral accent the host sends the text color as `--agent-accent`, so the tint is the
-// same as before. The row text stays the text color either way.
+// same as before. The row text stays the text color either way. New Tab's rows take the app's
+// selection token, which WebTheme sends as the theme's selectionFill (the accent at 26% on a dark theme).
 //
 // The page is the pane's real stylesheets plus markup in the shape the components render. The
 // engines come from `playwright install chromium webkit`; where they are not installed, the cases
@@ -15,7 +16,14 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("selected-row-accent.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src/agent-session");
-  const css = ["shared/styles.css", "acpmux/styles.css", "acpmux/newtab/screen.css", "acpmux/newtab/history.css"]
+  // desktop.css first, as the pane loads it: New Tab's rows take the app's selection token (--ds-color-selection).
+  const css = [
+    "../pages/shared/desktop.css",
+    "shared/styles.css",
+    "acpmux/styles.css",
+    "acpmux/newtab/screen.css",
+    "acpmux/newtab/history.css",
+  ]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
@@ -46,7 +54,7 @@ await requireBrowserLane("selected-row-accent.test.ts", async () => {
   ];
   const page = (accent: string) => `<!doctype html><html><head><style>
 ${css}
-:root{--agent-text:${TEXT};--agent-accent:${accent};--agent-accent-text:rgb(25,23,36);--agent-page-bg:rgb(25,23,36);--agent-muted:rgb(144,140,170)}
+:root{--cmux-selection:color-mix(in srgb,${accent} 26%,transparent);--agent-text:${TEXT};--agent-accent:${accent};--agent-accent-text:rgb(25,23,36);--agent-page-bg:rgb(25,23,36);--agent-muted:rgb(144,140,170)}
 </style></head><body><div class="acpmux-shell">${ROWS.map(([, html]) => html).join("")}</div></body></html>`;
 
   for (const [name, engine] of engines) {

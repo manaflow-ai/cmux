@@ -1,0 +1,95 @@
+{
+ "id": "sidebar-rows-film-200",
+ "priority": "P2",
+ "title": "SIDEBAR ROWS film: 200 rows, light then STRESS (10 busy terminals): 10 Cmd-N row inserts and 10 Close Workspace row removes each, every display frame of the sidebar recorded",
+ "why": "cmux-ad m23 (STATUS 14191): sidebar row insert and remove at 120 Hz with 0 missed refreshes, light and STRESS, 50 and 200 rows; no row view rebuilt during motion. Step 1 films and measures (missed refreshes, rebuilt rows); the y oracle is pixel-perfect's.",
+ "source": "scripts/cmux-next/sidebar-instant-rows-live.py (debug.sidebar_rows motion), played on an exact fleet build with real keys (debug.key)",
+ "budget_seconds": 250,
+ "require_hz": 120,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "marker_install"
+  },
+  {
+   "do": "type",
+   "text": "${marker} film-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types (its result does not decide the films)",
+   "since": "typed",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "film-${nonce}-42"
+    },
+    {
+     "app_text_line": "film-${nonce}-42"
+    },
+    {
+     "frame_marker": "film-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "film_grow",
+   "count": 200,
+   "title": "200 workspaces (one terminal each) through a script's newTab"
+  },
+  {
+   "do": "film_presses",
+   "scenario": "light-200",
+   "pairs": 10,
+   "title": "light, 200 rows: 10 Cmd-N + 10 Cmd-Shift-W under films"
+  },
+  {
+   "do": "film_busy",
+   "count": 10,
+   "title": "STRESS: 10 terminals of other workspaces print a line every 20 ms"
+  },
+  {
+   "do": "film_presses",
+   "scenario": "stress-200",
+   "pairs": 10,
+   "title": "STRESS, 200 rows: 10 Cmd-N + 10 Cmd-Shift-W under films"
+  },
+  {
+   "do": "film_busy",
+   "on": false,
+   "title": "the busy terminals stop"
+  },
+  {
+   "do": "expect",
+   "title": "both films recorded",
+   "timeout": 5,
+   "all": [
+    {
+     "film_recorded": {
+      "scenario": "light-200",
+      "presses": 20
+     }
+    },
+    {
+     "film_recorded": {
+      "scenario": "stress-200",
+      "presses": 20
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -36,7 +36,7 @@ export interface Wake {
  */
 export const warmBrain = (env: Env, agent: string, conversation: unknown): Promise<unknown> =>
   env.CHIEF_BRAIN_ENABLED === "1" && typeof conversation === "string"
-    ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { warm(): Promise<unknown> }).warm().catch(() => undefined)
+    ? env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))).warm().catch(() => undefined)
     : Promise.resolve()
 
 const ready = new WeakSet<SqlStorage>()
@@ -78,7 +78,7 @@ export const durableOn = (env: Env): boolean => env.CHIEF_DURABLE_ENABLED === "1
 export const sendWake = async (env: Env, w: Wake, impl: BrainRoute): Promise<boolean> => {
   const pi = () =>
     impl === "durable" && env.CHIEF_DURABLE_DO
-      ? (env.CHIEF_DURABLE_DO.get(env.CHIEF_DURABLE_DO.idFromName(brainName(w.agent, w.conversation))) as unknown as { wake(w: Wake): Promise<unknown> }).wake(w)
+      ? env.CHIEF_DURABLE_DO.get(env.CHIEF_DURABLE_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
       : env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
   const o = impl === "opencode" && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
   type Answer = { queued: number } | { skipped: string; retry?: true }

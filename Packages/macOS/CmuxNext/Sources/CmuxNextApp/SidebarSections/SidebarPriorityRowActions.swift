@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSidebar
 
@@ -11,15 +13,15 @@ extension AgentPriorityChats {
     // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
     private static func makeApp() -> AgentPriorityChats {
         AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
+                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) },
+                           unarchive: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) })
     }
 }
 
-/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin
-/// Chat in Priority…, Snooze Chat for 1 Hour… (the palette asks which chat), and Archive Chat. The
-/// row's hover buttons, its right-click menu (`ActionMenuContext.priorityRow`), the palette and a
-/// user's shortcut all run them through the registry, and they write the marks through
-/// `AgentPriorityChats`.
+/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin Chat in Priority…,
+/// Snooze Chat for 1 Hour…, Move Chat Earlier/Later in Priority… (the palette asks which chat), and Archive Chat. The
+/// row's hover buttons, its right-click menu (`ActionMenuContext.priorityRow`), the palette and a user's shortcut all
+/// run them through the registry, and they write the marks through `AgentPriorityChats`.
 @MainActor
 struct SidebarPriorityRowActions {
     static let markRead: ActionID = "sidebar.priority.markRead"
@@ -31,6 +33,10 @@ struct SidebarPriorityRowActions {
     let chats: AgentPriorityChats
     /// Why the row actions cannot run now (the view is off); nil while they can.
     var unavailable: @MainActor () -> String? = { nil }
+    /// Where an archive's Undo toast shows (toasts v2): the app's active window. Nil: no toast.
+    var toastWindow: @MainActor () -> NSWindow? = { nil }
+    /// The presenter; its ``CmuxToastCenter/v2`` decides whether an archive offers Undo (tests pass their own).
+    var toasts: CmuxToastCenter = .shared
 
     /// Why the row actions cannot run in the app: the Priority view is off (`SidebarPriorityFeed`
     /// binds the other three with the same check).
@@ -44,14 +50,14 @@ struct SidebarPriorityRowActions {
     /// The target a hover button and the row's menu pass.
     static func target(_ chat: String) -> ActionTargetRef { ActionTargetRef(kind: .agentChat, id: chat) }
 
-    /// A row button's action and chat; nil for the view's own choices (open, fold, bell).
+    /// A row button's action and chat; nil for the view's own choices (open, fold, bell, drag, answer).
     static func route(_ action: SidebarPriorityAction) -> (ActionID, String)? {
         switch action {
         case .markRead(let id): (Self.markRead, id)
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown: nil
+        case .open, .setCollapsed, .toggleShown, .place, .answer: nil
         }
     }
 
@@ -72,6 +78,7 @@ struct SidebarPriorityRowActions {
         registry.bind(Self.markRead, unavailable: unavailable, run: { try Self.run(chats.markRead, $0) })
         registry.bind(Self.togglePin, unavailable: unavailable, run: { try Self.run(chats.togglePin, $0) })
         registry.bind(Self.snooze, unavailable: unavailable, run: { try Self.run({ chats.snooze($0) }, $0) })
+        for (id, step) in [("sidebar.priority.moveEarlier", -1), ("sidebar.priority.moveLater", 1)] as [(ActionID, Int)] { registry.bind(id, unavailable: unavailable, run: { try Self.run({ chats.move($0, by: step) }, $0) }) }
         // Only a result or a failure is read: the menu leaves the row out where the button greys.
         ActionTargetVisibility.hide(Self.markRead, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.canMarkRead != true
@@ -86,10 +93,12 @@ struct SidebarPriorityRowActions {
     /// and, like the other row actions, not while `unavailable` gives a reason; any other run is the
     /// focused chat's own Archive (`otherwise`), which the Priority view's setting does not touch.
     func bindArchive(into registry: ActionRegistry, otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let chats = chats, unavailable = unavailable
+        let chats = chats, unavailable = unavailable, toasts = toasts, toastWindow = toastWindow
         registry.bind(Self.archive, run: { invocation in
             guard invocation.target?.kind == .agentChat else { return try otherwise(invocation) }
-            try Self.run(chats.archive, invocation)
+            // Toasts v2: the archive offers Undo, which unarchives the chat. Off: the archive alone.
+            try Self.run({ toasts.v2 ? chats.archive($0, undo: toasts, in: toastWindow(), message: SidebarSectionStrings.archivedChat) : chats.archive($0) },
+                         invocation)
         })
         ActionTargetReasons.set(Self.archive, in: registry) { invocation in
             invocation.target?.kind == .agentChat ? unavailable() : nil

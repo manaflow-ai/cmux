@@ -15,7 +15,9 @@
 //! The turn also keeps the ids of its tool calls in flight (started, not yet
 //! completed or failed): a turn with none, whose model has been quiet for
 //! `stalledTurnMs`, has stalled (`stalled_since`). A long build in one tool
-//! call is in flight, so it never stalls.
+//! call is in flight, so it never stalls. Those in flight that run a known build
+//! or test (`host_load::heavy_of_tool`) say so: the machine's load sample reads
+//! them from `daemon status` (`host_pressure.heavy`) instead of scanning processes.
 
 use super::*;
 
@@ -36,6 +38,8 @@ pub struct TurnActivity {
     /// How many tool calls started past [`MAX_OPEN_TOOLS`] are in flight, by count, not id: the
     /// end of a call whose id isn't kept ends one of them.
     pub open_past_cap: usize,
+    /// The tool calls of [`Self::open_tools`] that run a known build or test, by id.
+    pub open_heavy: std::collections::BTreeMap<String, crate::host_load::Heavy>,
 }
 
 impl TurnActivity {
@@ -48,12 +52,24 @@ impl TurnActivity {
         }
         let status = update.get("status").and_then(Value::as_str);
         if matches!(status, Some("completed" | "failed")) {
+            self.open_heavy.remove(id);
             if !self.open_tools.remove(id) {
                 self.open_past_cap = self.open_past_cap.saturating_sub(1);
             }
             return;
         }
-        // A new call, or an update that says it runs; an update with no status changes nothing.
+        self.note_open(id, kind, status);
+        // Its command may come with the call or in a later update (a call named early).
+        if self.open_tools.contains(id)
+            && let Some(heavy) = crate::host_load::heavy_of_tool(update)
+        {
+            self.open_heavy.insert(id.to_owned(), heavy);
+        }
+    }
+
+    /// A new call, or an update that says it runs, is in flight; an update with no status changes
+    /// nothing.
+    fn note_open(&mut self, id: &str, kind: Option<&str>, status: Option<&str>) {
         if status.is_none() && kind != Some("tool_call") || self.open_tools.contains(id) {
             return;
         }
@@ -216,6 +232,41 @@ mod tests {
             &json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "completed"}),
         );
         assert!(!doing.tool_in_flight());
+    }
+
+    #[test]
+    fn a_build_in_flight_is_heavy_until_it_ends() {
+        let mut doing = TurnActivity::default();
+        let call = |id: &str, command: &str| {
+            json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+                   "status": "in_progress", "rawInput": {"command": command}})
+        };
+        doing.note_tool(&call("a", "cd /w && cargo build -p acpmux"));
+        doing.note_tool(&call("b", "git status"));
+        let build = crate::host_load::classify_command("cargo build");
+        assert_eq!(doing.open_heavy.get("a").copied(), build);
+        assert!(!doing.open_heavy.contains_key("b"), "not a build or test");
+        // A call named early gets its command in a later update.
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "pending"}),
+        );
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "c",
+                                "rawInput": {"command": ["bash", "-lc", "go test ./..."]}}));
+        assert_eq!(
+            doing.open_heavy.get("c").copied(),
+            crate::host_load::classify_command("go test")
+        );
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"}),
+        );
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "failed"}),
+        );
+        assert!(doing.open_heavy.is_empty());
+        // An update for a call that is not in flight adds nothing.
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "z",
+                                "rawInput": {"command": "cargo test"}}));
+        assert!(doing.open_heavy.is_empty());
     }
 
     #[test]

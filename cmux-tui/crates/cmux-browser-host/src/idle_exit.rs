@@ -5,7 +5,10 @@
 //! the deadline on an injected clock; no polling.
 //!
 //! A connected provider keeps the host: if the host stopped under a
-//! connected app, the app would start it again at once to reconnect.
+//! connected app, the app would start it again at once to reconnect. When
+//! that provider leaves (the app quit) and no session or agent connection
+//! uses the host, it exits at once (P0 journey quit-leaves-no-helpers: a
+//! quit left the host running for its whole delay).
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -50,6 +53,9 @@ impl IdleClock for SystemClock {
 pub struct IdleState {
     /// When the host last became idle; `None` while it serves something.
     idle_since: Option<Instant>,
+    /// The app provider left and nothing else used the host then: the idle
+    /// host exits now, not after the delay. A busy host clears it.
+    provider_gone: bool,
     stopped: bool,
 }
 
@@ -91,8 +97,28 @@ impl IdleExit {
         let mut state = self.lock();
         if busy {
             state.idle_since = None;
+            state.provider_gone = false;
         } else if state.idle_since.is_none() {
             state.idle_since = Some(self.clock.now());
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+
+    /// The app provider that was connected left (the app quit or crashed, or
+    /// dropped its link). With no session and no agent connection the host
+    /// exits now: it served that app, as a Chromium utility process serves
+    /// its last client. A session or connection keeps it, with the whole
+    /// delay after them as before. Call it with no session or provider lock held.
+    pub fn provider_left(&self) {
+        let busy = (self.busy)();
+        let mut state = self.lock();
+        if busy {
+            state.idle_since = None;
+            state.provider_gone = false;
+        } else {
+            state.idle_since.get_or_insert(self.clock.now());
+            state.provider_gone = true;
         }
         drop(state);
         self.changed.notify_all();
@@ -114,6 +140,7 @@ impl IdleExit {
             }
             state = match state.idle_since {
                 None => self.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
+                Some(_) if state.provider_gone => return true,
                 Some(since) => {
                     let idle_for = self.clock.now().saturating_duration_since(since);
                     if idle_for >= self.delay {
@@ -219,6 +246,35 @@ mod tests {
         let f = fixture(true);
         f.clock.advance(Duration::from_secs(3600));
         not_yet(&f);
+    }
+
+    // Quit leaves no helper processes (P0 journey quit-leaves-no-helpers: 5 s after a quit the
+    // daemon's browser host still ran). The app's provider started this host; once it leaves and
+    // nothing else uses the host, the host ends now, as Chromium's utility processes end when
+    // their last client goes. The daemon starts it again on the next agent connect.
+    #[test]
+    fn quit_helpers_a_host_whose_app_provider_left_with_nothing_else_exits_at_once() {
+        let f = fixture(true);
+        f.clock.advance(Duration::from_secs(10));
+        f.busy.store(false, Ordering::SeqCst);
+        f.idle.provider_left();
+        fires(&f);
+    }
+
+    #[test]
+    fn quit_helpers_a_provider_leaving_while_a_session_runs_keeps_the_host_and_the_delay() {
+        let f = fixture(true);
+        // The provider left; an agent's session still runs.
+        f.idle.provider_left();
+        f.clock.advance(Duration::from_secs(3600));
+        not_yet(&f);
+        // The session ends: the whole delay, as before.
+        f.busy.store(false, Ordering::SeqCst);
+        f.idle.changed();
+        f.clock.advance(Duration::from_secs(299));
+        not_yet(&f);
+        f.clock.advance(Duration::from_secs(1));
+        fires(&f);
     }
 
     #[test]

@@ -128,23 +128,23 @@ struct DiffLastTurnTests {
     @Test func aCardTakesTheRepositorysTabInAnyScope() {
         let turn = DiffTurn(from: "cp-1", to: "cp-2", file: "a.ts")
         // A card's turn takes the tab of its repository whatever it shows, and only that repository's.
-        #expect(DiffTabReuse.reuses(root: "/r", source: .staged, for: "/r", .turn))
-        #expect(!DiffTabReuse.reuses(root: "/other", source: .turn, for: "/r", .turn))
+        #expect(DiffOpenSource.turn.reuses(root: "/r", source: .staged, for: "/r"))
+        #expect(!DiffOpenSource.turn.reuses(root: "/other", source: .turn, for: "/r"))
         // Any other open takes the tab of the same scope, as before, and the header's also a tab a
         // card moved to its turn (no second tab of the repository).
-        #expect(!DiffTabReuse.reuses(root: "/r", source: .staged, for: "/r", .default))
-        #expect(DiffTabReuse.reuses(root: "/r", source: .default, for: "/r", .default))
-        #expect(DiffTabReuse.reuses(root: "/r", source: .turn, for: "/r", .default))
-        #expect(!DiffTabReuse.reuses(root: "/r", source: .turn, for: "/r", .staged))
+        #expect(!DiffOpenSource.default.reuses(root: "/r", source: .staged, for: "/r"))
+        #expect(DiffOpenSource.default.reuses(root: "/r", source: .default, for: "/r"))
+        #expect(DiffOpenSource.default.reuses(root: "/r", source: .turn, for: "/r"))
+        #expect(!DiffOpenSource.staged.reuses(root: "/r", source: .turn, for: "/r"))
         // A card reloads the tab on its turn and file, even the same turn (another file).
-        #expect(DiffTabReuse.change(shownTurn: nil, .turn, turn) == .reload)
-        #expect(DiffTabReuse.change(shownTurn: turn, .turn, turn) == .reload)
+        #expect(DiffOpenSource.turn.change(shownTurn: nil, turn) == .reload)
+        #expect(DiffOpenSource.turn.change(shownTurn: turn, turn) == .reload)
         // The header's newer turn becomes the tab's Last turn with no reload: the reader keeps
         // their scope, place and commit form.
-        #expect(DiffTabReuse.change(shownTurn: turn, .default, DiffTurn(from: "cp-3", to: "cp-4")) == .newTurn)
-        #expect(DiffTabReuse.change(shownTurn: turn, .default, DiffTurn(from: "cp-1", to: "cp-2")) == .keep)
+        #expect(DiffOpenSource.default.change(shownTurn: turn, DiffTurn(from: "cp-3", to: "cp-4")) == .newTurn)
+        #expect(DiffOpenSource.default.change(shownTurn: turn, DiffTurn(from: "cp-1", to: "cp-2")) == .keep)
         // The palette or the CLI names no turn and changes nothing.
-        #expect(DiffTabReuse.change(shownTurn: turn, .default, nil) == .keep)
+        #expect(DiffOpenSource.default.change(shownTurn: turn, nil) == .keep)
     }
 
     @Test func lastTurnReadsTheTurnFromTheSessionHostIntoTheTabsGrant() async throws {
@@ -218,12 +218,12 @@ struct DiffLastTurnTests {
         // The header runs openDiffViewer beside the chat with the turn's arguments.
         let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
         let actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
-        toggles.open("openDiffViewer", cwd: row.cwd, extra: DiffTurnArgument.arguments(turn), chat: row.chat, store: row.store,
+        toggles.open("openDiffViewer", cwd: row.cwd, extra: turn.actionArguments, chat: row.chat, store: row.store,
                      actions: actions)
         let invocation = row.invocations["openDiffViewer"]
         #expect(invocation?["path"]?.stringValue == row.cwd)
         #expect(invocation?.besideCaller == true)
         #expect(invocation.flatMap(ViewerHandlers.diffTurn) == DiffTurn(from: "cp-1", to: "cp-2", file: "src/a.ts"))
-        #expect(invocation?[DiffTurnArgument.show]?.boolValue == true)
+        #expect(invocation?[AgentPaneDiffTurn.showArgument]?.boolValue == true)
     }
 }

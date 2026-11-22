@@ -4,8 +4,8 @@ import Foundation
 /// Rich link metadata for a URL in a message, as Messages shows it: a card
 /// with the page image, title and domain. The sender's side fetches it once
 /// and every recipient renders the same payload.
-public struct ConversationLinkPreview: Sendable, Hashable {
-    public struct Image: Sendable, Hashable {
+public struct ConversationLinkPreview: Sendable, Hashable, Codable {
+    public struct Image: Sendable, Hashable, Codable {
         public var url: URL
         /// Pixel size, used for layout before the bytes arrive.
         public var width: Int
@@ -23,7 +23,7 @@ public struct ConversationLinkPreview: Sendable, Hashable {
         }
     }
 
-    public enum State: Sendable, Hashable {
+    public enum State: Sendable, Hashable, Codable {
         /// Metadata is final (it may still be minimal: a bare domain).
         case loaded
         /// Metadata is still being fetched; the card shows a spinner.

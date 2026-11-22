@@ -6,7 +6,7 @@ import Foundation
 import Testing
 import CmuxNextFilesUI
 
-/// The right sidebar's Files section (classic's file explorer) and its seven actions: Open
+/// The Files section (classic's file explorer) and its seven actions: Open
 /// Selection (Return), Open Selection (Finder Style) (Cmd-Down), Open in cmux, Reveal in Finder,
 /// Copy Path, Copy Relative Path and Open With. They act on the explorer's selection while its
 /// list has the keyboard (`fileExplorerFocused`).
@@ -96,7 +96,7 @@ struct FileExplorerTests {
         #expect(throws: FileExplorerError.noSelection) { try FileExplorerCommands(model: model, effects: Recorder()).copyPath() }
     }
 
-    @Test(arguments: ids + ["switchRightSidebarToFiles", "palette.openFilesPane"])
+    @Test(arguments: ids + ["palette.openFilesPane"])
     func theFilesActionsAreWorkingActions(id: String) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -154,7 +154,9 @@ struct FileExplorerTests {
         let menu = try #require(section.table.contextMenu?())
         let expected = ["fileExplorerOpenInCmux", "▸ \(FileExplorerStrings.openWithSubmenu)", "fileExplorerReveal",
                         "fileExplorerNewFile", "fileExplorerNewFolder", "fileExplorerRename",
-                        "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerMoveToTrash"]
+                        "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerMoveToTrash",
+                        // Every whole right-click menu ends with Customize Menu… (Settings > Menus).
+                        "inline: Customize Menu…"]
         #expect(shown(menu) == expected, "the row menu is not the registry's")
 
         let copy = try #require(menu.items.first { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerCopyPath" })

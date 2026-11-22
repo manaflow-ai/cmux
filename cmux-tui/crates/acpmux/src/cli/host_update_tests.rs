@@ -50,6 +50,28 @@ fn a_binarys_build_is_read_from_its_bytes() {
 }
 
 #[test]
+fn a_binarys_build_is_never_rustcs_own_version() {
+    // ELF keeps .rodata (the stamp) before .comment (rustc's line), but the
+    // stamp may also be missing or come after it.
+    let rustc = b"\x00rustc version 1.95.0 (59807616e 2026-04-14)\x00";
+    let llvm = b"\x00clang LLVM (rustc version 1.95.0 (59807616e 2026-04-14))\x00";
+    let stamp = b"\x00acpmux 0.1.0 (3bdf1d5d4 2026-11-02)\x00";
+    for (bytes, want) in [
+        ([&rustc[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&stamp[..], rustc].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&llvm[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        (rustc.to_vec(), None),
+        ([&rustc[..], b"rustc 1.94.0 (4a4ef493e 2026-03-02)"].concat(), None),
+        // A binary from before the `acpmux ` marker: its bare version line.
+        ([&rustc[..], b"0.1.0 (0db068d0e 2026-11-01)"].concat(), Some("0db068d0e 2026-11-01")),
+        // The marker wins over an earlier bare line.
+        ([&b"9 (aaaaaaa 2026-01-01)\x00"[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+    ] {
+        assert_eq!(embedded_build(&bytes).as_deref(), want, "{}", String::from_utf8_lossy(&bytes));
+    }
+}
+
+#[test]
 fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
     let ls = json!({"sessions": [
         {"name": "mid-turn", "status": "idle", "turn": {"startedAt": 1}, "pendingPermissions": 0},
@@ -69,6 +91,20 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
     assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    // An agent start under way (its spawn lease held) is busy: a restart would end it.
+    let starting = json!({"sessions": [
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
+    ]});
+    assert_eq!(busy_sessions(&starting.to_string(), None), Some(vec!["starting".into()]));
+    // An older acpmux sends no `starting`: a session it just made may be starting; a long-idle one
+    // is not.
+    let now = crate::store::now_ms();
+    let older = json!({"sessions": [
+        {"name": "just-made", "status": "idle", "turn": null, "createdAt": now, "updatedAt": now},
+        {"name": "long-idle", "status": "ready", "turn": null, "createdAt": 1, "updatedAt": 1},
+    ]});
+    assert_eq!(busy_sessions(&older.to_string(), None), Some(vec!["just-made".into()]));
     assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
     assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
@@ -166,8 +202,11 @@ esac
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
 /// no manager answers. A timer only needs its unit file; `show -p LoadState`
 /// and `-p FragmentPath` find a unit in `~/.config/systemd/user` only. `show` (not
-/// logged: every update script reads it) prints `acpmux.service`'s
-/// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
+/// logged: every update script reads it) answers as systemd does from the
+/// unit, its own drop-ins and its name prefixes' (`acpmux-agent-.service.d`),
+/// `%h` and blanks around `=` resolved: `ActiveState` (`$HOME/active-<unit>`),
+/// the last `ExecStart`, `EnvironmentFiles`, `DropInPaths`, and otherwise the
+/// `Environment=` settings, or `$HOME/unit-environment`
 /// as it is (what systemd prints for values it quotes). Like the daemon
 /// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
 /// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
@@ -177,8 +216,14 @@ const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
 if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo loaded; else echo not-found; fi; exit 0; fi
 if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
+dirs() { n=${1%.service}; x=; while case "$n" in *-*) true;; *) false;; esac; do x="$x${n%%-*}-"; n=${n#*-}; echo "$d/$x.service.d"; done; echo "$d/$1.d"; }
+lines() { { cat "$d/$1"; for x in $(dirs "$1"); do cat "$x/"*.conf; done; } 2>/dev/null | sed 's/^[[:space:]]*\([A-Za-z]*\)[[:space:]]*=[[:space:]]*/\1=/' | sed "s|%h|$HOME|g"; }
+if [ "$2" = show ] && [ "$5" = ActiveState ]; then if [ -f "$HOME/active-$3" ]; then echo active; else echo inactive; fi; exit 0; fi
+if [ "$2" = show ] && [ "$5" = ExecStart ]; then a=$(lines "$3" | sed -n 's/^ExecStart=[-@:+!]*//p' | tail -1); [ -z "$a" ] || echo "{ path=${a%% *} ; argv[]=$a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"; exit 0; fi
+if [ "$2" = show ] && [ "$5" = EnvironmentFiles ]; then lines "$3" | sed -n 's/^EnvironmentFile=\(.*\)$/\1 (ignore_errors=no)/p'; exit 0; fi
+if [ "$2" = show ] && [ "$5" = DropInPaths ]; then for x in $(dirs "$3"); do ls "$x/"*.conf 2>/dev/null; done | tr '\n' ' '; echo; exit 0; fi
 if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
-if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
+if [ "$2" = show ]; then lines "$3" | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"
 under() { echo "0::/user.slice/user-1001.slice/user@1001.service/app.slice/$1" > "$HOME/proc/4242/cgroup"; }
 # Type=simple: the start succeeds once the process forks; a daemon that then
@@ -217,6 +262,17 @@ struct FakePeer {
     /// Right after the next copy, the process that keeps the host's update
     /// lease ends: the connection that held the lock dropped.
     lease_ends_after_copy: std::cell::Cell<bool>,
+    /// Right after the next copy the host goes away (a GCP VM stopped while
+    /// idle): every later ssh fails with these words of ssh's.
+    gone_after_copy: std::cell::Cell<Option<&'static str>>,
+    /// The next copy drops part way, with these words of scp's.
+    copy_drops: std::cell::Cell<Option<&'static str>>,
+    /// Set once the host went away ([`FakePeer::gone_after_copy`]).
+    gone: std::cell::Cell<Option<&'static str>>,
+    /// The next restart runs, then ssh's link drops before it reports (a
+    /// keepalive timeout through a ProxyJump, huge-blue 2026-11-06); `true`:
+    /// the host stays gone after.
+    link_drops_on_restart: std::cell::Cell<Option<bool>>,
 }
 
 #[cfg(unix)]
@@ -227,7 +283,23 @@ impl Remote for FakePeer {
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
         assert!(stdin.is_none(), "host update feeds no stdin");
+        if let Some(why) = self.gone.get() {
+            return Ok(RemoteOut { ok: false, stdout: String::new(), stderr: why.to_owned() });
+        }
         let out = self.sh(script).output()?;
+        if script.contains("systemctl --user restart acpmux.service")
+            && let Some(stays_gone) = self.link_drops_on_restart.take()
+        {
+            let why = "Connection to UNKNOWN port 65535 timed out";
+            if stays_gone {
+                self.gone.set(Some(why));
+            }
+            return Ok(RemoteOut {
+                ok: false,
+                stdout: String::new(),
+                stderr: format!("{why}\r\n"),
+            });
+        }
         Ok(RemoteOut {
             ok: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -245,8 +317,14 @@ impl Remote for FakePeer {
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // As scp: a `~/` path is under the remote home. Written from a child
         // process (`test_exec`): the update runs the pushed binary next.
+        if let Some(why) = self.copy_drops.take() {
+            return Err(anyhow!("scp to fake failed: {why}"));
+        }
         let dest = self.home.join(remote.strip_prefix("~/").unwrap_or(remote));
         crate::test_exec::write_executable(dest, std::fs::read(local)?);
+        if let Some(why) = self.gone_after_copy.take() {
+            self.gone.set(Some(why));
+        }
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
         }
@@ -269,12 +347,16 @@ impl FakePeer {
     /// A Linux host `host setup` set up: the daemon runs build OLD under
     /// `acpmux.service` with one agent host, and no session is busy.
     fn new(tag: &str) -> FakePeer {
-        let home = std::env::temp_dir().join(format!("acpmux-up-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        // FakePeer::drop owns cleanup. Two concurrent tests may use the same scenario tag.
+        let home = tempfile::Builder::new().prefix(tag).tempdir().unwrap().keep();
         let peer = FakePeer {
             home,
             after_copy: Default::default(),
             lease_ends_after_copy: Default::default(),
+            gone_after_copy: Default::default(),
+            copy_drops: Default::default(),
+            gone: Default::default(),
+            link_drops_on_restart: Default::default(),
         };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
@@ -418,7 +500,17 @@ impl FakePeer {
 
     fn update_with(&self, if_idle: bool, keep_newer: bool) -> PeerUpdate {
         let binary_dir = Some(self.home.join("binaries"));
-        update_peer(self, &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None })
+        update_peer(
+            self,
+            &UpdateOptions {
+                binary_dir,
+                if_idle,
+                keep_newer,
+                allow_downgrade: false,
+                caller: None,
+                now: true,
+            },
+        )
     }
 
     /// `update(true)` run from the session `session` of the daemon `daemon`.
@@ -428,7 +520,9 @@ impl FakePeer {
             binary_dir: Some(self.home.join("binaries")),
             if_idle: true,
             keep_newer: false,
+            allow_downgrade: false,
             caller: Some(caller),
+            now: true,
         };
         update_peer(self, &opts)
     }
@@ -558,6 +652,60 @@ fn a_pushed_binary_that_does_not_run_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// Leo, 2026-11-03, on a toast "Couldn't update gcp-codex-swarm-03: ssh gcp-codex-swarm-03 failed:
+/// Timeout, server gcp-codex-swarm-03...internal not responding.": the GCP pool stops idle VMs, so
+/// a host can go away while its binary is pushed. Nothing is installed or restarted before the
+/// push ends, so that is `unreachable` (the app's quiet "offline; it will update when it's
+/// back"), never a `pushFailed` the app shows as a failure.
+#[test]
+#[cfg(unix)]
+fn a_host_that_goes_away_during_the_push_is_unreachable() {
+    let drops = [
+        ("ssh", "Timeout, server fake.us-west1-c.c.example.internal not responding.\r\n"),
+        ("ssh", "Connection to 10.0.0.7 closed by remote host.\r\n"),
+        ("ssh", "ssh: connect to host 10.0.0.7 port 22: No route to host\r\n"),
+        ("scp", "client_loop: send disconnect: Broken pipe lost connection"),
+    ];
+    for (i, (how, why)) in drops.into_iter().enumerate() {
+        let peer = FakePeer::new(&format!("gone-during-push-{i}"));
+        peer.offer(NEW, Some(NEW));
+        match how {
+            "ssh" => peer.gone_after_copy.set(Some(why)),
+            _ => peer.copy_drops.set(Some(why)),
+        }
+        let up = peer.update(false);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("unreachable")),
+            "{why}: {up:?}"
+        );
+        // Nothing was installed or restarted: the next connect runs it again.
+        assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)), "{why}");
+        assert_eq!(peer.daemon(), OLD, "{why}");
+    }
+}
+
+/// A push that fails on the host itself, not on the way there, still shows.
+#[test]
+fn only_ssh_losing_the_host_reads_as_unreachable() {
+    for why in [
+        "ssh fake failed: Timeout, server fake not responding.",
+        "ssh fake failed: ssh: Could not resolve hostname fake: Name or service not known",
+        "ssh fake failed: kex_exchange_identification: Connection reset by peer",
+        "ssh fake failed: Connection closed by 10.0.0.7 port 22",
+        "scp to fake failed: lost connection",
+    ] {
+        assert!(lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+    for why in [
+        "ssh fake failed: the pushed acpmux does not run on this host",
+        "ssh fake failed: mkdir: cannot create directory: No space left on device",
+        "scp to fake failed: scp: ~/.local/bin/.acpmux-new/acpmux: Permission denied",
+    ] {
+        assert!(!lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+}
+
 /// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
 /// own, or one the `~/.acpmux` daemon does not run under, or a unit someone
 /// else wrote. `cmux link machine update --to-bundled` owns that daemon.
@@ -660,7 +808,14 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: false, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now: true,
+    };
     let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
@@ -703,6 +858,229 @@ fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
     let peer = FakePeer::new("keep-older");
     peer.offer(NEW, Some(NEW));
     assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+}
+
+/// A fake acpmux of `build` ([`fake_acpmux`]) that carries the commit-time
+/// stamp `committed` (Unix seconds) as a shipped binary does.
+#[cfg(unix)]
+fn stamped_acpmux(build: &str, runs: Option<&str>, committed: u64) -> String {
+    format!("{}# acpmux-commit-time={committed};\n", fake_acpmux(build, runs))
+}
+
+/// gcp-codex-swarm-08, 2026-11-15: its self-update timer installed
+/// af330854e at 13:31, then a cmux app whose bundled acpmux was the older
+/// c144c01f3 (same day, so `--keep-newer` saw nothing newer) pushed that
+/// one at 13:40 and restarted the daemon. The host's install script now
+/// refuses a binary built from an older commit than the installed one,
+/// whatever the pusher asked, and changes nothing.
+#[test]
+#[cfg(unix)]
+fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
+    let peer = FakePeer::new("downgrade");
+    let installed = stamped_acpmux(OLD, Some(OLD), 1_794_748_257);
+    peer.exe(".local/bin/acpmux", &installed);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
+    for keep_newer in [false, true] {
+        let up = peer.update_with(false, keep_newer);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Current, Some("newerInstalled")),
+            "{up:?}"
+        );
+        let why = up.error.as_deref().unwrap_or("");
+        assert!(why.contains("newer commit") && why.contains("--allow-downgrade"), "{why}");
+        assert_eq!(peer.read(".local/bin/acpmux"), installed);
+        assert!(!peer.exists(".local/bin/acpmux.prev"));
+        assert!(!peer.exists(".local/bin/.acpmux-new"));
+        assert_eq!(peer.daemon(), OLD);
+    }
+    // A binary from before the stamp is older than any stamped one.
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("newerInstalled")));
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(up.line().starts_with("kept: "), "{}", up.line());
+
+    // --allow-downgrade moves it back, keeping the newer one as acpmux.prev.
+    let older = stamped_acpmux(NEW, Some(NEW), 1_794_744_982);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &older);
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: true,
+        caller: None,
+        now: true,
+    };
+    let up = update_peer(&peer, &opts);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), older);
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+
+    // The host's own install step refuses too, for a pusher that never asks
+    // first (as an older acpmux does not): nothing installed, nothing staged.
+    let peer = FakePeer::new("downgrade-host-side");
+    peer.exe(".local/bin/acpmux", &installed);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false, false).expect_err("a refused push");
+    assert!(e.is::<NewerInstalled>(), "{e:#}");
+    assert!(e.to_string().contains("newer commit"), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+    assert!(push_update(&peer, &binary, None, true, false).is_ok());
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+
+    // A newer push onto a stamped host goes in as before.
+    let peer = FakePeer::new("upgrade-stamped");
+    peer.exe(".local/bin/acpmux", &stamped_acpmux(OLD, Some(OLD), 1_794_744_982));
+    let newer = stamped_acpmux(NEW, Some(NEW), 1_794_748_257);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &newer);
+    assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+    assert_eq!(peer.read(".local/bin/acpmux"), newer);
+}
+
+/// The host's restart stamp says an update restarted its daemon `ago`
+/// seconds ago by its clock (negative: in the future, a clock that went back).
+#[cfg(unix)]
+fn restarted_ago(peer: &FakePeer, ago: i64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let at = i64::try_from(now).unwrap_or(i64::MAX).saturating_sub(ago);
+    peer.write(".acpmux/update.restarted", &format!("{at}\n"));
+}
+
+/// The host's own install step keeps the restart window, for a pusher that
+/// never checks it first (an acpmux from before the check, or one that
+/// skips it): inside the window nothing is installed or staged, and the
+/// daemon is left alone.
+#[test]
+#[cfg(unix)]
+fn the_hosts_install_step_refuses_a_push_inside_the_restart_window() {
+    let peer = FakePeer::new("window-host-side");
+    restarted_ago(&peer, 5 * 60);
+    peer.offer(NEW, Some(NEW));
+    let installed = peer.read(".local/bin/acpmux");
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false, false).expect_err("refused inside the window");
+    let why = e.to_string();
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+    assert_eq!(peer.daemon(), OLD);
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    // `--now` passes the host's check.
+    assert!(push_update(&peer, &binary, None, false, true).is_ok());
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+
+    // The host's exemptions, each decided on the host.
+    let exempt = |tag: &str, set: &dyn Fn(&FakePeer)| {
+        let peer = FakePeer::new(tag);
+        restarted_ago(&peer, 5 * 60);
+        set(&peer);
+        peer.offer(NEW, Some(NEW));
+        let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+        let pushed = push_update(&peer, &binary, None, false, false);
+        assert!(pushed.is_ok(), "{tag}: {pushed:?}");
+        assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)), "{tag}");
+    };
+    // A daemon that does not run has nothing to wake.
+    exempt("window-down", &|p: &FakePeer| {
+        let _ = std::fs::remove_file(p.home.join("daemon"));
+    });
+    // A stamp from the host's future (its clock went back) is ignored.
+    exempt("window-future", &|p: &FakePeer| restarted_ago(p, -(2 * 60 * 60)));
+    // The window is the host's: two minutes, or 0 (off), in its file.
+    exempt("window-short", &|p: &FakePeer| p.write(".acpmux/update.restart-window", "120\n"));
+    exempt("window-off", &|p: &FakePeer| p.write(".acpmux/update.restart-window", "0\n"));
+}
+
+/// The window's length comes from the host: its file, else the daemon
+/// unit's `ACPMUX_UPDATE_RESTART_WINDOW_SECS`; the pusher's own environment
+/// has no say.
+#[test]
+#[cfg(unix)]
+fn the_restart_window_is_the_hosts_own() {
+    let peer = FakePeer::new("window-unit-env");
+    restarted_ago(&peer, 5 * 60);
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/window.conf"),
+        "[Service]\nEnvironment=ACPMUX_UPDATE_RESTART_WINDOW_SECS=120\n",
+    );
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now: false,
+    };
+    // The unit's two minutes are over, five minutes after the last restart.
+    peer.offer(NEW, Some(NEW));
+    let up = update_peer(&peer, &opts);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    // The file's hour wins over the unit's two minutes.
+    restarted_ago(&peer, 5 * 60);
+    peer.write(".acpmux/update.restart-window", "3600\n");
+    peer.offer("c3d4e5f6a 2026-10-23", Some("c3d4e5f6a 2026-10-23"));
+    let up = update_peer(&peer, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert!(up.line().starts_with("left alone: restart window: "), "{}", up.line());
+    assert_eq!(peer.daemon(), NEW);
+}
+
+/// `host setup` installs through the host's own install step too: inside
+/// the restart window it refuses, and the installed binary stays.
+#[test]
+#[cfg(unix)]
+fn a_host_setup_inside_the_restart_window_refuses_and_changes_nothing() {
+    let peer = FakePeer::new("window-setup");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let e = push_binary(&peer, DAEMON_BIN, false, false).expect_err("refused inside the window");
+    let why = format!("{e:#}");
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.new"));
+    assert_eq!(peer.daemon(), OLD);
+    // `host setup` asks first, so nothing is copied, and refuses.
+    let opts = SetupOptions { port: 47811, auto_update: true, allow_downgrade: false, now: false };
+    let e = setup_locked(&peer, &opts).expect_err("refused inside the window");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert!(e.to_string().contains("restart window: last update restart 5 min ago"), "{e:#}");
+    assert!(!peer.exists(".local/bin/acpmux.new"));
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+
+    // The window's length is the daemon unit's for setup too (review of
+    // #43709): a unit with two hours holds setup 61 minutes after a restart,
+    // where the default hour would let it through.
+    restarted_ago(&peer, 61 * 60);
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/window.conf"),
+        "[Service]\nEnvironment=ACPMUX_UPDATE_RESTART_WINDOW_SECS=7200\n",
+    );
+    let e = setup_locked(&peer, &opts).expect_err("the unit's window holds setup");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert!(e.to_string().contains("last update restart 61 min ago"), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+}
+
+#[test]
+fn a_binarys_commit_time_is_read_from_its_bytes() {
+    let bytes =
+        b"\0x acpmux-commit-time=[0-9]+; acpmux-commit-time=;\0acpmux-commit-time=1794748257;\0";
+    assert_eq!(embedded_commit_time(bytes), Some(1_794_748_257));
+    assert_eq!(embedded_commit_time(b"acpmux-commit-time=0;"), Some(0));
+    assert_eq!(embedded_commit_time(b"acpmux 1.0.0 (a1b2c3d4e 2026-10-21)"), None);
 }
 
 #[test]
@@ -810,6 +1188,48 @@ fn a_daemon_that_does_not_answer_with_the_pushed_build_is_rolled_back() {
     }
 }
 
+/// huge-blue, 2026-11-06: the restart ran, then ssh's link to the host
+/// timed out ("Connection to UNKNOWN port 65535 timed out", ssh's words for
+/// a ProxyJump peer) and the update rolled back a daemon that served the new
+/// build. A dropped link says nothing about the daemon: asked again on a new
+/// connection, it is updated; a host still gone is unreachable, never rolled
+/// back blind.
+#[test]
+#[cfg(unix)]
+fn a_link_that_drops_under_the_restart_is_no_rollback() {
+    let peer = FakePeer::new("link-drop");
+    peer.offer(NEW, Some(NEW));
+    peer.link_drops_on_restart.set(Some(false));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)), "nothing put back");
+
+    let peer = FakePeer::new("link-gone");
+    peer.offer(NEW, Some(NEW));
+    peer.link_drops_on_restart.set(Some(true));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let restarts = peer
+        .take_calls()
+        .iter()
+        .filter(|c| *c == "systemctl --user restart acpmux.service")
+        .count();
+    assert_eq!(restarts, 1, "no rollback restart over a link that is gone");
+}
+
+#[test]
+fn ssh_keepalive_timeouts_are_a_lost_host() {
+    assert!(lost_the_host_text("Connection to UNKNOWN port 65535 timed out\r\n"));
+    assert!(lost_the_host_text("Connection to 100.64.0.7 port 22 timed out"));
+    assert!(!lost_the_host_text("restart timed out waiting for acpmux.service"));
+}
+
 #[test]
 #[cfg(unix)]
 fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
@@ -905,6 +1325,194 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     assert_eq!((up.outcome, up.migrated_from), (Outcome::Updated, None));
     assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
+}
+
+#[cfg(unix)]
+impl FakePeer {
+    /// The daemon of [`FakePeer::under_foreign_unit`] is down and its unit
+    /// stopped and disabled, with no `Restart=`: a Linux host whose daemon the
+    /// OOM killer ended (2026-11-06).
+    /// `carried` as in [`FakePeer::under_foreign_unit`].
+    fn stopped_foreign_unit(&self, carried: bool) {
+        self.under_foreign_unit(carried);
+        self.write(
+            &format!("{UNITS}/{FOREIGN}"),
+            "[Service]\nEnvironment=ACPMUX_HOME=%h/.acpmux-supervised/hb\nExecStart=%h/.local/share/acpmux-supervised/acpmux daemon run --listen 127.0.0.1:47822 --log info\n",
+        );
+        for gone in
+            ["daemon", &format!("active-{FOREIGN}"), "proc/4242/environ", "proc/4242/cmdline"]
+        {
+            let _ = std::fs::remove_file(self.home.join(gone));
+        }
+    }
+
+    /// The unit and drop-ins a move from [`FOREIGN`] leaves, read from its file.
+    fn assert_moved_from_stopped_unit(&self) {
+        assert!(!self.exists(&format!("{UNITS}/{FOREIGN}")));
+        assert!(self.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
+        assert_eq!(self.read(&format!("{UNITS}/acpmux.service")), SYSTEMD_UNIT);
+        assert_eq!(self.read(&format!("{UNITS}/acpmux.service.d/memory-backstop.conf")), BACKSTOP);
+        // The unit's own home, `%h` read as the home: its state is where it was.
+        assert_eq!(
+            self.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
+            format!(
+                "[Service]\nEnvironment=ACPMUX_HOME={}\n",
+                self.home.join(".acpmux-supervised/hb").display()
+            )
+        );
+        assert!(self.take_calls().contains(&"systemctl --user enable --now acpmux.service".into()));
+    }
+}
+
+/// A daemon its hand-written unit no longer runs (the OOM killer ended it;
+/// the unit is disabled, with no `Restart=`) is moved to `acpmux.service`
+/// by an update, not given a detached start that nothing restarts.
+#[test]
+#[cfg(unix)]
+fn an_update_moves_a_stopped_hand_written_unit_to_acpmux_service() {
+    let peer = FakePeer::new("migrate-stopped");
+    peer.stopped_foreign_unit(false);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(up.migrated_from.as_deref(), Some(FOREIGN));
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.daemon(), NEW);
+    peer.assert_moved_from_stopped_unit();
+    assert!(!peer.read("started").contains(STALE));
+}
+
+/// Setup (`machine enroll --fix`, `machine setup`) moves a stopped
+/// hand-written unit too, and still refuses one whose daemon runs.
+#[test]
+#[cfg(unix)]
+fn setup_moves_a_stopped_hand_written_unit_and_refuses_a_running_one() {
+    let peer = FakePeer::new("setup-stopped");
+    peer.stopped_foreign_unit(false);
+    peer.exe(".local/bin/acpmux", &fake_acpmux(NEW, Some(NEW)));
+    let out = peer.exec(&linux_restart(true, true), None).unwrap();
+    assert!(out.ok, "{out:?}");
+    assert!(out.stdout.lines().any(|l| l == SYSTEMD_STARTED), "{out:?}");
+    assert_eq!(peer.daemon(), NEW);
+    peer.assert_moved_from_stopped_unit();
+
+    let peer = FakePeer::new("setup-running");
+    peer.under_foreign_unit(false);
+    let out = peer.exec(&linux_restart(true, true), None).unwrap();
+    assert!(!out.ok && out.stderr.contains(&format!("runs under the systemd unit {FOREIGN}")));
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
+}
+
+/// A stopped unit of another home, two such units, or one that quotes its
+/// settings are never moved by guess.
+#[test]
+#[cfg(unix)]
+fn a_stopped_unit_is_moved_only_when_it_is_this_homes_one() {
+    // Another home: `~/.acpmux` is its own folder, not a link to the unit's.
+    let peer = FakePeer::new("stopped-other-home");
+    peer.stopped_foreign_unit(true);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // Two hand-written units: which one is the daemon's is not known.
+    let peer = FakePeer::new("stopped-two");
+    peer.stopped_foreign_unit(false);
+    peer.write(
+        &format!("{UNITS}/acpmux-agent-other.service"),
+        &peer.read(&format!("{UNITS}/{FOREIGN}")),
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // A drop-in that runs something else in its place: not the daemon's unit.
+    let peer = FakePeer::new("stopped-overridden");
+    peer.stopped_foreign_unit(false);
+    peer.write(
+        &format!("{UNITS}/{FOREIGN}.d/other.conf"),
+        "[Service]\nExecStart=\nExecStart=/usr/bin/true\n",
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // A quoted value: refused before anything changes, the binary put back.
+    let peer = FakePeer::new("stopped-quoted");
+    peer.stopped_foreign_unit(false);
+    peer.write(&format!("{UNITS}/{FOREIGN}.d/home.conf"), "[Service]\nEnvironment=\"NOTE=a b\"\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
+    // Settings are systemd's effective ones: a home set by a name prefix's
+    // drop-in, or behind an `env` wrapper, is another home's unit, and a
+    // unit systemd says is running is not a stopped one.
+    for (tag, path, text) in [
+        (
+            "stopped-prefix-home",
+            "acpmux-agent-.service.d/home.conf",
+            "[Service]\nEnvironment=ACPMUX_HOME=%h/other\n",
+        ),
+        (
+            "stopped-env-wrapper",
+            "acpmux-agent-hb.service.d/run.conf",
+            "[Service]\nExecStart=\nExecStart=/usr/bin/env ACPMUX_HOME=%h/other %h/.local/bin/acpmux daemon run\n",
+        ),
+        ("stopped-active", "", ""),
+    ] {
+        let peer = FakePeer::new(tag);
+        peer.stopped_foreign_unit(false);
+        if path.is_empty() {
+            peer.write(&format!("active-{FOREIGN}"), "");
+        } else {
+            peer.write(&format!("{UNITS}/{path}"), text);
+        }
+        peer.offer(NEW, Some(NEW));
+        let up = peer.update(false);
+        assert_eq!(up.migrated_from, None, "{tag}: {up:?}");
+        assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{tag}");
+        assert!(!peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")), "{tag}");
+    }
+    // This home's unit, but with settings the move would leave behind: an
+    // `EnvironmentFile=`, or a name prefix's drop-in. Refused before anything changes.
+    for (tag, path, text) in [
+        (
+            "stopped-env-file",
+            "acpmux-agent-hb.service.d/env.conf",
+            "[Service]\nEnvironmentFile=%h/env\n",
+        ),
+        ("stopped-prefix-setting", "acpmux-.service.d/mem.conf", "[Service]\nMemoryMax=1G\n"),
+    ] {
+        let peer = FakePeer::new(tag);
+        peer.stopped_foreign_unit(false);
+        peer.write(&format!("{UNITS}/{path}"), text);
+        peer.offer(NEW, Some(NEW));
+        let up = peer.update(false);
+        assert_eq!(up.outcome, Outcome::Failed, "{tag}: {up:?}");
+        assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{tag}");
+        assert!(!peer.exists(&format!("{UNITS}/acpmux.service")), "{tag}");
+    }
+}
+
+/// A setup whose move from a stopped hand-written unit fails to start
+/// `acpmux.service` puts that unit back, as an update does: never left
+/// disabled and renamed with nothing to run the daemon.
+#[test]
+#[cfg(unix)]
+fn a_failed_setup_move_restores_the_stopped_hand_written_unit() {
+    let peer = FakePeer::new("setup-stopped-fails");
+    peer.stopped_foreign_unit(false);
+    peer.exe(".local/bin/acpmux", &fake_acpmux(NEW, Some(NEW)));
+    peer.write("fails-acpmux.service", "");
+    let err = setup_restart(&peer, true).unwrap_err().to_string();
+    assert!(err.contains(&format!("moved back to {FOREIGN}")), "{err}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    assert!(!peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
+    assert!(!peer.exists(&format!("run/systemd/user/{FOREIGN}.d/zzz-acpmux-migrate.conf")));
+    assert!(peer.take_calls().contains(&format!("systemctl --user enable --now {FOREIGN}")));
 }
 
 /// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
@@ -1316,7 +1924,9 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             binary_dir: Some(peer.home.join("binaries")),
             if_idle: false,
             keep_newer: false,
+            allow_downgrade: false,
             caller: None,
+            now: true,
         },
     );
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -1350,6 +1960,62 @@ impl Remote for Unreachable {
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         panic!("a held peer was reached: {script}")
     }
+
+    fn reachable(&self) -> Result<()> {
+        panic!("a held peer was reached")
+    }
+}
+
+/// A host that does not answer: down, or behind a hop that stalls.
+struct Down;
+
+impl Remote for Down {
+    fn host(&self) -> &str {
+        "leo@big-box"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a host that does not answer was asked to run {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a host that does not answer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a host that does not answer was asked to lock: {script}")
+    }
+
+    fn reachable(&self) -> Result<()> {
+        Err(anyhow!("leo@big-box is unreachable over ssh: no answer within 20 s"))
+    }
+}
+
+/// Leo, 2026-10-29: "Couldn't update <host>: acpmux ran past its 900.0 seconds deadline and was
+/// stopped; it exited". A host that does not answer fails at once as `unreachable`, before its lock
+/// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
+#[test]
+fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: true,
+        allow_downgrade: false,
+        caller: None,
+        now: true,
+    };
+    let up = update_locked(&Down, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let row = up.to_json("big-box", "leo@big-box");
+    assert_eq!(
+        row["error"].as_str(),
+        Some("leo@big-box is unreachable over ssh: no answer within 20 s"),
+        "{row}"
+    );
 }
 
 /// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen
@@ -1364,7 +2030,14 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
     let path = dir.join("update-holds.json");
     let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
     std::fs::write(&path, holds).unwrap();
-    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: true,
+        allow_downgrade: false,
+        caller: None,
+        now: true,
+    };
     let now = 1_793_000_000_000; // 2026-10-26
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Held, Some("held")), "{up:?}");
@@ -1619,10 +2292,55 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
         (Outcome::Failed, Some("launchdRefused")),
         "{up:?}"
     );
-    assert!(up.error.as_deref().unwrap_or("").contains("acpmux host setup writes it again"));
+    assert!(up.error.as_deref().unwrap_or("").contains("acpmux machine setup writes it again"));
     assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
     assert!(peer.exists("loaded"));
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+}
+
+/// cosmic-gray (2026-10-31): the cmux NIGHTLY app installs acpmux as a
+/// link into its bundle and runs the daemon as its own LaunchAgent, with no
+/// `com.acpmux.daemon.plist`. The update refused only at the restart, after
+/// it had replaced the app's link with a hard link to the old binary. Now it
+/// refuses before it pushes anything, and the link is as it was.
+#[test]
+#[cfg(unix)]
+fn a_mac_whose_acpmux_the_cmux_app_runs_is_left_as_it_was() {
+    let bin = "Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    for (shape, app_link, app_job) in
+        [("app", true, true), ("app-link", true, false), ("app-job", false, true)]
+    {
+        let peer = FakePeer::new(shape);
+        peer.under_launchd();
+        let link = peer.home.join(".local/bin/acpmux");
+        let target = peer.home.join(bin);
+        if app_link {
+            peer.exe(bin, &fake_acpmux(OLD, Some(OLD)));
+            std::fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        }
+        if app_job {
+            std::fs::remove_file(peer.home.join("Library/LaunchAgents/com.acpmux.daemon.plist"))
+                .unwrap();
+            peer.write("Library/LaunchAgents/com.cmux.acpmux.daemon.3f9c2a.plist", "<plist/>\n");
+        }
+        peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+        let up = peer.update_with(true, true);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("appManaged")),
+            "{shape}: {up:?}"
+        );
+        assert!(up.error.as_deref().unwrap_or("").contains("cmux app"), "{shape}: {up:?}");
+        if app_link {
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{shape}: the app's link is still a link");
+            assert_eq!(std::fs::read_link(&link).unwrap(), target, "{shape}");
+            assert_eq!(peer.read(bin), fake_acpmux(OLD, Some(OLD)), "{shape}: the app's binary");
+        }
+        assert!(peer.exists("loaded"), "{shape}: launchd was not touched");
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
 }
 
 #[cfg(unix)]
@@ -1632,3 +2350,75 @@ mod lock;
 #[cfg(unix)]
 #[path = "host_self_update_tests.rs"]
 mod self_update;
+
+/// The line of `script` that has a `case` inside a `$( )`, if any. macOS's
+/// `/bin/sh` (bash 3.2) reads a case pattern's `)` there as the end of the
+/// substitution and refuses the whole script ("syntax error near unexpected
+/// token `;;'"), while dash and newer bash take it, so a parse on Linux
+/// misses it. Quotes (each `$( )` has its own double quotes), backslashes
+/// and `#` comments are read as sh reads them.
+fn case_in_substitution(script: &str) -> Option<&str> {
+    let bytes = script.as_bytes();
+    // One frame per open `(`: whether it is a `$( )`, and whether a double
+    // quote is open inside it. The bottom frame is the script itself.
+    let mut frames = vec![(false, false)];
+    let mut single = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let double = frames.last().is_some_and(|f| f.1);
+        let word_start = i == 0 || matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b';' | b'(');
+        if single {
+            single = b != b'\'';
+        } else if b == b'\\' {
+            i += 1;
+        } else if b == b'\'' && !double {
+            single = true;
+        } else if b == b'"' {
+            if let Some(f) = frames.last_mut() {
+                f.1 = !f.1;
+            }
+        } else if b == b'#' && !double && word_start {
+            i = script[i..].find('\n').map_or(bytes.len(), |n| i + n);
+        } else if b == b'(' && (!double || (i > 0 && bytes[i - 1] == b'$')) {
+            let subst = i > 0 && bytes[i - 1] == b'$' && bytes.get(i + 1) != Some(&b'(');
+            frames.push((subst, false));
+        } else if b == b')' && !double && frames.len() > 1 {
+            frames.pop();
+        } else if !double
+            && script[i..].starts_with("case ")
+            && word_start
+            && frames.iter().any(|f| f.0)
+        {
+            let start = script[..i].rfind('\n').map_or(0, |n| n + 1);
+            let end = script[i..].find('\n').map_or(script.len(), |n| i + n);
+            return Some(&script[start..end]);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Every script an update, setup or enroll runs on a host parses under
+/// macOS's `/bin/sh`: nightly 2b74e78's restart window check had a `case`
+/// in a `$( )`, so every push to a Mac failed before it changed anything
+/// (`machine enroll`'s install step: "syntax error near unexpected token").
+#[test]
+fn the_host_scripts_keep_case_out_of_command_substitutions() {
+    assert!(case_in_substitution("x=$(case a in a) echo;; esac)").is_some(), "the detector");
+    assert!(case_in_substitution("case \"$(uname)\" in Linux*) x=$(date);; esac").is_none());
+    // An apostrophe in a comment or a double-quoted string hides nothing.
+    let hidden = "  # macOS's sh\n  x=$(case \"$(uname)\" in Linux*) date;; esac) || x='?'";
+    assert!(case_in_substitution(hidden).is_some(), "past a comment's apostrophe");
+    assert!(case_in_substitution("echo \"it's\"; x=$(case a in a) :;; esac)").is_some());
+    assert!(case_in_substitution("x=\"$(echo \"a\")\"; case b in b) :;; esac").is_none());
+    for (name, script) in [
+        ("restart window", restart_window_check()),
+        ("downgrade", downgrade_check()),
+        ("probe", probe_script(false, false)),
+        ("probe if idle", probe_script(true, false)),
+        ("install pushed", INSTALL_PUSHED.to_owned()),
+    ] {
+        assert_eq!(case_in_substitution(&script), None, "{name}");
+    }
+}

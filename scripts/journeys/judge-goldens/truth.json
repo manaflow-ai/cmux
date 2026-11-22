@@ -1,0 +1,95 @@
+{
+ "v": 1,
+ "_doc": "TRUTH judge goldens (scripts/journeys/judge_goldens.py, REWRITE R-HARNESS S1c): answers known without the judges. A ruler fact is read by a judge-free pixel ruler from the stored film's exact scan lines (a run of one fixture color on one scan line, in exactly these frames; it must not show in the 6 frames either side). An expectation says what a judge must or must not report on that film. A judge that misses one fails the run and cannot be blessed; a ruler fact the film does not show is NO VERDICT. Add a fact only with its evidence (who proved it, how) in `why`.",
+ "facts": [
+  {
+   "id": "k3-shell-band-key-resize",
+   "film": "px-77e9a45-120x2/px-keys-single-3k-s1r-s1",
+   "why": "FRAME OWNER REFACTOR proved by hand (PIXEL-PERFECT/ROOT-CAUSE.md P10, FEAT DOGFOOD BUILD 4d9e624a, cmux24, 2x): in the Ctrl-Shift-L spring the growing pane's held content leaves the shell color (#FF00FF) in a band from x=1568 that grows to 1684 px, frames 161-188; frame 189 is the final-size host. R-HARNESS checked it on the stored copy with the ruler at 14:5xZ (2026-11-03).",
+   "ruler": {
+    "line": "row",
+    "at": 514,
+    "class": "#FF00FF",
+    "x": [
+     1566,
+     1570
+    ],
+    "frames": [
+     161,
+     188
+    ],
+    "min_run_px": 8
+   },
+   "expect": [
+    {
+     "judge": "video_judge",
+     "check": "gap or overlap",
+     "frames": [
+      161,
+      188
+     ]
+    }
+   ]
+  },
+  {
+   "id": "k3-shell-band-held-key",
+   "film": "px-77e9a45-120x2/px-keys-held-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR proved this band by hand on FEAT DOGFOOD BUILD 1d8e759e (PIXEL-PERFECT/ROOT-CAUSE.md P9, film px-5fe33a3-120x2/px-keys-held-2-s1r-s1); P10 does not cover the held-key film of build 4d9e624a. On this film (4d9e624a) the frames come from the judge-free ruler on the stored copy (15:0xZ, 2026-11-03): with the key held, the K3 hold keeps the growing pane's content at its first-press size, so the shell color (#FF00FF) shows inside the pane on row 514 in frames 164-190, 195-241 and 417-542 (816-2321 px wide at the end); the first span starts at x=1568 in exactly frames 164-190. video_judge.py (S1a) flags every band frame as a defect, as 'divider not shown' (frames 164-190, 194-554). Its 'gap or overlap' check does not fire over the band (its one 'gap or overlap' finding is frames 543-544, after it), though it does on the single-press film: a known limit of that check, left for the pixel judge work. Checked again by an independent reader in review 2 of #33930.",
+   "ruler": {
+    "line": "row",
+    "at": 514,
+    "class": "#FF00FF",
+    "x": [
+     1566,
+     1570
+    ],
+    "frames": [
+     164,
+     190
+    ],
+    "min_run_px": 8
+   },
+   "expect": [
+    {
+     "judge": "video_judge",
+     "defect_frames": [
+      [
+       164,
+       190
+      ],
+      [
+       195,
+       241
+      ],
+      [
+       417,
+       542
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "two-opposite-drags-are-two-motions-col",
+   "film": "feat-5851715-120x2/rkd-col-drag-clamp-heavy-dark",
+   "why": "VIDEO JUDGE (STATUS 8176): the divider is dragged left past its clamp, then right past it. The judge before the drag split (#32947) read the film as one motion and reported 28 false 'reverse'; the fixed judge splits it into one motion per drag and reports none.",
+   "expect": [
+    {
+     "judge": "judge_trace",
+     "absent_kind": "reverse"
+    }
+   ]
+  },
+  {
+   "id": "two-opposite-drags-are-two-motions-row",
+   "film": "feat-5851715-120x2/rkd-row-drag-clamp-heavy-dark",
+   "why": "VIDEO JUDGE (STATUS 8176): the same clamp case on a row divider: 34 false 'reverse' before the drag split, none after.",
+   "expect": [
+    {
+     "judge": "judge_trace",
+     "absent_kind": "reverse"
+    }
+   ]
+  }
+ ]
+}

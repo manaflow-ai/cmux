@@ -1,7 +1,8 @@
 // l10n-allow-file: synthetic prompt fixtures, not shipped UI.
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as marked from "marked";
-import { setChatDisplay } from "./chatDisplay";
+import { currentChatMetrics, setChatDisplay } from "./chatDisplay";
+import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { layoutConversation, type AcpmuxRow } from "./model";
 
 const text = "Describe this synthetic onboarding fixture";
@@ -19,23 +20,29 @@ const height = (row: AcpmuxRow, width: number) => layoutConversation([row], widt
 
 afterEach(() => setChatDisplay({}));
 
-// These are the original first-layout estimates, including wrapping, collapse chrome and the
-// user's font size. A performance repair must not move the next row before the DOM measures it.
+// First-layout estimates include text wrapping and collapse controls. Codex keeps 10px of
+// block padding on each side of the bubble, including when the reading font changes.
+// Meta controls and the outer gaps belong to the virtual stack, not this content height.
+const FOLDED = -1;
+const folded = () => {
+  const { lineHeight } = currentChatMetrics();
+  return 20 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT;
+};
 for (const [font, expected] of [
   [
     14,
     [
-      [97.5, 303.5, 120.25],
-      [74.75, 279.5, 74.75],
-      [74.75, 165.75, 74.75],
+      [65.5, FOLDED, 88.25],
+      [42.75, 247.5, 42.75],
+      [42.75, 133.75, 42.75],
     ],
   ],
   [
     20,
     [
-      [117, 401, 149.5],
-      [84.5, 377, 84.5],
-      [84.5, 214.5, 84.5],
+      [85, FOLDED, 117.5],
+      [52.5, 345, 52.5],
+      [52.5, 182.5, 52.5],
     ],
   ],
 ] as const) {
@@ -43,7 +50,8 @@ for (const [font, expected] of [
     setChatDisplay({ "agentPane.display.font.size": font });
     [320, 720, 1400].forEach((width, index) => {
       [text, long, unicode].forEach((value, sample) => {
-        expect(height(prompt(value), width)).toBeCloseTo(expected[index]![sample]!, 5);
+        const want = expected[index]![sample]!;
+        expect(height(prompt(value), width)).toBeCloseTo(want === FOLDED ? folded() : want, 5);
       });
     });
   });
@@ -86,11 +94,16 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
   }
 });
 
-test("hyphen thematic breaks keep their original parser-backed height", () => {
-  for (const font of [14, 20]) {
+test("thematic breaks keep the same padding at different reading sizes", () => {
+  for (const font of [14, 20, 28]) {
     setChatDisplay({ "agentPane.display.font.size": font });
-    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(54);
+    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(22);
   }
+});
+
+test("a large reading font retains the bubble padding before measurement", () => {
+  setChatDisplay({ "agentPane.display.font.size": 28 });
+  expect(height(prompt("Short"), 720)).toBeCloseTo(65.5, 5);
 });
 
 test("plain height follows width and font changes without stale placement", () => {

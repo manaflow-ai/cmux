@@ -17,4 +17,18 @@ struct SSHProcessRunnerDeadlineTests {
         let elapsed = clock.now - start
         #expect(elapsed < .seconds(5), "the deadline returned after \(elapsed), not near 300 ms")
     }
+
+    @Test func closedStdinDoesNotSendSigpipeWhileWriting() async throws {
+        let result = try await SSHProcessRunner.run(
+            ["/bin/sh", "-c", "sleep 0.2; exec 0<&-; sleep 1"],
+            input: .writer { descriptor in
+                let bytes = [UInt8](repeating: 0x61, count: 1 << 20)
+                bytes.withUnsafeBytes { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    _ = Darwin.write(descriptor, base, buffer.count)
+                }
+            },
+            environment: [:], deadline: .seconds(3), label: "closed stdin")
+        #expect(result.status == 0)
+    }
 }

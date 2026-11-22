@@ -24,6 +24,8 @@ RESOLVER = ROOT / "scripts" / "ci" / "resolve_runners.py"
 REAL_MAP = ROOT / ".github" / "runners.json"
 REUSABLE_WORKFLOW = ROOT / ".github" / "workflows" / "resolve-runners.yml"
 PROOF_WORKFLOW = ROOT / ".github" / "workflows" / "ios-app-store.yml"
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("resolve_runners", RESOLVER)
 assert spec and spec.loader
@@ -329,14 +331,15 @@ class TheResolverStartsAnywhere(unittest.TestCase):
 
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-        # A fork takes GitHub-hosted Linux first; manaflow-ai runs on
-        # Blacksmith through the CI_TRUSTED_RUNNER selector, so a GitHub
-        # billing block cannot stop the graph this job starts.
+        # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
+        # reads the CI_TRUSTED_RUNNER selector, else Blacksmith, on every attempt:
+        # it took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted
+        # runners left light jobs queued for hours (cmux#45735).
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
-                    job["runs-on"],
-                    '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+                    workflow_jobs.runs_on_cells(job),
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
                 )
 
 

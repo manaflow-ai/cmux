@@ -4,6 +4,7 @@
 mod amp;
 mod auggie;
 mod claude;
+mod claude_desktop;
 mod codex;
 mod continue_dev;
 mod copilot;
@@ -17,6 +18,8 @@ mod grok_cli;
 mod kimi;
 mod muse;
 mod opencode;
+pub use codex::forget as forget_codex_reads;
+pub use codex::{CodexThreadRow, thread_rows as codex_thread_rows};
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
@@ -29,7 +32,7 @@ use std::path::{Path, PathBuf};
 
 use crate::entry::{AdapterKind, ChatEntry};
 use crate::scan::FileRead;
-use crate::stamp::{FileStamp, FileState};
+use crate::stamp::{FileStamp, FileState, KeptRead};
 
 /// Crush project data dirs listed in a global `projects.json`.
 pub(crate) fn crush_project_dirs(index: &Path) -> Vec<PathBuf> {
@@ -71,12 +74,62 @@ pub(crate) fn list_files(kind: AdapterKind, root: &Path) -> io::Result<Vec<PathB
     }
 }
 
+/// The inputs of a `kind` read of `path` beside the file itself, when they are all known.
+enum ReadInputs {
+    /// The read takes from other files too (a session folder, a workspace file): always read.
+    Unknown,
+    /// The read takes from the file alone.
+    File,
+    /// The file and this one other file.
+    FileAnd(PathBuf),
+}
+
+fn read_inputs(kind: AdapterKind, path: &Path) -> ReadInputs {
+    match kind {
+        AdapterKind::ClaudeCode => {
+            claude::sidecar_path(path).map_or(ReadInputs::File, ReadInputs::FileAnd)
+        }
+        AdapterKind::Codex | AdapterKind::Pi => ReadInputs::File,
+        _ => ReadInputs::Unknown,
+    }
+}
+
+/// Reads one session file. A file whose stamp (device, inode, size, mtime) and other input are
+/// as `prev` recorded them is not opened: its kept read is the answer. A rescan of an unchanged
+/// store (the daemon's start after its cache, a watcher's lost-events rescan) is then a stat per
+/// file, where it read every transcript's head and tail windows again (64 KiB each).
 pub(crate) fn read_file(
     kind: AdapterKind,
     path: &Path,
     prev: Option<&FileState>,
 ) -> io::Result<FileRead> {
     let stamp = FileStamp::of(&fs::metadata(path)?);
+    let side = match read_inputs(kind, path) {
+        ReadInputs::Unknown => None,
+        ReadInputs::File => Some(None),
+        ReadInputs::FileAnd(other) => {
+            Some(fs::metadata(other).ok().map(|meta| FileStamp::of(&meta)))
+        }
+    };
+    if let (Some(side), Some(prev)) = (side, prev)
+        && prev.stamp == stamp
+        && let Some(kept) = prev.kept.as_ref().filter(|kept| kept.side == side)
+    {
+        return Ok(FileRead { entry: kept.entry.clone(), state: prev.clone() });
+    }
+    let mut read = read_uncached(kind, path, stamp, prev)?;
+    if let Some(side) = side {
+        read.state.kept = Some(KeptRead { entry: read.entry.clone(), side });
+    }
+    Ok(read)
+}
+
+fn read_uncached(
+    kind: AdapterKind,
+    path: &Path,
+    stamp: FileStamp,
+    prev: Option<&FileState>,
+) -> io::Result<FileRead> {
     match kind {
         AdapterKind::ClaudeCode => claude::read(path, stamp, prev),
         AdapterKind::Codex => codex::read(path, stamp, prev),
@@ -129,13 +182,17 @@ pub(crate) fn read_store(kind: AdapterKind, root: &Path) -> io::Result<Option<Ve
 
 /// Root-level data applied after the file reads: Codex session index
 /// names, Kimi folders from the work-dir index, Claude's pre-JSONL SQLite
-/// store, Gemini chats that only `logs.json` remembers.
+/// store and Claude desktop's session titles, Gemini chats that only
+/// `logs.json` remembers.
 pub(crate) fn finish_scan(kind: AdapterKind, root: &Path, entries: &mut Vec<ChatEntry>) {
     match kind {
         AdapterKind::Codex => codex::apply_session_index(root, entries),
         AdapterKind::KimiCli => kimi::finish_cli(root, entries),
         AdapterKind::KimiCode => kimi::finish_code(root, entries),
-        AdapterKind::ClaudeCode => claude::add_legacy_store(root, entries),
+        AdapterKind::ClaudeCode => {
+            claude::add_legacy_store(root, entries);
+            claude_desktop::apply(root, entries);
+        }
         AdapterKind::Gemini | AdapterKind::QwenCode => {
             gemini::add_logged_sessions(kind, root, entries);
         }
@@ -150,6 +207,7 @@ pub(crate) fn finish_file(kind: AdapterKind, root: &Path, entries: &mut Vec<Chat
         AdapterKind::Codex => codex::apply_session_index(root, entries),
         AdapterKind::KimiCli => kimi::finish_cli(root, entries),
         AdapterKind::KimiCode => kimi::finish_code(root, entries),
+        AdapterKind::ClaudeCode => claude_desktop::apply(root, entries),
         _ => {}
     }
 }
@@ -202,6 +260,19 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
         AdapterKind::Continue => continue_dev::classify(&parts),
         AdapterKind::OpenHands => openhands::classify(&parts),
         AdapterKind::Muse => muse::classify(&parts),
+    }
+}
+
+/// The folders of a `kind` root that hold its session files, when the root holds other busy
+/// files beside them: a watcher watches these folders whole and the root's own entries and
+/// store files ([`classify_path`]) one by one, so writes to the rest never reach it. `None`:
+/// the root is watched whole. Codex's home holds its logs and databases (`logs_2.sqlite` and
+/// its WAL, written several times a second by every running Codex), its history, shell
+/// snapshots and caches beside `sessions/` and `archived_sessions/`.
+pub fn session_folders(kind: AdapterKind) -> Option<&'static [&'static str]> {
+    match kind {
+        AdapterKind::Codex => Some(codex::SESSION_FOLDERS),
+        _ => None,
     }
 }
 

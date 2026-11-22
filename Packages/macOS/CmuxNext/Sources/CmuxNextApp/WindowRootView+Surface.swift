@@ -22,7 +22,7 @@ extension WindowRootView {
         performWithTheme { paintBackdropSheet(backdrop, surface: Palette.surfaceBackground, backdropView: backdropView) }
     }
 
-    /// `NSWindow.install(kind:content:scope:)`: the backdrop before the
+    /// `NSWindow.install(kind:content:scope:activeLook:)`: the backdrop before the
     /// content view goes in.
     func paintWindowSurface(of window: NSWindow) {
         applyBackdrop(to: window)

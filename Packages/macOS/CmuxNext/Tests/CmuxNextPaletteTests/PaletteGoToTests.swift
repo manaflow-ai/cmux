@@ -108,6 +108,7 @@ struct PaletteGoToTests {
         func baseDirectory() -> String? { base }
         func open(_ target: PaletteQueryTarget) { opened.append(target) }
         func askAgent(about target: PaletteQueryTarget, prompt: String?) { asked.append((target, prompt)) }
+        func askAgent(prompt: String) {}
     }
 
     @MainActor private final class Workspaces: PaletteWorkspaceSource {

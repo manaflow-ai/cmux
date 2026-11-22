@@ -33,9 +33,16 @@ public final class OverlaySurfaceView: NSView {
     /// How the glass is tinted: the theme's tint, or the shared neutral glass
     /// (``FloatingGlassStyle``) with its rim.
     public let tone: OverlayTone
+    /// The gallery variant the floating glass takes (``OverlayGlassVariant/picked`` by default).
+    public let glassVariant: OverlayGlassVariant
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
     private let reduceTransparency: ReduceTransparency
+    /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
+    /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
+    /// inactive grey frost lit the card up for the whole fade (the close flashed).
+    /// The window's ``ActiveLookScope``; nil follows the key state.
+    private let activeLook: ActiveLookScope?
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -43,6 +50,18 @@ public final class OverlaySurfaceView: NSView {
 
     public var cornerRadius: CGFloat = Metrics.panelCornerRadius {
         didSet { if cornerRadius != oldValue { applyShape() } }
+    }
+
+    /// The shadow the surface casts along its own shape, on every material (the tooltip's,
+    /// ``Glass/makeTooltipGlass(cornerRadius:interactive:)``); nil casts none, as the overlays whose
+    /// window or owner draws it.
+    public var castShadow: Elevation? {
+        didSet { if castShadow != oldValue { applyShadow() } }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if castShadow != nil { applyShadow() }
     }
 
     /// The vibrancy fallback blurs what is behind the window instead of the window's own
@@ -55,20 +74,61 @@ public final class OverlaySurfaceView: NSView {
 
     private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
 
+    /// Clear Liquid Glass with no tint: the surface shows what is under it, marked only by the
+    /// glass's lens (and a shadow its owner draws). For a piece of the window picked up over its
+    /// own window (a dragged sidebar row), which carries no more text than it did in place (Leo
+    /// 2026-10-23: "the workspaces on the sidebar, they become solid. I feel like they don't need
+    /// to be solid when you pick them up"). The blur before macOS 26 and the Reduce Transparency
+    /// surface are unchanged.
+    public var isClear = false {
+        didSet {
+            guard isClear != oldValue else { return }
+            (materialView as? GlassPanelView)?.style = glassStyle
+            applyTheme()
+        }
+    }
+
+    private var glassStyle: Glass.Style { isClear ? .clear : .regular }
+
+    /// The glass level whose density the theme tint takes (``GlassLevel``). Popover by default,
+    /// through ``ChromeTunables/glassOverlayTintStrength``; a panel that holds a long list over the
+    /// transcript (Session Info) takes the denser chip level so the chat under it does not wash its
+    /// text out. Neutral tones and the opaque material ignore it.
+    public var tintLevel: GlassLevel = .popover {
+        didSet { if tintLevel != oldValue { applyTheme() } }
+    }
+
+    /// No material of its own over a translucent window: the content stands on the window's own
+    /// material and tint (glass, frost or plain see-through), as it did in place. For a dragged
+    /// sidebar row, whose clear Liquid Glass still frosted the window under it (the ask-116775fd17
+    /// capture: a lifted card at spread 9 over a sidebar at 40). Its owner sets it from the window's
+    /// backdrop (`WindowBackdrop.dragsOnGlass`); the opaque material (Reduce Transparency) keeps
+    /// the solid surface.
+    public var standsOnWindow = false {
+        didSet { if standsOnWindow != oldValue { rebuild() } }
+    }
+
+    /// Whether the surface draws no material now (``standsOnWindow`` on a non-opaque material).
+    public var drawsNoMaterial: Bool { standsOnWindow && material != .opaque }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
+    /// `glassVariant` is the look of floating neutral glass (toasts, dialogs, sheets); other tones ignore it.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
                 card: Bool = false,
-                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
+                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
+                activeLook: ActiveLookScope? = nil, glassVariant: OverlayGlassVariant = .picked) {
         self.tone = tone
+        self.glassVariant = glassVariant
+        self.activeLook = activeLook
         materialOverride = material
         isInteractive = interactive
         isCard = card
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
-        self.material = material ?? Self.systemMaterial(reduceTransparency)
+        self.material = material ?? Self.systemMaterial(reduceTransparency, frost: tone.style?.castsShadow == true && glassVariant.prefersFrost)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -96,7 +156,7 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? Self.systemMaterial(reduceTransparency)
+        let next = materialOverride ?? Self.systemMaterial(reduceTransparency, frost: floatingVariant?.prefersFrost == true)
         guard next != material else { return }
         material = next
         rebuild()
@@ -104,10 +164,15 @@ public final class OverlaySurfaceView: NSView {
 
     /// This Mac's material; `Glass.isLiquidGlassAvailable` also carries the
     /// Debug legacy-material switch.
-    private static func systemMaterial(_ reduceTransparency: ReduceTransparency) -> OverlayMaterial {
-        OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
-                               reduceTransparency: reduceTransparency.isEnabled)
+    /// `frost`: the frosted blur stands where Liquid Glass would (``OverlayGlassVariant/frost``).
+    private static func systemMaterial(_ reduceTransparency: ReduceTransparency, frost: Bool) -> OverlayMaterial {
+        let system = OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                                            reduceTransparency: reduceTransparency.isEnabled)
+        return frost && system == .liquidGlass ? .vibrancy : system
     }
+
+    /// The variant when this is floating neutral glass (a style that casts a shadow), else nil.
+    private var floatingVariant: OverlayGlassVariant? { tone.style?.castsShadow == true ? glassVariant : nil }
 
     private func rebuild() {
         // Moving the content out of the window resigns a focused field in it; it takes the keys back after.
@@ -116,7 +181,7 @@ public final class OverlaySurfaceView: NSView {
         contentView.removeFromSuperview()
         tintView = nil
         let view: NSView
-        switch material {
+        switch drawsNoMaterial ? .opaque : material {
         case .liquidGlass:
             // A card's fill sits on the glass, under the content; the glass shows at its rim.
             let glass: GlassPanelView
@@ -131,10 +196,10 @@ public final class OverlaySurfaceView: NSView {
                     contentView.topAnchor.constraint(equalTo: fill.topAnchor),
                     contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
                 ])
-                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius)
+                glass = Glass.makePanel(content: fill, style: glassStyle, cornerRadius: cornerRadius, activeLook: activeLook)
                 tintView = fill
             } else {
-                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+                glass = Glass.makePanel(content: contentView, style: glassStyle, cornerRadius: cornerRadius, activeLook: activeLook)
             }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass
@@ -162,7 +227,7 @@ public final class OverlaySurfaceView: NSView {
         view.autoresizingMask = [.width, .height]
         // The glass panel lays its contentView out with constraints; out
         // of the glass it must size by its frame again.
-        if material != .liquidGlass {
+        if material != .liquidGlass || drawsNoMaterial {
             contentView.translatesAutoresizingMaskIntoConstraints = true
             contentView.autoresizingMask = [.width, .height]
             tintView?.frame = view.bounds
@@ -172,7 +237,7 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
-        if let focused, let window = focused.window { window.makeFirstResponder(focused) }
+        if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()
         // Content colors may depend on the material (a veil that only
@@ -183,7 +248,8 @@ public final class OverlaySurfaceView: NSView {
 
     /// The neutral tone's rim, above the material and the content; none on the opaque material.
     private func installRim() {
-        guard let style = tone.style, material != .opaque else {
+        guard let style = tone.style, material != .opaque, !drawsNoMaterial,
+              material != .liquidGlass || floatingVariant?.drawsRim != false else {
             rimView?.removeFromSuperview()
             rimView = nil
             return
@@ -196,7 +262,23 @@ public final class OverlaySurfaceView: NSView {
         rimView = rim
     }
 
+    private func applyShadow() {
+        guard let layer else { return }
+        guard let shadow = castShadow else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        layer.masksToBounds = false
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = Float(shadow.alpha)
+        layer.shadowRadius = shadow.layerRadius
+        layer.shadowOffset = shadow.layerOffset(flipped: isFlipped)
+        layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+    }
+
     private func applyShape() {
+        if castShadow != nil { applyShadow() }
         rimView?.cornerRadius = cornerRadius
         // The content takes the surface's shape on every material. The blur and the solid
         // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
@@ -220,7 +302,8 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
+            layer.borderWidth = drawsNoMaterial ? 0
+                : Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 
@@ -234,15 +317,22 @@ public final class OverlaySurfaceView: NSView {
         rimView?.look = look ?? rimView?.look ?? FloatingGlassStyle.dialog.look(isDark: true)
         performWithTheme {
             let card = isCard ? cardMaterial : nil
+            if drawsNoMaterial {
+                materialView?.layer?.backgroundColor = nil
+                materialView?.layer?.borderColor = nil
+                return
+            }
+            let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = look?.veil.nsColor ?? overlayTint
+                let untinted = tone.style.map { floatingVariant?.tintsGlass($0) == false } ?? false
+                (materialView as? GlassPanelView)?.tintColor = isClear || untinted ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
                 }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? veil ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
                 materialView?.layer?.borderColor = look == nil
                     ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
@@ -260,14 +350,12 @@ public final class OverlaySurfaceView: NSView {
                      minimumOpacity: ChromeTunables.cardOpacity.value)
     }
 
-    /// The theme's glass tint, its alpha scaled by the overlay tint
-    /// strength tunable (default 1.25, a little denser than the theme
-    /// tint so text over busy content stays readable; 1 is unchanged).
+    /// The theme's glass tint at the popover glass level (``GlassLevel/popover``), through the
+    /// overlay tint strength tunable that defaults to it (1.25, a little denser than the theme tint
+    /// so text over busy content stays readable; 1 is unchanged).
     private var overlayTint: NSColor {
-        let tint = Palette.glassTint
-        let strength = ChromeTunables.glassOverlayTintStrength.value
-        guard strength != 1 else { return tint }
-        return tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
+        guard tintLevel == .popover else { return tintLevel.tint(Palette.glassTint) }
+        return GlassLevel.scaled(Palette.glassTint, by: ChromeTunables.glassOverlayTintStrength.value)
     }
 }
 

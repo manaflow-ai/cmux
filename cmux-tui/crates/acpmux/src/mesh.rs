@@ -32,6 +32,73 @@ pub struct SessionRow {
     /// `coordinator`). The hub prefixes it with the member/team namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_address: Option<String>,
+    /// The session's working directory, which the hub keeps and its address book returns, so
+    /// another machine lists the chat under its folder. Left out past [`MAX_CWD_UNITS`]: the hub
+    /// refuses a whole heartbeat over one long field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
+pub const MAX_CWD_UNITS: usize = 1024;
+
+/// `cwd` as a heartbeat may list it: none when the hub would refuse its length.
+pub fn heartbeat_cwd(cwd: &str) -> Option<String> {
+    (!cwd.is_empty() && cwd.encode_utf16().count() <= MAX_CWD_UNITS).then(|| cwd.to_owned())
+}
+
+/// The hub's address book (`GET /v1/mesh/sessions`): the team's live daemons and sessions.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AddressBook {
+    #[serde(default)]
+    pub daemons: Vec<BookDaemon>,
+    #[serde(default)]
+    pub sessions: Vec<BookSession>,
+}
+
+/// One live daemon in the address book: whose it is, on which host.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookDaemon {
+    pub daemon_id: String,
+    pub host: String,
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub last_seen_at: u64,
+}
+
+/// One live session in the address book, as its daemon's heartbeat listed it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookSession {
+    pub name: String,
+    pub session_id: String,
+    pub host: String,
+    pub daemon_id: String,
+    #[serde(default)]
+    pub harness: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub last_seen_at: u64,
+    /// The rest of a row a local one carries: read whenever the hub returns them, each `None`
+    /// when it does not. Every hub row lists every one of these keys, null when unknown, so a
+    /// reader never tells a hub row from a local one by a missing key (`mesh_book::row_of`).
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub title_source: Option<String>,
+    #[serde(default)]
+    pub name_given: Option<bool>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub host_build: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -40,6 +107,10 @@ pub struct SessionRow {
 pub struct Heartbeat {
     pub host: String,
     pub sessions: Vec<SessionRow>,
+    /// The last heartbeat as the relay stops: the hub ends this daemon's waiting inbox polls, so
+    /// a message sent before the restarted daemon polls again is not leased to the dead one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub leaving: bool,
 }
 
 /// The most sessions one heartbeat lists.
@@ -93,6 +164,11 @@ pub struct Sender {
     pub daemon_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// The harness or app the send came from, as the sender says (`sender_harness.rs`), kept by
+    /// the receiver as self-reported only: what the sending daemon checked is not carried, since
+    /// the receiver cannot look at another machine's processes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<serde_json::Value>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running
@@ -190,8 +266,10 @@ impl OutMessage {
     /// Validate the platform wire invariant before an HTTP request is posted.
     pub fn validate(&self) -> Result<(), String> {
         match (self.kind, self.op.as_deref()) {
-            (Kind::Control, Some("start" | "resume" | "stop")) => Ok(()),
-            (Kind::Control, _) => Err("control messages require op start, resume or stop".into()),
+            (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
+            (Kind::Control, _) => {
+                Err("control messages require op start, resume, stop or read".into())
+            }
             (Kind::Prompt, None) => Ok(()),
             (Kind::Prompt, Some(_)) => Err("prompt messages cannot carry an operation".into()),
             (Kind::Unknown, _) => Err("messages must use a known kind".into()),
@@ -234,6 +312,9 @@ pub struct Receipt {
     /// Whether the hub permits this message to start work on an idle agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_work: Option<StartWork>,
+    /// A read control's answer (`server/mesh_read.rs`), which the hub shows only to its sender.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
 }
 
 /// How a delivery settled.
@@ -253,15 +334,37 @@ pub struct Ack {
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// A read control's answer, or one part of it: JSON text, at most [`MAX_READ_RESULT_BYTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
 }
+
+/// The largest read answer one hub message carries (its 64 KiB body bound). A larger answer
+/// goes in parts, each one message (`server/mesh_read.rs`), so no page is refused for its size.
+pub const MAX_READ_RESULT_BYTES: usize = 64 * 1024;
 
 impl Ack {
     pub fn delivered(prompt_id: &str, detail: Option<String>) -> Self {
-        Self { state: AckState::Delivered, prompt_id: Some(prompt_id.to_owned()), detail }
+        Self {
+            state: AckState::Delivered,
+            prompt_id: Some(prompt_id.to_owned()),
+            detail,
+            result: None,
+        }
     }
 
     pub fn refused(detail: impl Into<String>) -> Self {
-        Self { state: AckState::Refused, prompt_id: None, detail: Some(detail.into()) }
+        Self {
+            state: AckState::Refused,
+            prompt_id: None,
+            detail: Some(detail.into()),
+            result: None,
+        }
+    }
+
+    /// A read control's answer.
+    pub fn answered(prompt_id: &str, result: String) -> Self {
+        Self { result: Some(result), ..Self::delivered(prompt_id, None) }
     }
 }
 
@@ -279,20 +382,45 @@ pub struct HubError {
     pub retry_after: Option<Duration>,
     /// The HTTP status the hub answered, when it answered one.
     pub status: Option<u16>,
+    /// Where the failure came from: this daemon before it asked, the hub's answer, or no answer.
+    /// It words a failure (`server/team.rs` `inbox_failure`); `refused` alone says whether to
+    /// try again.
+    pub source: HubErrorSource,
+}
+
+/// Where a [`HubError`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubErrorSource {
+    /// This daemon, before it asked the hub: no token command, a token command that failed, a
+    /// request it would not send.
+    Daemon,
+    /// The hub's answer: a status, a revoked credential, two tokens refused, an answer too large
+    /// or not the shape of the contract.
+    Hub,
+    /// No answer: no connection, a dropped one, or none in time.
+    NoAnswer,
 }
 
 impl HubError {
-    /// Whether no retry can help this daemon's loops: a refused credential (401, 403: a Cloud VM
-    /// token, a token without a team) or a refusal from no answer at all (no token command).
-    /// Any other refusal (a request the hub took issue with) is tried again with backoff.
+    /// Whether the hub refused this daemon's credential: a 401 or 403 (a Cloud VM token, a token
+    /// without a team, a revoked machine) or a refusal from no answer at all (no token command).
+    /// The relay's loops pause on one and try again every `refused_retry`, since a refusal can
+    /// pass; any other refusal (a request the hub took issue with) is tried again with backoff.
     pub fn ends_relay(&self) -> bool {
         self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
     }
 
+    /// A failure that may pass, with no answer from the hub (no connection, none in time).
     pub fn unavailable(message: impl Into<String>) -> Self {
-        Self { refused: false, ..Self::refused(message) }
+        Self { refused: false, source: HubErrorSource::NoAnswer, ..Self::refused(message) }
     }
 
+    /// A failure that may pass, made by this daemon before it asked (a token command that failed).
+    pub fn local(message: impl Into<String>) -> Self {
+        Self { source: HubErrorSource::Daemon, ..Self::unavailable(message) }
+    }
+
+    /// A refusal this daemon made before it asked; [`HubError::from_hub`] marks the hub's.
     pub fn refused(message: impl Into<String>) -> Self {
         let message = message.into();
         Self {
@@ -302,7 +430,13 @@ impl HubError {
             candidates: None,
             retry_after: None,
             status: None,
+            source: HubErrorSource::Daemon,
         }
+    }
+
+    /// This failure, as the hub's answer.
+    pub fn from_hub(self) -> Self {
+        Self { source: HubErrorSource::Hub, ..self }
     }
 }
 
@@ -343,6 +477,46 @@ pub trait MeshHub: Send + Sync {
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>>;
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>>;
     fn receipt<'a>(&'a self, message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>>;
+    /// The team's address book. A hub without one lists nothing.
+    fn sessions(&self) -> BoxFuture<'_, Result<AddressBook, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("the address book is unavailable")) })
+    }
+    /// The receipt of a message this daemon sent, waiting up to `wait` (at most 25 s) for the
+    /// receiver's answer; a read's `result` is in it. A hub without the wait answers at once.
+    fn answer<'a>(
+        &'a self,
+        message_id: &'a str,
+        _wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.receipt(message_id)
+    }
+}
+
+/// The team hub client sends go through (`Hub::mesh`): set when a mesh relay starts, cleared
+/// when a sign-out's leave stops it, and replaced when a later enroll starts one again, perhaps
+/// against another hub. Each read takes the client then in use; the lock is never held across
+/// a call.
+#[derive(Default)]
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+
+impl MeshSlot {
+    /// The client in use, if a relay runs.
+    pub fn get(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// Make `client` the one in use; the one it replaced, if any.
+    pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().replace(client)
+    }
+
+    /// No client: the relay stopped. The one it removed, if any.
+    pub fn clear(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
+    }
 }
 
 #[cfg(test)]

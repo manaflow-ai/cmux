@@ -7,6 +7,7 @@
 // the app's one selected-text color). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "../../../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { APP_ACCENTS, contrastReport, deriveAppTheme, type AppAccent } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
@@ -35,25 +36,32 @@ import {
 } from "../themeDefaults";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { AccentPicker } from "./AccentPicker";
-import { ResetButton, ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
 import { ThemeOverrides } from "./ThemeOverrides";
 import { ThemePreview } from "./ThemePreview";
-import { ThemePicker } from "./ThemePicker";
+import { ThemePicker, useThemeFavorites } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
+import {
+  THEME_KEY,
+  APP_THEME_KEY,
+  THEME_EDITS_KEY,
+  ACCENT_KEY,
+  HIGHLIGHT_COLOR_KEY,
+  ROTATE_FAVORITES_KEY,
+  THEME_FILE_KEY,
+} from "../cardRows";
 
-export const THEME_KEY = "appearance.theme";
-/** The app theme apart from the terminal theme; `followTerminal` (its default) matches it. */
-export const APP_THEME_KEY = "appearance.appTheme";
-// appearance.themeEdits: per-token color edits, keyed "<theme>/<token>" (ThemeEditsSetting); drawn here, not as a row.
-export const THEME_EDITS_KEY = "appearance.themeEdits";
-/** appearance.accent: drawn here as the swatch popup, after the app theme. */
-export const ACCENT_KEY = "appearance.accent";
-/** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
- * last key: without it the page drew a second "App Theme" card for this one row). */
-export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
+export {
+  THEME_KEY,
+  APP_THEME_KEY,
+  THEME_EDITS_KEY,
+  ACCENT_KEY,
+  HIGHLIGHT_COLOR_KEY,
+  ROTATE_FAVORITES_KEY,
+  THEME_FILE_KEY,
+};
 const FOLLOW_TERMINAL = "followTerminal";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
@@ -70,8 +78,10 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     "app-light": useId(),
     "app-dark": useId(),
     accent: useId(),
+    themeFileOpen: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
+  const previewOwners = useRef(new Map<"terminal" | "app", object>());
   const load = useCallback((node: HTMLElement | null) => void (node && store.loadThemeColors()), [store]);
 
   const row = rowsByKey.get(THEME_KEY)!;
@@ -83,6 +93,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const edits = valueOf(state, THEME_EDITS_KEY) as ThemeEditMap | null;
   const colors = useMemo(() => withAllEdits(state.themeColors, edits), [state.themeColors, edits]);
   const custom = (name: string) => isEdited(edits, name);
+  // The starred themes every picker here lists first (appearance.favoriteThemes).
+  const starred = useThemeFavorites();
   const editsManaged = managedOf(state, THEME_EDITS_KEY);
   // A token's live preview, at most every 80 ms: each one reloads the terminals' config.
   const pendingEdit = useRef<{ timer: ReturnType<typeof setTimeout> | null; next: ThemeEditMap | null }>({
@@ -136,26 +148,15 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const themeMenu = useRowMenu(THEME_KEY);
   const appMenu = useRowMenu(APP_THEME_KEY);
   const accentMenu = useRowMenu(ACCENT_KEY);
+  const themeFileMenu = useRowMenu(THEME_FILE_KEY);
   const appState = useRowState(APP_THEME_KEY);
   const appDisabled = !state.connected || !state.readable || appManaged !== null;
   const appPaired = appSpec?.kind === "pair";
-  const appReset = (
-    <ResetButton
-      settingKey={APP_THEME_KEY}
-      shown={appState.customized && !appManaged}
-      disabled={!state.connected || !state.readable}
-    />
-  );
   const themeState = useRowState(THEME_KEY);
-  const themeReset = (
-    <ResetButton
-      settingKey={THEME_KEY}
-      shown={themeState.customized && !managed}
-      disabled={!state.connected || !state.readable}
-    />
-  );
   const accentRow = rowsByKey.get(ACCENT_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
+  const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
+  const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -189,10 +190,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
 
   const write = (next: ThemeSpec | null) =>
     next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
-  const previewTerminal = (name: string | null) => {
-    setPreviewing(name ? { name, target: "terminal" } : null);
-    if (name) store.preview(THEME_KEY, name);
-    else store.previewEnd(THEME_KEY);
+  const previewTerminal = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("terminal", owner ?? {});
+      setPreviewing({ name, target: "terminal" });
+      store.preview(THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("terminal") === owner) {
+      previewOwners.current.delete("terminal");
+      setPreviewing((current) => (current?.target === "terminal" ? null : current));
+      store.previewEnd(THEME_KEY, owner);
+    }
   };
   const writeApp = (next: ThemeSpec | null) =>
     next ? store.set(APP_THEME_KEY, formatThemeSpec(next)) : store.reset(APP_THEME_KEY);
@@ -214,12 +221,20 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       onPick={onPick}
       onPreview={previewApp}
       custom={custom}
+      favorites={starred.favorites}
+      onToggleFavorite={starred.toggle}
     />
   );
-  const previewApp = (name: string | null) => {
-    setPreviewing(name ? { name, target: "app" } : null);
-    if (name) store.preview(APP_THEME_KEY, name);
-    else store.previewEnd(APP_THEME_KEY);
+  const previewApp = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("app", owner ?? {});
+      setPreviewing({ name, target: "app" });
+      store.preview(APP_THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("app") === owner) {
+      previewOwners.current.delete("app");
+      setPreviewing((current) => (current?.target === "app" ? null : current));
+      store.previewEnd(APP_THEME_KEY, owner);
+    }
   };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
@@ -235,6 +250,8 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       onPick={onPick}
       onPreview={previewTerminal}
       custom={custom}
+      favorites={starred.favorites}
+      onToggleFavorite={starred.toggle}
     />
   );
   const pickSide = (side: "light" | "dark") => (name: string | null) => {
@@ -299,7 +316,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 title={t("settingsPage.theme.matchSystem")}
                 help={t("settingsPage.theme.matchSystemHelp")}
                 menu={themeMenu}
-                reset={<ResetSpacer />}
               >
                 <Switch
                   checked={paired}
@@ -319,7 +335,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                     id={ids[side]}
                     title={side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                     menu={themeMenu}
-                    reset={side === "light" ? themeReset : <ResetSpacer />}
                   >
                     {picker(ids[side], current(side), pickSide(side))}
                   </StudioRow>
@@ -334,7 +349,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   title={t("settingsPage.theme.terminal")}
                   help={t("settingsPage.theme.terminalHelp")}
                   menu={themeMenu}
-                  reset={themeReset}
                 >
                   {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
                     write(name ? { kind: "single", name } : null),
@@ -342,6 +356,14 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 </StudioRow>
               )}
             </>
+          )}
+          {rotateRow && names.length > 0 && (starred.favorites.length > 0 || focused === ROTATE_FAVORITES_KEY) && (
+            // Rotation turns to the next starred theme, so it needs two of them.
+            <SettingRow
+              row={rotateRow}
+              focused={focused === ROTATE_FAVORITES_KEY}
+              inactive={starred.favorites.length < 2}
+            />
           )}
           <ScopeOverrides />
           {appRow && names.length === 0 && <SettingRow row={appRow} focused={focused === APP_THEME_KEY} />}
@@ -355,7 +377,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 title={t("settingsPage.theme.matchSystem")}
                 help={appSpec ? t("settingsPage.theme.matchSystemHelp") : t("settingsPage.theme.appFollowsTerminal")}
                 menu={appMenu}
-                reset={<ResetSpacer />}
               >
                 {/* While the app theme matches the terminal theme it follows the terminal's switch. */}
                 <Switch
@@ -376,7 +397,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                     id={ids[`app-${side}`]}
                     title={side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                     menu={appMenu}
-                    reset={side === "light" ? appReset : <ResetSpacer />}
                   >
                     {appPicker(ids[`app-${side}`], appSpec[side], false, (name) =>
                       name
@@ -395,7 +415,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   title={t("settingsPage.theme.app")}
                   help={text(appRow.summary)}
                   menu={appMenu}
-                  reset={appReset}
                 >
                   {appPicker(ids.app, appSpec?.kind === "single" ? appSpec.name : null, true, (name) =>
                     writeApp(name ? { kind: "single", name } : null),
@@ -415,13 +434,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               help={text(accentRow.summary)}
               state={accentState}
               menu={accentMenu}
-              reset={
-                <ResetButton
-                  settingKey={ACCENT_KEY}
-                  shown={accentState.customized && !accentState.managed}
-                  disabled={!accentState.connected || !accentState.readable}
-                />
-              }
             >
               <AccentPicker
                 value={typeof accentState.value === "string" ? accentState.value : String(accentRow.default ?? "")}
@@ -434,6 +446,30 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
             </StudioRow>
           )}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
+          {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
+          {themeFileRow && (
+            // Open Theme File: the host opens the active theme file in the person's editor, writing
+            // one from the current look first when none is active (`cmux theme export`).
+            <StudioRow
+              kind="themeFileOpen"
+              settingKey={THEME_FILE_KEY}
+              id={ids.themeFileOpen}
+              title={t("settingsPage.theme.file.open")}
+              help={t("settingsPage.theme.file.openHelp")}
+              menu={themeFileMenu}
+            >
+              <Button
+                variant="ghost"
+                type="button"
+                className="link-button"
+                disabled={!state.connected}
+                data-theme-file-action="open"
+                onClick={() => void store.openThemeFile()}
+              >
+                {t("settingsPage.theme.file.open")}
+              </Button>
+            </StudioRow>
+          )}
         </div>
       </section>
     </div>
@@ -457,8 +493,8 @@ export function toggledPair(
   };
 }
 
-/** One row of the Theme section: title and help on the left, the control and the row's reserved
- * Reset slot on the right, the same layout as every SettingRow. */
+/** One row of the Theme section: title and help on the left, the control on the right, the same
+ * layout as every SettingRow. */
 function StudioRow({
   kind,
   settingKey,
@@ -469,7 +505,6 @@ function StudioRow({
   title,
   help,
   menu,
-  reset,
   children,
 }: {
   kind: string;
@@ -485,7 +520,6 @@ function StudioRow({
   title: string;
   help?: string;
   menu: ContextMenuItem[];
-  reset: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -512,10 +546,7 @@ function StudioRow({
           {help && <div className="row-help">{help}</div>}
           {state && <RowStatus settingKey={settingKey} state={state} />}
         </ContextMenu>
-        <div className="row-control">
-          {children}
-          {reset}
-        </div>
+        <div className="row-control">{children}</div>
       </div>
     </RowFrame>
   );

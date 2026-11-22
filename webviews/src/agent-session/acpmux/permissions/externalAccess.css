@@ -1,0 +1,5 @@
+/* A one-time ask must show the resource even in a narrow pane. */
+.acpmux-permission-request-label[data-external-access] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

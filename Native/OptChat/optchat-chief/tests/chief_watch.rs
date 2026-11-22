@@ -327,3 +327,82 @@ fn watch_lists_cancels_and_holds_its_bounds() {
     );
     assert!(h.brain.pending_watches().is_empty());
 }
+
+/// `watch` with no arguments shows what each running watch printed last
+/// (acpmux's `bg_output`): the Chief can look in on a long job, a build or a
+/// CI wait, without waiting for it to fire or running it again in Bash.
+#[test]
+fn watch_list_shows_each_running_watchs_latest_output() {
+    let mut h = Harness::new(default_script());
+    idle(&mut h);
+    watch(
+        &mut h,
+        WatchCall {
+            // The listed command never holds the expected lines itself.
+            command: Some("printf 'build %s/3\\n' 1 2; sleep 30".into()),
+            until: Some("never".into()),
+            note: Some("the build".into()),
+            ..WatchCall::default()
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let listed = watch(&mut h, WatchCall::default()).unwrap();
+        if listed.contains("build 2/3") {
+            assert!(listed.contains("build 1/3"), "{listed}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the list never showed the output: {listed}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    watch(
+        &mut h,
+        WatchCall {
+            cancel: Some("all".into()),
+            ..WatchCall::default()
+        },
+    )
+    .unwrap();
+}
+
+/// Leo, 2026-11-02: a watch on `gh pr view N --json state` with until MERGED
+/// ran the gh call every 15 s for up to a day (w3: 13 h, about 3,000 GitHub
+/// calls on the shared quota). With glaeda on the host, such a watch becomes
+/// one `glaeda-gh wait pr` (the daemon is the only poller) that prints the
+/// same word.
+#[test]
+fn a_pr_merge_watch_waits_through_glaeda_instead_of_polling_gh() {
+    use optchat_chief::watch::quota_safe;
+    let cmd = "timeout 60 gh pr view 30082 -R manaflow-ai/cmux --json state -q .state";
+    let safe = quota_safe(cmd, Some("MERGED"), 86_400).expect("rewritten");
+    assert!(
+        safe.contains("glaeda-gh wait pr manaflow-ai/cmux#30082 --until merged --timeout 86400"),
+        "{safe}"
+    );
+    assert!(safe.contains("echo MERGED"), "{safe}");
+    assert!(!safe.contains("gh pr view"), "{safe}");
+    // A PR URL names the repo too.
+    let url = "gh pr view https://github.com/manaflow-ai/cmux/pull/31144 --json state";
+    let safe = quota_safe(url, Some("MERGED"), 600).expect("rewritten");
+    assert!(safe.contains("manaflow-ai/cmux#31144"), "{safe}");
+    // Not a merge wait, or no repo: left alone.
+    assert_eq!(quota_safe(cmd, Some("OPEN"), 600), None);
+    assert_eq!(
+        quota_safe("gh pr view 30082 --json state", Some("MERGED"), 600),
+        None
+    );
+    assert_eq!(
+        quota_safe("aws sts get-caller-identity", Some("SIGNED"), 600),
+        None
+    );
+    // Review follow-ups: an `until` the rewrite cannot keep, or a compound
+    // command, keeps its own semantics.
+    assert_eq!(quota_safe(cmd, Some("\"state\":\"MERGED\""), 600), None);
+    assert_eq!(quota_safe(cmd, Some("MERGED|CLOSED"), 600), None);
+    let two = "gh pr view 1 -R a/b --json state -q .state | grep -q MERGED && gh pr view 2 -R a/b --json state -q .state";
+    assert_eq!(quota_safe(two, Some("MERGED"), 600), None);
+}

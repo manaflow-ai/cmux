@@ -22,8 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
-    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
-    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
+    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace
+    /// rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The address of the favicon a link row draws.
     public var iconAddress: String? = nil
@@ -155,6 +155,47 @@ extension SidebarViewComponents {
             .max { $0.y < $1.y }
     }
 
+    /// The middle of workspace `id`'s pull request badge in window coordinates (bottom-left origin), for a
+    /// synthetic pointer (`debug.update_surfaces {action: "pull-request-badge"}`, hovercard-delay-live.py);
+    /// nil when its row shows no badge.
+    public func debugPullRequestBadgeCenterInWindow(workspace id: String) -> CGPoint? {
+        guard let badge = (debugRowView(workspace: id) as? WorkspaceRowView)?.pullRequests, badge.window != nil,
+              !badge.isHiddenOrHasHiddenAncestor else { return nil }
+        return badge.convert(CGPoint(x: badge.bounds.midX, y: badge.bounds.midY), to: nil)
+    }
+
+    /// The middle of workspace `id`'s drawn row in window coordinates (bottom-left origin), read now, for a
+    /// synthetic pointer (`debug.pointer_hover {row}`, `debug.pointer_sweep`); nil when the row has no shown view.
+    /// `id` is the workspace's id, or its daemon id when the list qualifies it by machine.
+    public func debugRowCenterInWindow(workspace id: String) -> CGPoint? {
+        guard let view = debugRowView(workspace: id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+    }
+
+    /// Why ``debugRowCenterInWindow(workspace:)`` found no point for `id`: the list's and the row view's state.
+    public func debugRowMiss(workspace id: String) -> [String: Any] {
+        let view = debugRowView(workspace: id)
+        let keys = list.displayed.rows.prefix(3).map { String(describing: $0.key) }
+        return ["presentation": String(describing: model.presentation), "row_views": list.rowViews.count, "rows": list.displayed.rows.count, "first_keys": keys,
+                "list_in_window": list.window != nil, "list_hidden": list.isHiddenOrHasHiddenAncestor,
+                "sidebar_frame": [frame.minX, frame.minY, frame.width, frame.height].map { Double($0) },
+                "view": view.map { ["in_window": $0.window != nil, "hidden": $0.isHiddenOrHasHiddenAncestor] as [String: Any] } ?? NSNull()]
+    }
+
+    /// Workspace `id`'s row view: by its key, or by a key that names it (a list key qualified by machine).
+    private func debugRowView(workspace id: String) -> SidebarRowView? {
+        list.rowViews[.workspace(WorkspaceID(id))] ?? list.rowViews.first { key, _ in
+            if case let .workspace(row) = key { return row.rawValue.contains(id) }
+            return false
+        }?.value
+    }
+
+    /// The workspace whose row the list shows hovered now; nil for none or another kind of row.
+    public var debugHoveredWorkspace: String? {
+        guard case let .workspace(id)? = list.hoveredKey else { return nil }
+        return id.rawValue
+    }
+
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {
@@ -222,7 +263,6 @@ extension SidebarViewComponents {
             info["neighbor"] = describe(neighbor.view)
             info["neighbor_rows"] = "\(neighbor.list.displayed.rows.count) views=\(neighbor.list.rowViews.count) frame=\(neighbor.list.frame)"
         }
-        info["snapshot"] = describe(spacePaging.snapshotView)
         return info
     }
 }

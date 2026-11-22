@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// Zellij-style new panes (`PanePlacement`): New Pane (Auto Layout)
 /// (Ctrl-Cmd-N) splits the largest scrolling pane on screen along its
@@ -26,7 +27,7 @@ enum PanePlacementRouting {
                                  from focused: PaneController) -> PaneController {
         guard !ctx.namesPane(invocation), let content = focused.workspace,
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID),
-              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames,
+              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID),
                                                    recent: content.recentPanes),
               let target = content.panes[pick.pane] else { return focused }
         return target
@@ -37,12 +38,13 @@ enum PanePlacementRouting {
     /// neither has room.
     static func autoLayoutDirection(_ ctx: AppActionContext, _ pane: PaneController) -> (preferred: PaneDirection, fitting: PaneDirection?) {
         let frame = pane.workspace?.layoutView.frame(of: pane.layoutPaneID) ?? .zero
-        let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
-        let other: PaneDirection = preferred == .right ? .down : .right
-        let fitting = [preferred, other].first { direction in
+        let room = { (direction: PaneDirection) in
             if case .split = ctx.services.splitRoom(for: pane.pane, edge: PaneHandlers.edge(direction)) { true } else { false }
         }
-        return (preferred, fitting)
+        // Rust's `tabs::panes::auto_direction`.
+        guard let answer = WindowRules().autoDirection(width: Double(frame.width), height: Double(frame.height),
+                                                       roomRight: room(.right), roomDown: room(.down)) else { return (.right, nil) }
+        return (PaneDirection(rawValue: answer.preferred) ?? .right, answer.fitting.flatMap(PaneDirection.init(rawValue:)))
     }
 
     /// The route for a new tab of a kind that tiles (`tiles`: a terminal,
@@ -53,9 +55,9 @@ enum PanePlacementRouting {
         guard invocation.origin == .user, !ctx.namesPane(invocation), let focused = ctx.services.paneController(for: pane),
               let content = focused.workspace,
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID) else { return .tab(pane) }
-        let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementFallback
+        let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementDefault
         let plan = PanePlacement().plan(layout: screen.layout, focused: focused.layoutPaneID, recent: content.recentPanes,
-                                        frames: content.layoutView.navigationFrames, placement: placement, tiles: tiles)
+                                        frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID), placement: placement, tiles: tiles)
         guard case .split(let target, _) = plan, let controller = content.panes[target],
               let direction = autoLayoutDirection(ctx, controller).fitting else { return .tab(pane) }
         return .split(controller.pane, direction)
@@ -63,7 +65,7 @@ enum PanePlacementRouting {
 
     /// Whether `layout.tileBrowsers` lets a person's new browser split.
     static func browsersTile(_ ctx: AppActionContext) -> Bool {
-        ctx.services.settings?.snapshot.tileBrowsers ?? CmuxConfigSnapshot.tileBrowsersFallback
+        ctx.services.settings?.snapshot.tileBrowsers ?? CmuxConfigSnapshot.tileBrowsersDefault
     }
 
     /// The invocation aimed at `pane`, keeping its arguments and origin. A
@@ -71,8 +73,8 @@ enum PanePlacementRouting {
     /// without a `cwd` argument, the folder of `focused`'s selected terminal
     /// or agent chat (NewTerminalStart.folder). Any other focused tab leaves the split's own fallback (the target
     /// pane's folder).
-    static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
-        var aimed = invocation
+    static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, on machineID: String, from focused: PaneController?) -> ActionInvocation {
+        var aimed = invocation.onMachine(machineID)
         aimed.target = ActionTargetRef(kind: .pane, id: pane.id)
         // Not when Ghostty's `split-inherit-working-directory` is false (PaneHandlers.split then
         // starts it at home).

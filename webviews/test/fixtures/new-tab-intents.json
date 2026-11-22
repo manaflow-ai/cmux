@@ -246,6 +246,27 @@
       }
     },
     {
+      "input": "/resume 3224ed6e-c1e0-4741-bc35-60295c2878fb",
+      "intent": {
+        "kind": "prompt",
+        "text": "/resume 3224ed6e-c1e0-4741-bc35-60295c2878fb"
+      }
+    },
+    {
+      "input": "/model opus",
+      "intent": {
+        "kind": "prompt",
+        "text": "/model opus"
+      }
+    },
+    {
+      "input": "/Users/me/My Notes.txt",
+      "intent": {
+        "kind": "url",
+        "url": "file:///Users/me/My%20Notes.txt"
+      }
+    },
+    {
       "input": "~",
       "intent": {
         "kind": "url",

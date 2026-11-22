@@ -301,14 +301,20 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     backlog = None
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if token and repo:
-        github = pool.GitHub(token, repo)
+        # The routing App is intentionally limited to the organization runner
+        # listing.  Run and job listings are ordinary Actions reads and must
+        # use the workflow token, otherwise every late-placement pass spends
+        # the routing App's small REST core budget too.
+        runner_github = pool.GitHub(token, repo)
+        read_token = (env.get("GITHUB_TOKEN") or env.get("GH_TOKEN") or token).strip()
+        read_github = pool.GitHub(read_token, repo)
         run_id = env.get("GITHUB_RUN_ID", "")
 
         def backlog(labels: Sequence[str]) -> dict[str, int]:
-            return gui_backlog(github, labels, exclude_run_id=int(run_id) if run_id.isdigit() else None,
+            return gui_backlog(read_github, labels, exclude_run_id=int(run_id) if run_id.isdigit() else None,
                                now=dt.datetime.now(dt.timezone.utc))
         try:
-            runners = github.runners()
+            runners = runner_github.runners()
         except Exception as error:  # noqa: BLE001 - fail open: keep the run-start placement
             print(f"::warning title=late placement::could not list runners ({error})")
     placed, why = decide(env, runners, backlog)

@@ -11,11 +11,16 @@
 //   3  the first subagent finishes: the count ticks to 1, its line ticks to its end
 //   4  the second finishes: the header ticks to the finished count
 //   5  the subagents' group is gone (as when the chat's rows load without it): the tray leaves
+// `agents` (2 by default, up to SUBAGENT_FIXTURE_MAX) is how many start at step 1: past the reviewer
+// and the auditor, helpers that stay running through every step, so a capture can open 3 or more
+// subagents' panes and record where each lands (design/pane-placement.md).
 import { received } from "./incomingFixture";
 import type { AcpmuxRow } from "./model";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 
 export const SUBAGENT_TRAY_STEPS = 6;
+/// The most subagents `agents` starts.
+export const SUBAGENT_FIXTURE_MAX = 8;
 
 const REVIEWER: Subagent = {
   id: "fixture-reviewer",
@@ -47,8 +52,22 @@ const MESSAGE = {
   body: "The tray recording is next; tell me when both reviewers are back.",
 };
 
-/// The rows of step `step` (0 to SUBAGENT_TRAY_STEPS - 1), from the time `at` the fixture began.
-export function subagentTrayRows(step: number, at: number): AcpmuxRow[] {
+/// Helper `n` (from 1), started a second after the one before it, past the auditor.
+const helper = (n: number): Subagent => ({
+  id: `fixture-helper-${n}`,
+  parent: null,
+  name: `Helper ${n}`,
+  kind: "Explore",
+  task: `Read part ${n} of the pane placement rules`,
+  state: "running",
+  startedAt: 0,
+  background: true,
+  action: "Read pane-placement.md",
+});
+
+/// The rows of step `step` (0 to SUBAGENT_TRAY_STEPS - 1), from the time `at` the fixture began,
+/// with `agents` subagents started at step 1 (2: the reviewer and the auditor).
+export function subagentTrayRows(step: number, at: number, agents = 2): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [
     { id: "subagents-ask", version: 1, at, kind: "user", text: "Review the tray motion and audit the bottom stack" },
     {
@@ -70,7 +89,13 @@ export function subagentTrayRows(step: number, at: number): AcpmuxRow[] {
       version: step,
       at: at + 4_000,
       kind: SUBAGENTS,
-      subagents: [ended(REVIEWER, 4_000, 40_000, step >= 3), ended(AUDITOR, 5_000, 55_000, step >= 4)],
+      subagents: [
+        ended(REVIEWER, 4_000, 40_000, step >= 3),
+        ended(AUDITOR, 5_000, 55_000, step >= 4),
+        ...Array.from({ length: Math.min(Math.max(Math.floor(agents), 2), SUBAGENT_FIXTURE_MAX) - 2 }, (_, index) =>
+          ended(helper(index + 1), 6_000 + index * 1_000, 0, false),
+        ),
+      ],
     } as AcpmuxRow);
   }
   if (step >= 2) rows.push(received("subagents-message", at + 20_000, MESSAGE));

@@ -207,6 +207,53 @@ pub async fn serve_mux_bridge(
     connections.shutdown().await;
 }
 
+/// A mux control stream the daemon has opened: its `cmux.protocol/2` lines
+/// are ready to carry. A caller that reports success before it carries them
+/// (`cmux carrier dial`) opens it first, so a daemon that refuses the
+/// service is a failure, not a stream that ends at once.
+pub struct OpenedMuxControl {
+    stream: ServiceStream,
+    opened: OpenedStream,
+}
+
+impl OpenedMuxControl {
+    /// Opens a mux control stream and waits for the daemon's answer.
+    pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
+        let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
+        match await_opened(&stream).await {
+            Ok(opened) => Ok(Self { stream, opened }),
+            Err(error) => {
+                let _ = stream.close().await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Close the stream without carrying it (a dial that carries another
+    /// service on the same session).
+    pub async fn close(self) {
+        let _ = self.stream.close().await;
+    }
+
+    /// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`):
+    /// the same bytes the Mac's bridge socket carries, for a caller that has
+    /// the stream on its own pipes. Returns when either side ends.
+    pub async fn bridge<R, W>(self, reader: R, writer: W) -> Result<(), BridgeError>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        pump_mux_client_buffered(
+            Arc::new(self.stream),
+            reader,
+            writer,
+            self.opened.features.mux_input_v1,
+            self.opened.buffered,
+        )
+        .await
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,
@@ -404,6 +451,119 @@ where
         result = &mut download => result?,
     }
     Ok(())
+}
+
+/// A Cloud machine's desktop socket (`cmux-agent-rd.socket`, the `cmux.rd/1`
+/// host on the agent display): the one path a Cloud daemon allows for
+/// [`Service::LocalSocket`].
+pub const CLOUD_DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
+
+/// Opens [`Service::LocalSocket`] to `path` and waits for the daemon's
+/// answer: the opened stream, or [`BridgeError::Rejected`] with the daemon's
+/// reason (not the owner's session, a path off its allowlist, no allowlist,
+/// or the socket did not answer).
+pub async fn open_local_socket(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    path: &str,
+) -> Result<Arc<ServiceStream>, BridgeError> {
+    let metadata = BTreeMap::from([("path".to_owned(), path.to_owned())]);
+    let stream = multiplexer.open(Service::LocalSocket, metadata).await?;
+    if let Err(error) = await_opened(&stream).await {
+        let _ = stream.close().await;
+        return Err(error);
+    }
+    Ok(Arc::new(stream))
+}
+
+/// Copies raw bytes both ways between an opened stream (from
+/// [`open_local_socket`]) and `reader` / `writer` until either side ends.
+pub async fn bridge_raw_stream<R, W>(
+    stream: Arc<ServiceStream>,
+    reader: R,
+    writer: W,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    pump_client(stream, reader, writer).await
+}
+
+/// Opens one [`Service::TcpTunnel`] stream to `route` and copies bytes
+/// between it and `reader` / `writer`, the way an ssh `ProxyCommand` needs:
+/// EOF on `reader` half-closes the stream and the remote side keeps sending,
+/// and the call returns once the remote closes, without waiting for more
+/// local input. Every chunk is flushed, so a buffered `writer` (stdout)
+/// never holds a protocol message back. A remote reset is an error.
+pub async fn dial_tcp_route<R, W>(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    route: RouteId,
+    mut local_reader: R,
+    mut local_writer: W,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let metadata = BTreeMap::from([("route".to_owned(), route.0.to_string())]);
+    let stream = multiplexer.open(Service::TcpTunnel, metadata).await?;
+    if let Err(error) = await_opened(&stream).await {
+        let _ = stream.close().await;
+        return Err(error);
+    }
+    let remote = Arc::new(stream);
+    let upload = {
+        let remote = remote.clone();
+        async move {
+            let mut buffer = vec![0_u8; 32 * 1024];
+            loop {
+                let size = local_reader.read(&mut buffer).await?;
+                let Some(bytes) = buffer.get(..size).filter(|bytes| !bytes.is_empty()) else {
+                    remote.close().await?;
+                    break;
+                };
+                remote.send(Bytes::copy_from_slice(bytes)).await?;
+            }
+            Ok::<_, BridgeError>(())
+        }
+    };
+    let download = {
+        let remote = remote.clone();
+        async move {
+            while let Some(chunk) = remote.receive().await? {
+                if !chunk.payload.is_empty() {
+                    local_writer.write_all(&chunk.payload).await?;
+                    local_writer.flush().await?;
+                }
+                if chunk.reset {
+                    return Err(BridgeError::Rejected("the remote reset the connection".into()));
+                }
+                if chunk.finished {
+                    break;
+                }
+            }
+            local_writer.shutdown().await?;
+            Ok::<_, BridgeError>(())
+        }
+    };
+    tokio::pin!(upload);
+    tokio::pin!(download);
+    let failure = remote.wait_for_failure();
+    tokio::pin!(failure);
+    // Stops when the remote closes or fails; local EOF only ends the upload.
+    let mut uploading = true;
+    loop {
+        tokio::select! {
+            biased;
+            error = &mut failure => return Err(error.into()),
+            result = &mut download => return result,
+            result = &mut upload, if uploading => {
+                result?;
+                uploading = false;
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

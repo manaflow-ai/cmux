@@ -6,6 +6,8 @@ nonisolated extension ReleaseNotes {
     public struct ChangeItem: Codable, Equatable, Sendable {
         public var title: String
         public var author: String?
+        /// One plain-language sentence extracted from the PR body at release time.
+        public var description: String?
         /// The pull request number in manaflow-ai/cmux.
         public var pr: Int?
         /// True when every file the commit touches is CI or tooling (release-notes.py
@@ -14,13 +16,14 @@ nonisolated extension ReleaseNotes {
         public var isInternal: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case title, author, pr
+            case title, author, description, pr
             case isInternal = "internal"
         }
 
-        public init(title: String, author: String? = nil, pr: Int? = nil, isInternal: Bool? = nil) {
+        public init(title: String, author: String? = nil, description: String? = nil, pr: Int? = nil, isInternal: Bool? = nil) {
             self.title = title
             self.author = author
+            self.description = description
             self.pr = pr
             self.isInternal = isInternal
         }

@@ -8,7 +8,7 @@ export function failedRowOf(error: unknown): string | undefined {
 
 /// Hands a trust refusal, with the step Trust re-runs, to the shown chat's folder question; true
 /// when that question took it (App.tsx checks the refusal still belongs to the chat it was sent in).
-export type TrustRouter = (error: unknown, again: () => void) => boolean;
+export type TrustRouter = (error: unknown, again: () => void, declined?: () => void) => boolean;
 
 /// Retry on a failed prompt row, and the re-send Trust makes of such a row (cx-nn3e). A row's
 /// Retry that acpmux refuses with `trust.pending` shows the folder's Trust question like a send

@@ -1,5 +1,9 @@
 # CmuxTabsKit
 
+> This package lives in feat-cmux-next (`Packages/iOS/`), the only copy since
+> 2026-11-11. Change it here; the old upstream branch is frozen.
+
+
 CmuxTabsKit gives an iOS 26+ SwiftUI app a Mobile Safari style tab
 experience for any tab content: web pages, terminals, notes, or anything else.
 It came out of the cmux-next iOS browser and has no dependency on cmux
@@ -40,7 +44,12 @@ transport or models.
   putting that frame in its card; `resumeLiveContent(_:)` restarts it when
   the grid is left, so the zoom still starts from the same pixels.
   `overviewVisibilityChanged(_:)` and `overviewScrollingChanged(_:)` tell
-  you when to stop or hold card updates. Return false from `isContentReady` while a
+  you when to stop or hold card updates, and `overviewIdleChanged(_:)` when
+  the grid rests (settled, not scrolling): the time to draw a costly card
+  into a picture. The grid builds only the cards within a few screens of
+  the visible rect (one per frame, nearest first) and releases far ones, so
+  `card(for:)` runs for a card when it nears the screen, not for every tab
+  at once; keep it a cheap view of what you already have. Return false from `isContentReady` while a
   tab's content would still be blank (a terminal attaching) and its card
   covers it.
 - **Close buttons and titles.** They arrive and leave as in Safari (measured

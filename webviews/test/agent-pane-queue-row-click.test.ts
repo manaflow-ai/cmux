@@ -11,7 +11,8 @@
 //
 // The row rests as one muted line, as ChatGPT's and Codex's queues do: no "Queued / Sends after
 // this turn" header and no number, and the actions show only while the pointer is on the row or
-// focus is in it (keyboard reach), not at rest.
+// focus is in it (keyboard reach, earned by a real Tab: only a key's focus shows them at once,
+// FOCUS-RING, src/ui/focusModality.ts), not at rest.
 //
 // The page is the pane's dev entry (vite.config.acpmux-pane.mjs) with its browser host, talking
 // JSON-RPC over a WebSocket to a stand-in acpmux (agent-pane-queue-steer.test.ts's): a turn still
@@ -19,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -336,8 +338,48 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 0,
           `${ROW} .acpmux-queued-actions`,
         );
-        await page.locator(ROW).focus();
+        await focusByKey(page, ROW);
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
+        await page.close();
+      });
+
+      // Leo, 2026-11-12: "if i click into the app or click into you for the workspace like focus
+      // anything the composer just the window the pane it should fade away".
+      test("a clicked or opened row's actions fade when the pointer leaves, and a keyed row's when another pane takes the keyboard", async () => {
+        const page = await openChat(true, undefined, [], engine);
+        await caughtUp(page, "the cwd fix.");
+        const hidden = () =>
+          page.waitForFunction(
+            (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 0,
+            `${ROW} .acpmux-queued-actions`,
+          );
+        // A click opens the row to its whole text and may leave focus on it; neither holds the actions.
+        await hoverRow(page, ROW);
+        await page.mouse.down();
+        await page.mouse.up();
+        expect(await page.locator(`${ROW} .acpmux-queued-text`).getAttribute("aria-expanded")).toBe("true");
+        await page.mouse.move(4, 4);
+        await hidden();
+        // Reached by key they show; the window's blur (another pane or app has the keyboard) fades them,
+        // with DOM focus still on the row. The build leaves opacity reveals ungated by FOCUS-RING, so it
+        // is the page's key state (pageKey.ts) that drops them: read here as the computed opacity.
+        await focusByKey(page, ROW);
+        expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
+        await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        expect(
+          await page.evaluate(() => ({
+            inactive: document.documentElement.hasAttribute("data-page-inactive"),
+            focused: document.activeElement?.className ?? null,
+          })),
+        ).toEqual({ inactive: true, focused: "acpmux-queued" });
+        await hidden();
+        // Back at the page (a press or key marks it key again), the keyed row's actions return, on the
+        // reveal's ramp: the blur took the ring, so they come back as a hover's would, not at once.
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await page.waitForFunction(
+          (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 1,
+          `${ROW} .acpmux-queued-actions`,
+        );
         await page.close();
       });
 
@@ -472,12 +514,16 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         await caughtUp(page, "the cwd fix.");
         calls.length = 0;
         await openChip(page, CHIPS.model);
+        // Whatever draws at the action's centre must belong to the open picker: a row, the search
+        // field, or the menu's own gaps (a separator, its padding), never the queued row. Asked of the
+        // DOM, not matched on the hit's markup, so a separator over the action counts as the picker's.
         for (const action of ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]']) {
-          const { covered } = await hitAt(page, `${ROW} ${action}`);
-          expect({ action, inPicker: covered !== null && /acpmux-quick|role="menu/.test(covered) }).toEqual({
-            action,
-            inPicker: true,
-          });
+          const { x, y } = await hitAt(page, `${ROW} ${action}`);
+          const inPicker = await page.evaluate(
+            ([px, py]) => document.elementFromPoint(px, py)?.closest(".acpmux-quick-menu, [role=menu]") != null,
+            [x, y] as const,
+          );
+          expect({ action, inPicker }).toEqual({ action, inPicker: true });
         }
         const { x, y } = await hitAt(page, `${ROW} [data-menu="queued-more"]`);
         await page.mouse.move(x, y, { steps: 4 });

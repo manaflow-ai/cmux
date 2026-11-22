@@ -1,0 +1,237 @@
+{
+ "title": "MCP Connect Card Playground: six styles, risky servers, phases",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open the playground",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 2,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": false
+  },
+  {
+   "title": "Style 1: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 1,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Style 2: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 2,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Style 3: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 3,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Style 4: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 4,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Style 5: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 5,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Style 6: Linear (verified, OAuth), ask",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 6,
+      "fixture": 0,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Danger-forward: custom URL (unverified)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 6,
+      "fixture": 3,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Danger-forward: look-alike host (IDN)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 6,
+      "fixture": 4,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Danger-forward: local npx command",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 6,
+      "fixture": 5,
+      "phase": 0
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Facts table: Context7 key field",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 2,
+      "fixture": 2,
+      "phase": 1
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Facts table: signing in",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 2,
+      "fixture": 0,
+      "phase": 2
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  },
+  {
+   "title": "Facts table: connected, 7 tools",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.mcpConnectPlayground",
+     "args": {
+      "style": 2,
+      "fixture": 0,
+      "phase": 4
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "playground",
+   "title": "MCP Connect Card Playground"
+  }
+ ]
+}

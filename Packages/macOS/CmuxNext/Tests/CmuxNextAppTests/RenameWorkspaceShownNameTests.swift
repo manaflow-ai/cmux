@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 @testable import CmuxNextPalette
 import CmuxNextSidebar
 import Foundation

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import Foundation
 
 /// cmux:// links: `link.open`, the one resolution path every link takes,
@@ -22,10 +23,15 @@ enum LinkHandlers {
                 _ = try StashHandlers.show(services, focus: !background)
                 return
             }
+            // A screen link (`cmux://mac-screen?device=&display=`, or `https://cmux.com/deeplink/screen?…`): that device's Screen Sharing tab.
+            if let url = URL(string: trimmed), let record = MacScreenRecord(link: url, linkScheme: services.linkScheme) { return services.macScreenTabs.openAddress(record, in: nil, focus: !background) }
+            if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
+                return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
+            }
             guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
                 throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
             }
-            try DeepLinkNavigator(services: services).open(parsed.link, background: background)
+            try DeepLinkNavigator(services: services).open(parsed.link, background: background, beside: invocation["source"]?.stringValue)
             // A parameter cmux does not use never costs an agent link its chat: it opens, and a
             // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
             // Only this kind, and only after it opened: the older kinds have always ignored
@@ -40,7 +46,7 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         })
         // Every selected row, one link per line, as classic's Copy Workspace Links (#27709).
@@ -61,6 +67,8 @@ enum LinkHandlers {
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             context.copy(try services.link(tab: tab))
         })
+        // A new chat has no link until its first message: its row says so instead of an enabled row that refuses.
+        context.setTargetReason("palette.copySurfaceLink") { agentTab($0, services: services).flatMap { services.agentTabs.session(of: $0) == nil ? RefusalStrings.agentTabHasNoSession : nil } }
     }
 
     /// The agent tab an invocation names: an explicit agent chat tab

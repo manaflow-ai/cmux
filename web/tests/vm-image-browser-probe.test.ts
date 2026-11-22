@@ -1,20 +1,31 @@
 import { describe, expect, test } from "bun:test";
 import { BROWSER_ROLE, chromeSandboxCommand, firstUseInstallPhases, hostSessionCommand, installProblems, userNamespaceCheckCommand } from "../scripts/cmux-vm-image/browser-probe";
-import { readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
+import { aptPins, readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
 
 const manifest = rolesManifest(readInputsLock());
 const entry = manifest.roles[BROWSER_ROLE];
 
 describe("browser role probe (cloud-automation.md 31)", () => {
-  test("the first-use install reads only the dated snapshot, pins the exact closure, then fetches each first-use program", () => {
+  test("the first-use install fetches the exact closure by content, installs it with no index, then fetches each first-use program", () => {
     const phases = firstUseInstallPhases(manifest, BROWSER_ROLE);
-    expect(phases.map((p) => p.name)).toEqual(["apt-install", "program-chrome-for-testing", "program-cmux-browser-host"]);
+    expect(phases.map((p) => p.name)).toEqual(["apt-fetch", "apt-install", "program-chrome-for-testing", "program-cmux-browser-host"]);
+    const [fetch, install] = phases;
+    for (const pin of aptPins(manifest.firstUse[BROWSER_ROLE])) {
+      const deb = manifest.debs[pin]!;
+      expect(fetch.command).toContain(`${deb.sha256} ${deb.size} 'http://archive.ubuntu.com/ubuntu/${deb.path}' '${manifest.aptSnapshot}${deb.path}'`);
+      expect(install.command).toContain(`'/var/lib/cmux/apt-snapshot/debs/${deb.path.split("/").pop()}'`);
+    }
     const cmd = phases.map((p) => p.command).join("\n");
-    expect(cmd).toContain("-o Dir::Etc::sourcelist=/var/lib/cmux/apt-snapshot/snapshot.sources");
-    expect(cmd).toContain("-o Dir::State::Lists=/var/lib/cmux/apt-snapshot/lists");
     expect(cmd).not.toContain("/etc/apt/sources.list.d");
-    for (const [name, version] of Object.entries(manifest.firstUse[BROWSER_ROLE])) expect(cmd).toContain(`'${name}=${version}'`);
-    expect(cmd).toContain(Buffer.from(manifest.aptSources).toString("base64"));
+    expect(cmd).not.toContain(" update ");
+    expect(install.command).toContain("-o Dir::Etc::sourcelist=/dev/null");
+  });
+
+  // Bake run 41990682146 (2026-11-05): snapshot.ubuntu.com answered 503 and the install failed with "Unable to locate
+  // package"; bake run 43932356313 (2026-11-16): the archive fallback had superseded a pin. No index is read now.
+  test("roles.json carries a .deb for every first-use pin and no other", () => {
+    const pins = Object.values(manifest.firstUse).flatMap((closure) => aptPins(closure));
+    expect(Object.keys(manifest.debs).sort()).toEqual([...new Set(pins)].sort());
   });
 
   test("the install must add exactly the locked closure", () => {

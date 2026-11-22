@@ -4,6 +4,7 @@
 //! online machine of the user's own (same login, not tagged, not shared
 //! in), a few at a time and at most [`MAX_PROBES`].
 
+use crate::cli::host_enroll::SshFailure;
 use crate::cli::host_peering::{Io, Live, Ran};
 use crate::cli::hosts::checked_host;
 use crate::cli::output::print_json;
@@ -42,6 +43,8 @@ pub(crate) struct Candidate {
     pub peer_url: Option<String>,
     /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
+    /// Also unknown when host-key verification needs explicit first contact:
+    /// Add Machine may offer it, but a background probe never accepts an unknown key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
 }
@@ -109,13 +112,28 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
         .collect()
 }
 
-/// `ssh -o BatchMode=yes -o ConnectTimeout=5 -- TARGET true`.
+/// Reject unknown keys even when the user's configuration accepts new keys.
+/// Keep error diagnostics available for classification under quiet configurations.
 pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
     let target = checked_host(target)?;
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", target, "true"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect())
+    Ok([
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "-o",
+        "LogLevel=ERROR",
+        "--",
+        target,
+        "true",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect())
 }
 
 /// Try ssh to the user's own online candidates (at most [`MAX_PROBES`]),
@@ -132,13 +150,21 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         .take(MAX_PROBES)
         .collect();
     let next = AtomicUsize::new(0);
-    let results: Vec<(usize, bool)> = std::thread::scope(|scope| {
+    let results: Vec<(usize, Option<bool>)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..PROBES_AT_ONCE.min(targets.len()))
             .map(|_| {
                 scope.spawn(|| {
                     let mut done = Vec::new();
                     while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst)) {
-                        done.push((*i, ssh(argv).ok));
+                        let result = ssh(argv);
+                        let verified = if !result.ok
+                            && SshFailure::of(&result.stderr) == SshFailure::HostKeyUnknown
+                        {
+                            None
+                        } else {
+                            Some(result.ok)
+                        };
+                        done.push((*i, verified));
                     }
                     done
                 })
@@ -150,7 +176,7 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         list[i].ssh_ok = Some(false);
     }
     for (i, ok) in results {
-        list[i].ssh_ok = Some(ok);
+        list[i].ssh_ok = ok;
     }
 }
 
@@ -313,7 +339,21 @@ mod tests {
         );
         assert_eq!(
             probe_argv("huge-blue").unwrap(),
-            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "huge-blue", "true"]
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=5",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                "UpdateHostKeys=no",
+                "-o",
+                "LogLevel=ERROR",
+                "--",
+                "huge-blue",
+                "true"
+            ]
         );
         assert!(probe_argv("-oProxyCommand=x").is_err());
     }
@@ -339,5 +379,42 @@ mod tests {
         assert_eq!(tried.load(Ordering::SeqCst), MAX_PROBES);
         assert!(many[..MAX_PROBES].iter().all(|c| c.ssh_ok == Some(true)));
         assert!(many[MAX_PROBES..].iter().all(|c| c.ssh_ok.is_none()));
+    }
+    #[test]
+    fn first_contact_unknown_candidates_remain_unverified_and_pickable() {
+        for (stderr, expected) in [
+            (
+                "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
+                None,
+            ),
+            (
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed.",
+                Some(false),
+            ),
+            ("WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.", Some(false)),
+            (
+                "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
+                Some(false),
+            ),
+            (
+                "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+                Some(false),
+            ),
+            ("Host key verification failed.", Some(false)),
+            ("Permission denied (publickey).", Some(false)),
+            ("Connection refused", Some(false)),
+        ] {
+            let mut list = candidates(&status(), &[]);
+            probe_all(&mut list, &|_| Ran { ok: false, stderr: stderr.into(), ..Ran::default() });
+            assert_eq!(list[0].ssh_ok, expected, "{stderr}");
+            assert_eq!(list[1].ssh_ok, expected, "{stderr}");
+            let json = serde_json::to_value(&list[0]).unwrap();
+            if expected.is_none() {
+                assert!(
+                    json.get("ssh_ok").is_none(),
+                    "unknown key must not be advertised as SSH off or verified"
+                );
+            }
+        }
     }
 }

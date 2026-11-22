@@ -65,6 +65,10 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
+        history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
 
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
@@ -73,6 +77,32 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
     assert!(decoded.get("pending").is_none(), "a boundary replay must not add `pending`");
+    assert!(decoded.get("history_rows_omitted").is_none(), "a whole replay names no omission");
+}
+
+/// A tail replay (`attach-replay-history-rows-v1`) says how many older rows
+/// it left out, after the fields every viewer already reads.
+#[test]
+fn a_tail_vt_state_names_the_history_rows_it_left_out() {
+    let message = VtStateMessage {
+        surface: 7,
+        cols: 80,
+        rows: 24,
+        replay: Arc::from(&b"screen"[..]),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: KittyReplayState::disabled(),
+        colors: Value::Null,
+        pending_sequence: Arc::from([]),
+        history_rows_omitted: Some(9_721),
+        history_rows_skipped: None,
+        stamp: None,
+        resume: None,
+    };
+    let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
+    assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
+    let decoded: Value = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(decoded["history_rows_omitted"], 9_721);
+    assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(b"screen"));
 }
 
 #[test]
@@ -87,6 +117,10 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         kitty_state: KittyReplayState::disabled(),
         colors: json!({"foreground": "#010203"}),
         pending_sequence: Arc::from(&b"\x1b[1;3"[..]),
+        history_rows_omitted: None,
+        history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
@@ -102,17 +136,21 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         kitty_state: KittyReplayState::disabled(),
         colors: Box::new(TerminalColors::default()),
         pending_sequence: Arc::from(&b"\xce"[..]),
+        history_rows_omitted: Some(99_000),
     };
-    let shape = AttachWireShape { color_overrides: true, pending_sequence: true };
+    let shape =
+        AttachWireShape { color_overrides: true, pending_sequence: true, ..Default::default() };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, shape).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["event"], "resized");
     assert_eq!(decoded["replay"], base64.encode(b"screen"));
     assert_eq!(decoded["pending"], base64.encode(b"\xce"));
+    assert_eq!(decoded["history_rows_omitted"], 99_000, "a windowed viewer's resize");
 
     // Viewers that did not advertise the capability keep the legacy
     // shape: the pending bytes end the replay itself.
-    let legacy = AttachWireShape { color_overrides: true, pending_sequence: false };
+    let legacy =
+        AttachWireShape { color_overrides: true, pending_sequence: false, ..Default::default() };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, legacy).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["replay"], base64.encode(b"screen\xce"));
@@ -224,6 +262,10 @@ fn vt_state_streaming_releases_partial_global_budget_on_overflow() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
+        history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
 
     let error = service
@@ -277,6 +319,66 @@ fn server_connection_permits_enforce_and_release_the_cap() {
     assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
 }
 
+/// Agents in the session's terminals cannot take every connection: the app's
+/// own connections still get the rest, so it can close their workspaces
+/// (#27698: 55,162 refusals locked the app out of its daemon).
+#[test]
+fn terminal_connections_leave_slots_for_the_app() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let claim_terminal = || claim_terminal_connection(&connections);
+    let terminal: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| claim_terminal().expect("terminal slot below its share"))
+        .collect();
+    // One more terminal connection is refused and gives its slot back.
+    assert!(claim_terminal().is_none());
+    assert_eq!(connections.active(), MAX_TERMINAL_CONNECTIONS as u64);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.accepted, MAX_TERMINAL_CONNECTIONS as u64, "a refusal is not accepted");
+    assert_eq!(snapshot.refused, 1);
+
+    let app: Vec<ConnectionPermit> = (MAX_TERMINAL_CONNECTIONS..MAX_SERVER_CONNECTIONS)
+        .map(|_| claim_connection(&connections).expect("slot left for the app"))
+        .collect();
+    assert!(claim_connection(&connections).is_none());
+
+    drop(terminal);
+    assert!(claim_terminal().is_some(), "a released terminal slot is free again");
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
+/// One terminal opening connections in a loop (an agent's hooks, a script
+/// running `cmux` in a pane) cannot take the terminal lane from the others: a
+/// terminal's first connection gets in whenever the lane has room, a further
+/// one only while that terminal then holds no more than the lane has left free.
+#[test]
+fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let first: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert!(
+        first.len() < MAX_TERMINAL_CONNECTIONS / 2 + 1,
+        "terminal 101 took {} of the {MAX_TERMINAL_CONNECTIONS} terminal connections",
+        first.len()
+    );
+    let second = claim_terminal_connection_from(&connections, 102)
+        .expect("another terminal's first connection finds room");
+    let third =
+        claim_terminal_connection_from(&connections, 103).expect("and so does a third terminal's");
+    assert!(
+        claim_connection(&connections).is_some(),
+        "the app's slots are untouched by the terminal lane"
+    );
+    let taken = first.len();
+    drop((first, second, third));
+    assert_eq!(connections.active(), 0);
+    let again: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert_eq!(again.len(), taken, "a terminal's released connections count no more against it");
+}
+
 /// #27669: connection threads parked on the registry lock outlived their CLI
 /// clients and held every slot, so the app's reconnects were refused
 /// `server.busy`. A client that hung up gives its slot to the next one; a live
@@ -316,6 +418,39 @@ fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
     assert_eq!((snapshot.active, snapshot.hung_up), (1, 0));
     drop(app);
     assert_eq!(connections.active(), 0);
+}
+
+/// A terminal client that hung up gives back its terminal slot with its main
+/// one, so parked agent CLIs do not hold the terminals' share (#27698, #27669).
+#[cfg(unix)]
+#[test]
+fn hung_up_terminal_clients_give_back_their_terminal_slots() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut clients = Vec::new();
+    let parked: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| {
+            let (daemon_side, client) = UnixStream::pair().unwrap();
+            clients.push(client);
+            claim_watched_terminal_connection(&connections, &daemon_side, None)
+                .expect("terminal slot below its share")
+        })
+        .collect();
+    let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
+    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side, None).is_none());
+
+    clients.pop();
+    let next = claim_watched_terminal_connection(&connections, &live_daemon_side, None)
+        .expect("the terminal slot of a client that hung up serves the next one");
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.hung_up, 1);
+    assert_eq!(snapshot.active, MAX_TERMINAL_CONNECTIONS as u64);
+    drop((parked, next));
+    assert_eq!(connections.active(), 0);
+    assert!(
+        claim_terminal_connection(&connections).is_some(),
+        "every terminal slot was given back"
+    );
 }
 
 /// The hung-up pool is bounded by the limit, so connection threads stay
@@ -421,8 +556,10 @@ fn write_side_eof_drains_accepted_surface_requests() {
     )
     .unwrap();
     client.flush().unwrap();
-    client.shutdown(Shutdown::Write).unwrap();
+    // Before the shutdown: the server closes after its 2 replies, and macOS refuses a read
+    // timeout on a socket that can send no more and receive no more.
     client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    client.shutdown(Shutdown::Write).unwrap();
 
     let mut responses = Vec::new();
     let mut reader = BufReader::new(client);
@@ -622,14 +759,16 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
                 expect_agent: None,
                 submit: false,
                 flow: None,
+                key: None,
             }),
         ),
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(id)), cmd },
+            request: Request { id: Some(json!(id)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
     }
 
@@ -665,9 +804,10 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(1)), cmd },
+            request: Request { id: Some(json!(1)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
 
         assert_eq!(
@@ -693,11 +833,12 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mut clear = Some(Request {
             id: Some(json!(id)),
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            remote_line: None,
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     }
 
-    let reserved_workers = admission.state.lock().unwrap().workers;
+    let reserved_workers = admission.reserved_workers();
     let _ = scheduler.close_and_wait(Duration::from_secs(1));
     mux.close_surface(surface.id).unwrap();
 
@@ -721,6 +862,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -730,6 +872,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
             pattern: "never-matches".to_string(),
             timeout_ms: 500,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -748,7 +891,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
         );
     }
     drop(state);
-    let active_clear_workers = admission.state.lock().unwrap().workers;
+    let active_clear_workers = admission.reserved_workers();
     let drained = scheduler.close_and_wait(Duration::from_secs(1));
     mux.close_surface(surface.id).unwrap();
 
@@ -774,6 +917,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -783,6 +927,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
             pattern: "release-wait".to_string(),
             timeout_ms: 1_000,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -794,6 +939,83 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     mux.close_surface(surface.id).unwrap();
 
     assert!(drained, "connection shutdown did not cancel an active wait-for request");
+}
+
+/// A legacy `wait-for` holds a terminal-wait worker permit (the same budget as v2
+/// `terminal.wait`: 8 per connection), not the connection's request queue. One more wait
+/// is refused at once under its own id, and a later request on the connection is still
+/// answered while the admitted waits are pending. Closing the connection ends every wait
+/// and returns its permit.
+#[test]
+fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let wait = |id: usize| {
+        json!({
+            "id":id,
+            "cmd":"wait-for",
+            "surface":surface.id,
+            "pattern":"cmux-wait-for-never-matches",
+            "timeout_ms":30_000,
+        })
+        .to_string()
+    };
+    for id in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+        assert!(handle_connection_message(&mux, client, &wait(id), &writer, &scheduler));
+    }
+    let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
+    assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
+    // A request that goes through the connection's queue, as the waits do: a plain `identify`
+    // is answered on the reader before the queue (#33273), so it would race the refusal and
+    // prove nothing about the queue.
+    let later = json!({"id":"later","cmd":"list-workspaces"}).to_string();
+    assert!(handle_connection_message(&mux, client, &later, &writer, &scheduler));
+
+    let refused = pop_json(&outbound);
+    assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
+    assert_eq!(refused["ok"], false, "a wait over capacity was admitted: {refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
+        "the refusal does not name wait-for: {refused}"
+    );
+    let answered = pop_json(&outbound);
+    assert_eq!(answered["id"], "later", "a queued request waited behind pending waits");
+    assert_eq!(answered["ok"], true, "{answered}");
+    assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
+    // A one-shot check does not wait: it runs in request order and is not
+    // refused for want of a worker.
+    let one_shot = json!({
+        "id":"one-shot",
+        "cmd":"wait-for",
+        "surface":surface.id,
+        "pattern":"cmux-wait-for-never-matches",
+        "timeout_ms":0,
+    })
+    .to_string();
+    assert!(handle_connection_message(&mux, client, &one_shot, &writer, &scheduler));
+    let checked = pop_json(&outbound);
+    assert_eq!(checked["id"], "one-shot", "{checked}");
+    assert_eq!(
+        checked["error"], "timeout waiting for pattern",
+        "a one-shot wait-for must check the screen, not take a wait worker: {checked}"
+    );
+    assert_eq!(
+        mux.control_clients.resource_wait_admission.active(),
+        RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        "each pending wait-for must hold one terminal-wait worker permit"
+    );
+
+    let drained = scheduler.close_and_wait(Duration::from_secs(2));
+    let leaked = mux.control_clients.resource_wait_admission.active();
+    disconnect_client(&mux, client, false);
+    mux.close_surface(surface.id).unwrap();
+
+    assert!(drained, "closing the connection did not end its pending waits");
+    assert_eq!(leaked, 0, "a closed connection's wait-for kept its worker permit");
 }
 
 #[test]
@@ -844,21 +1066,62 @@ fn scheduler_retains_connection_permit_until_dispatcher_exit() {
     assert_eq!(active.active(), 0);
 }
 
+/// On both arms of the budget: the mutex counts, and the input lane's atomics (R-DAEMON-STATE stage S1).
 #[test]
 fn surface_worker_limit_is_mux_wide_across_connections() {
-    assert!(
-        active_clear_lanes_across_connections(17, 0) <= 16,
-        "per-connection limits allowed more than 16 mux-wide clear workers"
-    );
+    for lock_free in [false, true] {
+        assert!(
+            active_clear_lanes_across_connections(17, 0, lock_free) <= 16,
+            "per-connection limits allowed more than 16 mux-wide clear workers (lock-free {lock_free})"
+        );
+    }
 }
 
 #[test]
 fn active_surface_request_bytes_count_toward_mux_budget() {
     const FOUR_MIB: usize = 4 * 1024 * 1024;
-    assert!(
-        active_clear_lanes_across_connections(5, FOUR_MIB) <= 4,
-        "active first requests bypassed the 16 MiB mux-wide byte budget"
-    );
+    for lock_free in [false, true] {
+        assert!(
+            active_clear_lanes_across_connections(5, FOUR_MIB, lock_free) <= 4,
+            "active first requests bypassed the 16 MiB mux-wide byte budget (lock-free {lock_free})"
+        );
+    }
+}
+
+/// The input lane's atomic budget admits what the mutex counts admit and refuses what they refuse: the 17th worker,
+/// a byte reservation over 16 MiB or one whose sum would overflow, and gives a released reservation back.
+#[test]
+fn the_lock_free_budget_has_the_same_limits_as_the_mutex_counts() {
+    for lock_free in [false, true] {
+        let admission = Arc::new(ServerSurfaceOperationAdmission::new(lock_free));
+        let workers = (0..SERVER_SURFACE_WORKER_CAPACITY)
+            .map(|_| admission.try_reserve_worker())
+            .collect::<Option<Vec<_>>>()
+            .expect("the capacity's workers are admitted");
+        assert!(admission.try_reserve_worker().is_none(), "lock-free {lock_free}: a 17th worker");
+        drop(workers);
+        assert!(
+            admission.try_reserve_worker().is_some(),
+            "lock-free {lock_free}: released workers"
+        );
+
+        let all = admission.try_reserve_bytes(SERVER_SURFACE_RETAINED_BYTE_CAPACITY).ok();
+        assert!(all.is_some(), "lock-free {lock_free}: the whole byte budget");
+        assert!(admission.try_reserve_bytes(1).is_err(), "lock-free {lock_free}: a byte over");
+        assert!(admission.try_reserve_bytes(0).is_ok(), "lock-free {lock_free}: zero bytes");
+        drop(all);
+        let one = admission.try_reserve_bytes(1).ok();
+        assert!(one.is_some(), "lock-free {lock_free}: one byte");
+        assert!(
+            admission.try_reserve_bytes(usize::MAX).is_err(),
+            "lock-free {lock_free}: a sum that overflows"
+        );
+        drop(one);
+        assert!(
+            admission.try_reserve_bytes(SERVER_SURFACE_RETAINED_BYTE_CAPACITY).is_ok(),
+            "lock-free {lock_free}: released bytes"
+        );
+    }
 }
 
 #[test]
@@ -1146,4 +1409,98 @@ fn client_detach_purges_attach_backlog_before_terminal_event() {
     let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
     assert_eq!(outbound.try_pop(), None);
+}
+
+/// Accepts at most `limit` bytes per call and counts the calls.
+struct ShortVectoredWriter {
+    limit: usize,
+    bytes: Vec<u8>,
+    calls: usize,
+}
+
+impl Write for ShortVectoredWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.write_vectored(&[std::io::IoSlice::new(buffer)])
+    }
+
+    fn write_vectored(&mut self, buffers: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.calls += 1;
+        let mut taken = 0;
+        for buffer in buffers {
+            let room = self.limit - taken;
+            let part = &buffer[..buffer.len().min(room)];
+            self.bytes.extend_from_slice(part);
+            taken += part.len();
+            if taken == self.limit {
+                break;
+            }
+        }
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// `value` as the line the writer thread takes, and that line's text.
+fn outbound_text(value: Value) -> (OutboundItem, String) {
+    let outbound = BoundedOutbound::default();
+    let text = RenderService::new().serialize_control(&value).unwrap();
+    let line = String::from_utf8(text.as_bytes().to_vec()).unwrap();
+    outbound.push_control(text).unwrap();
+    (outbound.recv().unwrap(), line)
+}
+
+#[test]
+fn an_outbound_line_is_one_write_with_its_newline() {
+    let (item, line) = outbound_text(json!({"id": 1, "ok": true, "data": {"pong": true}}));
+    let mut writer = ShortVectoredWriter { limit: usize::MAX, bytes: Vec::new(), calls: 0 };
+
+    write_line_outbound_item(&mut writer, item).unwrap();
+
+    assert_eq!(writer.calls, 1, "the body and its newline go out in one write");
+    assert_eq!(writer.bytes, format!("{line}\n").into_bytes());
+}
+
+#[test]
+fn a_short_write_still_sends_every_byte_of_the_line_in_order() {
+    let value = json!({"event": "tree-changed", "workspace": 12});
+    let line = outbound_text(value.clone()).1;
+    for limit in 1..=line.len() + 2 {
+        let mut writer = ShortVectoredWriter { limit, bytes: Vec::new(), calls: 0 };
+        write_line_outbound_item(&mut writer, outbound_text(value.clone()).0).unwrap();
+        assert_eq!(writer.bytes, format!("{line}\n").into_bytes(), "limit {limit}");
+    }
+}
+
+#[test]
+fn a_writer_that_takes_nothing_fails_the_line() {
+    struct Closed;
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let error = write_line_outbound_item(&mut Closed, outbound_text(json!({})).0).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WriteZero);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_socket_reader_gets_each_line_whole() {
+    use std::io::BufRead as _;
+    let (mut daemon_side, client_side) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut lines = Vec::new();
+    for value in [json!({"id": 1, "ok": true}), json!({"event": "tree-changed"})] {
+        let (item, line) = outbound_text(value);
+        write_line_outbound_item(&mut daemon_side, item).unwrap();
+        lines.push(line);
+    }
+    drop(daemon_side);
+    let read = BufReader::new(client_side).lines().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(read, lines);
 }

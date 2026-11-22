@@ -5,7 +5,7 @@ import os
 
 /// Sidebar Density: Compact / Comfortable / Expanded (cx-13w3; palette and
 /// the sidebar's Options). Each writes `sidebar.density`, so the choice follows cmux.json;
-/// the menu hides the current one and offers the others.
+/// the menu checks the current one and keeps every choice visible.
 enum SidebarDensityActions {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
@@ -27,7 +27,7 @@ enum SidebarDensityActions {
                     }
                 }
             }
-            ActionTargetVisibility.hide(id, in: registry) { _ in current() == value }
+            ActionTargetTitles.setState(id, in: registry) { _ in current() == value }
         }
     }
 }

@@ -269,11 +269,8 @@ impl Lease {
     /// The lease, or None while another update holds it or is at a step.
     pub(crate) fn take(home: &Path) -> Result<Option<Lease>> {
         // Owner-only whatever the umask, as the remote lock step makes it (`open_locks`).
-        let mut made = std::fs::DirBuilder::new();
-        made.recursive(true);
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-        made.create(home).with_context(|| format!("creating {}", home.display()))?;
+        crate::home_fs::create_dir_all(home, 0o700)
+            .with_context(|| format!("creating {}", home.display()))?;
         let step = open_lock(&home.join("update.lock"))?;
         let held = open_lock(&home.join("update.lease"))?;
         if !try_flock(&step) || !try_flock(&held) {
@@ -282,11 +279,11 @@ impl Lease {
         let owner = home.join(OWNER);
         let token = new_token()?;
         let part = home.join(format!("{OWNER}.{}", std::process::id()));
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        options
+        crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
             .open(&part)
             .and_then(|mut f| {
                 std::io::Write::write_all(
@@ -295,7 +292,8 @@ impl Lease {
                 )
             })
             .with_context(|| format!("writing {}", part.display()))?;
-        std::fs::rename(&part, &owner).with_context(|| format!("writing {}", owner.display()))?;
+        crate::home_fs::rename(&part, &owner)
+            .with_context(|| format!("writing {}", owner.display()))?;
         drop(step);
         Ok(Some(Lease { owner, token, _held: held }))
     }
@@ -313,7 +311,7 @@ impl Drop for Lease {
         let ours = std::fs::read_to_string(&self.owner)
             .is_ok_and(|text| text.split_whitespace().next() == Some(self.token.as_str()));
         if ours {
-            let _ = std::fs::remove_file(&self.owner);
+            let _ = crate::home_fs::remove_file(&self.owner);
         }
     }
 }
@@ -321,11 +319,12 @@ impl Drop for Lease {
 /// `path` opened for a flock (created, never truncated); the descriptor is
 /// close-on-exec, so no script this process runs keeps the flock.
 fn open_lock(path: &Path) -> Result<File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path).with_context(|| format!("opening {}", path.display()))
+    crate::home_fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("opening {}", path.display()))
 }
 
 /// An exclusive flock on `file`, not waited for: false while another

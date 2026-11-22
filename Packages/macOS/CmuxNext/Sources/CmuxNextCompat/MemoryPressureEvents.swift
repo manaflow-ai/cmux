@@ -35,6 +35,17 @@ public final class MemoryPressureEvents: Sendable {
         handlers.add(handler)
     }
 
+    /// Reads the level now from the source and hands it to every subscriber (subscribers ignore a level
+    /// they already have).
+    ///
+    /// The kernel's event is not enough: it goes to some processes only (the largest first) and never
+    /// reports the level a process starts under. Call this where a decision depends on the level, such as
+    /// at start and before a hibernation pass. One `sysctl` read; nothing polls.
+    @MainActor public func refresh() {
+        guard let level = source.currentLevel() else { return }
+        handlers.call(level)
+    }
+
     deinit {
         source.cancel()
     }

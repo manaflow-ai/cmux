@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 // What the strip's observation loops compare between updates.
@@ -6,6 +7,23 @@ extension TabStripView {
     struct TokenSnapshot: Equatable, Sendable {
         var metrics: TabStripMetrics
         var titleFont: CGFloat
+        var trailingButtons: TabTrailingButtons
+        /// The group chips' glass settings (`GroupChipGlass`).
+        var groupLook: GroupChipGlass
+        /// The Debug looks the cells read while they draw.
+        var cellLooks: CellLooks
+    }
+
+    /// Debug looks the cells resolve as they draw, outside their metrics: a change redraws them.
+    struct CellLooks: Equatable, Sendable {
+        /// A busy tab with unread output (`TabTunables.busyUnreadMark`).
+        var busyUnreadMark = TabTunables.busyUnreadMark.value
+        /// Where the trailing status mark sits (`TabTunables.statusMarkPlacement`).
+        var statusMarkPlacement = TabTunables.statusMarkPlacement.value
+        /// A waiting tab's badge or glow (`notifications.attention.mark`, `TabCell+NeedsYouGlow`).
+        var needsYouMark = DesignSettings.shared.attention.mark
+        /// The glow breathes only while loops run (Reduce Motion, speed off).
+        var animatesLoops = Motion.indicators.animatesLoops
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share
@@ -18,12 +36,14 @@ extension TabStripView {
         var style: TabStripStyle
         var showsNewTabButton: Bool
         var showsSelectedFullWidth = false
+        var zoomsSelected = false
 
         @MainActor init(_ model: TabStripModel) {
             self.init(tabs: model.tabs, groups: model.groups, selectedID: model.selectedID,
                       style: model.style, showsNewTabButton: model.showsNewTabButton)
             multiSelection = model.multiSelection
             showsSelectedFullWidth = model.showsSelectedFullWidth
+            zoomsSelected = model.zoomsSelected
         }
 
         init(tabs: [TabItem], groups: [TabGroupItem], selectedID: TabID?, style: TabStripStyle, showsNewTabButton: Bool) {
@@ -34,11 +54,13 @@ extension TabStripView {
             self.showsNewTabButton = showsNewTabButton
         }
 
-        /// The same strip with another tab selected (a tab switch) or other tabs multi-selected.
-        /// Never in Full Width Tab mode, where the selection decides the geometry.
+        /// The same strip with another tab selected (a tab switch), other tabs multi-selected or
+        /// the pane zoomed or not (the selected tab's VoiceOver zoom state). Never in Full Width Tab mode,
+        /// where the selection decides the geometry.
         func differsOnlyInSelection(from other: ModelSnapshot) -> Bool {
             !showsSelectedFullWidth && showsSelectedFullWidth == other.showsSelectedFullWidth
-                && (selectedID != other.selectedID || multiSelection != other.multiSelection) && tabs == other.tabs && groups == other.groups
+                && (selectedID != other.selectedID || multiSelection != other.multiSelection || zoomsSelected != other.zoomsSelected)
+                && tabs == other.tabs && groups == other.groups
                 && style == other.style && showsNewTabButton == other.showsNewTabButton
         }
     }

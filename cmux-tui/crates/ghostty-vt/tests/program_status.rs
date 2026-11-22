@@ -98,7 +98,12 @@ fn support_query_is_answered_only_with_an_owner() {
 
     let mut with = Harness::new(true);
     with.term.vt_write(b"\x1b]7501;?\x1b\\");
-    assert_eq!(with.take_written(), b"\x1b]7501;?\x1b\\");
+    // Upstream revision 0.4: the reply lists the states and kinds the
+    // terminal accepts after the `?`.
+    assert_eq!(
+        with.take_written(),
+        b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\"
+    );
     assert!(with.take_events().is_empty());
 }
 

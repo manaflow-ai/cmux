@@ -67,6 +67,16 @@ pub struct SessionCompletion {
     pub(super) action: SessionCompletionAction,
 }
 
+/// A created surface whose completion arrived before the cached tree
+/// that holds it. `replace_tree` selects it once that tree lands, unless the
+/// user has moved focus in the meantime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PendingCompletedSelection {
+    pub(super) surface: SurfaceId,
+    pub(super) browser: bool,
+    pub(super) focus_at_completion: Option<SurfaceId>,
+}
+
 pub(super) enum SessionCompletionAction {
     SurfaceMoved { surface: SurfaceId },
     SurfaceCreated { surface: SurfaceId },

@@ -34,6 +34,18 @@ final class TerminalFindBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Renders the controller's state now, without waiting for observation's
+    /// main-actor hop: the host calls it in the event that opened find.
+    func update() {
+        render()
+    }
+
+    /// A focus request made while the bar had no window is served here.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { render() }
+    }
+
     /// Clicks pass through to the terminal while the pill is hidden.
     override func hitTest(_ point: NSPoint) -> NSView? {
         pill.isHidden ? nil : super.hitTest(point)
@@ -76,7 +88,9 @@ final class TerminalFindBarView: NSView {
             pill.showCount(text, noMatches: false)
         }
         pill.setPresented(presented)
-        if presented, focusRequest != shownFocusRequest {
+        // Kept pending until the bar is in a window: making a field first
+        // responder there is a no-op, and the request would be lost.
+        if presented, focusRequest != shownFocusRequest, window != nil {
             shownFocusRequest = focusRequest
             pill.focusField()
         }
@@ -121,26 +135,26 @@ final class TerminalFindBarView: NSView {
         case .empty:
             return ""
         case .noMatches:
-            return String(localized: "terminal.find.noMatches", defaultValue: "No matches", bundle: .module)
+            return String(localized: "terminal.find.noMatches", defaultValue: "No matches", bundle: .localizedModule)
         case .position(let index, let total):
-            return String(localized: "terminal.find.position", defaultValue: "\(index) of \(total)", bundle: .module)
+            return String(localized: "terminal.find.position", defaultValue: "\(index) of \(total)", bundle: .localizedModule)
         }
     }
 
     private static var placeholder: String {
-        String(localized: "terminal.find.placeholder", defaultValue: "Find", bundle: .module)
+        String(localized: "terminal.find.placeholder", defaultValue: "Find", bundle: .localizedModule)
     }
 
     private static var previousLabel: String {
-        String(localized: "terminal.find.previous", defaultValue: "Previous Match", bundle: .module)
+        String(localized: "terminal.find.previous", defaultValue: "Previous Match", bundle: .localizedModule)
     }
 
     private static var nextLabel: String {
-        String(localized: "terminal.find.next", defaultValue: "Next Match", bundle: .module)
+        String(localized: "terminal.find.next", defaultValue: "Next Match", bundle: .localizedModule)
     }
 
     private static var closeLabel: String {
-        String(localized: "terminal.find.close", defaultValue: "Close", bundle: .module)
+        String(localized: "terminal.find.close", defaultValue: "Close", bundle: .localizedModule)
     }
 }
 

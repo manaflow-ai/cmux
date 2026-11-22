@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 /// the open card to that row (`HoverCardPanel.present(sliding:)`), and each slide rebuilt the card
 /// on the main thread before the row's hover fill could draw. A retarget is one pointer move plus
 /// the frame that draws it; it must fit inside half a 60 Hz frame however long the history is.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverCardRetargetBenchTests {
     /// Rows of the history each fake workspace has (the reader's limit is 100).
     static let historyDepth = 100

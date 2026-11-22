@@ -32,6 +32,8 @@ export function Select({
         disabled={disabled}
         aria-labelledby={labelId}
         aria-hidden="true"
+        // ui-allow: an automation mirror, not a control: it is not a Tab stop (the menu button beside it is).
+        tabIndex={-1}
         onChange={(event) => onChange(event.currentTarget.value)}
       >
         {children}

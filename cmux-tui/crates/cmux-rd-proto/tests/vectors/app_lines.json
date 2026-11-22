@@ -1,0 +1,15 @@
+[
+  {"name": "key", "line": "{\"key\":\"abababababababababababababababababababababababababababababababab\"}", "want": {"key": "abababababababababababababababababababababababababababababababab"}},
+  {"name": "candidate", "line": "{\"candidate\":\"host 192.168.1.4:51000\"}", "want": {"candidate": "host 192.168.1.4:51000"}},
+  {"name": "candidates_done", "line": "{\"candidates_done\":true}", "want": {"candidates_done": true}},
+  {"name": "connected", "line": "{\"connected\":true}", "want": {"connected": true}},
+  {"name": "listening", "line": "{\"listening\":true}", "want": {"listening": true}},
+  {"name": "path", "line": "{\"path\":{\"kind\":\"direct_wan\",\"rtt_ms\":3.2}}", "want": {"path": {"kind": "direct_wan", "rtt_ms": 3.2}}},
+  {"name": "path_unknown", "line": "{\"path\":{\"kind\":null,\"rtt_ms\":null}}", "want": {"path": {"kind": null, "rtt_ms": null}}},
+  {"name": "displays", "line": "{\"current\":1,\"displays\":[[3024,1964],[2560,1440]]}", "want": {"displays": [[3024, 1964], [2560, 1440]], "current": 1}},
+  {"name": "displays_error", "line": "{\"current\":0,\"displays\":[],\"error\":\"no screen\"}", "want": {"displays": [], "current": 0, "error": "no screen"}},
+  {"name": "ended", "line": "{\"ended\":\"the viewer left\"}", "want": {"ended": "the viewer left"}},
+  {"name": "unknown_field", "line": "{\"newer\":1}", "want": {}},
+  {"name": "not_json", "line": "cmux rd: starting", "want": null},
+  {"name": "wrong_type", "line": "{\"connected\":\"yes\"}", "want": null}
+]

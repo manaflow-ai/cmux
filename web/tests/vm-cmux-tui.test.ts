@@ -11,6 +11,9 @@ import {
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
+  cmuxTuiDaemonSettleScript,
+  cmuxTuiAcpmuxLinkCommand,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -101,6 +104,148 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
+  test("bakes the canonical acpmux user service with linger and enable-now", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    expect(command).toContain("loginctl enable-linger \"$CMUX_TUI_USER\"");
+    const startManager = command.indexOf('systemctl start "user@$(id -u "$CMUX_TUI_USER").service"');
+    const waitBus = command.indexOf('while [ "$i" -lt 30 ]');
+    expect(startManager).toBeGreaterThanOrEqual(0);
+    expect(startManager).toBeLessThan(waitBus);
+    expect(command).toContain("acpmux.service");
+    expect(command).toContain("systemctl --user enable --now acpmux.service");
+    expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
+    const stop = command.indexOf("systemctl --user stop acpmux.service");
+    const shutdown = command.indexOf("daemon shutdown --keep-agents");
+    const settle = command.indexOf("daemon status");
+    const enable = command.indexOf("systemctl --user enable --now acpmux.service");
+    expect(stop).toBeGreaterThanOrEqual(0);
+    expect(shutdown).toBeGreaterThan(stop);
+    expect(command).toContain("timeout 15s");
+    expect(command).toContain("timeout 5s");
+    expect(command).toContain("sh -c");
+    expect(command).toContain("kill -0");
+    expect(command).toContain("status_rc=$?");
+    expect(command).toContain("probe_status || exit 3");
+    expect(command).toContain("probe_status()");
+    expect(command).toContain('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")"');
+    expect(command).toContain("exit 3");
+    const lines = command.split("\n");
+    expect(lines).toContain(
+      cmuxTuiAsDaemonUser(
+        'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" timeout 15s "$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true',
+      ),
+    );
+    expect(command).toContain("acpmux daemon did not stop before service start");
+    expect(settle).toBeGreaterThan(shutdown);
+    expect(enable).toBeGreaterThan(settle);
+    expect(command).not.toContain("systemctl --user restart acpmux.service");
+    expect(command).toContain("stop_lock_holder()");
+    expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
+    expect(command).toContain('flock -n "$lock" true');
+    expect(command).toContain('exe=${exe%" (deleted)"}');
+    expect(command).toContain('case "$exe" in */acpmux)');
+    expect(command).toContain('kill -KILL "$lock_pid"');
+  });
+
+  test("fails closed when the daemon status probe times out or errors", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const timeout = join(bin, "timeout");
+    writeFileSync(timeout, "#!/bin/sh\nexit ${TIMEOUT_RC:-124}\n");
+    chmodSync(timeout, 0o755);
+    try {
+      const script = cmuxTuiDaemonSettleScript();
+      for (const timeoutRc of ["124", "7"]) {
+        const result = await runChild("/bin/sh", ["-c", script], {
+          env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TIMEOUT_RC: timeoutRc },
+        });
+        expect(result.status).toBe(3);
+      }
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' 'Error: no acpmux daemon at /tmp/acpmux (run acpmux daemon)' >&2\nexit 1\n");
+      const noDaemon = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(noDaemon.status).toBe(0);
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"server.unavailable\",\"details\":{},\"message\":\"cannot connect to the local server; check that the named session is running and retry\",\"retryable\":false}' >&2\nexit 3\n");
+      const pinnedNoDaemon = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(pinnedNoDaemon.status).toBe(0);
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"permission.denied\"}' >&2\nexit 3\n");
+      const unexpected = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(unexpected.status).toBe(3);
+      expect(unexpected.stderr).toContain("acpmux daemon status failed (exit 3)");
+      mkdirSync(join(home, ".acpmux"));
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "999999\n");
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      const stale = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(stale.status).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("settles a daemon from an image store after its executable was replaced", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-store-"));
+    const bin = join(home, "bin");
+    const store = join(home, "store");
+    mkdirSync(bin);
+    mkdirSync(store);
+    let daemonPid: number | undefined;
+    try {
+      mkdirSync(join(home, ".acpmux"));
+      mkdirSync(join(home, ".local", "bin"), { recursive: true });
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "0\n");
+      writeFileSync(join(bin, "timeout"), "#!/bin/sh\nshift\nexec \"$@\"\n");
+      writeFileSync(join(home, ".local", "bin", "acpmux"), "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      writeFileSync(join(bin, "flock"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(bin, "timeout"), 0o755);
+      chmodSync(join(home, ".local", "bin", "acpmux"), 0o755);
+      chmodSync(join(bin, "flock"), 0o755);
+      const daemonBin = join(store, "acpmux");
+      const pidFile = join(home, "daemon.pid");
+      const starter = join(bin, "start-daemon");
+      writeFileSync(daemonBin, readFileSync("/usr/bin/tail"));
+      chmodSync(daemonBin, 0o755);
+      writeFileSync(starter, `#!/bin/sh\n"${daemonBin}" -f /dev/null daemon run >/dev/null 2>&1 & echo $! > "${pidFile}"\n`);
+      chmodSync(starter, 0o755);
+      const starterProcess = spawn(starter, { stdio: "ignore" });
+      await new Promise<void>((resolve) => starterProcess.once("close", () => resolve()));
+      daemonPid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(daemonPid).toBeGreaterThan(0);
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), `${daemonPid}\n`);
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiDaemonSettleScript()], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(result.status).toBe(0);
+      expect(existsSync(`/proc/${daemonPid}`)).toBe(false);
+    } finally {
+      if (daemonPid !== undefined && existsSync(`/proc/${daemonPid}`)) {
+        try {
+          process.kill(daemonPid, "SIGKILL");
+        } catch {
+          // The settle script already reaped it.
+        }
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    const baked = command.match(/<<'ACPMUX_UNIT'\n([\s\S]*?)ACPMUX_UNIT/);
+    expect(baked?.[1]).toBeDefined();
+    const hosts = readFileSync(join(import.meta.dirname, "../../cmux-tui/crates/acpmux/src/cli/hosts.rs"), "utf8");
+    const canonical = hosts.match(/const SYSTEMD_UNIT: &str = "([\s\S]*?)";\n\n\/\/\/ Unit texts earlier/);
+    expect(canonical?.[1]).toBeDefined();
+    expect(baked?.[1]).toBe(canonical?.[1]);
+  });
+
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     // One runtime selection, shared with the daemon launch, so install and
@@ -118,6 +263,36 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
     expect(command).not.toContain("chown -R");
     expect(command).toContain('"$CMUX_TUI_BIN" --version');
+    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" "$CMUX_TUI_HOME/.local/bin/acpmux"');
+  });
+
+  test("materializes the local acpmux path before the service settle probe", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-acpmux-link-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(home, ".cmux", "bin"), { recursive: true });
+    const tui = join(home, ".cmux", "bin", "cmux-tui");
+    writeFileSync(tui, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+    chmodSync(tui, 0o755);
+    // The rendered install runs as root on the image. Stub ownership changes so
+    // this executes the same generated shell on an unprivileged test runner.
+    writeFileSync(join(bin, "chown"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "chown"), 0o755);
+    try {
+      const result = await runChild("/bin/sh", ["-c", `${cmuxTuiAcpmuxLinkCommand()}; ${cmuxTuiDaemonSettleScript()}`], {
+        env: {
+          HOME: home,
+          PATH: `${bin}:/usr/bin:/bin`,
+          CMUX_TUI_HOME: home,
+          CMUX_TUI_BIN: tui,
+          CMUX_TUI_USER: "image-user",
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(join(home, ".local", "bin", "acpmux"), "utf8")).toContain('"running":false');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("installs the hook helper beside the daemon from the same pin and writes the Claude Code and Codex hooks as the daemon user", () => {

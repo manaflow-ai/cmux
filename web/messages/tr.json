@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
+      "savedMessage": "Plus: Duraklatılan makine dahil toplam 1 kayıtlı VM",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go aynı anda bir VM çalıştırabilir.",
+      "activeMessage": "Plus: 1 Cloud VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Go bu ayki 40 VM saatini kullandı. Kayıtlı VM’ler sonraki fatura döneminde yeniden kullanılabilir.",
+      "hoursMessage": "Plus: Aylık saat sınırı yok",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "Bir VM'yi duraklatın veya silin."
     },
     "activeLimit": {
-      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler sayılmaz.",
+      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler de sınıra dahildir.",
       "provisioning": "{name} (hazırlanıyor)",
       "separator": ", "
     }
@@ -200,7 +200,10 @@
     "signupPendingBody": "Zaten bir hesabınız varsa, daha önce kullandığınız yöntemle giriş yapın. Yeni bir hesap oluşturduysanız giriş yapmadan önce e-postanızı doğrulayın.",
     "genericTitle": "Giriş tamamlanamadı",
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
-    "backToSignIn": "Girişe dön"
+    "backToSignIn": "Girişe dön",
+    "chatgptLinkTitle": "ChatGPT’yi bağlamak için bir kez giriş yapın",
+    "chatgptLinkBody": "Bu e-postanın zaten bir cmux hesabı var. Daha önce kullandığınız yöntemle giriş yapın, ChatGPT bu hesaba bağlanacak.",
+    "chatgptEmailUnverifiedBody": "ChatGPT hesabınızdaki e-posta doğrulanmamış. OpenAI’da doğrulayın veya başka bir yolla giriş yapın."
   },
   "cloudPublicationAccess": {
     "title": "Erişim izniniz yok",
@@ -423,13 +426,13 @@
     "faqCustomizeQ": "cmux'u özelleştirebilir miyim?",
     "faqCustomizeA": "Evet. Terminal işleme sizin Ghostty yapılandırmanızı kullanır, bu yüzden temalar, yazı tipleri, renkler ve imleç doğrudan aktarılır. cmux'un kendi ayarları <path>~/.config/cmux/cmux.json</path> içinde kenar çubuğunu, sekme çubuğunu, bölünmüş panelleri ve davranışı kontrol eder ve her <shortcutsLink>klavye kısayolu</shortcutsLink> düzenlenebilir. <link>yapılandırma</link> bölümüne bakın.",
     "faqIosQ": "Bir iOS uygulaması var mı?",
-    "faqIosA": "Evet, beta aşamasında. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini de iletebilirsiniz. TestFlight üzerinde cmux BETA olarak sunulur. Erken erişim <foundersLink>cmux Founders Edition</foundersLink> ile birlikte gelir.",
+    "faqIosA": "Evet, beta aşamasında. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini de iletebilirsiniz. TestFlight üzerinde cmux BETA olarak sunulur.",
     "faqSkillsQ": "cmux'un becerileri var mı?",
     "faqSkillsA": "Evet. Beceriler, CLI kontrolü, çalışma alanı otomasyonu, ayarlar ve tarayıcı panelleri gibi şeyler için cmux'ta çalışan herhangi bir ajana verebileceğiniz yeniden kullanılabilir iş akışlarıdır. Açık koleksiyona <skillsLink>cmux-skills</skillsLink> üzerinden göz atın ya da <link>beceriler belgelerini</link> okuyun.",
     "faqBrowserQ": "Yerleşik tarayıcı neler yapabilir?",
     "faqBrowserA": "cmux, terminalinizin yanına gerçek bir tarayıcı paneli bölebilir ve bu tamamen programlanabilir: gezinin, DOM'un anlık görüntüsünü alın, tıklayın, yazın, JavaScript çalıştırın ve aynı socket API üzerinden konsol ve ağ etkinliğini okuyun. Ajanlar bunu cmux'tan ayrılmadan kendi web değişikliklerini doğrulamak için kullanır. <link>Tarayıcı otomasyonuna</link> bakın.",
     "faqSupportQ": "cmux'u nasıl destekleyebilirim?",
-    "faqSupportA": "cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sıradakine erken erişim elde etmek isterseniz, <foundersLink>cmux Founders Edition</foundersLink>'a göz atın.",
+    "faqSupportA": "cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır.",
     "faqFeatureQ": "Bir özellik isteğim var ya da bir hata buldum",
     "faqFeatureA": "Bunu duymak isteriz. GitHub'da bir <issuesLink>issue</issuesLink> ya da <prLink>pull request</prLink> açın veya <mailLink>bize e-posta gönderin</mailLink>."
   },
@@ -552,12 +555,12 @@
           "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
           "grantedNoCancel": "cmux tarafından verildi, bu yüzden iptal edilecek bir şey yok.",
           "paymentFailed": "Planı değiştirmeden önce ödeme yönteminizi güncelleyin.",
-          "foundersLifetime": "Founder's Edition ömür boyu Pro içerir.",
+          "foundersLifetime": "Ömür boyu satın alımınız Pro içerir.",
           "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,23 +572,24 @@
             "Yerel oturum geçmişi"
           ],
           "go": [
-            "1 etkin Cloud VM",
-            "Ayda 40 VM saati",
-            "2 kayıtlı VM"
+            "Duraklatılan makine dahil toplam 1 kayıtlı VM",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Topluluk desteği",
+            "Aylık saat sınırı yok"
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
-            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
+            "Sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
             "cmux iOS uygulaması"
           ],
           "max": [
-            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
+            "Sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
             "Daha büyük makine boyutları",
             "Pro'daki her şey"
           ],
           "team": [
             "Her üyeye Pro'daki her şey",
-            "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 20 vCPU ve 40 GB RAM tüm ekip tarafından paylaşılır",
+            "Ekipteki herkes için sayı sınırı olmayan Cloud VM, dahil kullanımın ötesinde ölçülür; ekibin harcama sınırı durdurma noktasıdır",
             "Tüm ekip için tek fatura",
             "Öncelikli destek"
           ]
@@ -608,8 +612,8 @@
         "title": "{plan} iptal edilsin mi?",
         "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
         "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
-        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
-        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
+        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında ömür boyu satın alımınızla Pro'yu korursunuz.",
+        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında ömür boyu satın alımınızla Pro'yu korursunuz.",
         "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
         "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
         "confirm": "Planı iptal et",
@@ -636,6 +640,12 @@
         "title": "App Store üzerinden faturalandırılır",
         "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
         "manage": "App Store'da yönet"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus planınız {date} tarihinde yenilenir.",
+        "pendingBody": "Plus planınız {date} tarihinde sona erer.",
+        "monthlyPrice": "${amount}/ay"
       }
     },
     "mobileDevices": {
@@ -970,7 +980,7 @@
       },
       "plan": {
         "free": "Ücretsiz",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2497,7 +2507,7 @@
       "socketModeDesc": "Erişim modunu geçersiz kılın (cmuxOnly, allowAll, off). Ayrıca cmux-only/cmux_only ve allow-all/allow_all kabul eder",
       "workspaceIdDesc": "Otomatik ayarlı: geçerli çalışma alanı ID",
       "surfaceIdDesc": "Otomatik ayarlı: geçerli yüzey ID",
-      "termProgramDesc": "ghostty olarak ayarlı",
+      "termProgramDesc": "cmux olarak ayarlı",
       "termDesc": "xterm-ghostty olarak ayarlı",
       "envCallout": "Eski CMUX_SOCKET_MODE değerleri full ve notifications uyumluluk için hâlâ kabul edilir.",
       "detectingCmux": "cmux'u algılama",
@@ -2875,7 +2885,7 @@
       "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
       "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
       "accessTitle": "Erişim sağlama",
-      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Erken erişim, diğer erken özelliklerle birlikte <foundersLink>cmux Founders Edition</foundersLink> ile birlikte gelir.",
+      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Beta erişimi cmux Pro ile birlikte gelir; panonuzdaki TestFlight sayfasından katılın.",
       "prereqTitle": "Ön koşullar",
       "prereqIntro": "Başlamadan önce şunlara ihtiyacınız var:",
       "prereq1": "cmux çalıştıran ve oturum açılmış bir Mac.",
@@ -2961,13 +2971,13 @@
       "planMax": "Max",
       "sizesDefault": "Boyut seçmediğinizde yeni makineler 8 GB bellek kullanır. Planınızın izin verdiği boyutları görmek için cmux vm ls --json komutunu çalıştırın.",
       "limitsTitle": "Plan sınırları",
-      "limitsDesc": "Etkin makineleriniz tek bir vCPU ve bellek havuzunu paylaşır. Tek bir büyük makine veya birkaç küçük makine çalıştırın. Duraklatılmış makineler havuzu kullanmaz. Disk her makine için ayrı belirlenir ve havuza dahil değildir.",
+      "limitsDesc": "Pro, Team ve Max planlarında sahip olabileceğiniz makine sayısına sınır yoktur; Plus bir makine tutar. Dahil kullanımın ötesinde çalışan makineler vCPU-saat ve GB-saat başına, kaydedilen ve duraklatılan makineler ise diskin GB-ayı başına ölçülür. Tek durdurma noktası ekibin harcama sınırıdır: sınıra ulaşıldığında yeni başlatmalar reddedilir ve çalışan makineler bir uyarının ardından duraklatılır, hiçbir şey kaybolmaz.",
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
-      "limitsPaid": "Pro ve Founder's Edition hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
-      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
-      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
-      "limitsPoolFull": "Yeni, sürdürülen, büyütülen veya çatallanan bir makine havuzu aşacaksa cmux isteği reddeder ve havuzun ne kadarının kullanıldığını gösterir. Kaynak açmak için bir makineyi duraklatın veya silin ya da Max'e yükseltin.",
-      "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
+      "limitsPaid": "Pro hesaplarında istenen sayıda makine olabilir, her biri en fazla 16 GB ve 8 vCPU.",
+      "limitsTeam": "Team isteğe bağlıdır: herkesi tek bir ortak faturada ve tek bir harcama sınırında toplar. Koltuklar, kimsenin sahip olabileceği makine sayısını değiştirmez.",
+      "limitsMax": "Max hesaplarında istenen sayıda makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil en fazla 64 GB ve 32 vCPU kullanabilir; Pro ve Team 16 GB ve 8 vCPU'da durur.",
+      "limitsPoolFull": "Harcama sınırında cmux yeni veya sürdürülen bir makineyi reddeder ve ekibin sınırına ulaştığını söyler. Makineleri yeniden başlatmak için sınırı yükseltin; hiçbir şey silinmez.",
+      "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Dahil miktarın ötesindeki kullanım ölçülür.",
       "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
       "agentUpdatesDesc": "Bu ayar açıkken makine Claude Code, Codex, OpenCode, pi ve agent-browser araçlarını günceller. Makine oluşturulduktan sonra ve her bağlandığınızda, 24 saatte en fazla bir kez denetler. Güncelleme ayrı çalışır, bu yüzden bağlantıyı asla engellemez.",
       "agentUpdatesSource": "Her araç resmi GitHub sürümünden gelir ve sürüm dosyasının sha256 özetiyle doğrulanır. npm kullanılmaz. Bir sürüm ancak 3 gündür herkese açıksa kurulur ve bir güncelleme asla daha eski bir sürüm kurmaz. Çalışan bir ajan başladığı dosyaları korur, başarısız bir güncelleme mevcut sürümü yerinde bırakır.",
@@ -2975,7 +2985,7 @@
       "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
       "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
-      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Go 16 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
+      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Plus 128 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",
       "pauseDesc": "cmux vm pause makinenin işlem kaynaklarını durdurur. Disk, çalışma alanları ve terminal geçmişi korunur. Çalışan işlemler durur. cmux vm resume makineyi yeniden başlatır. Duraklatılmış bir makineyi açmak veya üzerinde komut çalıştırmak da onu başlatır.",
       "pauseIdle": "Makineler boşta kaldıklarında kendiliğinden duraklamaz. Bir makine siz onu duraklatana veya silene kadar çalışmaya devam eder.",
@@ -3354,7 +3364,8 @@
       "darkArt": "Karanlık Sanat",
       "museumIcons": "Müze İkonları",
       "calm": "Sakin",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Doğu Asya Resmi"
     }
   },
   "testimonials": {
@@ -5255,7 +5266,18 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus seç",
+      "featuresLead": "Dahil olanlar:",
+      "features": [
+        "Duraklatılan makine dahil toplam 1 kayıtlı VM",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Topluluk desteği",
+        "Aylık saat sınırı yok"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
@@ -5397,7 +5419,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",
     "title": "cmux Pro’ya hoş geldin",
-    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
+    "body": "Pro, sayı sınırı olmayan ve dahil kullanımın ötesinde ölçülen Cloud VM'lerin yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
     "done": "Kontrol paneline git",
     "steps": {
       "iosApp": {

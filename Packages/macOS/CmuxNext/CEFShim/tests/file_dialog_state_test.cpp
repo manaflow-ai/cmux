@@ -51,6 +51,21 @@ int main() {
          "a single-file mode keeps one path");
   Expect(cmux_shim::JoinFilters({"image/*", ".png"}) == "image/*\n.png", "accept types join on newlines");
 
+  cmux_shim::FileDialogRoutes routes;
+  Expect(!routes.ToHost(3), "by default Chromium shows its own panel");
+  routes.Set(3, true);
+  Expect(routes.ToHost(3), "a browser the host named sends its chooser to the host");
+  Expect(!routes.ToHost(4), "another browser keeps Chromium's panel");
+  routes.SetAll(true);
+  Expect(routes.ToHost(4), "an agent's offer sends every chooser");
+  routes.SetAll(false);
+  Expect(routes.ToHost(3) && !routes.ToHost(4), "its end leaves the named browser only");
+  routes.Forget(3);
+  Expect(!routes.ToHost(3), "a closed browser's id routes nothing");
+  routes.Set(5, true);
+  routes.Set(5, false);
+  Expect(!routes.ToHost(5), "the host can take it back");
+
   if (failures == 0) std::printf("file_dialog_state: all cases pass\n");
   return failures == 0 ? 0 : 1;
 }

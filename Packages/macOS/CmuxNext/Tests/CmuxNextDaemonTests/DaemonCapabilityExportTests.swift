@@ -17,6 +17,16 @@ struct DaemonCapabilityExportTests {
         #expect(added.isEmpty, "new unserved capabilities \(added.sorted()): land the daemon half on this branch and list them in optional")
     }
 
+    @Test func nativeRemoteHandshakeRequestsOnlySupportedOwnerSurface() {
+        #expect(DaemonCapability.nativeRemoteRequired == [
+            "workspace-registry-v1", "layout-delta-v1", "session-identity-v1",
+            "conversation-tabs-v1", "agent-session-tabs-v1", "agent-session-start-v1",
+            "agent-session-attach-v1",
+        ])
+        #expect(!DaemonCapability.nativeRemoteRequired.contains("viewport-splits-v1"))
+        #expect(!DaemonCapability.nativeRemoteRequired.contains("view-attachment-lease-v1"))
+    }
+
     @Test func exportIsFresh() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

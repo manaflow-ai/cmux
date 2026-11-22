@@ -36,14 +36,15 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   const HOME = "/Users/you";
-  // Cards: its chat cards and All Chats button are what the field takes the keyboard back from.
+  // Minimal, the page cmux ships (Cards no longer does, Leo 2026-11-18): its composer's controls are
+  // what the field takes the keyboard back from.
   const context = {
     kind: "agent",
     hotkeys: {},
     home: HOME,
     projects: [`${HOME}/src/atlas`],
     host: "cosmic-gray",
-    template: "cards",
+    template: "minimal",
   };
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
@@ -75,7 +76,8 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".nt-field").waitFor();
-    await page.waitForFunction(() => document.activeElement?.classList.contains("nt-field"));
+    // The field is the composer's Markdown prompt: its editable element, inside `.nt-field`, has focus.
+    await page.waitForFunction(() => document.activeElement?.closest(".nt-field") != null);
     return page;
   }
 
@@ -90,9 +92,17 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
   const focused = (page: Page) =>
     page.evaluate(() => {
       const active = document.activeElement;
-      return !active || active === document.body ? "body" : active.className.split(/\s+/)[0];
+      if (!active || active === document.body) return "body";
+      // The field's editable element is inside `.nt-field` (MarkdownField).
+      return active.closest(".nt-field") ? "nt-field" : active.className.split(/\s+/)[0];
     });
-  const fieldText = (page: Page) => page.locator(".nt-field").inputValue();
+  const fieldText = (page: Page) =>
+    page.evaluate(() => {
+      const field = document.querySelector(".nt-field") as
+        | (Element & { acpmuxMarkdownField?: { text(): { value: string } } })
+        | null;
+      return field?.acpmuxMarkdownField?.text().value;
+    });
 
   for (const [name] of engines)
     describe(name, () => {
@@ -112,7 +122,7 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
 
       test("taking the keyboard back keeps where the page was scrolled", async () => {
         const page = await newTab(browsers.get(name)!);
-        await page.setViewportSize({ width: 900, height: 300 });
+        await page.setViewportSize({ width: 900, height: 120 });
         const scrolled = await page.evaluate(() => {
           const screen = document.querySelector<HTMLElement>(".nt-screen")!;
           screen.scrollTop = screen.scrollHeight;
@@ -129,9 +139,11 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
       test("a control that has focus keeps it when the page gets the keyboard back", async () => {
         const page = await newTab(browsers.get(name)!);
         await page.keyboard.type("fix");
-        await page.locator(".nt-screen button.nt-chats-all").focus();
+        // A control of the composer's foot (the model picker's button), outside the field.
+        const control = page.locator(".nt-composer .nt-foot button").first();
+        await control.focus();
         await switchAwayAndBack(page);
-        expect(await focused(page)).toBe("nt-chats-all");
+        expect(await control.evaluate((button) => document.activeElement === button)).toBe(true);
         expect(await fieldText(page)).toBe("fix");
         await page.close();
       });

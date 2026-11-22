@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(items: object[]) {
@@ -45,9 +43,10 @@ async function render(items: object[]) {
   );
 }
 
-// Far past the old 60-character cap.
+// Far past the old 60-character cap; a program the verb table does not name (commandActions.ts), so
+// its row draws the line.
 const CP =
-  "cp /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
+  "rsync /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
 const shell = (id: string, command: string, extra: object = {}) => ({
   kind: "tool",
   text: "Run",
@@ -67,9 +66,10 @@ test("a group's command rows draw the whole command, without the setup before it
   expect(lines).toEqual([CP, CP]);
 });
 
-test("a row still marks the steps it leaves out", async () => {
+// A multi-step line reads whole, with no appended " …" (2026-11-14 change).
+test("a row draws every step of a multi-step line, with no ellipsis after it", async () => {
   await render([shell("t1", `${CP} && ls`), shell("t2", "ls")]);
-  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} …`);
+  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} && ls`);
 });
 
 test("toolLabel never cuts a command by length", async () => {
@@ -87,8 +87,9 @@ test("a one-line note with no room keeps the cap", async () => {
   expect(shortCommand(CP).length).toBeLessThanOrEqual(60);
 });
 
-// The CSS that cuts them: each label takes what the row has left and ends in an ellipsis, with no
-// width cap of its own (max-width or a ch measure) that stops it before the edge.
+// Labels can use the row's available space and truncate without an artificial width cap.
+// Short labels stay content-sized so the caret follows them; the message button still fills
+// the remaining line so clicking blank space continues to expand the message.
 const css = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 const CONVERSATION = css("../src/agent-session/acpmux/conversation/conversation.css");
 const MESSAGE = css("../src/agent-session/acpmux/conversation/AgentMessageRow.css");
@@ -101,7 +102,7 @@ function rule(sheet: string, selector: string): string {
 }
 
 for (const [sheet, selector, fills] of [
-  [CONVERSATION, ".cv-command__text", true],
+  [CONVERSATION, ".cv-command__text", false],
   [CONVERSATION, ".cv-tool__text", false],
   [MESSAGE, ".cv-agentmsg__toggle", true],
   [MESSAGE, ".cv-agentmsg__preview", false],

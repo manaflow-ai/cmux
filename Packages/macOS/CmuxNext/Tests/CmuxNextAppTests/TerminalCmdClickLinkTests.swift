@@ -1,15 +1,18 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
 import Testing
+import struct CmuxNextBrowser.TerminalLinkResolver
+import enum CmuxNextBrowser.TerminalLinkTarget
 
 /// Cmd-hover and Cmd-click on terminal links, on a real Ghostty surface driven by real
 /// `NSEvent`s through the view's own mouse and key handlers: a URL with Command pressed over a
 /// still pointer (focused or not), Shift-Command, a program that reads the mouse (Claude Code,
 /// Codex), an OSC 8 hyperlink, and a URL the program broke onto two rows itself.
-@MainActor @Suite(.serialized) struct TerminalCmdClickLinkTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalCmdClickLinkTests {
     /// Mouse modes Codex 0.163 sets (alt screen, button and any-motion tracking in SGR).
     static let mouseModes = "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1006h"
 
@@ -188,13 +191,13 @@ import Testing
     }
 
     @Test func aPrintedPathKeepsItsLineAndColumn() {
-        let code = TerminalLinkResolver.location("src/app.ts:3:5")
+        let code = TerminalLinkResolver().location("src/app.ts:3:5")
         #expect(code?.line == 3 && code?.column == 5)
-        let note = TerminalLinkResolver.location("\"notes/todo.md:12\",")
+        let note = TerminalLinkResolver().location("\"notes/todo.md:12\",")
         #expect(note?.line == 12 && note?.column == nil)
-        #expect(TerminalLinkResolver.location("README.md") == nil)
-        #expect(TerminalLinkResolver.location("localhost:3000/docs") == nil)
-        #expect(TerminalLinkResolver.location("https://example.com:8080") == nil)
+        #expect(TerminalLinkResolver().location("README.md") == nil)
+        #expect(TerminalLinkResolver().location("localhost:3000/docs") == nil)
+        #expect(TerminalLinkResolver().location("https://example.com:8080") == nil)
     }
 
     @Test func onlyAWordBrokenAtTheEdgeJoinsTheNextRow() {

@@ -370,6 +370,7 @@ impl Session {
             locale: None,
             strings: json!({}),
             main: prelude::main_source(),
+            main_name: None,
         });
         match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(())) => Ok(Self { shared, next_cb: AtomicU64::new(1), turn: Mutex::new(()) }),

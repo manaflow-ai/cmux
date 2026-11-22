@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 PROGRAMS = {
     # Plain prompt-like output with SGR colors, bold, a wide glyph and a cursor mid-row.
@@ -107,8 +109,20 @@ def main():
         try:
             server.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            os.killpg(server.pid, signal.SIGTERM)
-            server.wait(timeout=5)
+            try:
+                os.killpg(server.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            # Whether or not the server exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+            try:
+                os.killpg(server.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            server.wait()
         def running(pid):
             stat = subprocess.run(["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True).stdout.strip()
             return stat[:1] not in ("", "Z")
@@ -119,7 +133,7 @@ def main():
             time.sleep(0.05)
             leaked = [pid for pid in leaked if running(pid)]
         if leaked:
-            print(f"error: terminal hosts outlived server stop --end-terminals: {leaked}", file=sys.stderr)
+            safe_print(f"error: terminal hosts outlived server stop --end-terminals: {leaked}", file=sys.stderr)
             sys.exit(1)
 
 

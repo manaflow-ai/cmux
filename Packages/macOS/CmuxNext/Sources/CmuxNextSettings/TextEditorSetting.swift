@@ -2,12 +2,12 @@ public import Foundation
 
 /// `files.textEditor`: the app a path's Open in Text Editor uses, as an app name ("Zed"), a
 /// bundle ID (`dev.zed.Zed`) or a `.app` path. Empty (the default) means the system's app for
-/// source code. The App resolves it when a menu opens.
+/// source code. The App resolves it when a menu opens. `configPath` and `fallback` come from
+/// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct TextEditorSetting: Sendable, Hashable {
-    public static let configPath = ["files", "textEditor"]
     public var application: String
 
-    public init(application: String = "") {
+    public init(application: String = TextEditorSetting.fallback) {
         self.application = application
     }
 

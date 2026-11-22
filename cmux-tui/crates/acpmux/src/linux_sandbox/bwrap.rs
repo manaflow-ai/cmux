@@ -3,6 +3,7 @@
 //! proxy must also be installed before a remote command may run.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
+use std::collections::BTreeSet;
 use std::ffi::CString;
 use std::fmt;
 use std::fs;
@@ -30,7 +31,7 @@ mod aliases;
 mod home;
 #[cfg(test)]
 use home::{denied_paths, home_view};
-use home::{denied_paths_pinned, home_view_pinned};
+use home::{denied_paths_pinned, home_view_pinned, home_view_pinned_at};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -56,6 +57,18 @@ fn bwrap_args(
     home_view: BwrapPlan,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
+    bwrap_args_at(paths, home_view, &[], cmd_prefix)
+}
+
+/// `views` are the second views of the HOME the plan rebuilt. Memory is
+/// sealed read-only after the writable binds at its image in the HOME and in
+/// every view, so a writable root named at any view can never cover it.
+fn bwrap_args_at(
+    paths: &Paths,
+    home_view: BwrapPlan,
+    views: &[aliases::HomeView],
+    cmd_prefix: &[String],
+) -> Result<BwrapPlan, String> {
     let (home_args, mut fds) = home_view;
     let mut out: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc"
         .split_whitespace().map(str::to_owned).collect();
@@ -67,10 +80,24 @@ fn bwrap_args(
         fds.push(fd);
     }
     let memory_path = paths.claude_project.join("memory");
-    let memory = path_arg(&memory_path)?;
-    let fd = open_bind_source(&memory_path)?;
-    out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), memory]);
-    fds.push(fd);
+    let image = home_image(&memory_path, &paths.home, views);
+    let mut sealed = vec![memory_path.clone()];
+    if let Ok(rest) = image.strip_prefix(&paths.home) {
+        let all =
+            std::iter::once(paths.home.as_path()).chain(views.iter().map(|(_, v)| v.as_path()));
+        for view in all {
+            let at = join_rest(view, rest);
+            if !sealed.contains(&at) {
+                sealed.push(at);
+            }
+        }
+    }
+    // The loop ends after the HOME and the finite view list.
+    for at in &sealed {
+        let fd = open_bind_source(&memory_path)?;
+        out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), path_arg(at)?]);
+        fds.push(fd);
+    }
     out.extend([
         "--chdir".into(),
         path_arg(&paths.cwd)?,
@@ -237,6 +264,98 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// Descriptors the HOME rebuilds may hold across every view together; each
+/// single rebuild stays under its own 512 (`home::rebuild_at`).
+const MAX_REBUILD_FDS: usize = 1024;
+
+/// Refuse, with the count, rebuilds that would together hold more than
+/// `MAX_REBUILD_FDS` descriptors (`per_view` each, at `views` views).
+fn rebuild_fd_budget(per_view: usize, views: usize) -> Result<(), String> {
+    let needed = per_view.saturating_mul(views);
+    if needed > MAX_REBUILD_FDS {
+        return Err(format!(
+            "rebuilding the HOME at {views} views needs {needed} descriptors (limit {MAX_REBUILD_FDS})"
+        ));
+    }
+    Ok(())
+}
+
+/// The HOME path that `path` shows when it lies below a second view of the
+/// HOME; any other path is its own image.
+fn home_image(path: &Path, home: &Path, views: &[aliases::HomeView]) -> PathBuf {
+    views
+        .iter()
+        .find_map(|(_, view)| path.strip_prefix(view).ok())
+        .map_or_else(|| path.to_path_buf(), |rest| join_rest(home, rest))
+}
+
+fn join_rest(base: &Path, rest: &Path) -> PathBuf {
+    if rest.as_os_str().is_empty() { base.to_path_buf() } else { base.join(rest) }
+}
+
+/// What the canary proves inside the sandbox for every second view of the
+/// HOME: `absent` lists each denied name at each view (each must be missing),
+/// `read_only` one fresh path below each view and below each writable root's
+/// image at every view it is not writable at (each write must fail).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct AliasProbe {
+    pub(crate) absent: Vec<PathBuf>,
+    pub(crate) read_only: Vec<PathBuf>,
+}
+
+/// Compute the canary's alias probe from the live mount table, the same way
+/// the keeper's plan finds the views. No second view: an empty probe.
+pub(crate) fn alias_probe(paths: &Paths, read_denies: &[PathBuf]) -> Result<AliasProbe, String> {
+    let mountinfo = fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?;
+    let home_mount = aliases::resolved_mount_id(&paths.home)?;
+    alias_probe_for(paths, read_denies, &mountinfo, home_mount, &uuid::Uuid::now_v7().to_string())
+}
+
+fn alias_probe_for(
+    paths: &Paths,
+    read_denies: &[PathBuf],
+    mountinfo: &str,
+    home_mount: u64,
+    tag: &str,
+) -> Result<AliasProbe, String> {
+    let views = aliases::home_views(&paths.home, home_mount, mountinfo)?;
+    let mut probe = AliasProbe::default();
+    if views.is_empty() {
+        return Ok(probe);
+    }
+    let home = &paths.home;
+    // Each denial and its resolved target, as the plan protects both.
+    let mut denied: Vec<PathBuf> =
+        read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))).collect();
+    let resolved: Vec<PathBuf> =
+        denied.iter().map(|d| home::resolve_missing(d)).collect::<Result<_, _>>()?;
+    denied.extend(resolved);
+    let names: BTreeSet<PathBuf> = denied
+        .iter()
+        .filter_map(|d| d.strip_prefix(home).ok().map(Path::to_path_buf))
+        .filter(|rest| !rest.as_os_str().is_empty())
+        .collect();
+    let name = format!(".acpmux-canary-ro-{tag}");
+    let all: Vec<&Path> =
+        std::iter::once(home.as_path()).chain(views.iter().map(|(_, v)| v.as_path())).collect();
+    for (_, view) in &views {
+        probe.absent.extend(names.iter().map(|rest| view.join(rest)));
+        probe.read_only.push(view.join(&name));
+    }
+    for root in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
+        let image = home_image(root, home, &views);
+        let Ok(rest) = image.strip_prefix(home) else { continue };
+        for view in &all {
+            let at = join_rest(view, rest);
+            if at != *root {
+                probe.read_only.push(at.join(&name));
+            }
+        }
+    }
+    Ok(probe)
+}
+
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
 /// Caller supplies fresh mountinfo; mount IDs are resolved here in the keeper.
@@ -270,11 +389,24 @@ fn plan_with_mount_id(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
+    // A second mount of the whole HOME (an fstab bind of /home/<user> at
+    // another path) would carry every guarded name through `--ro-bind / /`.
+    // The HOME is rebuilt at each such view too; a writable root may sit
+    // below any view and is writable only there (read-only at the others).
+    let home_mount = mount_id(&paths.home)?;
+    let views = aliases::home_views(&paths.home, home_mount, mountinfo)?;
     let snapshot = denied_paths_pinned(&paths.home, read_denies)?;
     let denied = &snapshot.inside;
     let outside = &snapshot.outside;
     for root in writable {
-        if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
+        // Judge a root below a view by the HOME path it shows, so a session
+        // folder named at the view can never be a denied name or its parent.
+        let image = home_image(root, &paths.home, &views);
+        if denied
+            .iter()
+            .chain(outside.iter())
+            .any(|d| [root, &image].iter().any(|r| r.starts_with(d) || d.starts_with(r)))
+        {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
@@ -296,14 +428,25 @@ fn plan_with_mount_id(
     for path in writable {
         trees.push((path.as_path(), mount_id(path)?, true));
     }
-    let aliases = aliases::guarded_aliases(&trees, mountinfo);
+    // The check accepts an alias only between two rebuilt views of the HOME.
+    let rebuilt: Vec<_> =
+        std::iter::once((home_mount, paths.home.clone())).chain(views.iter().cloned()).collect();
+    let aliases = aliases::guarded_aliases_in_views(&trees, mountinfo, &rebuilt);
     if !aliases.is_empty() {
         return Err(aliases.join("; "));
     }
     let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
+    // Each view holds the same descriptors again. Refuse with the count
+    // before opening them, rather than meet the open-file limit mid-plan.
+    rebuild_fd_budget(home.1.len(), views.len() + 1)?;
+    for (_, view) in &views {
+        let (args, fds) = home_view_pinned_at(&paths.home, view, denied, Some(&snapshot))?;
+        home.0.extend(args);
+        home.1.extend(fds);
+    }
     let outside = outside_view(outside, &paths.home)?;
     home.0.splice(0..0, outside);
-    bwrap_args(paths, home, cmd_prefix)
+    bwrap_args_at(paths, home, &views, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,9 +482,13 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
     {
         return Err(Unavailable::TooOld);
     }
+    // Ubuntu's apparmor_restrict_unprivileged_userns lets bwrap make the namespace but grants no
+    // capability inside it, so the first privileged step, the loopback address, is refused.
     if lower.contains("no permissions to create new namespace")
         || ((lower.contains("setting up uid map") || lower.contains("creating new namespace"))
             && (lower.contains("permission denied") || lower.contains("operation not permitted")))
+        || ((lower.contains("loopback") || lower.contains("rtm_newaddr"))
+            && lower.contains("operation not permitted"))
     {
         return Err(Unavailable::UserNamespacesRestricted);
     }
@@ -517,6 +664,299 @@ mod tests {
         assert!(error.contains("also visible at /alias"), "{error}");
     }
 
+    /// A second mount of the home: the whole HOME is mounted again at another
+    /// path (a bind of /home/u at /alias/u). The plan must rebuild HOME at
+    /// that view too, so no guarded name is reachable there, work folders stay
+    /// readable, and nothing is writable through it.
+    #[test]
+    fn regression_home_bound_at_a_second_mount_point_is_rebuilt_there() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        fs::write(p.home.join(".ssh/id_ed25519"), "key").unwrap();
+        fs::create_dir_all(p.home.join(".config/gh")).unwrap();
+        fs::create_dir_all(p.home.join("Projects/repo")).unwrap();
+        let alias = PathBuf::from("/alias/u");
+        let at = |path: &Path| alias.join(path.strip_prefix(&p.home).unwrap());
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+            p.home.display(),
+            alias.display()
+        );
+        let denies = [p.home.join(".ssh"), p.home.join(".aws"), p.home.join(".config/gh")];
+        let (args, _fds) =
+            plan_with_mount_id(&p, &denies, &info, &strings(&["true"]), |_| Ok(1)).unwrap();
+        let alias_text = alias.to_str().unwrap();
+        assert!(
+            args.windows(2).any(|w| w[0] == "--tmpfs" && w[1] == alias_text),
+            "alias view not rebuilt: {args:?}"
+        );
+        assert!(
+            args.windows(2).any(|w| w[0] == "--remount-ro" && w[1] == alias_text),
+            "alias view not sealed read-only: {args:?}"
+        );
+        for hidden in [".ssh", ".aws", ".config/gh", ".claude/.credentials.json"] {
+            let name = at(&p.home.join(hidden));
+            assert!(
+                !args.iter().any(|a| Path::new(a).starts_with(&name)),
+                "{} reachable at the alias: {args:?}",
+                name.display()
+            );
+        }
+        let projects = at(&p.home.join("Projects"));
+        assert!(
+            args.windows(3).any(|w| w[0] == "--ro-bind-fd" && Path::new(&w[2]) == projects),
+            "work folders must stay readable at the alias: {args:?}"
+        );
+        let writable: Vec<_> =
+            args.windows(3).filter(|w| w[0] == "--bind-fd").map(|w| PathBuf::from(&w[2])).collect();
+        assert_eq!(writable.len(), 4, "{args:?}");
+        assert!(writable.iter().all(|w| !w.starts_with(&alias)), "{args:?}");
+    }
+
+    /// Masking covers only an alias of the whole HOME. An alias of a guarded
+    /// subtree, or of the HOME at a point inside it, still refuses.
+    #[test]
+    fn plan_still_refuses_aliases_it_cannot_mask() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        let ssh = p.home.join(".ssh");
+        for (root, point) in
+            [(ssh.clone(), PathBuf::from("/mnt/ssh")), (p.home.clone(), p.home.join("loop"))]
+        {
+            let info = format!(
+                "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+                root.display(),
+                point.display()
+            );
+            let error = plan_with_mount_id(
+                &p,
+                std::slice::from_ref(&ssh),
+                &info,
+                &strings(&["true"]),
+                |_| Ok(1),
+            )
+            .unwrap_err();
+            assert!(error.contains("is also visible at"), "{}: {error}", point.display());
+        }
+    }
+
+    /// A fixture whose HOME is also "mounted" at `<root>/alias` (a real
+    /// directory standing in for the bind, so the plan's canonical checks
+    /// pass), with the mount ID closure and mountinfo of that shape.
+    fn second_home(f: &Fixture) -> (PathBuf, String) {
+        let alias = f.0.join("alias");
+        fs::create_dir_all(&alias).unwrap();
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+            f.0.join("home").display(),
+            alias.display()
+        );
+        (alias, info)
+    }
+
+    /// A session folder named at the second view is writable there
+    /// and read-only at the HOME, with the supervisor's path rules on it.
+    #[test]
+    fn a_cwd_under_the_second_view_is_writable_there_and_read_only_at_home() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        let (alias, info) = second_home(&f);
+        fs::create_dir_all(p.home.join("Projects/repo")).unwrap();
+        fs::create_dir_all(alias.join("Projects/repo")).unwrap();
+        p.cwd = alias.join("Projects/repo");
+        let id = |path: &Path| Ok(if path.starts_with(&alias) { 57 } else { 1 });
+        let (args, _fds) = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), id).unwrap();
+        let cwd = p.cwd.to_str().unwrap();
+        assert!(args.windows(3).any(|w| w[0] == "--bind-fd" && w[2] == cwd), "{args:?}");
+        let projects = p.home.join("Projects");
+        assert!(
+            args.windows(3).any(|w| w[0] == "--ro-bind-fd" && Path::new(&w[2]) == projects),
+            "the HOME image of the cwd must stay read-only: {args:?}"
+        );
+        let rebuilt = args.iter().rposition(|s| s == "--remount-ro").unwrap();
+        let bound = args.iter().position(|s| s == cwd).unwrap();
+        assert!(rebuilt < bound, "the writable bind must follow the view rebuild: {args:?}");
+    }
+
+    /// A cwd at the second view that holds Claude's project folders would
+    /// carry memory writable through its bind: memory is sealed read-only at
+    /// its image in every view, after every writable bind.
+    #[test]
+    fn regression_memory_stays_read_only_under_a_cwd_at_the_second_view() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        let (alias, info) = second_home(&f);
+        let projects = p.home.join(".claude/projects");
+        p.cwd = alias.join(".claude/projects");
+        fs::create_dir_all(&p.cwd).unwrap();
+        let id = |path: &Path| Ok(if path.starts_with(&alias) { 57 } else { 1 });
+        let (args, _fds) = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), id).unwrap();
+        let cwd_bind = args
+            .windows(3)
+            .position(|w| w[0] == "--bind-fd" && Path::new(&w[2]) == p.cwd)
+            .expect("cwd bound writable at the view");
+        let memory = p.claude_project.join("memory");
+        for at in [memory.clone(), alias.join(memory.strip_prefix(&p.home).unwrap())] {
+            let sealed = args
+                .windows(3)
+                .rposition(|w| w[0] == "--ro-bind-fd" && Path::new(&w[2]) == at)
+                .unwrap_or_else(|| panic!("memory not sealed at {}: {args:?}", at.display()));
+            assert!(sealed > cwd_bind, "memory at {} sealed before the cwd bind", at.display());
+        }
+        assert!(projects.starts_with(&p.home));
+    }
+
+    #[test]
+    fn a_cwd_at_a_denied_name_under_the_second_view_refuses() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        let (alias, info) = second_home(&f);
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        fs::create_dir_all(alias.join(".ssh")).unwrap();
+        p.cwd = alias.join(".ssh");
+        let id = |path: &Path| Ok(if path.starts_with(&alias) { 57 } else { 1 });
+        let error = plan_with_mount_id(&p, &[p.home.join(".ssh")], &info, &strings(&["true"]), id)
+            .unwrap_err();
+        assert!(error.contains("writable root overlaps read denial"), "{error}");
+    }
+
+    /// A second view inside a writable root would come back raw through the
+    /// recursive writable bind after the rebuild: the plan must refuse it.
+    #[test]
+    fn a_second_view_inside_a_writable_root_refuses() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+            p.home.display(),
+            p.tmp.join("u").display()
+        );
+        let error = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
+        assert!(error.contains("is also visible at"), "{error}");
+    }
+
+    #[test]
+    fn alias_probe_names_every_denial_at_each_view_and_each_read_only_image() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let (alias, info) = second_home(&f);
+        let probe =
+            alias_probe_for(&p, &[p.home.join(".ssh"), PathBuf::from("/etc/x")], &info, 1, "t")
+                .unwrap();
+        for name in [".ssh", ".claude/.credentials.json", ".pki"] {
+            assert!(probe.absent.contains(&alias.join(name)), "{name}: {probe:?}");
+        }
+        assert!(!probe.absent.iter().any(|a| a.starts_with("/etc")), "{probe:?}");
+        let cwd_image = alias.join(p.cwd.strip_prefix(&p.home).unwrap());
+        assert!(probe.read_only.contains(&alias.join(".acpmux-canary-ro-t")), "{probe:?}");
+        assert!(probe.read_only.contains(&cwd_image.join(".acpmux-canary-ro-t")), "{probe:?}");
+        assert!(!probe.read_only.iter().any(|r| r.starts_with(&p.cwd)), "{probe:?}");
+        let none = alias_probe_for(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", 1, "t").unwrap();
+        assert_eq!(none, AliasProbe::default());
+    }
+
+    /// A real second mount of a made-up HOME, made in a user and
+    /// mount namespace (`unshare -rm`), and the real plan and bwrap. A denied
+    /// name read through the second path must fail; work folders stay
+    /// readable and read-only there. The test re-runs itself inside the
+    /// namespace; a runner that refuses user namespaces skips with a notice.
+    #[tokio::test]
+    async fn real_second_home_mount_hides_denied_names() {
+        const CHILD: &str = "ACPMUX_SECOND_HOME_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            return second_home_child().await;
+        }
+        if !real_probe() {
+            return;
+        }
+        let name = "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names";
+        let out = Command::new("unshare")
+            .args(["-rm", "--propagation", "private"])
+            .arg(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if userns_refused(out.status.success(), &stderr) {
+            eprintln!("skipped: this runner refuses user namespaces for unshare: {stderr}");
+            return;
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("second home mount held"), "{stdout}\n{stderr}");
+    }
+
+    /// The real-mount test skips only when `unshare` itself could not make
+    /// the user namespace; a failure inside it is a test failure.
+    fn userns_refused(success: bool, stderr: &str) -> bool {
+        !success && (stderr.contains("uid_map") || stderr.contains("unshare failed"))
+    }
+
+    #[test]
+    fn real_mount_test_skips_only_when_unshare_is_refused() {
+        assert!(userns_refused(
+            false,
+            "unshare: write failed /proc/self/uid_map: Operation not permitted"
+        ));
+        assert!(userns_refused(false, "unshare failed: Operation not permitted"));
+        assert!(!userns_refused(true, "unshare failed"), "a passing run never skips");
+        assert!(!userns_refused(false, "denied dir visible at the second mount"));
+        assert!(!userns_refused(false, ""));
+    }
+
+    #[test]
+    fn rebuild_fd_budget_refuses_with_the_count() {
+        assert!(rebuild_fd_budget(489, 2).is_ok());
+        assert!(rebuild_fd_budget(512, 2).is_ok());
+        let error = rebuild_fd_budget(513, 2).unwrap_err();
+        assert!(error.contains("needs 1026 descriptors (limit 1024)"), "{error}");
+        assert!(rebuild_fd_budget(usize::MAX, 2).is_err());
+    }
+
+    async fn second_home_child() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        fs::write(p.home.join(".ssh/id_ed25519"), "secret").unwrap();
+        fs::create_dir_all(p.home.join("Projects/repo")).unwrap();
+        let alias = f.0.join("alias");
+        fs::create_dir_all(&alias).unwrap();
+        let mounted = Command::new("mount")
+            .args(["--bind", p.home.to_str().unwrap(), alias.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(mounted.success(), "bind mount in the test namespace failed");
+        let script = "a=$1; c=$2
+            [ -e \"$a/.ssh\" ] && { echo 'denied dir visible at the second mount' >&2; exit 41; }
+            cat \"$a/.ssh/id_ed25519\" 2>/dev/null && { echo 'denied file read' >&2; exit 42; }
+            [ -d \"$a/Projects/repo\" ] || { echo 'work folder missing at the second mount' >&2; exit 43; }
+            ( : > \"$a/Projects/repo/w\" ) 2>/dev/null && { echo 'second mount writable' >&2; exit 44; }
+            ( : > \"$c/ok\" ) || { echo 'cwd not writable' >&2; exit 45; }
+            exit 0";
+        let command = strings(&[
+            "/bin/sh",
+            "-c",
+            script,
+            "second-home",
+            alias.to_str().unwrap(),
+            p.cwd.to_str().unwrap(),
+        ]);
+        let mountinfo = fs::read_to_string("/proc/self/mountinfo").unwrap();
+        let (args, fds) = plan(&p, &[p.home.join(".ssh")], &mountinfo, &command).unwrap();
+        let mut child = tokio::process::Command::new("/usr/bin/bwrap");
+        inherit_fds(&mut child, &fds);
+        let out = tokio::time::timeout(Duration::from_secs(20), child.args(args).output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(out.status.success(), "{}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+        assert!(!p.home.join("Projects/repo/w").exists());
+        println!("second home mount held");
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
@@ -664,7 +1104,7 @@ mod tests {
         .into_iter()
         .collect();
         let policy = crate::linux_sandbox::rules::WritePolicy::from_profile(
-            crate::hub::remote_sandbox::PROFILE,
+            crate::remote_chain_profile::PROFILE,
             &params,
         )
         .unwrap();
@@ -844,6 +1284,7 @@ mod tests {
             "bwrap: setting up uid map: Permission denied",
             "bwrap: No permissions to create new namespace",
             "bwrap: Creating new namespace failed: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::UserNamespacesRestricted));
         }
@@ -855,9 +1296,12 @@ mod tests {
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::TooOld));
         }
-        for stderr in
-            ["bwrap: Unknown option --unrelated", "bwrap: Can't mount /: Permission denied\n"]
-        {
+        for stderr in [
+            "bwrap: Unknown option --unrelated",
+            "bwrap: Can't mount /: Permission denied\n",
+            "bwrap: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: File exists",
+        ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::Other(stderr.trim().into())));
         }
         assert!(matches!(classify(Some(1), ""), Err(Unavailable::Other(_))));

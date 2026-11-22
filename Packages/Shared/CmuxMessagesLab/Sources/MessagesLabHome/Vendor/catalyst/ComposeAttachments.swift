@@ -203,7 +203,7 @@ final class ComposeAttachmentStrip {
                               x: ic.midX - TextDraw.width(ext, font: extFont) / 2, baseline: ic.maxY - 5, in: c)
                 let tx = ic.maxX + 10, tw = r.maxX - 10 - tx
                 var y = r.midY - 3       // cmux: centred in the 52 pt pill
-                TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
+                TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.composeText, x: tx, baseline: y, in: c)  // cmux: the composer's own text
                 y += 14
                 TextDraw.line(Self.fit(Self.kindText(a), Self.kindFont, tw), font: Self.kindFont, color: Fixture.secondaryText, x: tx, baseline: y, in: c)
             }

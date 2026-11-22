@@ -85,12 +85,12 @@ for (const [name, op] of ops) {
   lines.push("  }")
 }
 lines.push("}", "", "export type CloudOpName = keyof CloudOps", "")
-lines.push("/** Routing metadata: mutations go to /v1/ops with an idempotency key, reads to /v1/read. */")
+lines.push("/** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */")
 lines.push("export const cloudOpMeta = {")
 for (const [name, op] of ops) {
-  lines.push(`  ${JSON.stringify(name)}: { class: ${JSON.stringify(op.class)}, owner: ${JSON.stringify(op.owner)}, risk: ${JSON.stringify(op.risk)} },`)
+  lines.push(`  ${JSON.stringify(name)}: { class: ${JSON.stringify(op.class)}, idempotency: ${JSON.stringify(op.idempotency)}, owner: ${JSON.stringify(op.owner)}, risk: ${JSON.stringify(op.risk)} },`)
 }
-lines.push("} as const satisfies Record<CloudOpName, { class: \"read\" | \"mutation\"; owner: string; risk: string }>", "")
+lines.push("} as const satisfies Record<CloudOpName, { class: \"read\" | \"mutation\"; idempotency: \"required\" | \"none\" | \"forbidden\"; owner: string; risk: string }>", "")
 lines.push("export type CloudMutationName = { [K in CloudOpName]: (typeof cloudOpMeta)[K][\"class\"] extends \"mutation\" ? K : never }[CloudOpName]")
 lines.push("export type CloudReadName = Exclude<CloudOpName, CloudMutationName>", "")
 

@@ -29,6 +29,12 @@ impl Mux {
         }
     }
 
+    /// The running journal plugin's process group, if one runs.
+    #[cfg(unix)]
+    pub(crate) fn journal_plugin_process_group(&self) -> Option<libc::pid_t> {
+        self.journal_plugin.process_group()
+    }
+
     /// Journal a supervisor-observed plugin exit. The roster reducer removes
     /// only entries owned by this producer, so a crash cannot leave stale
     /// rows until the next terminal scan and the cleanup remains replayable.
@@ -46,6 +52,18 @@ impl Mux {
         if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
         {
             eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
+        }
+    }
+
+    /// One line in the slow request log (`diagnostics/request_log.rs`, kind `plugin_restart`)
+    /// for a restart that the plugin's supervisor scheduled: three numbers, no plugin id and no
+    /// exit text. Never waits: a full queue of the log drops the line and counts it.
+    pub(crate) fn record_journal_plugin_restart(
+        &self,
+        restart: crate::journal_plugin::JournalPluginRestart,
+    ) {
+        if let Some(log) = self.connection_stats().request_log() {
+            log.plugin_restart(restart.restarts, restart.failures, restart.delay);
         }
     }
 }

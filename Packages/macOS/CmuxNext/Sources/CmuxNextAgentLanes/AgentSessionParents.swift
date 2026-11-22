@@ -67,6 +67,16 @@ public final class AgentSessionParents {
         Identity(host: host, session: session)
     }
 
+    /// The identity of `caller`, the session of the agent that opened a workspace (recorded with
+    /// ``record(_:of:)``), resolved only when every tab with that session (`records`) belongs to one
+    /// host. Duplicate tabs on that host are the same lineage; the same id on two hosts is
+    /// intentionally ambiguous.
+    public static func callerIdentity(_ caller: String, in records: [AgentSessionRef]) -> Identity? {
+        let hosts = Set(records.filter { $0.session == caller }.map(\.host))
+        guard hosts.count == 1, let host = hosts.first else { return nil }
+        return identity(host: host, session: caller)
+    }
+
     /// True when `session` is `root`'s child, a child's child, ... in `parents`.
     private static func descends(_ session: Identity, from root: Identity, in parents: [Identity: Identity]) -> Bool {
         var seen: Set<Identity> = []
@@ -80,6 +90,16 @@ public final class AgentSessionParents {
 
     private static func valid(_ identity: Identity) -> Bool {
         !identity.host.isEmpty && !(identity.session ?? "").isEmpty
+    }
+
+    /// The workspace one of whose tabs is `session`'s chat, nil when none of `workspaces` has one (or no `session`).
+    public static func workspace(of session: Identity?, in workspaces: [WorkspaceModel]) -> String? {
+        guard let session else { return nil }
+        return workspaces.first { workspace in
+            workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains { tab in
+                tab.agentSession.map { $0.host == session.host && $0.session == session.session } == true
+            }
+        }?.id
     }
 
     private static func valid(_ parent: Identity, of child: Identity) -> Bool {

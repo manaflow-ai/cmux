@@ -42,10 +42,11 @@ const runModelSteps = ["20261028000000_run_model_enums", "20261028000100_run_mod
 const scratchRoot = mkdtempSync(path.join(tmpdir(), "cmux-run-migrations-replay-"));
 let folderCount = 0;
 /** A copy of the real folder: only migrations sorting before `before`, plus `extra`, with `replace` swapped in. */
-function folder(options: { before?: string; extra?: ReadonlyArray<{ name: string; sql: string }>; replace?: ReadonlyArray<{ name: string; sql: string }> }) {
+function folder(options: { before?: string; through?: string; extra?: ReadonlyArray<{ name: string; sql: string }>; replace?: ReadonlyArray<{ name: string; sql: string }> }) {
   const root = path.join(scratchRoot, `folder-${++folderCount}`);
   for (const name of readdirSync(realFolder)) {
     if (options.before && name >= options.before) continue;
+    if (options.through && name > options.through) continue;
     cpSync(path.join(realFolder, name), path.join(root, name), { recursive: true });
   }
   for (const migration of [...(options.extra ?? []), ...(options.replace ?? [])]) {
@@ -86,6 +87,12 @@ async function freshDatabase(): Promise<PgPool> {
   const url = new URL(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? "");
   url.pathname = `/${name}`;
   const pool = new Pool({ connectionString: url.href, max: 1 });
+  // pool.end() in afterAll resolves once its idle client is told to close, before the server session
+  // exits, so the drop with (force) right after can end that session first. The pool then emits the
+  // session's 57P01 (admin shutdown), which with no listener is an unhandled error that fails the file.
+  pool.on("error", (error: { code?: string }) => {
+    if (error.code !== "57P01") throw error;
+  });
   databasePools.push({ name, pool });
   return pool;
 }
@@ -214,7 +221,8 @@ describe("Run migrations replay onto every starting shape", () => {
       .map(async (table) => [table, (await pool.query(`select to_jsonb(t) as row from "${table}" t order by id`)).rows])));
     const before = { catalog: await catalog(pool), rows: await snapshotRows() };
 
-    expect(await applyRealFolder(pool)).toBe(runModelSteps.length);
+    // Only through the run_model steps: later migrations add their own objects.
+    expect(await applyPendingMigrations(pool, webDir, folder({ through: runModelSteps.at(-1) }))).toBe(runModelSteps.length);
     const after = await catalog(pool);
     expect({ ...after, indexes: [] }).toEqual({ ...before.catalog, indexes: [] });
     // The one addition: next's (status, lease_expires_at) index under the name main's databases need while

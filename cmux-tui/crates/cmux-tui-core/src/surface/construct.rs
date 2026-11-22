@@ -189,10 +189,11 @@ impl Surface {
         #[cfg(not(windows))]
         let host_start_failed = false;
         // The holder runs the shell; this daemon parses it (holder_runtime).
+        // A holder that cannot start sends the terminal to a host of its own.
         #[cfg(unix)]
         if lifetime == PtyLifetime::SessionOwned
-            && crate::holder_runtime::enabled()
             && let Some(host_root) = opts.terminal_host_root.clone()
+            && crate::holder_runtime::serves(&host_root)
         {
             return Self::spawn_on_holder(HolderSpawn {
                 id,
@@ -214,6 +215,7 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let HostLaunch { terminal_id, seed, workspace_key, standby } = launch;
+            let seating = terminal_runtime::host_seating(&mux, &terminal_public_id);
             let launched = match terminal_id {
                 Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
                     &opts,
@@ -222,6 +224,7 @@ impl Surface {
                     terminal_id,
                     standby,
                     (seed, workspace_key),
+                    &seating,
                 ),
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
@@ -229,6 +232,7 @@ impl Surface {
                     default_colors,
                     cell_pixels,
                     initial_kitty_limits,
+                    &seating,
                 ),
             };
             crate::debug_spans::mark("surface.host_launched");
@@ -275,15 +279,8 @@ impl Surface {
         };
         let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
-        let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-            Some(argv) => {
-                crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-            }
-            None => crate::shell_integration::integrate_default_shell(
-                vec![platform::default_shell()],
-                opts.extra_env.clone(),
-            ),
-        };
+        let launch =
+            crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
         let argv = launch.command;
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
@@ -301,8 +298,9 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
-        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
-            cmd.env_remove(*key);
+        cmd.terminal_identity();
+        for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
+            cmd.env_remove(key);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
@@ -455,7 +453,8 @@ impl Surface {
         let committed = pty.commit_geometry(&mut geometry, next, false);
         drop(geometry);
         match committed {
-            Ok(changed) => {
+            Ok(commit) => {
+                let changed = pty.publish_geometry_commit(commit);
                 if let Some(mux) = pty.mux.upgrade() {
                     if changed {
                         mux.emit_terminal_output(pty.event_surface_id);
@@ -501,7 +500,8 @@ impl Surface {
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+            // Drops a position output deferred, so it cannot follow this one.
+            pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
         }
     }
 }

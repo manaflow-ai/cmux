@@ -34,7 +34,7 @@ final class ThemeCoordinator {
     var pending: [ThemePreview.Target: String?] = [:]
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
-    var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
+    var previewTarget: (@MainActor (ActionID, ActionTargetRef?, _ machineID: String?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
@@ -80,14 +80,14 @@ final class ThemeCoordinator {
     private var artAccentObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
 
-    /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
-    /// resolved like the other theme levels (the variant for the system appearance, the user's
-    /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
+    /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
+    /// (`GhosttyThemeConfig.appColors`; config color lines stay the terminals'). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        store.setAccent(settings.applied.accent)
+        _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -96,10 +96,10 @@ final class ThemeCoordinator {
                 self?.applyChromeTheme()
             }
         }
-        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        // `appearance.accent` and `.selection` re-derive the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, store.setAccent(accent) else { continue }
+            for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
+                guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
             }
         }
@@ -118,22 +118,21 @@ final class ThemeCoordinator {
     }
 
     private func applyChromeTheme() {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
-        store.setAppTheme(resolved.map {
-            var input = $0.input
-            input.accent = store.accent
+        // The theme file's colors, never the config's own color lines (the terminals keep those).
+        store.setAppTheme(from: resolved.map { theme in
+            var input = theme.config.appColors.map { ThemeBridge.input($0, background: GhosttyRuntime.backgroundOverride, accent: ThemeBridge.accent(theme.config.themeName)) } ?? theme.input
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
             if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
-            return AppTheme.derive(from: input)
+            return input
         })
     }
 
     func start() {
         let registry = services.registry
-        registry.choicePreview = { [weak self] action, _, value, target in
-            self?.pickerPreview(action, value: value, target: target)
-        }
+        registry.choicePreview = { [weak self] action, _, value, target, machineID in self?.pickerPreview(action, value: value, target: target, machineID: machineID) }
         // Other owners (Team Picker) keep the current values they installed.
         let otherState = registry.choiceState
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) ?? otherState?(action, target) }
@@ -205,6 +204,7 @@ final class ThemeCoordinator {
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
+        for pane in content.panes.values { pane.guestTerminal.map { catchUp($0.entry, fresh: false) } }
     }
 
     /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or
@@ -259,9 +259,10 @@ final class ThemeCoordinator {
     /// every live surface's config at once: the config event pays for it, never a later workspace
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
-        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
+        if forceSurfaces { for entry in Array(services.cache.terminals.values) + services.cache.guestTerminals.values.map(\.entry) { entry.themeBinding.syncSurface(force: true) } }
     }
 
     func setTheme(of scope: ThemeScope, to text: String?) {
@@ -271,6 +272,7 @@ final class ThemeCoordinator {
         guard resolved != nil || themed.contains(scope) else { return }
         if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
+        services.windows.recordSaver.launchRecord.schedule()
     }
 
     // MARK: Commit and preview
@@ -290,9 +292,9 @@ final class ThemeCoordinator {
 
     /// A picker (palette argument page, context submenu) highlighted
     /// `value` of a theme action's `theme` argument; nil ends the preview.
-    func pickerPreview(_ action: ActionID, value: String?, target: ActionTargetRef?) {
+    func pickerPreview(_ action: ActionID, value: String?, target: ActionTargetRef?, machineID: String? = nil) {
         guard let value else { return endPreview() }
-        guard let resolved = previewTarget?(action, target) else { return }
+        guard let resolved = previewTarget?(action, target, machineID) else { return }
         beginPreview(resolved, spec: value == ActionArgument.themeConfigValue ? nil : value)
     }
 
@@ -303,14 +305,14 @@ final class ThemeCoordinator {
             let entry = if let target, target.kind == .tab { services.cache.existingBrowser(target.id) } else {
                 try? AppActionContext(services: services).page(ActionInvocation(target: target))
             }
-            return entry?.chrome.toolbarButtons.modes.colorScheme.rawValue
+            return entry?.state.modes.colorScheme.rawValue
         }
         // A pane's own background and tint (the pane's Appearance folder checks them).
         if action == "pane.setBackground" || action == "pane.setTint" {
             guard let pane = paneForChoice(target) else { return nil }
             return action == "pane.setBackground" ? ownValue(.background, of: .pane(pane)) ?? "inherit" : ownValue(.tint, of: .pane(pane)) ?? "none"
         }
-        guard let resolved = previewTarget?(action, target) else { return nil }
+        guard let resolved = previewTarget?(action, target, nil) else { return nil }
         let current: String? = switch resolved {
         case .room(let room): roomTheme(room)
         case .workspace(let id): workspaceTheme(id)

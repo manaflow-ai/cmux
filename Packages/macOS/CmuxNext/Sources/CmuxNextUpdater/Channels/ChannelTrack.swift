@@ -93,9 +93,11 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     ///   - keptBuilds: the builds this Mac kept for rollback.
     ///   - followed: the ring `updates.channel` picks.
     ///   - limit: how many recent builds a track shows.
+    ///   - feedItems: this app's own feed. The Dev track also lists its builds the index lacks: the
+    ///     published DEV app's tip feed has no notes index, so its builds come only from there.
     public static func tracks(index: [ReleaseNotesIndexEntry], verdicts: [String: String], pulled: [PulledBuild],
                               installedBuild: String, keptBuilds: Set<String>, followed: UpdateRing,
-                              limit: Int = 10) -> [ChannelTrack] {
+                              limit: Int = 10, feedItems: [AppcastItem] = []) -> [ChannelTrack] {
         let pulledByBuild = Dictionary(pulled.map { ($0.build, $0) }, uniquingKeysWith: { first, _ in first })
         let nightly = index.prefix(max(0, limit)).map { entry in
             ChannelBuild(build: entry.build, shortVersion: entry.shortVersion, date: entry.date, commit: entry.head,
@@ -103,10 +105,22 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
                          pulledReason: pulledByBuild[entry.build]?.reason,
                          isInstalled: entry.build == installedBuild, isKept: keptBuilds.contains(entry.build))
         }
+        let indexed = Set(index.map(\.build))
+        let fromFeed = feedItems.filter { !indexed.contains($0.version) && pulledByBuild[$0.version] == nil }.map { item in
+            ChannelBuild(build: item.version, shortVersion: item.displayVersion, date: item.date.map(day) ?? "",
+                         isInstalled: item.version == installedBuild, isKept: keptBuilds.contains(item.version))
+        }
+        let dev = (nightly + fromFeed).sorted { KeptVersionStore.isNewer($0.build, than: $1.build) }.prefix(max(0, limit))
         return UpdateRing.allCases.map { ring in
-            ChannelTrack(ring: ring, builds: ring == .nightly || ring == .dev ? Array(nightly) : [], isFollowed: ring == followed,
+            ChannelTrack(ring: ring, builds: ring == .nightly ? Array(nightly) : ring == .dev ? Array(dev) : [],
+                         isFollowed: ring == followed,
                          releaseURL: ring == .nightly ? URL(string: "\(ChannelBuild.repository)/releases/tag/nightly-next") : nil)
         }
+    }
+
+    /// `YYYY-MM-DD` in UTC, as `notes/index.json` writes a build's day.
+    static func day(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day())
     }
 
     static func health(verdict: String?) -> ChannelBuild.Health {

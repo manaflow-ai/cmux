@@ -82,7 +82,10 @@ const cardRows = [
   summary(17.6, { durationMs: 92_000, toolCount: 4 }),
   user("Investigate the disconnected peer and show the useful failure details", 16),
   assistant("The peer disappeared while the agent was waiting for its answer.", 15.8),
-  summary(15.6, { status: "failed", error: "peer disconnected while waiting for the agent to answer" }),
+  summary(15.6, {
+    status: "failed",
+    error: "peer disconnected while waiting for the agent to answer",
+  }),
   user("Check the changed files and link the review", 14),
   activity(
     [
@@ -146,7 +149,7 @@ export default agentPaneEntry({
   widths: { narrow: 880, normal: 1040, wide: 1240 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
     "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
@@ -210,19 +213,25 @@ export default agentPaneEntry({
       },
     },
     "card-prompt-growing": {
-      note: "Comparison arm: the same short, two-line, three-line and long prompts with an unconstrained card show why the fixed maximum reads better in a busy transcript.",
+      note: "Comparison arm: the long prompt with an unconstrained card (every prompt line and the whole reply) shows why the one-line title over a few reply lines reads better in a busy transcript.",
       snapshot: chat(promptWrapRows, { title: "Minimap prompt growing comparison" }),
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="3"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
         const card = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__card");
+        const fixed = card?.getBoundingClientRect().height ?? 0;
         const style = ctx.document.createElement("style");
         style.textContent =
-          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: unset; } " +
-          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { max-height: none !important; }";
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { white-space: pre-line; } " +
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { -webkit-line-clamp: unset; max-height: none !important; }";
         ctx.document.head.append(style);
-        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
+        // The prompt's four lines in place of one: the card is at least three lines taller.
+        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > fixed + 40);
       },
+    },
+    "first-paint": {
+      note: "The initial rail with no scripted scroll or hover, for first-frame stability measurement.",
+      snapshot: chat(rows, { title: "Thread minimap first paint" }),
     },
     rest: {
       note: "At rest mid-thread. Compact (the default, the wave): every unbookmarked tick stays a quiet 6 px and the prompts on screen are brighter; only a bookmarked prompt has a white dot. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
@@ -325,8 +334,12 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="5"]')) return;
         await ctx.focus({ selector: '[data-tick="5"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
-        if (!ctx.document.querySelector('[data-tick="5"][data-bookmarked]'))
-          await ctx.click({ selector: ".acpmux-minimap__bookmark" });
+        // From the keyboard: a click puts the pointer in the card, which opens it (the card entry's `opened`), and the
+        // hover back to the rail below would close it, a different state from this one.
+        if (!ctx.document.querySelector('[data-tick="5"][data-bookmarked]')) {
+          await ctx.focus({ selector: ".acpmux-minimap__bookmark" });
+          await ctx.press("Enter");
+        }
         await ctx.waitFor(() => ctx.document.querySelector('[data-tick="5"][data-bookmarked]'));
         await ctx.hover({ selector: '[data-tick="5"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__bookmark[aria-pressed="true"]'));

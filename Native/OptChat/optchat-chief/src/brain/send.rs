@@ -13,18 +13,19 @@ use std::path::PathBuf;
 use cmux_conversation::{Op, PartRef};
 
 use super::Brain;
-use super::media::{self, MAX_MEDIA_BYTES, MediaRef};
+use super::media::{self, MediaRef};
 use crate::tools::SendCall;
 
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
         // The length gate: the first long send of a turn comes back for
-        // Chief to cut; the next one posts (chief_kernel::replies).
+        // Chief to cut; the next one posts (chief_kernel::replies). A send
+        // marked `long` (a list the person asked for) posts the first time.
         if let Some(refusal) = chief_kernel::replies::length_check(
             call.text.as_deref().unwrap_or(""),
             self.chief.reply_max_words,
-            self.length_refused,
+            self.length_refused || call.long,
         ) {
             self.length_refused = true;
             self.trace.emit(
@@ -54,21 +55,13 @@ impl Brain {
             if meta.len() == 0 {
                 return Err(format!("send: attachment {} is empty", path.display()));
             }
-            if meta.len() > MAX_MEDIA_BYTES {
-                return Err(format!(
-                    "send: attachment {} is {} MB; the limit is {} MB",
-                    path.display(),
-                    meta.len() / 1_000_000,
-                    MAX_MEDIA_BYTES / 1_000_000
-                ));
-            }
             if files.iter().any(|f| f.path == path) {
                 continue;
             }
             let mime_type = media::attachment_type(&path);
             files.push(MediaRef {
                 path,
-                mime_type,
+                mime_type: mime_type.into(),
                 image_syntax: None,
             });
         }
@@ -129,9 +122,9 @@ impl Brain {
         {
             return Ok("outcome: noop. this message is already sent".to_owned());
         }
-        // The text as a reply's (subagent links), then a URL line each, then
-        // one `![name](<path>)` line per file: it leaves the text once the
-        // file is uploaded, and stays as its fallback when the upload fails.
+        // The text as a reply's (subagent links), then a URL line each.
+        // The file manifest stays separate: attachment count must not
+        // consume the message's text allowance.
         let mut text = call
             .text
             .as_deref()
@@ -142,20 +135,6 @@ impl Brain {
                 text.push('\n');
             }
             text.push_str(url);
-        }
-        for file in &mut files {
-            let name = file
-                .path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .replace([']', '[', '\n'], " ");
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            let start = text.len();
-            text.push_str(&format!("![{name}](<{}>)", file.path.display()));
-            file.image_syntax = Some(start..text.len());
         }
         if text.len() > super::REPLY_BYTES {
             return Err(format!(
@@ -180,19 +159,99 @@ impl Brain {
             });
             *thread_root = Some(root.clone());
         }
-        self.sent_keys.insert(key);
+        self.sent_keys.insert(key.clone());
+        // The wake run's `result`: the posted text, or the files it sent.
+        let posted = if text.is_empty() {
+            let names: Vec<String> = files
+                .iter()
+                .filter_map(|f| f.path.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .collect();
+            format!("[{} file(s): {}]", names.len(), names.join(", "))
+        } else {
+            text.clone()
+        };
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
+        // What the owner did with it: "sent" only when it took the message.
+        // A refusal is the Chief's to know (2026-11-20: 25 messages the
+        // owner refused with agent_budget were answered "sent").
+        // The key it went under: a merge into an earlier waiting message
+        // (pacing::coalesce) shares that message's fate; a refused link
+        // card retries as `{key}:text`, a refused thread as `{key}:top`.
+        let mut under = key.clone();
+        while let Some(into) = self.merged_sends.remove(&under) {
+            under = into;
+        }
+        let ours = |k: &str| {
+            k == under
+                || k.strip_prefix(under.as_str())
+                    .is_some_and(|r| r.starts_with(':'))
+        };
+        let refused_at = self.refused.iter().position(|r| ours(&r.key));
+        if let Some(refused) = refused_at.map(|at| self.refused.remove(at)) {
+            self.sent_keys.remove(&key);
+            let mut error = format!(
+                "send: refused by the conversation, nothing was posted ({}): {}",
+                refused.reason,
+                refusal_meaning(&refused.reason)
+            );
+            error.push_str(&self.untold_refusals());
+            return Err(error);
+        }
+        self.wake_run_posted(&posted);
         let what = match (files.len(), urls.len()) {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        Ok(match (placed, call.reply_to) {
-            (Some(placed), _) => format!("outcome: done. {placed}{what}"),
-            (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),
-            (None, None) => format!("outcome: done. sent{what}"),
-        })
+        let queued = self.state.outbox.iter().any(|e| ours(&e.idempotency_key));
+        let mut answer = match (queued, placed, call.reply_to) {
+            (true, placed, _) => format!(
+                "outcome: queued. not posted yet{what}: it waits its turn in the outbox (the gap after the last message, an upload or link previews){}; a refusal is told on your next send",
+                placed.map(|p| format!("; {p}")).unwrap_or_default()
+            ),
+            (false, Some(placed), _) => format!("outcome: done. {placed}{what}"),
+            (false, None, Some(id)) => {
+                format!("outcome: done. sent{what} in the thread of message {id}")
+            }
+            (false, None, None) => format!("outcome: done. sent{what}"),
+        };
+        answer.push_str(&self.untold_refusals());
+        Ok(answer)
+    }
+}
+
+impl Brain {
+    /// The refusals the Chief has not been told yet (messages queued earlier
+    /// that the owner refused later), as lines to append to an answer.
+    fn untold_refusals(&mut self) -> String {
+        self.take_all_refused()
+            .into_iter()
+            .map(|r| {
+                let text: String = r.text.chars().take(80).collect();
+                let more = if r.text.chars().count() > 80 {
+                    "…"
+                } else {
+                    ""
+                };
+                format!(
+                    "\nearlier message not posted ({}): {text:?}{more}: {}",
+                    r.reason,
+                    refusal_meaning(&r.reason)
+                )
+            })
+            .collect()
+    }
+}
+
+/// What an owner's reject code means for the Chief.
+fn refusal_meaning(reason: &str) -> &'static str {
+    if reason.contains("agent_budget") {
+        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing: end the turn (stop). The host keeps what is owed (untold outcomes, unannounced starts) and puts it in your turn for the person's next message"
+    } else if reason.contains("idempotency_conflict") {
+        "this message's key was already used for other text (a host bug)"
+    } else {
+        "the conversation refused the message"
     }
 }

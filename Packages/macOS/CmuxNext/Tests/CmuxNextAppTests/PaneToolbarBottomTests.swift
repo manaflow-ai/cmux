@@ -3,12 +3,13 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// `browser.toolbarPosition` bottom in a pane (user, 2026-10-20: "move my OmniBar tabs to the
 /// bottom side"): the pane hands the setting to its browser, and with the tab bar on the same edge
 /// `tabs.barOrder` stacks the two. Rects are in window coordinates (y up).
-@MainActor @Suite(.serialized) struct PaneToolbarBottomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneToolbarBottomTests {
     struct Pane {
         let window: NSWindow
         let pane: PaneContentView
@@ -39,6 +40,7 @@ import Testing
         var pageArea: NSRect { rect(chrome.contentContainer) }
 
         func tearDown() {
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

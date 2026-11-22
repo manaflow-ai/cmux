@@ -134,6 +134,10 @@ impl Surface {
                 // racing termination by reconnecting a Surface that no longer
                 // exists in the mux topology.
                 pty.owner_detaching.store(true, Ordering::Release);
+                // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
+                // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
+                pty.input_port.reconnect_ended();
+                pty.cancel_host_fence_wait();
                 {
                     let mut runtime = pty.runtime.lock().unwrap();
                     match &mut *runtime {
@@ -175,6 +179,10 @@ impl Surface {
             Surface::Pty(pty) => {
                 if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
                     pty.owner_detaching.store(true, Ordering::Release);
+                    // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
+                    // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
+                    pty.input_port.reconnect_ended();
+                    pty.cancel_host_fence_wait();
                     host.disconnect();
                     return;
                 }
@@ -187,6 +195,10 @@ impl Surface {
                     &*pty.runtime.lock().unwrap()
                 {
                     pty.owner_detaching.store(true, Ordering::Release);
+                    // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
+                    // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
+                    pty.input_port.reconnect_ended();
+                    pty.cancel_host_fence_wait();
                     holder.detach();
                     return;
                 }
@@ -208,6 +220,10 @@ impl Surface {
             let runtime = pty.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 pty.owner_detaching.store(true, Ordering::Release);
+                // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
+                // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
+                pty.input_port.reconnect_ended();
+                pty.cancel_host_fence_wait();
                 let mut gap = None;
                 if host.supports_journal_detach_fence()
                     && let Err(error) = host.detach_for_daemon_shutdown_until(deadline)

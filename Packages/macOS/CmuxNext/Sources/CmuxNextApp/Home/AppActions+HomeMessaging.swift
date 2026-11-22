@@ -1,7 +1,8 @@
 import CmuxHomeCore
+import CmuxNextHome
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 
@@ -16,8 +17,8 @@ extension AppActions {
         let registry = services.registry
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak services] source in
-            guard source == ActionSuggestions.homeRecipients else { return suggestions?(source) ?? [] }
-            return services?.home.messageRouting.recipients().map { ActionEnumCase(value: $0.value, title: $0.title) } ?? []
+            guard let home = services?.home else { return suggestions?(source) ?? [] }
+            return home.messageRouting.suggestions(for: source, members: home.chiefRoster.groupMembers(home.contacts(), rows: home.homeStore.rows, excluding: home.homeStore.me?.id), chiefs: home.directory.chiefSuggestions()) ?? suggestions?(source) ?? []
         }
         registry.bind("home.messageTo", invoke: { invocation in
             let routing = services.home.messageRouting
@@ -60,7 +61,7 @@ extension AppActions {
         services.registry.perform("home.openConversation",
                                   invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
         guard let draft, let page = shownPage(services), page.shown == id, let host = page.host,
-              let transcript = HomePageTab.transcript(in: host) else { return }
+              let transcript = HomeNativeTranscriptView.first(in: host) else { return }
         transcript.showDraft(draft)
     }
 

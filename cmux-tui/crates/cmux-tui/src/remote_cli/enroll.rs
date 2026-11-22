@@ -1,0 +1,600 @@
+//! `remote enroll` and `known-daemons`: enrollment admin actions and their
+//! arguments, relay tickets for a new invitation, and the admin socket's replies.
+
+use super::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnrollAdminAction {
+    Status,
+    Create,
+    Pending,
+    Approve,
+    Deny,
+    Devices,
+    Connections,
+    Revoke,
+    Disconnect,
+}
+
+impl EnrollAdminAction {
+    fn parse(action: &str) -> anyhow::Result<Self> {
+        match action {
+            "status" => Ok(Self::Status),
+            "create" => Ok(Self::Create),
+            "pending" => Ok(Self::Pending),
+            "approve" => Ok(Self::Approve),
+            "deny" => Ok(Self::Deny),
+            "devices" => Ok(Self::Devices),
+            "connections" => Ok(Self::Connections),
+            "revoke" => Ok(Self::Revoke),
+            "disconnect" => Ok(Self::Disconnect),
+            other => Err(anyhow!(catalog().remote_client.unknown_action("enroll", other))),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Create => "create",
+            Self::Pending => "pending",
+            Self::Approve => "approve",
+            Self::Deny => "deny",
+            Self::Devices => "devices",
+            Self::Connections => "connections",
+            Self::Revoke => "revoke",
+            Self::Disconnect => "disconnect",
+        }
+    }
+
+    fn positional_arity(self) -> usize {
+        match self {
+            Self::Approve | Self::Deny | Self::Revoke => 1,
+            Self::Disconnect => 2,
+            Self::Status | Self::Create | Self::Pending | Self::Devices | Self::Connections => 0,
+        }
+    }
+}
+
+enum InvitationTicketArg {
+    File(PathBuf),
+}
+
+pub(super) struct EnrollAdminArgs {
+    action: EnrollAdminAction,
+    pub(super) positionals: Vec<String>,
+    pub(super) session: String,
+    state_dir: Option<PathBuf>,
+    admin_socket: Option<PathBuf>,
+    pub(super) json: bool,
+    ttl_seconds: u64,
+    advertised_routes: Vec<String>,
+    relay_routes: Vec<String>,
+    relay_slots: Vec<String>,
+    relay_tickets: Vec<InvitationTicketArg>,
+    pub(super) device_key: Option<String>,
+    pub(super) device_name: Option<String>,
+}
+
+pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
+    let (action, mut index) = match args.first() {
+        Some(action) => (EnrollAdminAction::parse(action)?, 1),
+        None => (EnrollAdminAction::Status, 0),
+    };
+    let mut parsed = EnrollAdminArgs {
+        action,
+        positionals: Vec::new(),
+        session: "main".into(),
+        state_dir: None,
+        admin_socket: None,
+        json: false,
+        ttl_seconds: 300,
+        advertised_routes: Vec::new(),
+        relay_routes: Vec::new(),
+        relay_slots: Vec::new(),
+        relay_tickets: Vec::new(),
+        device_key: None,
+        device_name: None,
+    };
+    let mut seen = BTreeSet::new();
+    let mut options_ended = false;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        if !options_ended && argument == "--" {
+            options_ended = true;
+            continue;
+        }
+        if options_ended || !argument.starts_with("--") {
+            parsed.positionals.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--session" => {
+                require_unique_flag(&mut seen, "--session")?;
+                parsed.session = strict_option_value(args, &mut index, "--session")?;
+            }
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--admin-socket" => {
+                require_unique_flag(&mut seen, "--admin-socket")?;
+                parsed.admin_socket =
+                    Some(strict_option_value(args, &mut index, "--admin-socket")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                parsed.json = true;
+            }
+            "--ttl" => {
+                require_create_action(action, "--ttl")?;
+                require_unique_flag(&mut seen, "--ttl")?;
+                parsed.ttl_seconds =
+                    strict_option_value(args, &mut index, "--ttl")?.parse().map_err(|_| {
+                        anyhow!(catalog().remote_client.invalid_option_value("--ttl", "seconds"))
+                    })?;
+                if parsed.ttl_seconds == 0 {
+                    return Err(anyhow!(catalog().remote_client.option_must_be_positive("--ttl")));
+                }
+            }
+            "--advertise" => {
+                require_create_action(action, "--advertise")?;
+                parsed.advertised_routes.push(strict_option_value(
+                    args,
+                    &mut index,
+                    "--advertise",
+                )?);
+            }
+            "--relay-route" => {
+                require_create_action(action, "--relay-route")?;
+                parsed.relay_routes.push(strict_option_value(args, &mut index, "--relay-route")?);
+            }
+            "--relay-slot" => {
+                require_create_action(action, "--relay-slot")?;
+                parsed.relay_slots.push(strict_option_value(args, &mut index, "--relay-slot")?);
+            }
+            option if is_inline_secret_option(option, "--relay-ticket") => {
+                return Err(anyhow!(catalog().remote_client.inline_enroll_relay_ticket_rejected));
+            }
+            "--relay-ticket-file" => {
+                require_create_action(action, "--relay-ticket-file")?;
+                parsed.relay_tickets.push(InvitationTicketArg::File(
+                    strict_option_value(args, &mut index, "--relay-ticket-file")?.into(),
+                ));
+            }
+            "--device-key" => {
+                require_create_action(action, "--device-key")?;
+                require_unique_flag(&mut seen, "--device-key")?;
+                // Not strict_option_value: a URL-safe base64 key may begin
+                // with `--`. The value is checked as a key below.
+                let key = args.get(index).cloned().ok_or_else(|| {
+                    anyhow!(catalog().remote_client.option_needs_value("--device-key"))
+                })?;
+                index += 1;
+                parsed.device_key = Some(key);
+            }
+            "--device-name" => {
+                require_create_action(action, "--device-name")?;
+                require_unique_flag(&mut seen, "--device-name")?;
+                parsed.device_name = Some(strict_option_value(args, &mut index, "--device-name")?);
+            }
+            option => {
+                return Err(anyhow!(
+                    catalog()
+                        .remote_client
+                        .unknown_option_for_command(option, &format!("enroll {}", action.name()))
+                ));
+            }
+        }
+    }
+    if parsed.device_name.is_some() && parsed.device_key.is_none() {
+        return Err(anyhow!("--device-name names the device of --device-key; pass both"));
+    }
+    if let Some(key) = &parsed.device_key {
+        BoundDevice::parse(key, parsed.device_name.clone())?;
+    }
+    let expected = action.positional_arity();
+    if parsed.positionals.len() != expected {
+        return Err(anyhow!(catalog().remote_client.enroll_arity(action.name(), expected)));
+    }
+    Ok(parsed)
+}
+
+fn require_create_action(action: EnrollAdminAction, option: &str) -> anyhow::Result<()> {
+    if action != EnrollAdminAction::Create {
+        return Err(anyhow!(catalog().remote_client.option_create_only(option)));
+    }
+    Ok(())
+}
+
+pub(super) fn run_enroll(
+    args: &[String],
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
+    if args.first().is_some_and(|action| action == "connect") {
+        return run_connect(&args[1..], None, load_config);
+    }
+    let parsed = parse_enroll_admin_args(args)?;
+    let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
+        load_runtime_info(&parsed.session, parsed.state_dir.as_deref())
+            .map(|runtime| runtime.admin_socket)
+            .or_else(|_| {
+                daemon_paths(&parsed.session, parsed.state_dir.as_deref())
+                    .map(|(_, _, admin)| admin)
+            })
+            .unwrap_or_else(|_| PathBuf::from("/nonexistent"))
+    });
+    let request = match parsed.action {
+        EnrollAdminAction::Status => AdminRequest::Status,
+        EnrollAdminAction::Create => AdminRequest::CreateInvitation {
+            ttl_seconds: parsed.ttl_seconds,
+            route_hints: parsed.advertised_routes.clone(),
+            relay_access: invitation_relay_access(&parsed)?,
+            device_public_key: parsed.device_key.clone(),
+            device_name: parsed.device_name.clone(),
+        },
+        EnrollAdminAction::Pending => AdminRequest::Pending,
+        EnrollAdminAction::Approve => {
+            AdminRequest::Approve { invitation_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Deny => {
+            AdminRequest::Deny { invitation_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Devices => AdminRequest::Devices,
+        EnrollAdminAction::Connections => AdminRequest::Connections,
+        EnrollAdminAction::Revoke => {
+            AdminRequest::Revoke { device_id: parsed.positionals[0].clone() }
+        }
+        EnrollAdminAction::Disconnect => AdminRequest::Disconnect {
+            device_id: parsed.positionals[0].clone(),
+            session_id: parsed.positionals[1].clone(),
+        },
+    };
+    let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
+    if parsed.device_key.is_some() {
+        require_bound_invitation(&response)?;
+    }
+    if !parsed.json && response.ok {
+        let result = response.result.as_ref().unwrap_or(&Value::Null);
+        match parsed.action {
+            EnrollAdminAction::Create => return print_created_invitation(&parsed, result),
+            EnrollAdminAction::Revoke => {
+                let device_id = parsed.positionals.first().map_or("", String::as_str);
+                println!("{}", revoked_device_summary(device_id, result));
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    print_admin_response(parsed.action.name(), response, parsed.json)
+}
+
+/// `enroll create` prints the URI as stdout's only line, for scripts that
+/// capture it, and what an owner needs next on stderr.
+fn print_created_invitation(parsed: &EnrollAdminArgs, result: &Value) -> anyhow::Result<()> {
+    let uri = result
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing invitation URI"))?;
+    println!("{uri}");
+    let invitation = EnrollmentInvitation::from_uri(uri)?;
+    let bound = parsed
+        .device_key
+        .as_deref()
+        .map(|key| BoundDevice::parse(key, parsed.device_name.clone()))
+        .transpose()?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    for line in invitation_summary(&invitation, parsed.ttl_seconds, bound.as_ref(), now) {
+        eprintln!("{line}");
+    }
+    Ok(())
+}
+
+pub(super) fn invitation_summary(
+    invitation: &EnrollmentInvitation,
+    requested_ttl_seconds: u64,
+    bound: Option<&BoundDevice>,
+    now_unix: u64,
+) -> Vec<String> {
+    let remaining = invitation.expires_at_unix.saturating_sub(now_unix);
+    let mut lines = vec![format!(
+        "expires in {}, at {} UTC",
+        human_duration(remaining),
+        utc_clock(invitation.expires_at_unix)
+    )];
+    // The daemon caps an invitation's lifetime; a second of slack covers the
+    // clock ticking between its reply and this line.
+    if requested_ttl_seconds > remaining.saturating_add(1) {
+        lines.push(format!(
+            "asked for {}; the daemon caps an invitation at {}",
+            human_duration(requested_ttl_seconds),
+            human_duration(remaining)
+        ));
+    }
+    match bound {
+        Some(device) => lines.push(match &device.name {
+            Some(name) => format!(
+                "bound to device {name} ({}); it enrolls with no approval step",
+                device.fingerprint()
+            ),
+            None => format!(
+                "bound to device {}; it enrolls with no approval step",
+                device.fingerprint()
+            ),
+        }),
+        None => lines.push(format!(
+            "not bound to a device: when it connects, approve it with `cmux remote enroll approve {}`",
+            invitation.id
+        )),
+    }
+    let route = invitation.route_hints.first().map_or("ROUTE", String::as_str);
+    lines.push(
+        "on the device, save the line above to an owner-only file (chmod 600) and run:".into(),
+    );
+    lines.push(format!("  cmux remote connect {route} --invite-file PATH"));
+    lines
+}
+
+/// Seconds as "5 min", "4 min 30 s" or "45 s".
+fn human_duration(seconds: u64) -> String {
+    match (seconds / 60, seconds % 60) {
+        (0, seconds) => format!("{seconds} s"),
+        (minutes, 0) => format!("{minutes} min"),
+        (minutes, seconds) => format!("{minutes} min {seconds} s"),
+    }
+}
+
+/// A Unix time's time of day in UTC, as HH:MM:SS.
+fn utc_clock(unix: u64) -> String {
+    let seconds = unix % 86_400;
+    format!("{:02}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+}
+
+/// What `enroll revoke` revoked. A daemon older than this reply sends `{}`;
+/// then only the id the owner passed is known.
+pub(super) fn revoked_device_summary(device_id: &str, result: &Value) -> String {
+    let fingerprint = result.get("fingerprint").and_then(Value::as_str).unwrap_or(device_id);
+    match result.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+        Some(name) => format!("revoked device {name} ({fingerprint}); it can no longer connect"),
+        None => format!("revoked device {fingerprint}; it can no longer connect"),
+    }
+}
+
+/// A daemon older than bound invitations ignores `--device-key` and makes an
+/// ordinary invitation that waits for approval; say so instead of handing it out.
+fn require_bound_invitation(response: &AdminResponse) -> anyhow::Result<()> {
+    let Some(uri) = response.result.as_ref().and_then(|result| result.get("uri")?.as_str()) else {
+        return Ok(());
+    };
+    if EnrollmentInvitation::from_uri(uri)?.approval_required {
+        return Err(anyhow!(
+            "this daemon does not support --device-key and made an invitation that needs approval; approve the device with `cmux remote enroll approve ID` once it connects"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) struct DeviceKeyArgs {
+    pub(super) state_dir: Option<PathBuf>,
+    pub(super) json: bool,
+}
+
+pub(super) fn parse_device_key_args(args: &[String]) -> anyhow::Result<DeviceKeyArgs> {
+    let mut parsed = DeviceKeyArgs { state_dir: None, json: false };
+    let mut seen = BTreeSet::new();
+    let mut index = 0;
+    while let Some(argument) = args.get(index) {
+        index += 1;
+        match argument.as_str() {
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                parsed.json = true;
+            }
+            // A global --socket names a session; the device key is this client's.
+            "--socket" => _ = strict_option_value(args, &mut index, "--socket")?,
+            option => {
+                return Err(anyhow!(
+                    catalog().remote_client.unknown_option_for_command(option, "device-key")
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+/// `cmux remote device-key`: print this client's device public key and
+/// fingerprint, for an invitation bound to this device.
+pub(super) fn run_device_key(args: &[String]) -> anyhow::Result<()> {
+    let parsed = parse_device_key_args(args)?;
+    let client_root = parsed
+        .state_dir
+        .or_else(default_state_dir)
+        .ok_or_else(|| anyhow!(catalog().remote_client.known_state_dir_unavailable))?
+        .join("client");
+    let store = ClientIdentityStore::load_or_create(client_root)?;
+    let public_key = store.device_public_key();
+    let fingerprint = store.identity().fingerprint();
+    if parsed.json {
+        println!("{}", serde_json::json!({ "public_key": public_key, "fingerprint": fingerprint }));
+    } else {
+        println!("{public_key}");
+        println!("{fingerprint}");
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum KnownDaemonsAction {
+    List,
+    Forget(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct KnownDaemonsArgs {
+    pub(super) action: KnownDaemonsAction,
+    pub(super) state_dir: Option<PathBuf>,
+    pub(super) json: bool,
+}
+
+pub(super) fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs> {
+    let mut state_dir = None;
+    let mut json = false;
+    let mut seen = BTreeSet::new();
+    let mut positionals = Vec::new();
+    let mut options_ended = false;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        if !options_ended && argument == "--" {
+            options_ended = true;
+            continue;
+        }
+        if options_ended || !argument.starts_with("--") {
+            positionals.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                state_dir = Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                json = true;
+            }
+            // A global --socket names a session; pinned identities are this client's.
+            "--socket" => _ = strict_option_value(args, &mut index, "--socket")?,
+            option => {
+                return Err(anyhow!(
+                    catalog().remote_client.unknown_option_for_command(option, "known-daemons")
+                ));
+            }
+        }
+    }
+    let action = match positionals.as_slice() {
+        [] => KnownDaemonsAction::List,
+        [action] if action == "list" => KnownDaemonsAction::List,
+        [action, fingerprint] if action == "forget" => {
+            KnownDaemonsAction::Forget(fingerprint.clone())
+        }
+        [action, ..] if action == "forget" => {
+            return Err(anyhow!(catalog().remote_client.known_forget_arity));
+        }
+        [action, ..] => {
+            return Err(anyhow!(catalog().remote_client.unknown_action("known-daemons", action)));
+        }
+    };
+    Ok(KnownDaemonsArgs { action, state_dir, json })
+}
+
+pub(super) fn run_known_daemons(args: &[String]) -> anyhow::Result<()> {
+    let parsed = parse_known_daemons_args(args)?;
+    let messages = &catalog().remote_client;
+    let client_root = parsed
+        .state_dir
+        .or_else(default_state_dir)
+        .ok_or_else(|| anyhow!(messages.known_state_dir_unavailable))?
+        .join("client");
+    let store = ClientIdentityStore::load_or_create(client_root)?;
+    if let KnownDaemonsAction::Forget(fingerprint) = parsed.action {
+        let forgotten = tokio_runtime()?.block_on(store.forget_daemon(&fingerprint))?;
+        if !forgotten {
+            return Err(anyhow!(messages.known_daemon_not_known(&fingerprint)));
+        }
+        if parsed.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "forgotten": true,
+                    "fingerprint": fingerprint,
+                })
+            );
+        } else {
+            println!("{}", messages.known_daemon_forgotten(&fingerprint));
+        }
+        return Ok(());
+    }
+    let daemons = tokio_runtime()?.block_on(store.known_daemons());
+    if parsed.json {
+        println!("{}", serde_json::to_string_pretty(&daemons)?);
+        return Ok(());
+    }
+    if daemons.is_empty() {
+        println!("{}", messages.known_daemons_empty);
+        return Ok(());
+    }
+    for daemon in daemons {
+        println!(
+            "{}\t{}\t{}",
+            daemon.name,
+            daemon.fingerprint,
+            match daemon.auth {
+                KnownDaemonAuth::Enrolled => messages.known_daemon_auth_enrolled,
+                KnownDaemonAuth::Carrier => messages.known_daemon_auth_carrier,
+            }
+        );
+        for route in daemon.route_hints {
+            println!("  {route}");
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn invitation_relay_access(
+    args: &EnrollAdminArgs,
+) -> anyhow::Result<Vec<EnrollmentRelayAccess>> {
+    if args.relay_routes.is_empty() && args.relay_slots.is_empty() && args.relay_tickets.is_empty()
+    {
+        return Ok(Vec::new());
+    }
+    if args.relay_routes.len() != args.relay_slots.len()
+        || args.relay_routes.len() != args.relay_tickets.len()
+    {
+        return Err(anyhow!(
+            "each invitation relay needs one --relay-route, one --relay-slot, and one --relay-ticket-file"
+        ));
+    }
+    if args.relay_routes.len() > 2 {
+        return Err(anyhow!("an invitation supports at most two relay bootstrap routes"));
+    }
+
+    args.relay_routes
+        .iter()
+        .zip(&args.relay_slots)
+        .zip(&args.relay_tickets)
+        .map(|((route, slot), source)| {
+            let InvitationTicketArg::File(path) = source;
+            let ticket = read_invitation_ticket_file(path)?;
+            Ok(EnrollmentRelayAccess { route: route.clone(), slot: slot.clone(), ticket })
+        })
+        .collect()
+}
+
+pub(super) fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
+    Ok(cmux_remote::secret_file::read_owner_only_string(path, 4 * 1024 + 2)
+        .with_context(|| format!("could not read relay ticket file {}", path.display()))?
+        .trim()
+        .to_string())
+}
+
+fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> anyhow::Result<()> {
+    if !response.ok {
+        return Err(anyhow!(response.error.unwrap_or_else(|| "admin request failed".into())));
+    }
+    let result = response.result.unwrap_or(Value::Null);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else if action == "create" {
+        println!("{}", result["uri"].as_str().ok_or_else(|| anyhow!("missing invitation URI"))?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    }
+    Ok(())
+}

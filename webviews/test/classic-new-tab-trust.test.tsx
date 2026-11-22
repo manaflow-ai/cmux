@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -74,6 +75,7 @@ afterEach(async () => {
 afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -205,10 +207,10 @@ async function askIn(folder: string, text: string) {
   );
   expect(option, "the picked folder's row").not.toBeNull();
   await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  // The page's field is the chat composer's prompt editor (MarkdownField): typed as a person would.
+  const field = host.querySelector<FieldElement>(".acpmux-newtab-field")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, text);
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type(text);
   });
   await act(async () =>
     host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
@@ -230,7 +232,7 @@ const trustRefusal = (folder: string): Refusal => ({
 });
 
 test("classic Return with no agent named: a start refused for the folder's trust sends its prompt once Trust is answered, once", async () => {
-  const folder = "/tmp/untrusted-project";
+  const folder = "/Users/sample/untrusted-project";
   let trusted = false;
   const { prompts, started } = await mountClassic(folder, async () => (trusted ? undefined : trustRefusal(folder)));
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
@@ -260,7 +262,7 @@ test("classic Return with no agent named: a start refused for the folder's trust
 // hero), so nothing can be typed in the chat composer while the start is out: the page holds the
 // prompt until then, and a refusal after a while gives it back as a quick one does.
 test("a start refused after a while keeps the New Tab page until then, and gives the prompt back with the trust question", async () => {
-  const folder = "/tmp/slow-untrusted-project";
+  const folder = "/Users/sample/slow-untrusted-project";
   let answer: (() => void) | undefined;
   const { prompts, started } = await mountClassic(folder, async (attempt) => {
     if (attempt > 1) return undefined;
@@ -289,7 +291,7 @@ test("a start refused after a while keeps the New Tab page until then, and gives
 }, 60_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
-  const folder = "/tmp/busy-project";
+  const folder = "/Users/sample/busy-project";
   const { prompts, started } = await mountClassic(
     folder,
     async (attempt) => (attempt === 1 ? { message: "acpmux could not start the agent" } : undefined),
@@ -316,7 +318,7 @@ test("a start refused for another reason leaves the prompt in the composer, and 
 }, 60_000);
 
 test("App failed-row Retry cannot bypass a pending folder choice or duplicate the Trust retry", async () => {
-  const folder = "/tmp/retry-pending-folder";
+  const folder = "/Users/sample/retry-pending-folder";
   const { prompts } = await mountClassic(folder, async () => undefined, { trusted: true });
   await askIn(folder, "Start this chat");
   await quiet("the initial turn ends");

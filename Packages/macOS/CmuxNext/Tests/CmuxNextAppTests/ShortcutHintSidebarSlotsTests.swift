@@ -4,12 +4,13 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Modifier-hold hints in the sidebar come from the same slot mapping Cmd-1…9 uses
 /// (`SidebarItemOrder.number(for:_:)`): every digit that reaches a shown destination
 /// has a chip on that destination, so Home and the App Store (Cmd-1, Cmd-2 with
 /// `sidebar.numbering = allItems`) show theirs too (u4457: "i dont see cmd 1 and cmd 2 hints").
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct ShortcutHintSidebarSlotsTests {
     private static func machine(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
         let store = DaemonStore()
@@ -54,7 +55,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut([Self.topBlock()] + Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let settings = SidebarNavigationSettings(numbering: .allItems, cmd9: .last)
         let home = SidebarItem.topItem(LayoutItemID("itm_home"))
         try #require(model.itemOrder.number(for: home, settings) == 1, "Home is not Cmd-1: \(model.itemOrder.items)")
@@ -67,7 +68,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         try #require(!model.itemOrder.topItems.isEmpty, "no top items in the band: \(model.itemOrder.items)")
         #expect(Self.digitsWithoutChip(model, sidebar).isEmpty,
                 "digits without a chip: \(Self.digitsWithoutChip(model, sidebar)); order \(model.itemOrder.items)")
@@ -78,9 +79,32 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let rows = model.itemOrder.rows.filter { if case .workspace = $0 { true } else { false } }
         #expect(rows.count == 3)
         for row in rows { #expect(sidebar.shortcutHintItemFrames[row] != nil, "\(row) has no chip") }
+    }
+
+    /// Leo 2026-11-07 (Cmd-1…7 next to a group): a member folded into its group's "Done (N)" row draws no row, so no
+    /// digit may count it: every digit that reaches a workspace has a chip on a drawn row.
+    @Test func aGroupWithAFoldedDoneMemberLeavesNoDigitWithoutAChip() {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
+            var ws = SidebarWorkspace(id: WorkspaceID(id), title: id)
+            if done { ws.taskStatus = .done }
+            return ws
+        }
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(ws("a")),
+            .group(SidebarGroup(id: GroupID("g"), name: "G", color: .red, isCollapsed: false,
+                                workspaces: [ws("g-1"), ws("g-2", done: true), ws("g-3")])),
+            .workspace(ws("b")),
+            .workspace(ws("c")),
+        ])
+        let (model, sidebar, window) = Self.layOut([section])
+        defer { window.closeAfterTest() }
+        #expect(Self.digitsWithoutChip(model, sidebar).isEmpty,
+                "digits without a chip: \(Self.digitsWithoutChip(model, sidebar)); order \(model.itemOrder.items)")
     }
 }

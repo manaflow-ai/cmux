@@ -22,3 +22,9 @@ roots = ["${CODEX_HOME:-~/.codex}/sessions"]
 [sessions.resume]
 argv = ["codex", "resume", "{id}"]
 cwd = "{cwd}"
+
+# Optional cmux-managed runtime (explicit install only). The installer selects the
+# target asset and verifies this release SHA before activation.
+# version = 0.156.1
+# macOS arm64 archive SHA-256: 2bd64af14dedd47795f2f6bfd5d125cf79199acc2c7ba222144e08127111a5ca
+# macOS x86_64 archive SHA-256: 55e34586dee53720dd94451022632fffc9e3b55b24715acdd9453fd3566a54df

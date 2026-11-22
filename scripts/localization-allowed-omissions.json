@@ -1,4 +1,64 @@
 {
+  "argument.value.dev": {
+    "class": "brand",
+    "source": "DEV"
+  },
+  "chatMenu.presentation.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": {
+        "reason": "Messages is the standard French plural noun for chat messages.",
+        "values": [
+          "Messages"
+        ]
+      }
+    }
+  },
+  "settings.choice.groupGradientAurora": {
+    "source": "Aurora",
+    "identityLocales": {
+      "es": {
+        "reason": "Aurora is the standard Spanish word for the dawn and the polar lights, the gradient's name.",
+        "values": [
+          "Aurora"
+        ]
+      }
+    }
+  },
+  "settings.choice.neko": {
+    "source": "Neko",
+    "identityLocales": {
+      "de": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; German keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "es": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; Spanish keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "fr": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; French keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      }
+    }
+  },
+  "settings.choice.agentChatPresentationMessages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": {
+        "reason": "Messages is the standard French plural noun for chat messages.",
+        "values": [
+          "Messages"
+        ]
+      }
+    }
+  },
   "cloud.workspaceSetup.setupClaude": {
     "class": "brand",
     "source": "Claude"
@@ -124,6 +184,16 @@
   "notification.remoteRelay.title": {
     "class": "format",
     "source": "%1$@: %2$@"
+  },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
@@ -2252,13 +2322,13 @@
   "home.title": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "argument.home.view.messages": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "home.list.title": {
@@ -2718,6 +2788,20 @@
   "settings.section.computerUse": {
     "source": "Computer Use",
     "class": "brand"
+  },
+  "settings.category.computerUse": {
+    "source": "Computer Use",
+    "class": "brand"
+  },
+  "settings.computerUse.mode": {
+    "source": "Computer Use",
+    "class": "brand"
+  },
+  "menu.menuBar.computerUse.agentInApp": {
+    "source": "%1$@ in %2$@",
+    "identityLocales": {
+      "de": "German uses the same preposition \"in\" for an agent working in an app; the translated entry is still required."
+    }
   },
   "settings.section.mobile": {
     "source": "Mobile",
@@ -3718,35 +3802,6 @@
     "identityLocales": {
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
-  },
-  "update.error.details.code": {
-    "source": "Code",
-    "identityLocales": {
-      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "update.error.details.domain": {
-    "source": "Domain",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "update.error.details.feed": {
-    "source": "Feed",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "update.error.details.message": {
-    "source": "Message",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "update.error.details.url": {
-    "class": "technical",
-    "source": "URL"
   },
   "workspaceTodoPane.title": {
     "source": "Todos",
@@ -5567,6 +5622,89 @@
       }
     }
   },
+  "backdrop.shader.aero": {
+    "source": "Aero",
+    "identityLocales": {
+      "bs": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "da": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "de": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "es": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "fr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "it": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "nb": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pl": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "tr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "vi": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      }
+    }
+  },
   "backdrop.martin-pandemonium.title": {
     "source": "Pandemonium",
     "identityLocales": {
@@ -6770,6 +6908,14 @@
     "class": "brand",
     "source": "Mac"
   },
+  "devices.platform.linux": {
+    "class": "brand",
+    "source": "Linux"
+  },
+  "devices.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
   "devices.platform.ios": {
     "class": "brand",
     "source": "iPhone"
@@ -6950,16 +7096,6 @@
       "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
   },
-  "argument.chiefImportChief": {
-    "class": "brand",
-    "source": "Cloud Chief"
-  },
-  "argument.chiefImportSource": {
-    "source": "Source",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
   "argument.notifications.agent": {
     "source": "Agent",
     "identityLocales": {
@@ -7057,6 +7193,514 @@
           "DeepSeek V4.1 Flash 1017 (Images)"
         ]
       }
+    }
+  },
+  "iphone.phone.transport.next": {
+    "class": "brand",
+    "source": "%@ · cmux next"
+  },
+  "iphone.phone.transport.ios": {
+    "class": "brand",
+    "source": "%@ · cmux (iOS)"
+  },
+  "cloud.workspaceSetup.setupScriptPlaceholder": {
+    "class": "technical",
+    "source": "bun install"
+  },
+  "home.chatColors.text": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun for text; the translated entry remains required."
+    }
+  },
+  "home.compose.section.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the established German noun for a team; the translated entry remains required."
+    }
+  },
+  "settingsPage.cloudEnvironments.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name is the German noun for name; the translated entry remains required."
+    }
+  },
+  "settings.choice.newChatsInCloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "fr": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
+      "it": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required."
+    }
+  },
+  "sidebar.groupSort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "sidebar.groupSort.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the Spanish adjective for a hand-set order (as settings.terminal.resumeCommands.policy.manual).",
+      "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
+    }
+  },
+  "argument.value.groupSort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as sidebar.groupSort.name)."
+    }
+  },
+  "argument.value.groupSort.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the Spanish adjective for a hand-set order (as sidebar.groupSort.manual).",
+      "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
+    }
+  },
+  "github.tab.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "github.page.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "remote.status.title": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "settings.group.cmuxRemote": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "remote.status.computerUse": {
+    "source": "Computer Use: %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ar": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "es": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ko": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ja": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      }
+    }
+  },
+  "remote.status.host": {
+    "source": "Host: %@",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "settingsWindow.harnesses.accounts.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for a name.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "chatDisplay.uiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "settings.choice.agentChatUiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "chatDisplay.uiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "settings.choice.agentChatUiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "chatDisplay.uiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "settings.choice.agentChatUiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "chatDisplay.uiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "settings.choice.agentChatUiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "chatDisplay.uiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "settings.choice.agentChatUiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "chatDisplay.uiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "chatDisplay.uiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "chatDisplay.uiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "chatDisplay.uiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "settings.choice.agentChatUiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "settings.choice.agentChatUiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "settings.choice.agentChatUiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "settings.choice.agentChatUiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "chatDisplay.uiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.agentChatUiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chatDisplay.uiFont": {
+    "source": "Interface",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pt-BR": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "onboarding.agents.title": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": {
+        "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
+        "values": [
+          "Agents"
+        ]
+      }
+    }
+  },
+  "home.firstRun.switchKeys.tabs": {
+    "source": "Tab 1–9",
+    "identityLocales": {
+      "de": {
+        "reason": "Tab is the standard German noun for a window tab. The translated German entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      },
+      "vi": {
+        "reason": "Tab is the standard Vietnamese UI word for a window tab. The translated Vietnamese entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      }
+    }
+  },
+  "action.new.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "action.new.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.dictationSourceCmux": {
+    "class": "brand",
+    "source": "cmux"
+  },
+  "settings.choice.dictationSourceChatgpt": {
+    "class": "brand",
+    "source": "ChatGPT"
+  },
+  "settings.choice.dictationSourceClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.choice.dictationSourceGemini": {
+    "class": "brand",
+    "source": "Gemini"
+  },
+  "settings.choice.dictationSourceWisprFlow": {
+    "class": "brand",
+    "source": "Wispr Flow"
+  },
+  "settings.choice.dictationSourceSuperwhisper": {
+    "class": "brand",
+    "source": "Superwhisper"
+  },
+  "argument.value.dividerInsertKind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.value.dividerInsertKind.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.updates.liveWebReload": {
+    "class": "brand",
+    "source": "cmux Live"
+  },
+  "liveWeb.failed": {
+    "class": "brand",
+    "source": "cmux Live: %@"
+  },
+  "cloudTeam.section.title": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "cloudTeam.filter.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "settings.category.chat": {
+    "source": "Chat",
+    "identityLocales": {
+      "de": {
+        "reason": "Chat is the standard German noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      },
+      "es": {
+        "reason": "Chat is the standard Spanish noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      }
+    }
+  },
+  "store.scope.coderouter": {
+    "source": "CodeRouter",
+    "class": "brand"
+  },
+  "store.detail.version": {
+    "source": "Version",
+    "identityLocales": {
+      "da": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "de": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "fr": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      }
+    }
+  },
+  "store.scope.network": {
+    "source": "Internet",
+    "identityLocales": {
+      "bs": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "da": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "de": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "es": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "fr": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "it": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pl": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "vi": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      }
+    }
+  },
+  "store.scope.notifications": {
+    "source": "Notifications",
+    "identityLocales": {
+      "fr": {
+        "reason": "Notifications is the standard French plural noun for app notifications.",
+        "values": [
+          "Notifications"
+        ]
+      }
+    }
+  },
+  "store.scope.terminal": {
+    "source": "Terminals",
+    "identityLocales": {
+      "de": {
+        "reason": "Terminals is the standard German plural of Terminal.",
+        "values": [
+          "Terminals"
+        ]
+      }
+    }
+  },
+  "store.detail.screenshot": {
+    "source": "Screenshot %@",
+    "identityLocales": {
+      "it": {
+        "reason": "Screenshot is the standard Italian word for a screen capture.",
+        "values": [
+          "Screenshot %@"
+        ]
+      }
+    }
+  },
+  "settings.category.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud)."
+    }
+  },
+  "settingsWindow.models.org.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
+    }
+  },
+  "sidebar.hoverCard.origin.script": {
+    "source": "Script",
+    "identityLocales": {
+      "fr": {
+        "reason": "Script is the standard French word for a program script.",
+        "values": [
+          "Script"
+        ]
+      },
+      "it": {
+        "reason": "Script is the standard Italian loanword for a program script.",
+        "values": [
+          "Script"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Script is the standard Brazilian Portuguese loanword for a program script.",
+        "values": [
+          "Script"
+        ]
+      }
+    }
+  },
+  "settings.remote.screenSharingProfile.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "de": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
     }
   }
 }

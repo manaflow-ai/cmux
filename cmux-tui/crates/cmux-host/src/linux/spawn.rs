@@ -72,7 +72,7 @@ pub fn current_user_name() -> Option<String> {
 }
 
 /// `getgrouplist`: the user's supplementary groups.
-fn group_list(name: &str, gid: u32) -> Vec<u32> {
+pub(crate) fn group_list(name: &str, gid: u32) -> Vec<u32> {
     let Ok(cname) = CString::new(name) else { return vec![gid] };
     let mut count: libc::c_int = 64;
     loop {
@@ -176,6 +176,24 @@ unsafe fn reset_signal_mask() -> io::Result<()> {
 /// (the journal). Drops privileges only when the target differs from the
 /// agent's effective user.
 pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
+    daemon_command(spec).spawn()
+}
+
+pub fn spawn_daemon_supervised(
+    spec: &DaemonSpec,
+    bootstrap: Option<&cmux_link::root_bootstrap::Host>,
+) -> io::Result<std::sync::Arc<cmux_link::caller::RootOwnedDaemon>> {
+    let mut command = daemon_command(spec);
+    match bootstrap {
+        Some(bootstrap) => bootstrap.spawn(&mut command, spec.uid),
+        None => Ok(std::sync::Arc::new(cmux_link::caller::RootOwnedDaemon::capture(
+            command.spawn()?,
+            spec.uid,
+        ))),
+    }
+}
+
+fn daemon_command(spec: &DaemonSpec) -> Command {
     let mut command = Command::new(&spec.program);
     command.args(&spec.args).current_dir(&spec.cwd).stdin(Stdio::null());
     command.env_clear();
@@ -202,7 +220,7 @@ pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
             Ok(())
         });
     }
-    command.spawn()
+    command
 }
 
 /// Spawns a helper job in its own session. `low_priority`: nice 19 and the

@@ -56,6 +56,7 @@ pub(super) fn page_data_len(data: &str) -> Option<usize> {
 pub(super) fn scrub_bundle(
     call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
     transfer_id: &str,
+    epoch: u64,
     manifest: &mut Value,
 ) -> Result<BundleFiles, Failure> {
     let entries =
@@ -66,7 +67,8 @@ pub(super) fn scrub_bundle(
         let path = path.ok_or(Refusal::Refused)?.to_owned();
         let scrubbed = if path.eq_ignore_ascii_case(MANIFEST) || path.eq_ignore_ascii_case(SESSION)
         {
-            let bytes = scrubbed_file(call, transfer_id, &path, entry.field("size").as_u64())?;
+            let bytes =
+                scrubbed_file(call, transfer_id, epoch, &path, entry.field("size").as_u64())?;
             entry.insert("size", json!(bytes.len()));
             Some(Arc::new(bytes))
         } else {
@@ -81,12 +83,16 @@ pub(super) fn scrub_bundle(
 fn scrubbed_file(
     call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
     transfer_id: &str,
+    epoch: u64,
     path: &str,
     size: Option<u64>,
 ) -> Result<Vec<u8>, Failure> {
     let size = size.filter(|size| *size <= MAX_PAGE_BYTES as u64).ok_or(Refusal::Refused)?;
-    let params =
+    let mut params =
         json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1)});
+    if epoch != 0 {
+        params["epoch"] = json!(epoch);
+    }
     let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
     let bytes = page
         .field("data")

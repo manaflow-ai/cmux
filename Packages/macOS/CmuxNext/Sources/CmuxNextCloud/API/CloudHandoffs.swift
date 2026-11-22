@@ -36,7 +36,8 @@ extension CloudOwnerAPIClient {
     public static func isHandoffID(_ id: String) -> Bool { id.range(of: #"^ho_[0-9a-f]{20}$"#, options: .regularExpression) != nil }
 }
 
-/// One hand-off as the owner's list shows it.
+/// One hand-off as the owner's list shows it. Plain data: its status rules and the store's times are
+/// Rust's (cmux-tui/crates/cmux-cloud-tasks `handoff`), asked over the app FFI (`cloud_task_handoff*`, `cloud_task_millis`).
 public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
     public var id: String
     /// The agent chat that was handed off: what a click opens.
@@ -78,39 +79,45 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
         state = try c.decodeIfPresent(String.self, forKey: .state)
     }
 
-    /// A time as milliseconds since 1970: the store's ISO 8601 (`toISOString()`), or a number of milliseconds.
+    /// A time as milliseconds since 1970: a number of milliseconds, or the store's ISO 8601 read by Rust.
     private static func millis(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Double {
         if let ms = try? c.decode(Double.self, forKey: key) { return ms }
         let text = try c.decode(String.self, forKey: key)
-        guard let date = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)) ?? (try? Date.ISO8601FormatStyle().parse(text)) else {
+        struct Request: Encodable { var time: String }
+        struct Reply: Decodable { var millis: Double? }
+        guard let millis = CloudStartCore().call("cloud_task_millis", Request(time: text), as: Reply.self)?.millis else {
             throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "not an ISO 8601 time: \(text)")
         }
-        return date.timeIntervalSince1970 * 1_000
+        return millis
+    }
+
+    /// What Rust reads of this hand-off's status. An FFI that does not answer reads it closed and told
+    /// nothing, so nothing is followed.
+    private var read: (open: Bool, running: Bool, notice: CloudTaskNotice?) {
+        struct Request: Encodable { var status: String, turn: Int?, state: String? }
+        struct Reply: Decodable { var open: Bool, running: Bool, notice: CloudTaskNotice? }
+        let reply = CloudStartCore().call("cloud_task_handoff", Request(status: status, turn: turn, state: state), as: Reply.self)
+        return (reply?.open ?? false, reply?.running ?? false, reply?.notice)
     }
 
     /// It can still change: not closed (a store from before turns: not done, failed or cancelled).
-    public var isOpen: Bool { state.map { $0 != "closed" } ?? !Self.turnEnds.contains(status) }
+    public var isOpen: Bool { read.open }
 
     /// Its current turn runs: `starting` or `running`.
-    public var isRunning: Bool { Self.turnRuns.contains(status) }
+    public var isRunning: Bool { read.running }
 
     /// What the person is told about this turn's status, if anything: done, failed and needs-you,
     /// once per turn and status. Never cancelled, starting or running.
     public static func notice(status: String, turn: Int?) -> CloudTaskNotice? {
-        let outcome: SandboxRunEnd.Outcome? = switch status {
-        case "done": .succeeded
-        case "failed": .failed
-        case "needs-you": .needsYou
-        default: nil
-        }
-        return outcome.map { CloudTaskNotice(key: "\(turn ?? 1):\(status)", outcome: $0) }
+        CloudHandoff(id: "", sessionId: "", status: status, summary: nil, createdAt: 0, version: nil, turn: turn).read.notice
     }
 
-    static let statuses: Set<String> = ["starting", "running", "needs-you", "done", "failed", "cancelled"]
+    /// The store's status words, as Rust names them (none when the FFI does not answer).
+    private struct Statuses: Decodable { var statuses: Set<String>, turnEnds: Set<String>, turnRuns: Set<String> }
+    private static let words = CloudStartCore().call("cloud_task_handoff_statuses", [String: String](), as: Statuses.self)
+    static let statuses: Set<String> = words?.statuses ?? []
     /// The statuses that end a turn (and, before turns, the hand-off).
-    static let turnEnds: Set<String> = ["done", "failed", "cancelled"]
-    /// The statuses of a turn that runs: a hand-off in one is never given up for age.
-    static let turnRuns: Set<String> = ["starting", "running"]
+    static let turnEnds: Set<String> = words?.turnEnds ?? []
 }
 
 extension SandboxRunFollower.Source {
@@ -118,25 +125,10 @@ extension SandboxRunFollower.Source {
     public static let handoffsKey = "cmux.next.handoffs.following"
 
     /// Hand-offs: a hand-off lasts the whole session and counts turns (hq#4706). Each wait passes
-    /// the last version seen; each turn's done, failed and needs-you is told once (``CloudHandoff/notice(status:turn:)``),
-    /// never a cancel. The follow goes on after a turn ends and stops when the hand-off is closed,
-    /// or when it has not changed for three days while no turn runs.
+    /// the last version seen; Rust tells each turn's done, failed and needs-you once, never a cancel,
+    /// and ends the follow when the hand-off is closed, or when it has not changed for three days
+    /// while no turn runs.
     public static func handoffs(wait: @escaping @Sendable (_ id: String, _ after: Int?) async throws -> Data) -> Self {
-        Self(wait: { id, _, cursor in try await wait(id, cursor) }, read: readHandoff, defaultsKey: handoffsKey,
-             maximumAge: 3 * 86_400, tells: [], path: "/v1/handoffs")
-    }
-
-    /// One wait's `{handoff}`. A body of another shape, or a status the store has not, is unreadable.
-    /// A store from before turns (no `state`) closes a hand-off with its first done, failed or cancel.
-    public static func readHandoff(_ data: Data) -> CloudTaskRead {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let handoff = object["handoff"] as? [String: Any], let status = handoff["status"] as? String,
-              CloudHandoff.statuses.contains(status), let version = handoff["version"] as? Int else { return .unreadable }
-        let turn = handoff["turn"] as? Int
-        let state = handoff["state"] as? String
-        guard state == nil || state == "open" || state == "closed" else { return .unreadable }
-        let notice = CloudHandoff.notice(status: status, turn: turn)
-        let closed = state.map { $0 == "closed" } ?? CloudHandoff.turnEnds.contains(status)
-        return closed ? .closed(notice: notice, data) : .going(cursor: version, notice: notice, data, running: CloudHandoff.turnRuns.contains(status))
+        Self(wait: { id, _, cursor in try await wait(id, cursor) }, kind: .handoffs, defaultsKey: handoffsKey)
     }
 }

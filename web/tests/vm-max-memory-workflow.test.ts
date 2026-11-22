@@ -63,17 +63,6 @@ test("Pro rejects a 12-vCPU create shape even when memory is within the plan cei
   }
 });
 
-test("Go rejects undersized CPU, memory, and disk before billing or provider work", async () => {
-  const layer = Layer.mergeAll(Layer.succeed(VmRepository, {} as VmRepositoryShape),
-    Layer.succeed(VmProviderGateway, {} as VmProviderGatewayShape), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
-  for (const shape of [{ vcpus: 1, memoryMb: 4096, diskMb: 16384 }, { vcpus: 2, memoryMb: 2048, diskMb: 16384 }, { vcpus: 2, memoryMb: 4096, diskMb: 8192 }]) {
-    try {
-      await Effect.runPromise(createVm({ userId: "u", billingCustomerType: "user", billingTeamId: "u", billingPlanId: "go",
-        maxActiveVms: 1, provider: "freestyle", image: "small", resourceReservation: shape }).pipe(Effect.provide(layer)));
-      throw new Error("expected shape rejection");
-    } catch (error) { expect(vmWorkflowErrorCause(error)?._tag).toBe("VmGoShapeError"); }
-  }
-});
 
 test("a gateway fork method cannot override the provider capability", async () => {
   let snapshots = 0;

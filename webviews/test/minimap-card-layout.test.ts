@@ -27,7 +27,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a three-line prompt shares the fixed card height with the reply and stays clear of the bookmark", async () => {
+  test("the prompt is a one-line title over a regular-weight reply, clear of the bookmark", async () => {
     const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -87,25 +87,19 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         const failure = rect(".acpmux-minimap__failure");
         const bookmark = rect(".acpmux-minimap__bookmark");
         const card = node.getBoundingClientRect();
-        const baseline = node.cloneNode(true) as HTMLElement;
-        baseline.removeAttribute("data-prompt");
-        baseline.removeAttribute("data-card-failure");
-        baseline.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
-        baseline.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
-        baseline.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
-          "-webkit-line-clamp:4; height:auto; max-height:none;";
-        document.body.append(baseline);
-        const baselineHeight = baseline.getBoundingClientRect().height;
-        baseline.remove();
+        const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt")!;
+        const weight = (selector: string) => getComputedStyle(node.querySelector(selector)!).fontWeight;
         const inside = (child: DOMRect) =>
           child.top >= card.top && child.bottom <= card.bottom && child.left >= card.left && child.right <= card.right;
         return {
           prompt: prompt.height,
+          promptCut: promptNode.scrollWidth > promptNode.clientWidth,
+          promptWeight: weight(".acpmux-minimap__prompt"),
+          replyWeight: weight(".acpmux-minimap__reply"),
           reply: reply.height,
           failure: failure.height,
           gap: metadata.top - prompt.bottom,
           width: card.width,
-          baselineHeight,
           bookmarkInside: bookmark.right <= card.right && bookmark.top >= card.top,
           promptInside: inside(prompt),
           metadataInside: inside(metadata),
@@ -113,17 +107,20 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           failureInside: inside(failure),
         };
       });
-      expect(bounds.prompt).toBeGreaterThan(20);
-      expect(bounds.prompt).toBeLessThanOrEqual(60);
+      // The prompt is one line, cut with an ellipsis, and the only emphasized text: the reply under
+      // it is regular weight (Leo, 2026-11-07: "it's all bold").
+      expect(bounds.prompt).toBeLessThanOrEqual(20);
+      expect(bounds.promptCut).toBe(true);
+      expect(Number(bounds.promptWeight)).toBeGreaterThan(Number(bounds.replyWeight));
+      expect(bounds.replyWeight).toBe("400");
+      // Five whole reply lines at most (20 px each) at first.
       expect(bounds.reply).toBeGreaterThanOrEqual(20);
-      // Chromium's body line box is fractional, but each rendered reply line remains complete.
-      expect(bounds.reply).toBeLessThanOrEqual(84);
+      expect(bounds.reply).toBeLessThanOrEqual(101);
       expect(bounds.failure).toBeLessThanOrEqual(60);
       expect(bounds.gap).toBeGreaterThanOrEqual(4);
-      expect(bounds.width).toBeLessThanOrEqual(360);
-      expect(await card.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(
-        bounds.baselineHeight,
-      );
+      // Wider than the old 360 px column, up to the arm's 520 px.
+      expect(bounds.width).toBeGreaterThan(360);
+      expect(bounds.width).toBeLessThanOrEqual(520);
       expect(bounds.bookmarkInside).toBe(true);
       expect(bounds.promptInside).toBe(true);
       expect(bounds.metadataInside).toBe(true);
@@ -144,7 +141,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
     }
   });
 
-  test("a short prompt keeps its natural height while a long prompt spends reply lines", async () => {
+  test("the card is as wide as its words up to the arm's widest, and a long prompt spends no reply line", async () => {
     const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -197,44 +194,33 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         await target.focus();
         const card = page.locator(".acpmux-minimap__card");
         await card.waitFor({ state: "visible" });
+        await page.waitForFunction(
+          (text) => document.querySelector(".acpmux-minimap__card")?.textContent?.includes(text),
+          tick === 0 ? "A short prompt" : "First prompt line",
+        );
         return card.evaluate((node) => {
-          const bounds = (selector: string) => node.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
-          const prompt = bounds(".acpmux-minimap__prompt");
-          const reply = bounds(".acpmux-minimap__reply");
-          const card = node.getBoundingClientRect();
+          const prompt = node.querySelector<HTMLElement>(".acpmux-minimap__prompt")!;
           return {
-            card: card.height,
-            baseline: (() => {
-              const clone = node.cloneNode(true) as HTMLElement;
-              clone.removeAttribute("data-prompt");
-              clone.removeAttribute("data-card-failure");
-              clone.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
-              clone.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
-              clone.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
-                "-webkit-line-clamp:4; height:auto; max-height:none;";
-              document.body.append(clone);
-              const height = clone.getBoundingClientRect().height;
-              clone.remove();
-              return height;
-            })(),
-            prompt: prompt.height,
-            promptScroll: (node.querySelector(".acpmux-minimap__prompt") as HTMLElement).scrollHeight,
-            reply: reply.height,
-            text: node.querySelector(".acpmux-minimap__prompt")?.textContent ?? "",
+            width: node.getBoundingClientRect().width,
+            prompt: prompt.getBoundingClientRect().height,
+            cut: prompt.scrollWidth > prompt.clientWidth,
+            reply: node.querySelector(".acpmux-minimap__reply")!.getBoundingClientRect().height,
+            text: prompt.textContent ?? "",
           };
         });
       };
       const short = await inspect(0);
       const long = await inspect(1);
+      // Sized to its words: a short turn's card stays near its least width, a long prompt's is as wide
+      // as the arm lets it be, and its title is still one line.
+      expect(short.width).toBeGreaterThanOrEqual(280);
+      expect(short.width).toBeLessThan(long.width);
+      expect(long.width).toBeLessThanOrEqual(520);
       expect(short.prompt).toBeLessThanOrEqual(20);
-      expect(short.card).toBeLessThan(166);
-      expect(Math.abs(short.card - short.baseline)).toBeLessThanOrEqual(1);
-      expect(long.prompt).toBeGreaterThan(short.prompt);
-      expect(long.prompt).toBeLessThanOrEqual(60);
-      expect(long.promptScroll).toBeGreaterThan(long.prompt + 1);
-      expect(long.reply).toBeGreaterThanOrEqual(20);
-      expect(long.card).toBeLessThanOrEqual(166);
-      expect(long.card).toBeLessThanOrEqual(long.baseline);
+      expect(long.prompt).toBeLessThanOrEqual(20);
+      expect(short.cut).toBe(false);
+      // Every reply line shows: a long prompt no longer spends them.
+      expect(long.reply).toBeGreaterThanOrEqual(40);
       expect(long.text).toContain("Fourth line is beyond the cap");
     } finally {
       await page.close();
@@ -298,19 +284,8 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         const get = (selector: string) => node.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
         const inside = (rect: DOMRect) =>
           rect.top >= card.top && rect.bottom <= card.bottom && rect.left >= card.left && rect.right <= card.right;
-        const baseline = node.cloneNode(true) as HTMLElement;
-        baseline.removeAttribute("data-prompt");
-        baseline.removeAttribute("data-card-failure");
-        baseline.style.cssText = `position:absolute; visibility:hidden; width:${card.width}px; min-width:0; max-width:${card.width}px; max-height:none; overflow:visible;`;
-        baseline.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
-        baseline.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
-          "-webkit-line-clamp:4; height:auto; max-height:none;";
-        document.body.append(baseline);
-        const baselineHeight = baseline.getBoundingClientRect().height;
-        baseline.remove();
         return {
           card,
-          baselineHeight,
           prompt: get(".acpmux-minimap__prompt"),
           metadata: get(".acpmux-minimap__metadata"),
           failure: get(".acpmux-minimap__failure"),
@@ -323,12 +298,91 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           ].map((selector) => inside(get(selector))),
         };
       });
-      expect(bounds.card.height).toBeLessThanOrEqual(bounds.baselineHeight);
-      expect(bounds.prompt.height).toBeLessThanOrEqual(60);
+      expect(bounds.prompt.height).toBeLessThanOrEqual(20);
       expect(bounds.metadata.height).toBeGreaterThan(16);
       expect(bounds.failure.height).toBeGreaterThan(40);
       expect(bounds.reply.height).toBeGreaterThanOrEqual(20);
       expect(bounds.inside.every(Boolean)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the pointer moving from the rail into the card opens it down to more of the reply, and leaving closes it", async () => {
+    const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      await page.evaluate(() => {
+        const row = (id: string, kind: string, text?: string, extra = {}) => ({
+          id,
+          kind,
+          text,
+          at: 1_700_000_000_000,
+          version: 1,
+          ...extra,
+        });
+        const steps = Array.from({ length: 30 }, (_, step) => `- Step ${step + 1}: check the **next** \`piece\``).join(
+          "\n",
+        );
+        const rows = Array.from({ length: 6 }, (_, index) => [
+          row(`user-${index}`, "user", `Prompt ${index}`),
+          row(`reply-${index}`, "assistant", `Here is the plan.\n\n${steps}`),
+          row(`summary-${index}`, "turnSummary", undefined, { status: "completed" }),
+        ]).flat();
+        (window as unknown as { __showRows(rows: unknown[]): void }).__showRows(rows);
+      });
+      const tick = page.locator('[data-tick="1"]');
+      const box = (await tick.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      const card = page.locator(".acpmux-minimap__card");
+      await card.waitFor({ state: "visible" });
+      const read = () =>
+        card.evaluate((node) => {
+          const reply = node.querySelector<HTMLElement>(".acpmux-minimap__reply")!;
+          return {
+            top: node.getBoundingClientRect().top,
+            left: node.getBoundingClientRect().left,
+            height: node.getBoundingClientRect().height,
+            reply: reply.getBoundingClientRect().height,
+            items: reply.querySelectorAll(".acpmux-minimap__item").length,
+            open: node.hasAttribute("data-open"),
+          };
+        });
+      const ticks = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".acpmux-minimap__tick")].map((node) => node.getBoundingClientRect().top),
+        );
+      const closed = await read();
+      const ticksBefore = await ticks();
+      expect(closed.open).toBe(false);
+      expect(closed.reply).toBeLessThanOrEqual(101);
+      // Straight right into the card, at the height the pointer was.
+      await page.mouse.move(closed.left + 40, box.y + box.height / 2, { steps: 4 });
+      await page.waitForFunction(() => document.querySelector(".acpmux-minimap__card")?.hasAttribute("data-open"));
+      // Past the transition (180 ms).
+      await page.waitForFunction(() => {
+        const reply = document.querySelector<HTMLElement>(".acpmux-minimap__card[data-open] .acpmux-minimap__reply");
+        return !!reply && reply.getBoundingClientRect().height >= 279;
+      });
+      const opened = await read();
+      // Fourteen lines, scrolling past them; more items than the closed card had; the card grew down
+      // from where it was (the title stays under the pointer) and no tick moved.
+      expect(opened.reply).toBeGreaterThanOrEqual(279);
+      expect(opened.reply).toBeLessThanOrEqual(281);
+      expect(opened.items).toBeGreaterThan(closed.items);
+      expect(Math.abs(opened.top - closed.top)).toBeLessThanOrEqual(1);
+      expect(await ticks()).toEqual(ticksBefore);
+      expect(
+        await card.evaluate((node) => {
+          const reply = node.querySelector<HTMLElement>(".acpmux-minimap__reply")!;
+          return reply.scrollHeight > reply.clientHeight;
+        }),
+      ).toBe(true);
+      // Back onto the rail: the card is the row's again, closed.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      await page.waitForFunction(() => !document.querySelector(".acpmux-minimap__card[data-open]"));
     } finally {
       await page.close();
     }

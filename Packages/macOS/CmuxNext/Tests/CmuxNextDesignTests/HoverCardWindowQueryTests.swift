@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -8,7 +9,7 @@ import CmuxNextDesignTokens
 /// SLSConnectionSynchronizeSLSCATransaction: 39-88 ms of drag.tab_to_pane's light-session stalls, macOS 26/27).
 /// The answer lives one frame only, never until a notification of this app: another app's window or a non-key
 /// panel brought forward under a still pointer posts nothing here (review 1 of 5a069bc6996).
-@MainActor @Suite(.serialized) struct HoverCardWindowQueryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HoverCardWindowQueryTests {
     private func window(_ frame: CGRect) -> NSWindow {
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -71,6 +72,30 @@ import CmuxNextDesignTokens
         point.x += 5  // the pointer moved: ask again in the same frame
         coordinator.geometryChanged(in: main)
         #expect(queries.count == 3)
+    }
+
+    /// A window of this app becomes key (it comes front: `WindowController.windowDidBecomeKey`), or one moves, inside
+    /// the frame the top window was cached in: the next ask in that frame goes to the window server, never the cached
+    /// window, which may be under it now (PL-instant hover review, minor: a stale hit after a key or order change).
+    @Test func aKeyChangeOrAMoveInsideTheFrameAsksTheWindowServerAgain() {
+        _ = NSApplication.shared
+        let main = window(CGRect(x: 200, y: 200, width: 300, height: 100))
+        let other = window(CGRect(x: 600, y: 200, width: 300, height: 100))
+        defer { main.close(); other.close() }
+        let queries = Queries()
+        let point = CGPoint(x: main.frame.midX, y: main.frame.midY)
+        let coordinator = coordinator(main, queries: queries, pointer: { point })
+        let source = Source(window: main)
+        coordinator.register(source)
+        defer { coordinator.unregister(source) }
+        coordinator.geometryChanged(in: main)
+        #expect(queries.count == 1)
+        coordinator.windowOrderChanged()
+        coordinator.geometryChanged(in: main)
+        #expect(queries.count == 2, "the top window cached before the key change answered after it")
+        other.setFrameOrigin(NSPoint(x: other.frame.minX + 10, y: other.frame.minY)) // AppKit posts its move
+        coordinator.geometryChanged(in: main)
+        #expect(queries.count == 3, "the top window cached before a window moved answered after it")
     }
 
     /// Another app's window or cmux's own non-key panel (a HUD) ordered front under a still pointer posts no

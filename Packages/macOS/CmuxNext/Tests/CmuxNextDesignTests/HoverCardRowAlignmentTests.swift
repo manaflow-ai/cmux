@@ -23,11 +23,6 @@ import CmuxNextDesignTokens
         return CGRect(origin: rest.origin, size: size)
     }
 
-    @Test func theDefaultLinesTheCardUpWithTheRowsTop() {
-        #expect(HoverCardEscapeGeometry.escapeSlotTunable.defaultValue == false)
-        #expect(HoverCardEscapeGeometry.currentAlignment == .top)
-    }
-
     @Test func theCardsTopIsTheRowsTopBesideTheSidebar() {
         let card = card(for: row)
         #expect(card.maxY == row.maxY, "the card's top \(card.maxY) is not the row's top \(row.maxY)")

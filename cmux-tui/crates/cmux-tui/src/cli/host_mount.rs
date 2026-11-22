@@ -16,7 +16,7 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 }
 
 /// The scopes `main` runs before the mux's signal handlers, without the
-/// provider credentials: `cmux link …`, `cmux host …` (the supervisor
+/// provider credentials: `cmux link …`, `cmux carrier dial|serve`, `cmux host …` (the supervisor
 /// owns SIGTERM, SIGINT and SIGHUP itself), and the team VM's own
 /// `cmux team restricted-shell|whoami` (crate `cmux-host`; the agent
 /// certificates' force-command, team-vm-plan.md S5). The function takes
@@ -24,12 +24,18 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i32> {
     if raw_args.first().is_some_and(|first| first == "link") {
         Some(crate::link::run)
+    } else if raw_args.first().is_some_and(|first| first == "carrier") {
+        Some(crate::carrier::run)
     } else if requested(raw_args) {
         Some(run)
     } else if team_vm_verb(raw_args, Surface::current()) {
         Some(run_team)
     } else if github_requested(raw_args, Surface::current()) {
         Some(run_github)
+    } else if gitlab_requested(raw_args, Surface::current()) {
+        Some(run_gitlab)
+    } else if repo_requested(raw_args) {
+        Some(super::repo_hold::run)
     } else {
         None
     }
@@ -53,6 +59,33 @@ fn github_requested(raw_args: &[String], surface: Surface) -> bool {
 
 fn run_github(rest: &[String]) -> i32 {
     i32::from(cmux_host::github_cli::run(rest))
+}
+
+/// `cmux gitlab credential` (crate `cmux-host`): git for GitLab and other
+/// hosts with the token sealed to the machine, on the `cmux` surface only.
+fn gitlab_requested(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "gitlab")
+}
+
+fn run_gitlab(rest: &[String]) -> i32 {
+    i32::from(cmux_host::gitlab_cli::run(rest))
+}
+
+/// `cmux repo hold DIR -- CMD`, `cmux repo wait DIR SECONDS` and `cmux repo mcp-lazy DIR -- CMD`
+/// (`repo_hold.rs`): the repository sync barrier around the rest of a checkout the repo pick
+/// cloned head first. On both surfaces: a machine's `cmux` may be an adapter that runs `cmux-tui`
+/// for what it does not know, the repo step calls `cmux-tui` by name where it has one, and acpmux
+/// runs `cmux-tui repo mcp-lazy` (its own binary) for a project MCP server.
+fn repo_requested(raw_args: &[String]) -> bool {
+    raw_args.first().is_some_and(|first| first == "repo")
+}
+
+/// The program that runs this `cmux` again with its surface: argv[0] when it is an absolute
+/// path named `cmux` (the image's link into the store), else the resolved executable.
+pub(super) fn self_program() -> Option<std::path::PathBuf> {
+    let argv0 = std::env::args_os().next();
+    let mut argv = self_argv_for(argv0.as_deref(), std::env::current_exe().ok());
+    (!argv.is_empty()).then(|| std::path::PathBuf::from(argv.swap_remove(0)))
 }
 
 /// Runs `cmux team <rest>` on the team VM and returns its exit code.
@@ -83,38 +116,5 @@ fn self_argv_for(argv0: Option<&std::ffi::OsStr>, exe: Option<std::path::PathBuf
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn host_is_mounted_on_cmux_only() {
-        let args = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert!(applies(&args(&["host", "run"]), Surface::Cmux));
-        assert!(!applies(&args(&["host", "run"]), Surface::CmuxTui));
-        assert!(!applies(&args(&["workspace", "list"]), Surface::Cmux));
-        assert!(!applies(&[], Surface::Cmux));
-        assert_eq!(run(&args(&["--help"])), 0);
-        // The store link named `cmux` keeps the surface; the resolved
-        // executable (`cmux-tui`) would lose the `host` verb.
-        let exe = Some(std::path::PathBuf::from("/opt/cmux/store/abc/bin/cmux-tui"));
-        let link = std::ffi::OsStr::new("/opt/cmux/current/bin/cmux");
-        assert_eq!(
-            self_argv_for(Some(link), exe.clone()),
-            args(&["/opt/cmux/current/bin/cmux", "host"])
-        );
-        assert_eq!(
-            self_argv_for(Some(std::ffi::OsStr::new("cmux")), exe),
-            args(&["/opt/cmux/store/abc/bin/cmux-tui", "host"])
-        );
-        assert_eq!(self_argv_for(None, None), Vec::<String>::new());
-        assert_eq!(run(&args(&["bogus"])), 2);
-        // The team VM verbs, and no other `team` path, are mounted early.
-        assert!(team_vm_verb(&args(&["team", "restricted-shell"]), Surface::Cmux));
-        assert!(team_vm_verb(&args(&["team", "whoami"]), Surface::Cmux));
-        assert!(!team_vm_verb(&args(&["team", "ssh", "ca"]), Surface::Cmux));
-        assert!(!team_vm_verb(&args(&["team", "whoami"]), Surface::CmuxTui));
-        assert!(github_requested(&args(&["github", "credential", "get"]), Surface::Cmux));
-        assert!(!github_requested(&args(&["github", "gh"]), Surface::CmuxTui));
-        assert!(!github_requested(&args(&["git", "status"]), Surface::Cmux));
-    }
-}
+#[path = "host_mount_tests.rs"]
+mod tests;

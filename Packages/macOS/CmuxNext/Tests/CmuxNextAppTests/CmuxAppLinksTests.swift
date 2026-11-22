@@ -20,17 +20,48 @@ struct CmuxAppLinksTests {
         #expect(link("cmux://workspace/\(ws)")?.url(scheme: scheme)?.absoluteString == "\(scheme)://workspace/\(ws)")
     }
 
+    @Test func chiefsBackgroundLinkRunsChangeBackground() {
+        // Chief's first-launch welcome offers it; it is the palette's and the CLI's Change Background….
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud")!, linkScheme: scheme) == "#/settings/cloud")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/claude")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.claude")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/cloud/api-key")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.apiKey")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
+    }
+
+    @Test func theWelcomesStartAgentLinkTurnsTheSystemWideKeyOnAndNeverOff() throws {
+        // Chief's first-launch welcome lists Start Agent from Any App with this link while its key is off.
+        for text in ["cmux://settings/start-agent-from-any-app", "\(scheme)://settings/start-agent-from-any-app"] {
+            let action = try #require(CmuxAppLinks.settingsAction(for: URL(string: text)!, linkScheme: scheme))
+            #expect(action.id == "palette.toggleSetting")
+            #expect(action.arguments == ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)])
+        }
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/start-agent-from-any-app")!, linkScheme: scheme) == nil)
+    }
+
     @Test func paneTabAndSessionLinksOpenToo() {
         #expect(link("cmux://pane/pane_0123456789abcdef0123456789abcdef")?.target == .pane("pane_0123456789abcdef0123456789abcdef"))
         #expect(link("cmux://tab/tab_0123456789abcdef0123456789abcdef")?.target == .tab("tab_0123456789abcdef0123456789abcdef"))
         #expect(link("cmux://session/01a12408-f0a2")?.target == .session("01a12408-f0a2", turn: nil))
     }
 
-    @Test func aChiefSubagentLinkOpensOnlyForThisAppsOwnChief() {
+    /// A named Chief (`<home>/c/<id>`) writes its own home id, not the app's Chief host (#28877):
+    /// its link is an app link too, and opening it checks the home (`ChiefSidebar.openSubagentLink`).
+    /// A build with no Chief, or another machine's subagent, takes none.
+    @Test func aChiefSubagentLinkOpensForAnyChiefHomeOfThisMac() {
         let text = "cmux://chief/2e448bc2/session/01a12408-f0a2"
         #expect(link(text)?.target == .chiefSession(home: "2e448bc2", session: "01a12408-f0a2"))
-        #expect(link(text, chiefHost: "chief:00000000") == nil)
+        #expect(link(text, chiefHost: "chief:69e026c6")?.target == .chiefSession(home: "2e448bc2", session: "01a12408-f0a2"))
         #expect(link(text, chiefHost: nil) == nil)
+        #expect(link(text + "?machine=machine_0123456789abcdef0123456789abcdef") == nil)
     }
 
     @Test(arguments: [

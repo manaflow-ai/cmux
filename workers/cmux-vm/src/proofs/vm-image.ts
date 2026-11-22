@@ -13,10 +13,13 @@ const visible = (principal: Principal, image: ApprovedImage) =>
   principal.actor.kind === "service" && image.services.has(principal.actor.serviceId);
 const publicImage = (image: ApprovedImage): VmImage => Object.freeze({ id: image.id, revision: image.revision, displayName: image.displayName });
 
+/** Configured order (VM_BOOT_IMAGES): the first entry is the image in use, which the product smoke boots. */
 export const visibleVmImages = <C>(caller: Named<C, Principal>) => Effect.gen(function* () {
   if (keyHasScope(caller, "vm:read") === null) return yield* Effect.fail(missingScope("vm:read"));
   const catalog = yield* VmImages;
-  return catalog.images.filter((image) => visible(caller.value, image)).map(publicImage).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  // The listing alone carries the inputs key; a creation receipt (publicImage) stays id, revision and name.
+  return catalog.images.filter((image) => visible(caller.value, image))
+    .map((image) => image.inputs_sha256 === undefined ? publicImage(image) : Object.freeze({ ...publicImage(image), inputs_sha256: image.inputs_sha256 }));
 });
 
 export interface VmImageAllowed<C> extends Proof<"VmImageAllowed", [C]> {}

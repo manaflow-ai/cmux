@@ -1,0 +1,138 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cloud.share.notCloudMachine": {
+      "comment": "Share with Me refused: the chat's machine is not a cmux Cloud machine",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat's machine is not a cmux Cloud machine, so it has nothing to share."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز هذه المحادثة ليس جهاز cmux Cloud، لذا لا يوجد ما يمكن مشاركته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina ovog razgovora nije cmux Cloud mašina, pa nema šta da se dijeli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chats maskine er ikke en cmux Cloud-maskine, så der er intet at dele."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Maschine dieses Chats ist keine cmux-Cloud-Maschine, daher gibt es nichts zu teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La máquina de este chat no es una máquina de cmux Cloud, así que no hay nada que compartir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La machine de cette discussion n'est pas une machine cmux Cloud : il n'y a rien à partager."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina di questa chat non è una macchina cmux Cloud, quindi non c'è nulla da condividere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットのマシンは cmux Cloud マシンではないため、共有するものはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនរបស់ការជជែកនេះមិនមែនជាម៉ាស៊ីន cmux Cloud ទេ ដូច្នេះគ្មានអ្វីត្រូវចែករំលែកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 기기는 cmux Cloud 기기가 아니어서 공유할 것이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen til denne chatten er ikke en cmux Cloud-maskin, så det er ingenting å dele."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna tego czatu nie jest maszyną cmux Cloud, więc nie ma czego udostępnić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina deste chat não é uma máquina do cmux Cloud, então não há o que compartilhar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина этого чата не является машиной cmux Cloud, поэтому делиться нечем."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องของแชทนี้ไม่ใช่เครื่อง cmux Cloud จึงไม่มีอะไรให้แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbetin makinesi bir cmux Cloud makinesi değil, bu yüzden paylaşılacak bir şey yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина цього чату не є машиною cmux Cloud, тож ділитися нічим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy của cuộc trò chuyện này không phải máy cmux Cloud nên không có gì để chia sẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这个聊天的机器不是 cmux Cloud 机器，因此没有可共享的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這個聊天的機器不是 cmux Cloud 機器，因此沒有可共享的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

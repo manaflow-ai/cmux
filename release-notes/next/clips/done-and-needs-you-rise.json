@@ -1,0 +1,15 @@
+{
+  "caption": "A workspace whose agent finishes or asks you something moves to the top of the sidebar.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Billing API", "cmux": ["action", "run", "newTab", "--arg", "name=Billing API", "--arg", "command=sleep 600", "--arg", "focus=false"], "wait": 1},
+    {"title": "Onboarding flow", "cmux": ["action", "run", "newTab", "--arg", "name=Onboarding flow", "--arg", "command=sleep 600", "--arg", "focus=false"], "wait": 1},
+    {"title": "Search index: notifies in a few seconds", "cmux": ["action", "run", "newTab", "--arg", "name=Search index", "--arg", "command=sleep 7; printf '\\033]777;notify;Search index;Reindex finished\\007'; sleep 600", "--arg", "focus=false"], "wait": 1},
+    {"title": "Design review", "cmux": ["action", "run", "newTab", "--arg", "name=Design review", "--arg", "command=sleep 600", "--arg", "focus=false"], "wait": 1},
+    {"title": "Select the first", "cmux": ["action", "run", "workspace.selectFirst"], "wait": 1.5, "clip": true},
+    {"title": "Search index finishes and moves up", "wait": 4, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.185, 0.33]
+}

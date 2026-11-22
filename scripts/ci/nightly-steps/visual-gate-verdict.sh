@@ -7,6 +7,9 @@
 # `unavailable`, never a build failure. --states fails each state file
 # with no capture folder (a state the capture never reached), so a
 # capture cut off by a timeout or a cancel is `unavailable` instead.
+#
+# The step's notes, moved from nightly.yml:
+# 1 once the capture Macs draw at 2x (a HiDPI display): stills below 2x then fail.
 set -e  # the inline step ran under bash -e
 set -uo pipefail
 states=("$RUNNER_TEMP"/visual-gate/*/)

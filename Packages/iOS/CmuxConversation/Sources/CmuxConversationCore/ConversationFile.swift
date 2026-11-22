@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// A file attachment's details, as Messages shows them in its document
 /// bubble: the name, the type (a uniform type identifier) and the size.
-public struct ConversationFileInfo: Sendable, Hashable {
+public struct ConversationFileInfo: Sendable, Hashable, Codable {
     /// The file name with its extension, e.g. "Quarterly Report.pdf".
     public var name: String
     /// Uniform type identifier, e.g. "com.adobe.pdf".
@@ -54,7 +54,7 @@ public struct ConversationFileInfo: Sendable, Hashable {
 }
 
 /// A file picked for sending, waiting for upload.
-public struct ConversationPendingFile: Sendable, Hashable {
+public struct ConversationPendingFile: Sendable, Hashable, Codable {
     public var data: Data
     public var info: ConversationFileInfo
 

@@ -86,8 +86,22 @@ export class FakeHost {
         const body = JSON.parse(json)
         host.paletteResults.set(reqId, { ok, body })
         host.onPaletteDone?.(reqId, ok, body)
+      },
+      // The native host answers from chrono-tz (src/vm.rs zone_json); this one from Intl,
+      // with the same JSON shape. Delete it to exercise the runtime's own Intl fallback.
+      zone(name: string, atMs: number) {
+        try {
+          const f = new Intl.DateTimeFormat("en-US", { timeZone: name, timeZoneName: "longOffset" })
+          const gmt = f.formatToParts(new Date(atMs)).find((p) => p.type === "timeZoneName")?.value ?? "GMT"
+          const m = /GMT([+-])(\d{2}):(\d{2})/.exec(gmt)
+          const offsetMinutes = m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0
+          const abbreviation = new Intl.DateTimeFormat("en-US", { timeZone: name, timeZoneName: "short" }).formatToParts(new Date(atMs)).find((p) => p.type === "timeZoneName")?.value ?? ""
+          return JSON.stringify({ offsetMinutes, abbreviation })
+        } catch {
+          return JSON.stringify({ error: `${name} is not an IANA time zone` })
+        }
       }
-    }
+    } as Record<string, unknown>
     this.ctx = vm.createContext({ __cmuxAppNative: native, queueMicrotask })
     vm.runInContext(runtimeSource, this.ctx)
     if (appSource) vm.runInContext(appSource, this.ctx)
@@ -127,7 +141,16 @@ export class FakeHost {
           const n = nodes.get(op.id)!
           for (const [k, v] of Object.entries(op.props!)) if (v === null) delete n.props[k]; else n.props[k] = v
         } else if (op.op === "children") nodes.get(op.id)!.children = op.children!
-        else if (op.op === "remove") nodes.delete(op.id)
+        else if (op.op === "remove") {
+          // The scene protocol removes a whole subtree with one op, just as the native host does.
+          const pending = [op.id]
+          while (pending.length) {
+            const id = pending.pop()!
+            const node = nodes.get(id)
+            if (node) pending.push(...node.children)
+            nodes.delete(id)
+          }
+        }
         else if (op.op === "root") root = op.id
       }
     }
@@ -140,6 +163,11 @@ export class FakeHost {
 
   dispatch(mountId: string, nodeId: string, event: string, payload: unknown = {}) {
     this.global.__cmuxAppDispatch(mountId, nodeId, event, JSON.stringify(payload))
+  }
+
+  /** A widget mount's host-owned tick (`cmux.widget/1`): sets its `now()` clock. */
+  tick(mountId: string, nowMs: number) {
+    this.global.__cmuxAppTick(mountId, nowMs)
   }
 
   /** Runs a command export; `ctx` is the invocation context (`{gesture}`). */

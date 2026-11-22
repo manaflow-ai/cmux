@@ -31,6 +31,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_TOOL = ROOT / "scripts/cmux-next/host_build_lock.py"
@@ -42,6 +49,7 @@ REAL = {
     "scripts/ci/apfs_clone.py": ROOT / "scripts/ci/apfs_clone.py",
     "scripts/cmux-next/dev_cas_seed.py": ROOT / "scripts/cmux-next/dev_cas_seed.py",
     "scripts/ci/dev_release_product_reuse.py": ROOT / "scripts/ci/dev_release_product_reuse.py",
+    "scripts/ci/deadline_http.py": ROOT / "scripts/ci/deadline_http.py",
 }
 # A real one on macOS, where /usr/bin/git and /usr/bin/python3 resolve through it; only hashed here.
 DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR") or (
@@ -145,12 +153,12 @@ class HostRootTests(unittest.TestCase):
         self.jobs += 1
         job = self.root / f"job-{self.jobs}"
         job.mkdir()
-        env = {
+        env = git_fixture_env.fixture_env({
             "PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.home), "RUNNER_TEMP": str(job),
             "RUNNER_NAME": runner, "GITHUB_WORKSPACE": str(ws), "TEST_LOG": str(job / "seen.json"),
             "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6", "CMUX_NEXT_COMPILATION_CACHE": "1",
             "DEVELOPER_DIR": DEVELOPER_DIR,
-        }
+        })
         env.update(overrides)
         proc = subprocess.Popen(["/bin/bash", str(ws / "scripts/cmux-next/compile-dev-release.sh"),
                                  str(job / "app.zip")], cwd=ws, env=env, text=True,
@@ -316,6 +324,21 @@ class HostRootTests(unittest.TestCase):
                 self.assertEqual(seen["swift_mode"], "wholemodule", seen["out"])
                 self.assertIn(f"cache cold: {why} -> wholemodule", seen["out"])
                 self.assertIn("swift_mode=wholemodule\n", report.read_text())
+
+    def test_a_blacksmith_vm_with_its_restored_cache_compiles_singlefile_from_the_checkout(self):
+        report = self.root / "report.txt"
+        ws = self.workspace("runner-2")
+        seen = self.compile(ws, CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26", CMUX_NEXT_DEV_VM_CACHE="1",
+                            CMUX_NEXT_SWIFT_COMPILATION_MODE="auto", CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertEqual(seen["swift_mode"], "singlefile", seen["out"])
+        self.assertIn("VM cache from actions/cache", seen["out"])
+        self.assertIn("mode=vm\n", report.read_text())
+        self.assertEqual(seen["root"], str(ws), "a VM builds from its checkout, the same path on every VM")
+        self.assertTrue(seen["dd"].endswith("/cmux-next-dev-daily-release"), seen["dd"])
+        self.assertFalse(self.host.exists(), "a VM build never touches the host root")
+        seen = self.compile(ws, CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26", CMUX_NEXT_DEV_VM_CACHE="1",
+                            CMUX_NEXT_COMPILATION_CACHE="0", CMUX_NEXT_SWIFT_COMPILATION_MODE="auto")
+        self.assertIn("cache cold: not a mini -> wholemodule", seen["out"], "the cache switch still turns it off")
 
     def test_auto_compiles_whole_module_while_another_build_holds_the_host_root(self):
         hold = self.root / "hold"

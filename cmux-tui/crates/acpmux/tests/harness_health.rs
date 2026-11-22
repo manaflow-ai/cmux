@@ -23,6 +23,12 @@ mod inventory_refresh;
 #[path = "harness_health/update_plan.rs"]
 mod update_plan;
 
+#[path = "harness_health/claude_expiry.rs"]
+mod claude_expiry;
+
+#[path = "harness_health/dev_builds.rs"]
+mod dev_builds;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
@@ -136,7 +142,7 @@ impl Client {
 
 /// A hub over the profiles in `user`, with no newest-version lookups.
 fn hub_for(root: &Path, user: &Path, home: &Path) -> Arc<Hub> {
-    let sources = ProfileSources { managed: vec![], user_dir: Some(user.into()), cmux_json: None };
+    let sources = ProfileSources { user_dir: Some(user.into()), ..ProfileSources::none() };
     std::fs::create_dir_all(root.join("acpmux")).unwrap();
     std::fs::write(root.join("acpmux/config.json"), "{}").unwrap();
     let mut cfg = Config::load_from_with(&root.join("acpmux/config.json"), &sources).unwrap();
@@ -327,7 +333,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         ("/brew/formula/gemini-cli.json", json!({"versions": {"stable": "0.10.1"}})),
     ]);
 
-    let sources = ProfileSources { managed: vec![], user_dir: Some(user.clone()), cmux_json: None };
+    let sources = ProfileSources { user_dir: Some(user.clone()), ..ProfileSources::none() };
     std::fs::create_dir_all(root.join("acpmux")).unwrap();
     std::fs::write(root.join("acpmux/config.json"), "{}").unwrap();
     let mut cfg = Config::load_from_with(&root.join("acpmux/config.json"), &sources).unwrap();
@@ -479,7 +485,8 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
 
     // A plain browser page (Web) reads the rows as last checked, the same rows
     // the app just read, and runs nothing: no refresh, latest check or
-    // auto-update choice (the agent pane's dev host, cx-jlzsf). A peer gets none.
+    // auto-update choice (the agent pane's dev host, cx-jlzsf). A peer gets
+    // cached auth enums only, for the Chief's machine picker.
     let mut web = Client::open(&hub, Origin::Web);
     let read = web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("web reads");
     assert_eq!(row(&read, "codex")["version"].as_str(), Some("0.4.0"), "{read}");
@@ -493,7 +500,10 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     }
     assert_eq!(asked.lock().unwrap().len(), 5, "web asked a source: {:?}", asked.lock().unwrap());
     let mut peer = Client::open(&hub, Origin::Peer);
-    peer.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("peer origin");
+    let auth = peer.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("peer cached auth");
+    assert_eq!(row(&auth, "codex")["auth"], row(&read, "codex")["auth"]);
+    assert!(row(&auth, "codex").get("version").is_none(), "{auth}");
+    assert!(row(&auth, "codex").get("authDetail").is_none(), "{auth}");
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);

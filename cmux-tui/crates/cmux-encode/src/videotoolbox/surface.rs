@@ -94,6 +94,7 @@ impl SurfaceEncoder for VideoToolbox {
         out: &mut Vec<u8>,
     ) -> Res<bool> {
         out.clear();
+        self.idr_cause = None;
         if frame.io_surface.is_null() {
             return Err("encode_surface: NULL IOSurface".into());
         }
@@ -138,6 +139,7 @@ impl SurfaceEncoder for VideoToolbox {
         if status != 0 || pixel_buffer.is_null() {
             return Err(format!("CVPixelBufferCreateWithIOSurface failed: {status}").into());
         }
+        self.idr_cause = (resized && !force_idr).then_some("resize");
         let result = self.encode_buffer(pixel_buffer, force_idr || resized, pts_us, out);
         // SAFETY: releasing the wrapper we created; the encode has completed.
         unsafe { CFRelease(pixel_buffer as CFTypeRef) };
@@ -161,18 +163,13 @@ mod tests {
     };
     use std::ptr::{null, null_mut};
 
-    #[link(name = "CoreVideo", kind = "framework")]
-    unsafe extern "C" {
-        fn CVPixelBufferCreate(
-            a: *const c_void,
-            w: usize,
-            h: usize,
-            fmt: u32,
-            attrs: *const c_void,
-            out: *mut CVPixelBufferRef,
-        ) -> i32;
-        fn CVPixelBufferGetIOSurface(pb: CVPixelBufferRef) -> *mut c_void;
+    crate::framework! {
+        mod cv_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+            fn CVPixelBufferCreate(a: *const c_void, w: usize, h: usize, fmt: u32, attrs: *const c_void, out: *mut CVPixelBufferRef) -> i32;
+            fn CVPixelBufferGetIOSurface(pb: CVPixelBufferRef) -> *mut c_void;
+        }
     }
+    use cv_sys::*;
 
     /// An IOSurface-backed pixel buffer; the surface lives as long as the buffer.
     struct TestSurface(CVPixelBufferRef);
@@ -183,7 +180,7 @@ mod tests {
             // SAFETY: creating an IOSurface-backed buffer; attrs released after use.
             let status = unsafe {
                 let empty = dict(&[]);
-                let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey, empty)]);
+                let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey(), empty)]);
                 let s = CVPixelBufferCreate(
                     null(),
                     width as usize,

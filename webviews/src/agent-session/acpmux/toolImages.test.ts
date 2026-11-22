@@ -95,3 +95,19 @@ test("audio files share the existing per-tool media limit", () => {
     paths.slice(0, MAX_TOOL_IMAGES),
   );
 });
+
+test("a read that returned its image shows that image, not its path again", () => {
+  const path = "/tmp/ux-after-light.png";
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const read = (fields: Partial<Tool>): Tool =>
+    completed({
+      title: "Read",
+      kind: "read",
+      inputSummary: JSON.stringify({ file_path: path }),
+      locations: [{ path }],
+      ...fields,
+    });
+  expect(toolImages(read({ images: [image] }))).toEqual([image]);
+  // No image came back (an older daemon, a result past the size cap): the path, as before.
+  expect(toolImages(read({}))).toEqual([path]);
+});

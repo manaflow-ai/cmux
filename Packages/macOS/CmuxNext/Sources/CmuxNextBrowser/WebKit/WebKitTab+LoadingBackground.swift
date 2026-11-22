@@ -19,7 +19,7 @@ extension WebKitTab {
 
     /// A new document committed: WebKit draws no background behind it for a
     /// moment, so the pane's theme shows instead of white while the page
-    /// paints (`BrowserPageTunables.loadingBackground`).
+    /// paints.
     ///
     /// The hold is bounded in time because WebKit reports no first paint,
     /// where Chromium has one to end it exactly (`CEFFirstPaintBridge`).
@@ -29,7 +29,7 @@ extension WebKitTab {
     /// the UA's black text over a dark theme color for the whole load. On an
     /// ordinary page `didFinish` ends the hold first.
     func pageDidCommit() {
-        guard BrowserPageTunables.loadingBackground.value else { return }
+        resetPageBackdrop()
         setDrawsPageBackground(false)
         pageBaseHold.schedule(after: Self.pageBaseHoldLimit) { @MainActor [weak self] in
             self?.pageDidFinish()
@@ -48,5 +48,6 @@ extension WebKitTab {
         pageBaseHold.cancel()
         guard !PageBackground.isBlank(webView.url) else { return }
         setDrawsPageBackground(true)
+        samplePageBackdrop()
     }
 }

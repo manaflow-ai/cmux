@@ -15,6 +15,9 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+pub(crate) mod history_window;
+use attach::window_replay_locked;
+use history_window::{HistoryWindow, WindowPlan};
 #[cfg(unix)]
 mod holder_spawn;
 mod host_launch;
@@ -28,6 +31,7 @@ mod pending_bells;
 mod pty_surface;
 mod render_tap;
 mod render_view;
+pub(crate) mod resume_ring;
 mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
@@ -61,8 +65,12 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
+pub(crate) use input_port::{InputReply, input_may_be_written};
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
@@ -121,6 +129,8 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+#[cfg(unix)]
+mod link_recover;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -224,6 +234,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The live screen, one line per row (the default).
+    #[default]
+    Rows,
+    /// The live screen with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -275,8 +299,25 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Rows of history older than the replay's first row, left out by a
+    /// tail replay (`replay_history_rows`); `None` for a whole replay.
+    pub history_rows_omitted: Option<u64>,
+    /// Rows of history between a window replay's last row and the screen,
+    /// left out (`replay_history_start`); `None` when the replay reaches the
+    /// screen.
+    pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
+    /// Where the output stream stood at the replay (`terminal-resume-v1`).
+    pub(crate) stamp: resume_ring::StreamStamp,
+}
+
+/// A `terminal-resume-v1` reattach the daemon could answer exactly: the bytes
+/// after the viewer's offset, and an attach stream with no replay, whose live
+/// tap follows them.
+pub(crate) struct ResumeAttach {
+    pub missing: Vec<u8>,
+    pub attach: AttachStream,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,6 +348,10 @@ pub enum AttachFrame {
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
         pending_sequence: Arc<[u8]>,
+        /// The replay holds the viewer's history window
+        /// (`replay_history_rows`): the older rows it left out. `None`: the
+        /// whole history.
+        history_rows_omitted: Option<u64>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -510,6 +555,11 @@ impl PrelaunchedHost {
         self.terminal_id
     }
 
+    /// Its terminal's public id.
+    pub(crate) fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
+        self.terminal_public_id.as_ref()
+    }
+
     /// Write the workspace key into the host's recovery record now, so the
     /// creation transaction finds it current and skips the synced write
     /// (`Surface::persist_host_workspace`).
@@ -614,6 +664,26 @@ impl Surface {
         })))
     }
 
+    /// Where this terminal's sizing publishes the view a key may skip its sizing note for (R-DAEMON-STATE stage S1);
+    /// every view of the terminal shares it. `None` for a browser surface.
+    pub(crate) fn sizing_fast_path_slot(
+        &self,
+    ) -> Option<crate::mux::sizing_fast_path::SizingFastPathSlot> {
+        self.as_pty().map(|pty| pty.terminal.sizing_fast_path.clone())
+    }
+
+    /// Whether a key from `client` into this view may skip its sizing note: the terminal's sizing published this
+    /// view as its settled newest. One atomic load, no lock.
+    pub(crate) fn skips_sizing_note(&self, client: u64) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            pty.terminal
+                .sizing_fast_path
+                .load()
+                .as_deref()
+                .is_some_and(|fast| fast.client == client && fast.placement == self.id)
+        })
+    }
+
     pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
         match (self, other) {
             (Surface::Pty(left), Surface::Pty(right)) => {
@@ -621,6 +691,15 @@ impl Surface {
             }
             _ => false,
         }
+    }
+
+    /// The terminal runtime's tail pin (`terminal-tail-pin-v1`).
+    pub(crate) fn tail_pin(&self) -> Option<&crate::terminal_tail::TailPinSlot> {
+        self.as_pty().map(|pty| &pty.tail_pin)
+    }
+
+    pub(crate) fn port_mark(&self) -> Option<&crate::mux::PortMark> {
+        self.as_pty().map(|pty| &pty.port_mark)
     }
 
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
@@ -748,6 +827,9 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        // The attachment's other frames go after the keys the port took (S1.6b).
+        let port = input_port::InputPort::default();
+        attachment.set_input_order(port.order());
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -757,9 +839,11 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, snapshot.pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -775,12 +859,19 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: port,
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -793,7 +884,6 @@ impl Surface {
                 host_identity: Some(host_identity),
                 pending_host_binding: Mutex::new(Some(pending_host_binding)),
                 host_exit_record_path: Some(host_exit_record_path),
-                pid: snapshot.pid,
                 command: snapshot.command,
                 cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
@@ -801,6 +891,9 @@ impl Surface {
                 exit_notified: AtomicBool::new(false),
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
@@ -841,6 +934,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -870,6 +964,17 @@ impl Surface {
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface)?;
 
+        // A daemon restart adopts a host whose screen may have advanced while
+        // no parser tap existed. Mark that cut before the reader starts so an
+        // idle adopted terminal is projected from its live screen too.
+        if adopted
+            && let Some(mux) = mux.upgrade()
+            && let Some(pty) = surface.as_pty()
+            && let Some(terminal_id) = pty.terminal_public_id.clone()
+        {
+            mux.output_store.stream_gap(&terminal_id, &pty.journal_generation);
+        }
+
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and
         // function-local Surface drops the still-armed attachment, so no
@@ -893,7 +998,7 @@ impl Surface {
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
-            flap_backoff: TerminalHostReconnectBackoff::default(),
+            flap_backoff: TerminalHostReconnectBackoff::retrying_after_failure(),
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };

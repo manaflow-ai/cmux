@@ -15,7 +15,7 @@ extension MachineRegistry {
     /// unreachable server), the home record whose `transport` names it.
     func sessionID(machine machineID: String) -> String? {
         if let id = anyDaemon(machine: machineID)?.store.registryID { return id }
-        return local.store.personal.sessions.first { Self.machineID(transport: $0.transport) == machineID }?.id
+        return local.store.personal.sessionIcons.first { Self.machineID(transport: $0.transport) == machineID }?.id
     }
 
     /// The machine a registry `transport` (`SessionRegistrar.transport`)
@@ -35,16 +35,16 @@ extension MachineRegistry {
     /// when it has none or is not recorded yet.
     func icon(machine machineID: String) -> String? {
         guard let session = sessionID(machine: machineID) else { return nil }
-        return local.store.personal.session(session)?.icon
+        return local.store.personal.sessionIcon(session)?.icon
     }
 
-    /// `sections` with each machine header carrying its icon. A stored
+    /// `sections` with each machine header carrying its icon (`PersonalStore.sessionIcons` only, no heartbeat). A stored
     /// asset is read from the home daemon, which holds machine icons' assets.
     func withMachineIcons(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
         let asset = IconAssetImages.shared.sidebarIcon(owner: local)
         return sections.map { section in
             guard case .machine(var machine) = section.kind else { return section }
-            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset)
+            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset, device: machine.kind == .cloud ? nil : anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol)
             var drawn = section
             drawn.kind = .machine(machine)
             return drawn

@@ -2,10 +2,12 @@
 // inspiration"): the What's New page opens in design #01 Ledger of
 // design/changelog-variations-gallery. Each release day reads like a Conductor release: its
 // version as a small tag and its date in the left margin, then its changes under New / Improved /
-// Fixed headings. The older designs stay reachable with `design=` (Debug Settings).
+// Fixed headings. Since 2026-10-31 the What's New sheet is the default (whats-new-sheet.test.tsx);
+// the Ledger and the older designs stay reachable with `design=` (Debug Settings).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -13,7 +15,7 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/#/?design=ledger" });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -24,20 +26,16 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
-test("the page opens in the Ledger design unless a route names another one", async () => {
+test("a route names the Ledger and the older designs", async () => {
   const { parseDesign } = await import("../src/pages/changelog/store");
-  expect(parseDesign("")).toBe("ledger");
-  expect(parseDesign("#/?from=1&to=2")).toBe("ledger");
+  expect(parseDesign("#/?design=ledger")).toBe("ledger");
+  expect(parseDesign("#/?design=ledger&from=1&to=2")).toBe("ledger");
   expect(parseDesign("#/?design=journal")).toBe("journal");
   expect(parseDesign("#/?design=rail")).toBe("rail");
-  expect(parseDesign("#/?design=nonsense")).toBe("ledger");
 });
 
 test("a Ledger release shows its version tag and date in the margin and its changes under headings", async () => {

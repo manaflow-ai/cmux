@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const FIXTURE = fileURLToPath(
   new URL(
@@ -30,6 +31,7 @@ const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Elem
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -63,6 +65,17 @@ const previewLabel = (card: HTMLElement) => card.querySelector(".acpmux-question
 const previewBody = (card: HTMLElement) => card.querySelector(".acpmux-question-preview pre")?.textContent;
 const row = (card: HTMLElement, index: number) =>
   card.querySelector<HTMLElement>(`.acpmux-question-row[data-row="${index}"]`)!;
+
+test("the native key target names the permission id when a card has a synthetic id", async () => {
+  const question = withPreviews();
+  question.id = "synthetic-conversation-question";
+  question.source.permission = "daemon-permission";
+  const container = await render(question);
+  const card = container.querySelector<HTMLElement>(".acpmux-question")!;
+  expect(card.dataset.cmuxQuestionSession).toBe(question.source.session);
+  expect(card.dataset.cmuxQuestionId).toBe("daemon-permission");
+  expect(card.dataset.cmuxQuestionEnterReply).toBeUndefined();
+});
 
 async function pointer(target: Element, type: "mouseover" | "mouseout", related: Element | null) {
   await act(async () => {

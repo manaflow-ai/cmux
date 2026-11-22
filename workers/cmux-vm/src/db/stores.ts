@@ -81,6 +81,8 @@ export interface OwnershipStoreService {
   readonly creationKey: (tenantId: TenantId, cmuxId: string) => Effect.Effect<string | null, StoreError>;
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
+  /** `find` for many ids in one query: the caller's own live resources of this kind among `cmuxIds`, by id. */
+  readonly findMany: (tenantId: TenantId, kind: ResourceKind, cmuxIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyMap<string, OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
   /** The tenant's live resources of this kind, newest first. */
   readonly listPage: (tenantId: TenantId, kind: ResourceKind, options: ListPageOptions) => Effect.Effect<ReadonlyArray<OwnedResource>, StoreError>;
@@ -192,6 +194,22 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             Effect.flatMap(decodeRows(ResourceRow, "ownership.find")),
             Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
           ),
+      findMany: (tenantId, kind, cmuxIds) =>
+        cmuxIds.length === 0
+          ? Effect.succeed(new Map<string, OwnedResource>())
+          : sql
+              .query(
+                "ownership.findMany",
+                // The ids go as one JSON array parameter (SqlParam is scalar), cast as text first (sql.ts).
+                `SELECT ${RESOURCE_COLUMNS}
+                   FROM cmux_vm.resources
+                  WHERE cmux_id IN (SELECT jsonb_array_elements_text($1::text::jsonb)) AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL`,
+                [JSON.stringify(cmuxIds), tenantId, kind],
+              )
+              .pipe(
+                Effect.flatMap(decodeRows(ResourceRow, "ownership.findMany")),
+                Effect.map((rows) => new Map(rows.map(toOwned).map((owned) => [owned.cmuxId, owned] as const))),
+              ),
       record: (resource) => {
         const params: ReadonlyArray<SqlParam> = [
           resource.cmuxId,

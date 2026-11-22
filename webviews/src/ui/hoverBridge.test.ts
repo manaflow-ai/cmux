@@ -208,4 +208,31 @@ describe("hover trigger/card bridge", () => {
 
     expect(opened).toBe(1);
   });
+
+  test("a card above its trigger stays open across the whole gap, not just a strip at its nearest point", () => {
+    const clock = new FakeClock();
+    let closed = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: 0,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => {},
+      close: () => (closed += 1),
+    });
+    const below = { left: 20, top: 200, right: 120, bottom: 224 };
+    const above = { left: 20, top: 40, right: 360, bottom: 170 };
+
+    bridge.enter("trigger", below, point(110, 210), true);
+    bridge.update({ card: above });
+    bridge.leave("trigger", below, point(118, 199));
+    // Heading for the card's far right corner, far from the nearest-point strip.
+    bridge.move(point(230, 185));
+    clock.advance(HOVER_INTENT.cardGrace + 1);
+    expect(closed).toBe(0);
+
+    // Past the trigger's own bottom edge is not the gap: the next row below takes over.
+    bridge.move(point(110, 250));
+    clock.advance(HOVER_INTENT.cardGrace);
+    expect(closed).toBe(1);
+  });
 });

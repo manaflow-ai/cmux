@@ -29,7 +29,7 @@ describe("the running tray", () => {
     const agents = failedAgent({ retry: RETRY });
     expect(trayItems(agents, [], [], false).map((item) => item.id)).toEqual(["a"]);
     expect(finishedTrayItems(agents, [])).toEqual([]);
-    const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: RETRY };
+    const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: RETRY, subsession: true };
     expect(trayItems([], [], [chat], false).map((item) => item.id)).toEqual(["s"]);
     expect(finishedTrayItems([], [chat])).toEqual([]);
   });
@@ -37,7 +37,7 @@ describe("the running tray", () => {
   test("a sub-session's retry, kept on its own session row, shows it with the running ones", () => {
     const [failed] = failedAgent({});
     const agents = [{ ...failed!, child: "c" }];
-    const child = { sessionId: "c", title: "Overview", state: "failed" as const, retry: RETRY };
+    const child = { sessionId: "c", title: "Overview", state: "failed" as const, retry: RETRY, subsession: true };
     const agentIds = (items: { kind: string; id: string }[]) =>
       items.filter((item) => item.kind === "agent").map((item) => item.id);
     const [item] = trayItems(agents, [], [child], false);
@@ -70,8 +70,7 @@ test("a change to any retry field redraws the line (its cache key)", () => {
 });
 
 test("the line's strings are in the catalog", () => {
-  for (const key of ["retry.action", "retry.askParent", "retry.menu"] as const) expect(translate(key)).not.toBe(key);
+  for (const key of ["retry.action", "retry.menu"] as const) expect(translate(key)).not.toBe(key);
   expect(translate("retry.retriedOut", { of: 4 })).toBe("gave up after 4 tries");
   expect(translate("retry.action")).toBe("Retry");
-  expect(translate("retry.askParent")).toBe("Ask parent to retry");
 });

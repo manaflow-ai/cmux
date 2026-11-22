@@ -49,7 +49,7 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 - Signing: hardened runtime, no JIT entitlement (the browser process does not JIT; Renderer and GPU keep `allow-jit`,
   `scripts/cmux-next/sign-cef.sh`). Sandbox: none for the browser process, as Chrome and today. Release signing
   (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh`.
-- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app today.
+- Keychain: cmux's own "cmux Safe Storage" item (account: the bundle identifier, `CEFKeychainItem`) encrypts cookies and passwords; never the shared "Chromium Safe Storage". Its ACL names the cmux app today.
   The host is another code identity, so release builds must give the host the same keychain access group or migrate
   the item once (open item). Dev builds use the mock keychain (`CEFSwitches.useMockKeychain`).
 
@@ -74,7 +74,7 @@ Two channels per host:
 
 1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`shim/chromium_host_wire.h`,
    `S/ChromiumHost/ChromiumHostFrame.swift`, one golden frame tested on both sides). cmux writes non-blocking from the
-   main thread (one `write` on an `O_NONBLOCK` descriptor, a few us) and reads on a thread of its own, blocking on the
+   main thread (one `writev` of the header and payload on an `O_NONBLOCK` descriptor, a few us, no heap allocation) and reads on a thread of its own, blocking on the
    other pair (macOS ignores `MSG_DONTWAIT` on Unix sockets, and file status flags are shared by every descriptor of
    a socket, so one socket cannot be both); the host reads on a thread of its own and posts each frame to its UI thread.
    Bounded both ways (256 KB send buffer, 4,096 frames backlog); an overflow ends the host, never blocks cmux.

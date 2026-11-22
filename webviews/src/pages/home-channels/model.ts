@@ -14,6 +14,7 @@ import type {
   HomeThreadStats,
   HomeThreadStatus,
 } from "./types";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /** Messages closer than this from the same author share one head. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -118,10 +119,12 @@ export function threadTitle(root: HomeMessage): string {
     // Paired emphasis and code marks only: `fix_sidebar_bug` and `~/path` keep their characters.
     .replace(/(\*\*|__|~~|\*|_|`)(\S(?:.*?\S)?)\1/g, "$2")
     .replace(/[:;,]\s*$/, "");
-  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
+  return plain.length > TITLE_MAX ? `${sliceWhole(plain, TITLE_MAX - 1)}…` : plain;
 }
 
-/** The thread a message belongs to (its root's id), or undefined for a top-level message. */
+/** The thread a message belongs to (its root's id), or undefined for a top-level message. A reply
+ * without the owner's root (from before threads, or an inline reply) is in the thread of the message it
+ * answers; `withThreadRoots` gives it that message's root when the answered message is a thread reply. */
 export function threadOf(message: HomeMessage): string | undefined {
   const root = message.threadRoot ?? message.replyTo?.message;
   return root && root !== message.id ? root : undefined;
@@ -339,7 +342,8 @@ export function hashLink(hash: string): string | undefined {
   return match ? `cmux://${match[1]}` : undefined;
 }
 
-/** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one. */
+/** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one.
+ * Replies without a root get their thread's root (`withThreadRoots`). */
 export function mergeMessages(
   window: readonly HomeMessage[],
   incoming: readonly HomeMessage[],
@@ -349,8 +353,44 @@ export function mergeMessages(
   const bySeq = new Map<number, HomeMessage>();
   for (const message of window) bySeq.set(message.seq, message);
   for (const message of incoming) bySeq.set(message.seq, message);
-  const merged = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+  const merged = withThreadRoots([...bySeq.values()].sort((a, b) => a.seq - b.seq));
   return merged.length > limit ? merged.slice(merged.length - limit) : merged;
+}
+
+/** The messages with each reply that has no root of its own (`replyTo` only) given the root of the
+ * loaded thread reply it answers, through any chain of such replies. A reply to a thread reply then
+ * shows in that thread, not under the reply as a thread of its own (a top-level row with the reply
+ * drawn again above it); one that answers a top-level message keeps `threadOf`'s rule. */
+export function withThreadRoots(messages: HomeMessage[]): HomeMessage[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  // Each message's resolved thread, once per call (a long chain of replies is walked once).
+  const known = new Map<string, string | undefined>();
+  // The thread `message` is in: its root, else the thread of the message it answers, else that
+  // message (top level); undefined at the top level, in a reply loop, or when the chain leaves the
+  // loaded messages.
+  const rootOf = (message: HomeMessage, seen: Set<string>): string | undefined => {
+    if (message.threadRoot) return message.threadRoot;
+    if (known.has(message.id)) return known.get(message.id);
+    const target = message.replyTo?.message;
+    if (!target || target === message.id || seen.has(target)) return undefined;
+    seen.add(message.id);
+    // A chain that leaves the loaded messages is unknown: nothing is saved until the older page
+    // brings it in, so a derived root never sticks to a reply (it would read as the owner's later).
+    const answered = byId.get(target);
+    const root = answered ? (rootOf(answered, seen) ?? (answered.replyTo ? undefined : target)) : undefined;
+    known.set(message.id, root);
+    return root;
+  };
+  let resolved: HomeMessage[] | undefined;
+  messages.forEach((message, index) => {
+    if (message.threadRoot || !message.replyTo) return;
+    const root = rootOf(message, new Set());
+    // The answered message itself is what `threadOf` reads already: the message stays as it is.
+    if (!root || root === message.id || root === message.replyTo.message) return;
+    resolved ??= [...messages];
+    resolved[index] = { ...message, threadRoot: root };
+  });
+  return resolved ?? messages;
 }
 
 /** The timeline with the running reply as its last row (grouped under the author's own last

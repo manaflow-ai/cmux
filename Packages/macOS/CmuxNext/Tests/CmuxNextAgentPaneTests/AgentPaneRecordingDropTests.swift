@@ -7,37 +7,6 @@ import Testing
 /// recording before returning a link, rather than keep a URL into that preview's temporary folder.
 @MainActor @Suite(.serialized)
 struct AgentPaneRecordingDropTests {
-    private actor UploadGate {
-        private var entered = false
-        private var released = false
-        private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
-        private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-
-        func waitUntilEntered() async {
-            if entered { return }
-            await withCheckedContinuation { enteredWaiters.append($0) }
-        }
-
-        func markEntered() {
-            entered = true
-            let waiters = enteredWaiters
-            enteredWaiters.removeAll()
-            waiters.forEach { $0.resume() }
-        }
-
-        func waitForRelease() async {
-            if released { return }
-            await withCheckedContinuation { releaseWaiters.append($0) }
-        }
-
-        func release() {
-            released = true
-            let waiters = releaseWaiters
-            releaseWaiters.removeAll()
-            waiters.forEach { $0.resume() }
-        }
-    }
-
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
@@ -49,7 +18,6 @@ struct AgentPaneRecordingDropTests {
     private final class Rig {
         let model = AgentPaneModel(host: NoHost())
         let clock = Uptime()
-        var uploads: [AgentPaneUpload] = []
         var dragged: [URL] = []
         let saved: URL
 
@@ -58,25 +26,16 @@ struct AgentPaneRecordingDropTests {
             let clock = clock
             model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
             model.onLocalPaths = { true }
+            model.chatUploadFolders = ChatUploadFolders(root: saved)
             model.replyLinks.mouseHeld = { true }
             model.replyLinks.startDrag = { [weak self] in self?.dragged.append($0); return true }
-            model.onUpload = { [weak self] in
-                guard let self else { return nil }
-                return { files in
-                    self.uploads += files
-                    let saved = self.saved
-                    let paths = try? await Task.detached {
-                        try files.enumerated().map { index, file in
-                            let folder = saved.appendingPathComponent(String(index), isDirectory: true)
-                            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                            let target = folder.appendingPathComponent(file.name)
-                            try file.data.write(to: target)
-                            return target.path
-                        }
-                    }.value
-                    guard let paths else { return AgentPaneReply.failure(code: "upload_failed", message: "Not saved") }
-                    return AgentPaneReply.success(["uploads": paths.map { ["path": $0] }])
-                }
+        }
+
+        /// The files kept under the Chat Uploads root.
+        var keptFiles: [URL] {
+            let found = FileManager.default.enumerator(at: saved, includingPropertiesForKeys: [.isRegularFileKey])
+            return (found?.allObjects as? [URL] ?? []).filter {
+                (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
             }
         }
 
@@ -122,7 +81,10 @@ struct AgentPaneRecordingDropTests {
         #expect(kept.path != source.path)
         #expect(kept.lastPathComponent == source.lastPathComponent)
         #expect(try Data(contentsOf: kept) == data)
-        #expect(rig.uploads.map(\.data) == [data])
+        // Kept in the chat's Chat Uploads folder, owner-only.
+        #expect(kept.resolvingSymlinksInPath().path.hasPrefix(saved.resolvingSymlinksInPath().path + "/"))
+        let mode = try FileManager.default.attributesOfItem(atPath: kept.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
 
         let reply = await rig.model.respond(to: AgentPaneRequest(body: ["method": "file.drag", "params": ["path": kept.path]]))
         #expect(reply["ok"] as? Bool == true)
@@ -152,26 +114,52 @@ struct AgentPaneRecordingDropTests {
         rig.model.droppedPaths.stash([source], kind: .drop)
         #expect(Self.paths(await rig.ask(["another.mov"])).isEmpty)
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
-        #expect(rig.uploads.isEmpty)
+        #expect(rig.keptFiles.isEmpty)
     }
 
-    @Test func missingOrOversizedPreviewsNeverBecomeDeadLinks() async throws {
+    /// No size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE"):
+    /// a recording past the old 1 GiB limit is kept whole, as a clone, never read into memory.
+    @Test func aPreviewOfAnySizeIsKeptAndAMissingOneNeverBecomesADeadLink() async throws {
         let source = try Self.preview(data: Data("movie".utf8))
-        let saved = try Self.folder("recording-unavailable")
+        let saved = try Self.folder("recording-large")
         defer {
             try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
             try? FileManager.default.removeItem(at: saved)
         }
         let rig = Rig(saved: saved)
+        let large = 3 * 1024 * 1024 * 1024 + 7
         let handle = try FileHandle(forWritingTo: source)
-        try handle.truncate(atOffset: UInt64(AgentPaneUpload.maximumFileBytes + 1))
+        try handle.truncate(atOffset: UInt64(large))
         try handle.close()
         rig.model.droppedPaths.stash([source], kind: .drop)
-        #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
-        try FileManager.default.removeItem(at: source)
+        try FileManager.default.removeItem(at: source.deletingLastPathComponent())
+        let kept = try #require(Self.paths(await rig.ask([source.lastPathComponent])).first)
+        let size = try FileManager.default.attributesOfItem(atPath: kept)[.size] as? Int
+        #expect(size == large)
+
+        let gone = try Self.preview(data: Data("movie".utf8))
+        defer { try? FileManager.default.removeItem(at: gone.deletingLastPathComponent()) }
+        try FileManager.default.removeItem(at: gone)
+        rig.model.droppedPaths.stash([gone], kind: .drop)
+        #expect(Self.paths(await rig.ask([gone.lastPathComponent])).isEmpty)
+    }
+
+    /// A screenshot from the same floating preview is kept too: its original uploaded after its
+    /// preview was read, from a file macOS had already removed (its tile's Retry, Leo 2026-10-31).
+    @Test func aScreenshotPreviewIsKeptAsARecordingIs() async throws {
+        let data = Data([0x89, 0x50, 0x4e, 0x47])
+        let source = try Self.preview("Screenshot.png", data: data)
+        let saved = try Self.folder("screenshot-saved")
+        defer {
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: saved)
+        }
+        let rig = Rig(saved: saved)
         rig.model.droppedPaths.stash([source], kind: .drop)
-        #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
-        #expect(rig.uploads.isEmpty)
+        try FileManager.default.removeItem(at: source.deletingLastPathComponent())
+        let kept = URL(fileURLWithPath: try #require(Self.paths(await rig.ask([source.lastPathComponent])).first))
+        #expect(kept.lastPathComponent == "Screenshot.png")
+        #expect(try Data(contentsOf: kept) == data)
     }
 
     @Test func aFailedSaveNeverReturnsTheTemporaryPath() async throws {
@@ -182,7 +170,10 @@ struct AgentPaneRecordingDropTests {
             try? FileManager.default.removeItem(at: saved)
         }
         let rig = Rig(saved: saved)
-        rig.model.onUpload = { { _ in AgentPaneReply.failure(code: "upload_failed", message: "Not saved") } }
+        // A root under a plain file: no folder can be made there.
+        let blocked = saved.appendingPathComponent("file")
+        try Data("x".utf8).write(to: blocked)
+        rig.model.chatUploadFolders = ChatUploadFolders(root: blocked.appendingPathComponent("root"))
         rig.model.droppedPaths.stash([source], kind: .drop)
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
     }
@@ -216,40 +207,7 @@ struct AgentPaneRecordingDropTests {
         rig.model.droppedPaths.stash([source], kind: .drop)
         rig.model.adoptSession("chat-b")
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
-        #expect(rig.uploads.isEmpty)
-    }
-
-    @Test func aLateRecordingUploadCannotRetainAPathForTheNextChat() async throws {
-        let source = try Self.preview(data: Data("movie".utf8))
-        let saved = try Self.folder("recording-session-race")
-        defer {
-            try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
-            try? FileManager.default.removeItem(at: saved)
-        }
-        let rig = Rig(saved: saved)
-        let gate = UploadGate()
-        let expected = saved.appendingPathComponent("race", isDirectory: true)
-            .appendingPathComponent(source.lastPathComponent)
-        rig.model.onUpload = {
-            { files in
-                await gate.markEntered()
-                await gate.waitForRelease()
-                try? FileManager.default.createDirectory(at: expected.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? files.first?.data.write(to: expected)
-                return AgentPaneReply.success(["uploads": [["path": expected.path]]])
-            }
-        }
-        rig.model.adoptSession("chat-a")
-        rig.model.droppedPaths.stash([source], kind: .drop)
-        let pending = Task { Self.paths(await rig.ask([source.lastPathComponent])) }
-        await gate.waitUntilEntered()
-        rig.model.adoptSession("chat-b")
-        await gate.release()
-        #expect(await pending.value.isEmpty)
-        let refused = await rig.model.respond(to: AgentPaneRequest(body: [
-            "method": "file.drag", "params": ["path": expected.path],
-        ]))
-        #expect(refused["ok"] as? Bool == false)
+        #expect(rig.keptFiles.isEmpty)
     }
 
     @Test func firstSessionAdoptionPreservesPendingAndRetainedRecordings() async throws {

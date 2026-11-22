@@ -16,8 +16,17 @@ extension DaemonStore {
     /// tree (disconnected or not loaded), when no tab may be called gone.
     public func liveTreeLists(tab id: String) -> Bool? {
         guard liveTabListRevision != nil else { return nil }
-        return tab(id: id) != nil
+        // A tab a person's close only hides while the daemon's read decides (`HiddenTabClose`) is still the daemon's:
+        // its content stays until the close is sent, so a Cancel brings back the same view (review of #31875).
+        return tab(id: id) != nil || heldTabIDs.contains(id)
     }
+
+    /// Tabs hidden by a pending ``Intent/closeTabs(surfaces:)`` the caller holds back from the daemon
+    /// (``holdTabs(_:)``): out of the visible state, still listed by the live tree for its watchers.
+    public func holdTabs(_ ids: Set<String>) { heldTabIDs.formUnion(ids) }
+
+    /// The hide of `ids` ended (the close went out, or the tabs came back).
+    public func releaseHeldTabs(_ ids: Set<String>) { heldTabIDs.subtract(ids) }
 
     /// Whether the live tree lists the pane with durable id `id` (``PaneModel/id``); nil while the
     /// store has no live tree (disconnected or not loaded), when no pane may be called gone.

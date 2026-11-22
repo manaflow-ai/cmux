@@ -54,6 +54,8 @@ import Testing
         let key = Shortcut("k", modifiers: [.control, .option])
         registry.setShortcutOverride(key, for: "home.zoomIn")
         #expect(Self.winner(key, in: KeyContext([KeyContext.topPage: .string("home")]), registry: registry) == "home.zoomIn")
+        // Another React page (Settings) does not take the Chief chat's zoom.
+        #expect(Self.winner(key, in: KeyContext([KeyContext.pageID: .string("cmux.settings")]), registry: registry) != "home.zoomIn")
         var terminal = KeyContext(bits: [.terminalFocused])
         terminal[KeyContext.surfaceKind] = .string("terminal")
         #expect(Self.winner(key, in: terminal, registry: registry) != "home.zoomIn")

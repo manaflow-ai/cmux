@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import UniformTypeIdentifiers
 
@@ -11,6 +12,7 @@ import UniformTypeIdentifiers
 /// after, in dark then light, stacked in `.build/home-unread-indicator.png` (a fleet step returns it
 /// with `--artifact`). It checks only that each drew; `HomeUnreadIndicatorTests` checks the rule.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeUnreadIndicatorCaptureTests {
     private func snapshot(_ view: NSView, size: NSSize, dark: Bool) -> CGImage? {
         _ = NSApplication.shared

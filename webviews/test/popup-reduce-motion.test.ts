@@ -1,9 +1,9 @@
-// Reduce Motion keeps popup close fades (POLISH: calm motion, no flash; plans/cmux-next/motion.md
-// rule 7). The pages' shared stylesheet cut every animation and transition to 0.01ms under
-// `reduce`, so a menu, tooltip or sheet left in one frame there. A menu opens in one frame in every
-// motion setting (Leo 2026-10-24: "No fade in ever for any of these"; test/popover-instant-open.test.ts)
-// and fades as it closes. This opens the shared menu in the gallery, with the pages' shared
-// stylesheet, under emulated Reduce Motion.
+// Reduce Motion keeps dialog fades (POLISH: calm motion, no flash; plans/cmux-next/motion.md rule 7).
+// The pages' shared stylesheet cut every animation and transition to 0.01ms under `reduce`, so a
+// dialog or sheet left in one frame there. A menu opens and closes in one frame in every motion
+// setting (Leo 2026-10-24: "No fade in ever for any of these"; 2026-11-11: "the fade-in, the
+// fade-out, is just so stupid"; test/popover-instant-open.test.ts). This opens the shared menu and
+// dialog in the gallery, with the pages' shared stylesheet, with and without emulated Reduce Motion.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -56,8 +56,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   });
 
   for (const reduced of [false, true]) {
-    test(`a menu fades out when it closes${reduced ? " under Reduce Motion" : ""}`, async () => {
-      // POLISH audit batch 2 (cx-2grmt): a closed menu vanished in one frame.
+    test(`a menu goes in one frame when it closes, with no fade${reduced ? " under Reduce Motion" : ""}`, async () => {
       const page = await browser!.newPage({
         viewport: { width: 560, height: 420 },
         reducedMotion: reduced ? "reduce" : "no-preference",
@@ -86,7 +85,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         await page.keyboard.press("Escape");
         await popup.waitFor({ state: "detached" });
         const faded = await page.evaluate(() => (window as unknown as { faded: string[] }).faded);
-        expect(faded.length).toBeGreaterThan(0);
+        expect(faded).toEqual([]);
       } finally {
         await page.close();
       }
@@ -112,6 +111,9 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
             "transitionrun",
             (event) => {
               const target = event.target as Element;
+              // Alert polish: the dialog also grows in and shrinks out (scale), as the native one,
+              // except under Reduce Motion, where it only fades.
+              if (event.propertyName === "scale" && target.classList?.contains("ui-dialog")) faded.push("dialog-scale");
               if (event.propertyName !== "opacity") return;
               if (target.classList?.contains("ui-dialog")) faded.push("dialog");
               if (target.classList?.contains("ui-backdrop")) faded.push("backdrop");
@@ -123,17 +125,33 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         const forget = () => page.evaluate(() => ((window as unknown as { faded: string[] }).faded.length = 0));
         await page.getByRole("button", { name: "Open demo dialog" }).click();
         await page.locator(".ui-dialog").waitFor();
-        // Both fades start as the dialog opens; a transition that never runs leaves the wait to time out.
+        // Both fades (and the scale, with motion) start as the dialog opens; a transition that never
+        // runs leaves the wait to time out.
+        const expected = reduced ? ["backdrop", "dialog"] : ["backdrop", "dialog", "dialog-scale"];
         await page
-          .waitForFunction(() => new Set((window as unknown as { faded: string[] }).faded).size === 2, undefined, {
-            timeout: 5_000,
-          })
+          .waitForFunction(
+            (count) => new Set((window as unknown as { faded: string[] }).faded).size === count,
+            expected.length,
+            { timeout: 5_000 },
+          )
           .catch(() => {});
-        expect(await faded()).toEqual(["backdrop", "dialog"]);
+        expect(await faded()).toEqual(expected);
+        // The open settles first, as in the menu case above. A close in the open's first frames finds
+        // the dialog still at opacity 0, where CSS starts no transition (nothing to fade), and when
+        // those frames land depends on the engine (Chromium 156's headless shell ran them later than
+        // 151, so Escape came while the dialog was still invisible).
+        await page
+          .locator(".ui-dialog")
+          .evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((a) => a.finished)));
+        await page.evaluate(() =>
+          Promise.all(
+            [...document.querySelectorAll(".ui-backdrop")].flatMap((el) => el.getAnimations().map((a) => a.finished)),
+          ),
+        );
         await forget();
         await page.keyboard.press("Escape");
         await page.locator(".ui-dialog").waitFor({ state: "detached" });
-        expect(await faded()).toEqual(["backdrop", "dialog"]);
+        expect(await faded()).toEqual(expected);
       } finally {
         await page.close();
       }

@@ -345,6 +345,24 @@ async fn a_plain_background_agent_ends_only_with_its_notification() {
     assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
 }
 
+/// A plain background agent's progress says its agent id (its task id), the id a SendMessage to
+/// it names: a "Sent to" row whose Agent call is on an older page still names it (Leo,
+/// 2026-11-03: "Sent to a6ab68f9"). A completed end still names no agent to resume.
+#[tokio::test]
+async fn a_background_agents_progress_carries_its_agent_id() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let call = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a", "name": "Agent",
+        "input": {"description": "Watch the build", "prompt": "Watch it", "run_in_background": true}}]}});
+    t.inbound(&call).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "a6ab68f9e2c41d07b", "tool_use_id": "toolu_a",
+        "is_backgrounded": true}))
+        .await;
+    let progress = json!({"type": "system", "subtype": "task_progress", "task_id": "a6ab68f9e2c41d07b",
+        "tool_use_id": "toolu_a", "summary": "Reading the log", "usage": {"total_tokens": 10}});
+    let out = updates(&t.inbound(&progress).await);
+    assert_eq!(of_kind(&out, "subagent_progress")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
+}
+
 /// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts
 /// and masks, so no part of the token reaches the preview.
 #[tokio::test]
@@ -433,7 +451,7 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
     tree.annotate(&mut progress);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "runId": "wf_4fe",
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "Workflow", "task": "Workflow", "runId": "wf_4fe",
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
@@ -499,7 +517,7 @@ async fn a_background_agent_reports_its_progress() {
     assert_eq!(
         progress.first().map(|v| (*v).clone()),
         Some(json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_a",
-            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash"})),
+            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash", "agentId": "a1"})),
         "{out:?}"
     );
     // A progress summary (agentProgressSummaries) is the better action.
@@ -523,7 +541,7 @@ fn progress_reaches_clients_in_the_subagent_model() {
     tree.annotate(&mut progress);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "tokens": 19738,
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "task": "Workflow", "tokens": 19738,
             "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2", "agents": {"done": 1, "started": 3}}])
     );
 }

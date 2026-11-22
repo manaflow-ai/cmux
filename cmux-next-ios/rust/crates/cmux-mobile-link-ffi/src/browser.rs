@@ -252,6 +252,21 @@ struct Viewer {
     demand: Option<cmux_mobile_link::hybrid::MediaDemand>,
 }
 
+/// Why the channel closed, once a send found it closed: the peer's close
+/// stops our sends before its `Closed` event is read, so take that event's
+/// code (a refused tab is `forbidden`) over a bare `link_closed`.
+async fn peer_close(receiver: &mut ChannelReceiver) -> (String, String) {
+    let closed = async {
+        while let Some(event) = receiver.recv().await {
+            if let ChannelEvent::Closed(info) = event {
+                return (info.code, info.reason);
+            }
+        }
+        ("link_closed".to_owned(), String::new())
+    };
+    tokio::time::timeout(SEND_STALL, closed).await.unwrap_or_else(|_| ("link_closed".to_owned(), String::new()))
+}
+
 impl Viewer {
     fn now(&self) -> u64 {
         u64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(u64::MAX)
@@ -344,7 +359,7 @@ impl Viewer {
             if !out.is_empty() {
                 match tokio::time::timeout(SEND_STALL, sender.send(out.into())).await {
                     Ok(Ok(())) => {}
-                    Ok(Err(_)) => break ("link_closed".to_owned(), String::new()),
+                    Ok(Err(_)) => break peer_close(&mut receiver).await,
                     Err(_) => {
                         let reason = "the browser channel stopped moving";
                         sender.close(STALLED, reason).await;

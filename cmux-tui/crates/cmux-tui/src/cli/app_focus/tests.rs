@@ -173,3 +173,120 @@ fn screen_focus_runs_the_apps_screen_focus() {
     assert_eq!(received[0]["params"]["action"], "screen.focus");
     assert_eq!(received[0]["params"]["target"], "screen_1");
 }
+
+/// An app whose read barrier never settles: a request with `after: "sync"`
+/// gets the app's own deadline error (its main actor is busy publishing,
+/// TYPING UNDER LOAD L6), any other request the window's snapshot.
+fn busy_app(snapshot: Value) -> (PathBuf, std::thread::JoinHandle<Vec<Value>>) {
+    let dir = cmux_unix_socket::short_test_dir("cmux-focus-busy");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut received = Vec::new();
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request = serde_json::from_str::<Value>(&line).unwrap();
+            line.clear();
+            let response = if request["params"]["after"] == "sync" {
+                json!({"id": 1, "ok": false,
+                       "error": {"code": "timeout", "message": "snapshot.get timed out after 2 s"}})
+            } else {
+                ok(snapshot.clone())
+            };
+            received.push(request);
+            writeln!(writer, "{response}").unwrap();
+        }
+        drop(dir);
+        received
+    });
+    (socket, handle)
+}
+
+/// CLI-1 (TYPING UNDER LOAD, STATUS 6290): `workspace list` asked the app
+/// which workspace its window shows with the read barrier `after: "sync"`,
+/// which waits for the app's main actor to publish a snapshot past a daemon
+/// round trip. Under load each try hit the app's 2 s deadline and the CLI
+/// asked twice: a 4.1 s list. Which workspace a window shows is the app's
+/// own state, which no daemon write of the caller changes (focus goes
+/// through the app's focus actions), so the overlay reads the published
+/// snapshot and never waits for the main actor.
+#[test]
+fn workspace_list_reads_the_window_without_waiting_for_the_apps_read_barrier() {
+    let (socket, app) = busy_app(json!({
+        "topology": {"focus": {"workspace": "ws_home"},
+            "workspaces": [{"id": "ws_home"}, {"id": "ws_new"}]}
+    }));
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!([
+        {"id": "ws_home", "name": "Home", "focused": false},
+        {"id": "ws_new", "name": "workspace-2", "focused": true}
+    ]);
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::WorkspaceList), &mut reply)
+        .unwrap();
+    drop(stream);
+    let received = app.join().unwrap();
+    assert_eq!(received.len(), 1, "one snapshot read, no retry: {received:?}");
+    assert_eq!(received[0]["params"]["after"], 0, "{received:?}");
+    assert_eq!(reply[0]["focused"], true, "{reply}");
+    assert_eq!(reply[1]["focused"], false, "{reply}");
+}
+
+/// An app whose published snapshot is older than the caller's last daemon
+/// write: `after: 0` answers the old window, `after: "sync"` the new one.
+fn lagging_app(published: Value, synced: Value) -> (PathBuf, std::thread::JoinHandle<Vec<Value>>) {
+    let dir = cmux_unix_socket::short_test_dir("cmux-focus-lag");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut received = Vec::new();
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request = serde_json::from_str::<Value>(&line).unwrap();
+            line.clear();
+            let snapshot = if request["params"]["after"] == "sync" {
+                synced.clone()
+            } else {
+                published.clone()
+            };
+            received.push(request);
+            writeln!(writer, "{}", ok(snapshot)).unwrap();
+        }
+        drop(dir);
+        received
+    });
+    (socket, handle)
+}
+
+/// Review of #32201: `workspace close <shown>; workspace list`. The app's
+/// last published snapshot can still show the closed workspace. A list in
+/// which the window's workspace is missing is older than the caller's
+/// write, so it reads the window once more with the read barrier.
+#[test]
+fn a_list_without_the_window_s_workspace_reads_the_window_again_with_the_barrier() {
+    let (socket, app) = lagging_app(
+        json!({"topology": {"focus": {"workspace": "ws_closed"},
+            "workspaces": [{"id": "ws_closed"}, {"id": "ws_a"}, {"id": "ws_b"}]}}),
+        json!({"topology": {"focus": {"workspace": "ws_b"},
+            "workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]}}),
+    );
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!([
+        {"id": "ws_a", "name": "a", "focused": false},
+        {"id": "ws_b", "name": "b", "focused": false}
+    ]);
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::WorkspaceList), &mut reply)
+        .unwrap();
+    drop(stream);
+    let received = app.join().unwrap();
+    assert_eq!(received.len(), 2, "{received:?}");
+    assert_eq!(received[0]["params"]["after"], 0, "{received:?}");
+    assert_eq!(received[1]["params"]["after"], "sync", "{received:?}");
+    assert_eq!(reply[0]["focused"], false, "{reply}");
+    assert_eq!(reply[1]["focused"], true, "{reply}");
+}

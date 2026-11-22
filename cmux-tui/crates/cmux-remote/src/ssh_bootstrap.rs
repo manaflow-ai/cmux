@@ -31,14 +31,6 @@ static NEXT_UPLOAD_NONCE: AtomicU64 = AtomicU64::new(1);
 type InstallLock = Arc<Mutex<()>>;
 static INSTALL_LOCKS: OnceLock<StdMutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
-/// The version of the npm/PyPI distribution that contains this binary. Release
-/// workflows stamp it independently from the Rust crate's internal version.
-pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
-pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
-
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {
     pub ssh_binary: String,
@@ -73,9 +65,18 @@ pub struct SshBootstrapConfig {
 
 impl SshBootstrapConfig {
     /// `build_identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
-    /// The caller passes it so that this crate does not recompile when the
-    /// identity changes (every source edit in a dev build).
-    pub fn defaults(destination: impl Into<String>, build_identity: impl Into<String>) -> Self {
+    /// `distribution_version` is the version of the npm/PyPI distribution
+    /// that contains the binary, and `npm_bootstrap_version` the npm version
+    /// a remote may install (`None`: this build is not published there). The
+    /// binary passes all three, which it stamps at build time, so that this
+    /// crate does not recompile when they change (every source edit in a dev
+    /// build, every new stamp in a packaged build).
+    pub fn defaults(
+        destination: impl Into<String>,
+        build_identity: impl Into<String>,
+        distribution_version: &str,
+        npm_bootstrap_version: Option<&str>,
+    ) -> Self {
         Self {
             ssh_binary: "ssh".into(),
             destination: destination.into(),
@@ -83,8 +84,8 @@ impl SshBootstrapConfig {
             extra_args: Vec::new(),
             remote_binary: "~/.local/bin/cmux-tui".into(),
             npm_package: "cmux".into(),
-            package_version: NPM_BOOTSTRAP_VERSION.unwrap_or(DISTRIBUTION_VERSION).into(),
-            package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
+            package_version: npm_bootstrap_version.unwrap_or(distribution_version).into(),
+            package_installable: npm_bootstrap_version.is_some(),
             build_identity: build_identity.into(),
             local_binary: std::env::current_exe().ok(),
             payload_base_url: "https://files.cmux.com/cmux-tui".into(),

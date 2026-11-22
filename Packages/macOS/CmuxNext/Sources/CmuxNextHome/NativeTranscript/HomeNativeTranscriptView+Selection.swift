@@ -24,7 +24,7 @@ extension HomeNativeTranscriptView {
         set { transcript.linkScheme = newValue }
     }
 
-    /// Automation (DEBUG socket): thread header and Copy Link drives (MessagesLabHomeView.debugTreeDrive).
+    /// Automation (DEBUG socket): thread view header check and Copy Link drives (MessagesLabHomeView.debugTreeDrive).
     public func debugTreeDrive(_ action: String, _ args: [String: String]) -> [String: String]? { transcript.debugTreeDrive(action, args) }
 
     /// Automation (DEBUG socket): the open drill path, root first, as owner ids.

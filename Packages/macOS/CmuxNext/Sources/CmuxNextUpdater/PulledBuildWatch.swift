@@ -66,6 +66,10 @@ public final class PulledBuildWatch {
     /// Reads one list (replaced by tests).
     @ObservationIgnored var fetch: @Sendable (URL) async -> Data?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// When every pulled list last answered (a read with a failed list is not counted), on ``now``.
+    @ObservationIgnored public private(set) var lastReadAt: Date?
+    /// The wall clock ``lastReadAt`` reads (tests set their own).
+    @ObservationIgnored var now: () -> Date = { Date() }
 
     init(build: String, feedURL: @escaping () -> String,
          fetch: @escaping @Sendable (URL) async -> Data? = PulledBuildWatch.download) {
@@ -82,6 +86,7 @@ public final class PulledBuildWatch {
                       guard let updater else { return "" }
                       return updater.testFeedURL ?? updater.identity.feed().url
                   })
+        now = updater.now
     }
 
     /// Reads the pulled list at launch and after every update cycle `controller` finishes.
@@ -97,13 +102,18 @@ public final class PulledBuildWatch {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
         let task = Task { [weak self] in
-            var read: [PulledBuild] = []
-            for url in urls {
-                guard let data = await fetch(url) else { continue }
-                read += PulledBuild.decode(data)
+            // Every list at once, so a read waits one request's time (a legacy feed has two).
+            let lists = await withTaskGroup(of: (Int, Data?).self) { group in
+                for (index, url) in urls.enumerated() { group.addTask { (index, await fetch(url)) } }
+                var lists = [Data?](repeating: nil, count: urls.count)
+                for await (index, data) in group { lists[index] = data }
+                return lists
             }
+            let read = lists.compactMap { $0 }.flatMap(PulledBuild.decode)
             guard let self else { return }
             self.refreshTask = nil
+            // A feed with no pulled list (a loopback test feed) has nothing to read: the read is whole.
+            if lists.allSatisfy({ $0 != nil }) { self.lastReadAt = self.now() }
             // A pulled build stays pulled for the life of this process: a read that fails, in whole
             // or for one of its lists, never forgets one (the feed never un-pulls a build).
             var all = self.pulledBuilds

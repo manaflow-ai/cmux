@@ -27,6 +27,8 @@ import sys
 
 SWIFT_ROOT = os.path.join("Packages", "macOS", "CmuxNext", "Sources")
 WEB_ROOT = os.path.join("webviews", "src")
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = ("Packages/macOS/CmuxNext/Sources/**/*.swift", "webviews/src/**/*.tsx")
 # The shared components themselves.
 SWIFT_OWNERS = (
     os.path.join("CmuxNextDesign", "Dialog") + os.sep,

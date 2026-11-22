@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Chromium storage paths, keyed by the daemon's profile id
@@ -16,20 +17,31 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         self.root = root
     }
 
-    /// Storage for the running app. Tagged DEV builds have distinct bundle
-    /// ids, so their data never mixes with release data.
+    /// Storage for the running app: `<Application Support>/<folder>/Chromium`, the folder the bundle id's
+    /// (``BuildIdentity/stateFolderName(for:)`` of `build`, this process's by default), so a DEV build's
+    /// cookies and logins never mix with release data or another copy's.
     public static func forApplication(
         bundleIdentifier: String?,
+        build: BuildIdentity = BuildStatePaths.current.build,
         applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     ) -> CEFProfileStorage {
         let support = applicationSupport ?? URL(filePath: NSTemporaryDirectory())
-        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
+        let bundle = build.stateFolderName(for: bundleIdentifier) ?? "com.cmuxterm.app.next"
         return CEFProfileStorage(root: support.appending(path: bundle).appending(path: "Chromium"))
     }
 
     public func cachePath(for profile: BrowserProfileID) -> URL {
         root.appending(path: "Profile-" + profile.rawValue.uuidString)
     }
+
+    /// The directory name Chromium starts in (`CEFSwitches.initialProfileDirectory`): the default cmux
+    /// profile's, so Chromium opens no separate `Default` profile at launch.
+    public var initialProfileDirectory: String {
+        cachePath(for: startupProfile).lastPathComponent
+    }
+
+    /// The profile `initialProfileDirectory` names: Chromium has it open from startup on.
+    public var startupProfile: BrowserProfileID { .default }
 
     /// The remote-localhost derived store of `profile` for one machine
     /// (plans/cmux-next/remote-localhost.md section 3), a sibling of the

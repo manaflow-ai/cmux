@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A workspace's hidden screens lay out when they show, not on every
 /// live-resize tick of the window: each tick re-ran every hidden screen's
 /// full geometry and pane reconcile (QA spree 2026-10-21). Shown again, a
 /// screen has the window's size at once.
+@Suite(.closesItsWindows)
 @MainActor struct HiddenScreenResizeTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -23,6 +25,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         window.contentView = root
         root.layoutSubtreeIfNeeded()

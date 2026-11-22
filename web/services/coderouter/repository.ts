@@ -1778,6 +1778,29 @@ export async function hasConfiguredAccount(input: {
 }
 
 /**
+ * Whether the caller can see an account of the pool with a credential refresh
+ * in flight. Placement skips such an account, but it serves again within
+ * seconds, so its pool is not empty.
+ */
+export async function hasRefreshingAccount(input: {
+  teamId: string;
+  provider: ProviderPool;
+  signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
+}): Promise<boolean> {
+  const result = await runWithCloudDbQuerySignal(input.signal, () => cloudDb().execute(sql`
+      select 1 as "found"
+      from "coderouter_accounts" as account
+      where account."team_id" = ${input.teamId}
+        and ${nativeAccess(input.access, true)}
+        and ${providerMatch(sql`account."provider"`, input.provider)}
+        and account."state" = 'refreshing'
+      limit 1
+    `));
+  return databaseRows(result).length > 0;
+}
+
+/**
  * When the soonest account of the pool cooling down for a transient reason
  * (capacity, rate limit, outage) becomes usable again; `null` when none is.
  * The Codex proxy holds a request for capacity only while this is in reach.

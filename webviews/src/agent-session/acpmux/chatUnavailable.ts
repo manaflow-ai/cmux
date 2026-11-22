@@ -15,7 +15,8 @@
 /// One peer as `_acpmux/status` last said.
 export type PeerStatus = {
   connected?: boolean;
-  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting` or `offline`.
+  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting`, `restarting` or
+  /// `offline`.
   state?: string;
   /// When the peer last answered, in milliseconds since the epoch.
   lastSeen?: number;
@@ -31,12 +32,22 @@ export type ChatUnavailable =
   | { reason: "deleted"; machine?: string }
   /// Not listed here and never seen here, with every machine connected.
   | { reason: "notFound" }
-  /// The chat's machine is still connecting: the chat may be there once it does (loading).
+  /// The tab named the chat as `HOST/NAME` (a sender chip), and `machine` is no machine this Mac's
+  /// acpmux connects to: no chat of it opens here (Leo, 2026-11-07: a chip that "just
+  /// fundamentally doesn't load" says so in its tab).
+  | { reason: "unreached"; machine: string }
+  /// The tab's id is no chat's id here, and more than one listed chat goes by it (their name or
+  /// their harness's own session id): the pane cannot tell which one the tab meant, so it says the
+  /// session no longer exists rather than wait for a machine forever (Leo, 2026-11-05).
+  | { reason: "gone" }
+  /// The chat's machine is still connecting: the chat may be there once it does (loading). The pane
+  /// shows nothing for it.
   | { reason: "connecting"; machine?: string }
   /// The chat's machine is not connected; `machine` when the pane knows which one.
   | { reason: "offline"; machine?: string; lastSeen?: number };
 
-/// How long a machine still in its first attempts counts as loading; after that it is offline.
+/// How long a machine still in its first attempts counts as loading; after that it is offline. While
+/// it loads the pane shows nothing (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD").
 export const CONNECTING_GRACE_MS = 30_000;
 
 /// Each peer's status from `_acpmux/status`; fields that are not the right JSON type are left out.
@@ -66,10 +77,12 @@ function settled(status: PeerStatus): boolean {
 }
 
 /// A peer still on its way up: acpmux's first attempt (`connecting`), a socket whose handshake has
-/// not finished (`degraded`), or a saved peer a restarted daemon has not tried yet.
+/// not finished (`degraded`), a peer whose daemon announced its restart (`restarting`, peer_link.rs
+/// `PeerState::Restarting`: acpmux reconnects at once), or a saved peer a restarted daemon has not
+/// tried yet.
 function stillConnecting(status: PeerStatus): boolean {
   if (settled(status)) return false;
-  if (status.state === "connecting" || status.state === "degraded") return true;
+  if (status.state === "connecting" || status.state === "degraded" || status.state === "restarting") return true;
   return status.state === "reconnecting" && (status.attempts ?? 0) === 0;
 }
 
@@ -78,16 +91,29 @@ function stillConnecting(status: PeerStatus): boolean {
  * peer), when the pane knows it. `waitedMs` is how long the pane has been without the chat:
  * a machine still connecting past `CONNECTING_GRACE_MS` is offline. `seenListed`: the pane saw the
  * chat listed and it left the list (`leftListWhileShown`), so with every machine connected it was
- * deleted; one never seen here is only not found.
+ * deleted; one never seen here is only not found. `ambiguousName`: the id is no chat's here but
+ * names more than one listed chat, so the session no longer exists (`gone`) whatever the machines.
  */
 export function chatUnavailable(input: {
   peer?: string;
   peers: Record<string, PeerStatus>;
   waitedMs: number;
   seenListed?: boolean;
+  /// More than one listed chat goes by the tab's id (`chatNamedBy` in direct.ts).
+  ambiguousName?: boolean;
+  /// `peer` was read from the tab's id (`HOST/NAME`), not from a chat this Mac listed.
+  peerNamed?: boolean;
+  /// acpmux's resolver named no chat for the tab's id (direct.ts `resolveMissing`).
+  resolvedNone?: boolean;
 }): ChatUnavailable {
-  const { peer, peers, waitedMs, seenListed = false } = input;
+  const { peer, peers, waitedMs, seenListed = false, ambiguousName = false } = input;
+  // The id names chats that are here, only not one of them: no machine coming back changes that.
+  if (ambiguousName) return { reason: "gone" };
   const grace = waitedMs < CONNECTING_GRACE_MS;
+  // A machine named only by the tab's id that acpmux has no connection to: once the resolver
+  // answered (or the grace ran out), nothing will bring the chat here.
+  if (peer !== undefined && input.peerNamed && peers[peer] === undefined && (input.resolvedNone || !grace))
+    return { reason: "unreached", machine: peer };
   if (peer !== undefined) {
     // The chat's own machine: once acpmux has its chats, the chat is gone from it; one acpmux no
     // longer lists, or that is down, is not connected.

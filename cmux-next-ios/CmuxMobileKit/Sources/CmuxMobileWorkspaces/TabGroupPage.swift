@@ -29,7 +29,11 @@ struct TabGroupPage: View {
             .background(theme.colors.bg.color.ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             // Ungrouped, closed or moved to another workspace on the Mac: nothing left to act on.
-            .onChange(of: members.isEmpty) { _, empty in if empty { dismiss() } }
+            // Not while the Mac's link is down or coming back (its list returns in pieces): the
+            // page goes only when the group stays empty on a connected Mac (`groupStaysGone`).
+            .task(id: members.isEmpty ? (source.macLinkUp ? 2 : 1) : 0) {
+                if await source.groupStaysGone(groupID) { dismiss() }
+            }
             .alert("Rename Tab Group", isPresented: $renaming) {
                 TextField(group?.name.isEmpty == false ? group?.name ?? "Name" : "Name", text: $name)
                     // Names are code-like: no autocorrect, no capitals (full verify D5).
@@ -38,6 +42,7 @@ struct TabGroupPage: View {
                     .accessibilityIdentifier("tabGroup.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.editGroup(.rename(name), group: groupID) } }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Set Tab Group Icon", isPresented: $choosingEmoji) {
                 TextField("Emoji", text: $emojiText)
@@ -46,6 +51,7 @@ struct TabGroupPage: View {
                     if let emoji = WorkspaceIcon.emoji(emojiText) { Task { await source.editGroup(.setIcon(emoji), group: groupID) } }
                 }
                 .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                .keyboardShortcut(.defaultAction)
             } message: {
                 Text("One emoji.")
             }

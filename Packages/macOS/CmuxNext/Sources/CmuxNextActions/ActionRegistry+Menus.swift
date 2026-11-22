@@ -84,7 +84,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: payload.invocation(in: registry))
+        var invocation = payload.invocation(in: registry)
+        invocation.menuPick = !registry.isDispatchingKeyDown() // a key equivalent's own key dispatch names the person
+        registry.perform(payload.id, invocation: invocation)
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,
@@ -93,8 +95,11 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let registry, let payload = Self.payload(of: menuItem) else { return false }
         // A feature an administrator turned off leaves the menu (DisabledFeatures), and so does an
-        // action a setting turns off (`browser.import.enabled`).
-        menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil || registry.settingOffReason(registry.canonicalID(for: payload.id)) != nil
+        // action a setting turns off (`browser.import.enabled`) or one hidden from menus for now (the
+        // space rows while the person has one space; its key still runs it, through the key router).
+        let canonical = registry.canonicalID(for: payload.id)
+        menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil || registry.settingOffReason(canonical) != nil
+            || ActionTargetVisibility.isHiddenFromMenus(canonical, in: registry)
         if menuItem.isHidden { return false }
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
@@ -109,7 +114,10 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
-        guard ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry) else { return false }
+        let run = payload.invocation(in: registry, withArguments: false)
+        // A row a recovery covers stays clickable: the click signs in, then runs it (``ActionRecovery``).
+        guard ActionTargetReasons.canPerform(payload.id, invocation: run, in: registry)
+            || registry.personRecovery(for: payload.id, run) != nil else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

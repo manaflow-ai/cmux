@@ -45,7 +45,7 @@ export function FormDialog({ title, lead, onClose, onSubmit, actions, busy, wide
         if (!open) onClose();
       }}
       label={title}
-      className={`lg-form${wide ? " wide" : ""}`}
+      className={`ui-glass ui-glass-floats lg-form${wide ? " wide" : ""}`}
       backdropClassName="lg-scrim"
       initialFocus={first}
     >

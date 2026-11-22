@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live check: the browser-data import offer and the glass "Did you know" card on a tagged build.
+"""Live check: the Import Cookies banner and the glass "Did you know" card on a tagged build.
 
   scripts/cmux-next/browser-import-offer-live.py --tag <tag> [--capture] [--out DIR]
 
@@ -9,8 +9,10 @@ the card otherwise), resets the offer's state, then drives the person path:
 
   1. a browser tab on https://example.com: when its page finishes, the card
      must appear by itself (debug.browser_import_offer shown_on), once per launch;
-  2. Not Now closes it and ends it; Import opens the Import from Browser
-     window with bookmarks, history and passwords checked;
+  2. Not Now closes it for this launch only; Don't Show Again turns
+     browser.import.cookieBanner off in cmux.json; Show Import Cookies Banner
+     (`cmux browser show-cookie-banner`) turns it on again; Import opens the
+     Import from Browser window with cookies checked;
   3. the Did you know card (debug.updater tip) sits on Liquid Glass.
 
 With --capture it saves the browser card and the tip card in light, dark,
@@ -22,6 +24,7 @@ import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -181,7 +184,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
                                       # The default Ghostty theme follows light and dark (no host config).
                                       "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
-print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     if opts.launch_backdrop:
@@ -201,7 +204,7 @@ try:
     check(not state.get("dismissed") and not state.get("imported"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
-    print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
+    safe_print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
     # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
     rpc("action.run", {"action": "palette.toggleTabPin"})
@@ -211,11 +214,11 @@ try:
         toasts = rpc("debug.filepages").get("toasts")
         time.sleep(0.2)
     if not toasts:
-        print("SKIP toast lift: the pin made no toast", flush=True)
+        safe_print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
-    print("omnibar_type:", json.dumps(typed)[:300], flush=True)
+    safe_print("omnibar_type:", json.dumps(typed)[:300], flush=True)
     if toasts:
         settle(1.5)
         capture("browser-card-over-toast")
@@ -250,18 +253,35 @@ try:
 
     # Answers: Not Now ends it, a second page in this launch shows nothing.
     state = prompt("answer", choice="not_now")
-    check(state.get("dismissed") is True and state.get("shown_on") == [], f"Not Now closes and ends it: {state}")
+    check(state.get("dismissed") is False and state.get("shown_on") == [], f"Not Now closes it and is not a dismissal: {state}")
     rpc("debug.omnibar_type", {"text": "https://example.org/"})
     settle(5.0)
-    check(prompt().get("shown_on") == [], "once per launch and dismissed: no second card")
+    check(prompt().get("shown_on") == [], "once per launch: no second card")
+
+    # Don't Show Again: browser.import.cookieBanner false in cmux.json, kept across launches.
+    prompt("reset")
+    wait_for(lambda: prompt("show").get("shown_on"), "the card again for Don't Show Again", 10)
+    capture("browser-card-dont-show-again")
+    prompt("answer", choice="never")
+    stored = wait_for(lambda: json.load(open(CONFIG)).get("browser", {}).get("import", {}).get("cookieBanner") is False,
+                      "Don't Show Again writes browser.import.cookieBanner false", 10)
+    check(bool(stored) and prompt().get("dismissed") is True and prompt().get("offered") is False,
+          f"Don't Show Again: dismissed in cmux.json: {open(CONFIG).read().strip()} {prompt()}")
+    # Show Import Cookies Banner from the CLI turns it on again; it imports nothing.
+    r = cli("browser", "show-cookie-banner")
+    safe_print("cmux browser show-cookie-banner:", r.returncode, (r.stdout + r.stderr).strip()[:300], flush=True)
+    if r.returncode != 0:
+        safe_print("show-cookie-banner verb:", json.dumps(rpc("action.run", {"action": "browser.showCookieImportBanner"}))[:300], flush=True)
+    wait_for(lambda: prompt().get("dismissed") is False, "Show Import Cookies Banner turns it back on", 10)
+    check(rpc("debug.onboarding", {"action": "state"}).get("step") != "importData", "showing the banner opens no import")
     prompt("reset")
     shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
-    print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
+    safe_print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
     check(onboarding.get("step") == "importData", f"Import opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
-    check(sorted(kinds or []) == ["bookmarks", "history", "passwords"], f"bookmarks, history and passwords checked: {kinds}")
+    check(sorted(kinds or []) == ["cookies"], f"cookies checked: {kinds}")
     target = onboarding.get("merge_target")
     check(target is not None, f"Import from the card imports into the profile of tab {shown_tab}: merge_target={target}")
     settle()

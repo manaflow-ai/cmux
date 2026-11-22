@@ -21,6 +21,27 @@ use crate::rpc::method;
 /// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
 /// message its journal kept (`hub/message_events.rs` `name_message`).
 pub const SESSION_MESSAGES: &str = "session-messages-v1";
+/// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
+/// submit idempotent ensure/send/status operations over fd0.
+pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
+/// `_acpmux/attach` with `settled: true` answers the chat's settled view first, then the records
+/// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
+pub const SETTLED_ATTACH: &str = "settled-attach-v1";
+/// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
+pub const HOLD_ATTACH: &str = "attach-hold-v1";
+
+/// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
+/// `closedListed` (`server/requests/info.rs` `rows`).
+pub const INFO_ROWS: &str = "info-rows-v1";
+
+/// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
+/// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
+/// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
+/// `_acpmux/session_changed`, as before.
+pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
+/// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
+pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -78,15 +99,86 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // One seen cursor per chat per person (`hub/seen.rs` `read_through`): `_acpmux/seen` moves it,
+    // `_acpmux/attach` answers it as `readThrough`. The pane's Jump up goes only to rows after it.
+    Capability { id: "read-through-v1", wire: &[method::MUX_SEEN] },
+    // The MCP connect card (plans/cmux-next/mcp-connect-DESIGN.md): an agent asks, only the
+    // person answers. Older daemons answer neither method.
+    Capability {
+        id: "mcp-connect-v1",
+        wire: &[method::MUX_MCP_CONNECT_REQUEST, method::MUX_MCP_CONNECT_ANSWER],
+    },
+    // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
+    // list's pace (the app's dialog list). Older daemons would answer the whole list.
+    Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
+    // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
+    // the list's pages with `usage: true`.
+    Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
+    // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
+    // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
+    // id does a missing field mean false; the app's Update When Idle holds on any other (absent
+    // is unknown).
+    Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
+    // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
+    // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
+    // daemon without this id gets its v1 list read.
+    Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
+    // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
+    Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
+    // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
+    // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
+    // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
+    Capability {
+        id: crate::hub::row_log::CAPABILITY,
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
+    Capability {
+        id: PEER_ROW_BATCHES,
+        wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
+    // asks the daemon to pull or forget when the values live only in its memory.
+    Capability {
+        id: crate::vault::CAPABILITY,
+        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET, method::MUX_VAULT_STATUS],
+    },
+    // Proxy-delivered vault entries reach agents as `cmux-secret://NAME`,
+    // filled in by the daemon's egress proxy for their allowed hosts only;
+    // `machine vault status` names each entry's delivery and hosts.
+    Capability { id: crate::vault::EGRESS_CAPABILITY, wire: &[method::MUX_VAULT_STATUS] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Signing in enrolls this machine on the hub; signing out leaves only that join
+    // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
+    Capability {
+        id: "machine-enroll-v1",
+        wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
+    // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
+    // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
+    Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
+    Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
+    Capability {
+        id: TRIGGER_CHAT,
+        wire: &[
+            method::TRIGGER_CHAT_ENSURE,
+            method::TRIGGER_CHAT_SEND,
+            method::TRIGGER_CHAT_STATUS,
+        ],
+    },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
+    // A guest from another harness: `_acpmux/btw` with `targetHarness` answers from that
+    // harness, gated on its own folder trust. Older daemons ignore the field and ask the chat's own.
+    Capability { id: "btw-guest-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
@@ -96,13 +188,35 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who else works on these files, topic, branch or folder, here and on peers
+    // (`hub/touched.rs`).
+    Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // One caller's same prompt to many sessions in a minute, noted per send
+    // (`send_fanout.rs`).
+    Capability { id: "send-fanout-v1", wire: &[method::MUX_SEND_FANOUT] },
+    // What turns cost, indexed by day and session (`hub/ledger`).
+    Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
+    // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).
+    Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
+    Capability {
+        id: "queue-approval-v1",
+        wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
+    },
     // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
     Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
+    // A chat's transcript as rows folded in the daemon, paged and patched (`rows/`, hq#9655).
+    Capability {
+        id: "transcript-rows-v1",
+        wire: &[method::MUX_ROWS, method::MUX_ROWS_PATCH, method::MUX_ROWS_LAGGED],
+    },
+    // The owner reads a queued prompt whole, its blocks and revision (`hub/queue_approve.rs`).
+    Capability { id: "queue-get-v1", wire: &[method::MUX_QUEUE_GET] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
@@ -147,8 +261,17 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
+    // The person takes a managed chat over and hands it back (`hub/agent_hold.rs`).
+    Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // The sudo card (`hub/elevation.rs`): `elevation_request` / `elevation_decision` records, and
+    // an approver-signed `secret_submit` that answers one. A phone asks for those kinds only
+    // under this id, since an older peer refuses an attach with more than 8 kinds.
+    Capability {
+        id: "elevation-cards-v1",
+        wire: &[method::MUX_ELEVATION_REQUEST, method::MUX_SECRET_SUBMIT],
+    },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now
     // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
     // retry a subagent, so the pane shows a subagent's Retry button only
@@ -157,6 +280,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
     // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
     Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry` with `subagentId` also resumes a stopped Claude subagent, or one lost with
+    // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
+    // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
+    Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry {sessionId}` on a sub-session whose last turn was stopped continues it in
+    // the same chat (`hub/subsession_resume.rs`): its row offers Resume only under it.
+    Capability { id: "subsession-resume-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
@@ -170,19 +300,27 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
+    // past the newest page its log was seeded with (`hub/native_history.rs`).
+    Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
     Capability {
         id: "durable-watches-v1",
         wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
     },
     // Every Claude workflow of this daemon's chats, duplicates marked (`hub/workflow_index.rs`).
     Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
+    // `$/cancel_request` is honored (`request_cancel.rs`): the request is answered with -32800
+    // (RequestCancelled) at once, its slot freed, and the cancel goes on to the agent or peer
+    // it waited on; the late answer is dropped. A daemon without it accepts the notification
+    // and does nothing, so a client waits for the answer or its own deadline there.
+    Capability { id: "cancel-request-v1", wire: &[method::CANCEL_REQUEST] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
-    // Labs team-scoped agent messaging over the mesh relay. The daemon keeps
-    // this capability visible even when the flag is off so clients can explain
-    // the opt-in instead of treating it as an unknown method.
+    // Team-scoped agent messaging over the mesh relay, on wherever a hub is
+    // configured. The daemon keeps this capability visible even when it is off
+    // so clients can explain why instead of treating it as an unknown method.
     Capability {
         id: "team-messaging-v1",
         wire: &[
@@ -194,11 +332,48 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
+    // its one-use execution capability. The app exposes the rewind action only for configured
+    // new Cloud workspace sessions; local and legacy sessions never send this envelope.
+    Capability {
+        id: "agent-session-turn-rewind-v1",
+        wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
+    },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
+    // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
+    Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
+    // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
+    Capability {
+        id: "agent-login-v1",
+        wire: &[
+            method::MUX_AGENT_LOGIN_START,
+            method::MUX_AGENT_LOGIN_FINISH,
+            method::MUX_AGENT_LOGIN_CANCEL,
+            method::MUX_AGENT_LOGIN_API_KEY,
+        ],
+    },
+    // A turn's before and after picture of the chat's page, for its edited-files card
+    // (`hub/turn_shots.rs`).
+    Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
 pub fn ids() -> Vec<&'static str> {
-    CAPABILITIES.iter().map(|capability| capability.id).collect()
+    CAPABILITIES
+        .iter()
+        .filter(|capability| {
+            capability.id != "agent-session-turn-rewind-v1"
+                || [
+                    "CMUX_PLATFORM_ORIGIN",
+                    "CMUX_PLATFORM_WORKSPACE_ID",
+                    "CMUX_PLATFORM_MACHINE_ID",
+                ]
+                .iter()
+                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        })
+        .map(|capability| capability.id)
+        .collect()
 }
 
 /// `acpmux capabilities`: one id per line, or with `--json`
@@ -285,6 +460,10 @@ mod tests {
         let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "caps-test"}});
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
+        assert!(
+            client.daemon_lists(TRIGGER_CHAT),
+            "trigger chat capability must gate its CLI helper"
+        );
 
         let printed: Value = serde_json::from_str(&render(true)).unwrap();
         assert_eq!(printed, json!({"capabilities": expected}));

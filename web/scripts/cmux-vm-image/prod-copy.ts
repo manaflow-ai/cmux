@@ -30,6 +30,11 @@ const LOCK = "images/cmux-vm/inputs.lock.json";
 const PRODUCTION = "images/cmux-vm/channels/production.json";
 /** bake.ts flags a production copy may repeat; --dev-tree and anything else is refused. */
 const COPYABLE = ["--agent-tools", "--team-vm"] as const;
+/**
+ * How the dev image was built, not what it holds: a layered bake installs the same lock as a full one
+ * (layers.ts). The production copy is always a full bake, so these are dropped from its flags.
+ */
+const BUILD_ONLY = ["--layered", "--defer-inventory"] as const;
 
 type Json = Record<string, unknown>;
 export type CopyPlan = { flags: string[]; var: "CLOUD_FREESTYLE_SNAPSHOT" | "TEAM_VM_SNAPSHOT"; lockSha256: string };
@@ -50,7 +55,7 @@ export function planCopy(root: string, devSnapshot: string): CopyPlan {
   if (!Array.isArray(history)) throw new Error(`${DEV} has no history array`);
   const entry = (history as Json[]).find((h) => h.snapshot_id === devSnapshot);
   if (!entry) throw new Error(`${devSnapshot} is not in ${DEV} history; only a recorded dev image gets a production copy`);
-  const flags = recordedFlags(entry.bake);
+  const flags = recordedFlags(entry.bake)?.filter((f) => !(BUILD_ONLY as readonly string[]).includes(f));
   const lock = lockDigest(readFileSync(path.join(root, LOCK), "utf8"));
   const v = entry.var;
   const names = entry.names as Json | undefined;
@@ -60,6 +65,7 @@ export function planCopy(root: string, devSnapshot: string): CopyPlan {
     !flags && `its bake ${JSON.stringify(entry.bake)} is not a CI bake record`,
     flags?.includes("--dev-tree") && "it is a dev tree bake (dev snapshots only)",
     flags?.some((f) => !(COPYABLE as readonly string[]).includes(f)) && `its bake flags ${flags.join(" ")} are not all copyable (${COPYABLE.join(", ")})`,
+    flags && !flags.includes("--agent-tools") && "its image does not carry the required Cloud desktop closure (--agent-tools)",
     v !== "CLOUD_FREESTYLE_SNAPSHOT" && v !== "TEAM_VM_SNAPSHOT" && `its var ${JSON.stringify(v)} is not CLOUD_FREESTYLE_SNAPSHOT or TEAM_VM_SNAPSHOT`,
     flags && (v === "TEAM_VM_SNAPSHOT") !== flags.includes("--team-vm") && `its var ${String(v)} and its bake flags disagree about --team-vm`,
     entry.lock_sha256 !== lock && `its lock_sha256 ${JSON.stringify(entry.lock_sha256)} is not this checkout's ${LOCK} (${lock}): the copy would bake other inputs`,

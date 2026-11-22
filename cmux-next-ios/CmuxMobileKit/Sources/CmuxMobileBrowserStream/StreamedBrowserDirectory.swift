@@ -15,12 +15,12 @@ public final class StreamedBrowserDirectory {
 
     /// The current link when it can stream browser tabs, else nil.
     public var opener: (@Sendable () async -> (any BrowserStreamOpening)?)? {
-        didSet { if opener == nil, macOpener == nil { reset() } }
+        didSet { if opener == nil, macOpener == nil { reset() } else if appActive { localhost.resume() } }
     }
     /// The link of a given Mac (the phone links several at once): a tab named
     /// with its Mac streams over that Mac's link only, never the focused one.
     public var macOpener: (@Sendable (_ macID: String) async -> (any BrowserStreamOpening)?)? {
-        didSet { if opener == nil, macOpener == nil { reset() } }
+        didSet { if opener == nil, macOpener == nil { reset() } else if appActive { localhost.resume() } }
     }
 
     /// A tab's model key: tab ids (`s<surface>`) repeat across Macs.
@@ -37,11 +37,30 @@ public final class StreamedBrowserDirectory {
 
     private var models: [String: StreamedBrowserModel] = [:]
     private var lastWarm: ContinuousClock.Instant?
+    /// How long a tab may stay missing from the Macs' lists before its model closes.
+    public var missingGrace: Duration = .seconds(10)
+    private var missingSince: [String: ContinuousClock.Instant] = [:]
+    private var lastRetained: Set<String> = []
+    private var recheck: Task<Void, Never>?
     private var appActive = true
 
     public init() {}
 
     public var isLive: Bool { opener != nil || macOpener != nil }
+
+    /// Native browser tabs' `localhost:<port>` pages, forwarded to their Mac's loopback.
+    public private(set) lazy var localhost = LocalhostForwarder { [weak self] macID, port in
+        guard let link = await self?.link(macID: macID) else {
+            throw LinkError(code: "no-link", message: "Not connected to the Mac")
+        }
+        return try await link.openLocalhost(port: port)
+    }
+
+    /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
+    func link(macID: String?) async -> (any BrowserStreamOpening)? {
+        if let macID, !macID.isEmpty, let macOpener { return await macOpener(macID) }
+        return await opener?()
+    }
 
     /// Hears the tabs the Macs list (``retain(tabs:)``) and placeholder tabs that
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
@@ -153,9 +172,36 @@ public final class StreamedBrowserDirectory {
     /// a redial never opens it again (transport-verify-20261019.md defect 7).
     public func retain(tabs: Set<String>) {
         tabsRetained?(tabs)
-        for key in models.keys where !tabs.contains(Self.parts(key).tab) {
-            log.notice("browser drop \(key, privacy: .public)")
-            models.removeValue(forKey: key)?.close()
+        lastRetained = tabs
+        // A reconnect can publish a workspace with tabs missing for a few seconds (the Mac's
+        // list comes back in pieces): closing the model then drops its select-menu sheet and JS
+        // alert. A tab goes only once it stays missing for ``missingGrace``.
+        let now = ContinuousClock.now
+        var held = false
+        for key in models.keys {
+            if tabs.contains(Self.parts(key).tab) {
+                missingSince[key] = nil
+                continue
+            }
+            let since = missingSince[key] ?? now
+            missingSince[key] = since
+            if now - since >= missingGrace {
+                log.notice("browser drop \(key, privacy: .public)")
+                missingSince[key] = nil
+                models.removeValue(forKey: key)?.close()
+            } else {
+                held = true
+            }
+        }
+        missingSince = missingSince.filter { models[$0.key] != nil }
+        recheck?.cancel()
+        recheck = nil
+        // Nothing else publishes when the tab really closed: look again when the grace ends.
+        guard held else { return }
+        recheck = Task { [weak self] in
+            try? await Task.sleep(for: self?.missingGrace ?? .seconds(10))
+            guard !Task.isCancelled, let self else { return }
+            retain(tabs: lastRetained)
         }
     }
 
@@ -171,17 +217,25 @@ public final class StreamedBrowserDirectory {
         }
         lastWarm = nil
         if !models.isEmpty { warmMedia() }
+        if appActive { localhost.resume() }
     }
 
     /// The app went to the background (or came back): hidden pages let the
     /// WebRTC media session go.
     public func setAppActive(_ active: Bool) {
         appActive = active
+        // iOS stops a background app's listeners; they come back with the app.
+        if active, isLive { localhost.resume() } else if !active { localhost.suspend() }
         for model in models.values { model.setAppActive(active) }
     }
 
     public func reset() {
         for model in models.values { model.close() }
         models = [:]
+        missingSince = [:]
+        recheck?.cancel()
+        recheck = nil
+        // No link: nothing to forward `localhost` pages to until it comes back.
+        localhost.suspend()
     }
 }

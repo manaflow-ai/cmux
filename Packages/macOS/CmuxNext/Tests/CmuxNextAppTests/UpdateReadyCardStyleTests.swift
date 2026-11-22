@@ -8,12 +8,13 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
-@MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         var contentHeight: CGFloat = 2000
@@ -48,8 +49,10 @@ import CmuxNextWakeupsTestSupport
     @Test func aClickPinsThePreviewOpenAndTallerUntilTheNextClick() async throws {
         let (card, window, _) = try await make()
         defer {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             window.close()
+            popup?.closeAfterTest()
         }
         try #require(!card.isHidden, "the staged update shows no card")
         window.orderFront(nil)
@@ -69,6 +72,22 @@ import CmuxNextWakeupsTestSupport
         card.toggleNotesPinned()
         #expect(!card.notesPinned)
         #expect(await eventually { !card.notesAreShown }, "the second click left the preview open")
+    }
+
+    /// Leo 2026-11-07: "at least let's just make the automatic updates thing, like, bigger ... Why is the font so
+    /// small in general". The label is the sidebar rows' body size, not a caption, and the switch grows with it.
+    @Test func automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt() throws {
+        #expect(SidebarTunables.updateCardAutomaticSize.defaultValue == .regular)
+        #expect(SidebarUpdateToggle.font.pointSize == Typography.body.pointSize, "the Automatic Updates label is smaller than body text")
+        #expect(SidebarUpdateToggle.font.pointSize > Typography.caption.pointSize)
+        #expect(SidebarUpdateToggle.boxSize == Metrics.smallIconSize, "the switch did not grow with its label")
+        let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
+        control.configure(title: "Automatic Updates", isOn: true)
+        control.layoutSubtreeIfNeeded()
+        let track = try #require(control.layer?.sublayers?.first)
+        #expect(track.frame.height == Metrics.smallIconSize)
+        #expect(control.label.font?.pointSize == Typography.body.pointSize)
+        #expect(SidebarUpdateToggle.height >= ceil(Typography.body.boundingRectForFont.height))
     }
 
     @Test func automaticUpdatesIsAThemedSwitchInFrontOfItsLabel() throws {
@@ -197,7 +216,7 @@ import CmuxNextWakeupsTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-ready-card-style", shortVersion: shortVersion,
                                            build: build, minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false

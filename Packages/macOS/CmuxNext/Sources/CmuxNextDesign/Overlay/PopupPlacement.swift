@@ -7,6 +7,9 @@ public nonisolated struct PopupPlacement {
     public nonisolated init() {}
     public enum Side: String, Sendable { case below, above }
 
+    /// The horizontal side used by a submenu that opens beside its parent row.
+    public enum HorizontalSide: String, Sendable { case right, left }
+
     /// The popup's frame on `screen` (its visible frame) for content of `size` at `anchor`.
     /// `preferred` is the side the page asked for; `trailing` aligns the popup's trailing edge
     /// with the anchor's instead of its leading edge, and `centered` (over `trailing`) centers
@@ -24,6 +27,23 @@ public nonisolated struct PopupPlacement {
         // A centered card starts on a whole point, so `integral` never widens it past its content.
         let leading = centered ? (anchor.midX - width / 2).rounded() : trailing ? anchor.maxX - width : anchor.minX
         let x = min(max(screen.minX + margin, leading), screen.maxX - margin - width)
+        return (CGRect(x: x, y: y, width: width, height: height).integral, side)
+    }
+
+    /// The frame for a submenu opened beside its parent row. It prefers the right side and
+    /// flips to the left when the card would not fit; its vertical position follows the row and
+    /// is clamped to the visible screen. The returned side is useful for diagnostics and tests.
+    public static func sideBySideFrame(anchor: CGRect, size: CGSize, screen: CGRect, gap: CGFloat = 4,
+                                       margin: CGFloat = 6) -> (frame: CGRect, side: HorizontalSide) {
+        let width = min(size.width, screen.width - 2 * margin)
+        let roomRight = screen.maxX - margin - anchor.maxX - gap
+        let roomLeft = anchor.minX - gap - (screen.minX + margin)
+        let side: HorizontalSide = roomRight >= width || roomRight >= roomLeft ? .right : .left
+        let rawX = side == .right ? anchor.maxX + gap : anchor.minX - gap - width
+        let x = min(max(screen.minX + margin, rawX), screen.maxX - margin - width)
+        let height = min(size.height, screen.height - 2 * margin)
+        let rawY = anchor.maxY - height
+        let y = min(max(screen.minY + margin, rawY), screen.maxY - margin - height)
         return (CGRect(x: x, y: y, width: width, height: height).integral, side)
     }
 

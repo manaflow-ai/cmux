@@ -13,7 +13,10 @@ import CmuxNextSidebar
 /// them all (`question`: "Close N workspaces?"), asked while the rows stay in place when it likely
 /// shows (`mayAsk`); once it is answered Close every row leaves in one sidebar pass (`hide`). Otherwise
 /// the rows leave at the press and the terminals are still asked behind them (Cancel: `restore`).
-/// Every close goes out at once in one lane turn, and "Closed N workspaces" with
+/// Each daemon's rows close in one lane turn, as one `layout.bulk` request when it serves
+/// `layout-bulk-bare-v1` (`WorkspaceClose.settleEach`), never hundreds of requests at once: 919
+/// rows sent that way overflowed the daemon's request queue, and each refused row came back
+/// (Lawrence 2026-11-05). Once they settle, "Closed N workspaces" (N: the rows that closed) with
 /// Undo brings them all back (`offerUndo`), as the other bulk closes do. The App wires it
 /// (`WorkspaceSelectionClose`); the flow lives here so CmuxNextApp does not grow (SW14).
 @MainActor
@@ -21,8 +24,25 @@ public struct WorkspaceSelectionCloseFlow {
     public typealias Member = (WorkspaceModel, DaemonService)
 
     /// Rows whose batch close has started and not settled (each leaves as its own close settles): a second
-    /// press (this batch, or Close Workspace on the row the window keeps) sends nothing for them.
-    public private(set) static var running: Set<String> = []
+    /// press (this batch, or Close Workspace on the row the window keeps) sends nothing for them. The app
+    /// has one (`AppServices.selectionCloses`), passed to every batch close and to Close Workspace.
+    @MainActor public final class Running {
+        public private(set) var ids: Set<String> = []
+
+        public init() {}
+
+        /// Whether workspace `id` may join a batch: no close of it has started.
+        public func canStart(_ id: String) -> Bool {
+            !ids.contains(id) && !ClosingWorkspaces.shared.ids.contains(id) && !WorkspaceCloseFlow.running.contains(id)
+        }
+
+        func formUnion(_ closing: [String]) { ids.formUnion(closing) }
+        func subtract(_ settled: [String]) { ids.subtract(settled) }
+        func remove(_ id: String) { ids.remove(id) }
+    }
+
+    /// The app's batch closes under way.
+    public let running: Running
 
     /// Every row leaves and the selection moves, in one sidebar pass (InstantClose): the ids that left.
     public var hide: @MainActor ([String]) -> [String]
@@ -42,6 +62,8 @@ public struct WorkspaceSelectionCloseFlow {
     /// The one "Closed N workspaces" toast with Undo for `names` (none for fewer than two, or with no
     /// window left open); `undone` runs when its Undo does.
     public var offerUndo: @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void
+    /// Reconciles personal groups after the daemon has applied the batch close.
+    public var settled: @MainActor () -> Void
     /// The window whose lane the closes take, and the window a refusal toast shows in.
     public var window: String
     public var toastWindow: NSWindow?
@@ -51,7 +73,9 @@ public struct WorkspaceSelectionCloseFlow {
                 restore: @escaping @MainActor () -> Void, listed: @escaping @MainActor (String) -> Bool,
                 machines: @escaping @MainActor @Sendable () -> [DaemonService],
                 offerUndo: @escaping @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void,
-                window: String, toastWindow: NSWindow?) {
+                settled: @escaping @MainActor () -> Void = {},
+                window: String, toastWindow: NSWindow?, running: Running) {
+        self.running = running
         self.hide = hide
         self.mayAsk = mayAsk
         self.question = question
@@ -59,26 +83,22 @@ public struct WorkspaceSelectionCloseFlow {
         self.listed = listed
         self.machines = machines
         self.offerUndo = offerUndo
+        self.settled = settled
         self.window = window
         self.toastWindow = toastWindow
-    }
-
-    /// Whether workspace `id` may join a batch: no close of it has started.
-    public static func canStart(_ id: String) -> Bool {
-        !running.contains(id) && !ClosingWorkspaces.shared.ids.contains(id) && !WorkspaceCloseFlow.running.contains(id)
     }
 
     /// Starts the close of `members` (each `canStart`); nil when there is none.
     public func start(_ members: [Member]) -> ActionWork? {
         guard !members.isEmpty else { return nil }
         let closing = members.map(\.0.id)
-        Self.running.formUnion(closing)
+        running.formUnion(closing)
         // Every close path tells `willClose` before it closes (WorkspaceClose); in press order. A question
         // that likely shows keeps the rows (and tells nobody) until it is answered.
         let early = mayAsk() ? nil : (terminals: members.map { WorkspaceClose.closing($0.0, on: $0.1) }, hidden: hide(closing))
         return Task { @MainActor in
             if let ask = await question(), !(await ask()) {
-                Self.running.subtract(closing)
+                running.subtract(closing)
                 // Rows that never moved: nothing to bring back.
                 if let early {
                     for id in early.hidden { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
@@ -92,7 +112,7 @@ public struct WorkspaceSelectionCloseFlow {
             // its row is no longer closing.
             let batch = zip(members, terminals).filter { listed($0.0.0.id) }
             let sent = Set(batch.map { $0.0.0.id })
-            Self.running.subtract(closing.filter { !sent.contains($0) })
+            running.subtract(closing.filter { !sent.contains($0) })
             for id in hidden where !sent.contains(id) { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
             let live = batch.filter { $0.0.1.isLive }, offline = batch.filter { !$0.0.1.isLive }
             // Every row of the batch that closed, the offline ones too, under one toast and one Undo: shown once
@@ -105,14 +125,28 @@ public struct WorkspaceSelectionCloseFlow {
                 Task { @MainActor in outcome.add(await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true))])) }
             }
             return await WorkspaceLanes.shared.run(in: window) {
-                // task-owner: one close request each, all sent now; awaited right below.
-                let started = live.map { pair in Task { @MainActor in (pair.0, await send(pair.0, terminals: pair.1, waits: false)) } }
                 var results: [(Member, ActionWorkFailure?)] = []
-                for task in started { results.append(await task.value) }
+                for daemon in Self.daemons(of: live.map(\.0)) {
+                    let mine = live.filter { $0.0.1 === daemon }
+                    let failures = await WorkspaceClose.settleEach(mine.map(\.0), on: daemon, terminals: mine.map(\.1)) { label, body in
+                        await daemon.failureOnceConnected(label, waits: false, while: { [machines] in machines().contains { $0 === daemon } }) { connection in
+                            try await ClosingWorkspaces.shared.refusal()
+                            try await body(connection)
+                        }
+                    }
+                    results += zip(mine.map(\.0), failures).map { ($0, $1) }
+                }
                 outcome.liveSettled(await settle(results))
                 return results.first { $0.1 != nil }?.1
             }.value
         }
+    }
+
+    /// The daemons of `members`, in first-seen order.
+    private static func daemons(of members: [Member]) -> [DaemonService] {
+        var daemons: [DaemonService] = []
+        for (_, daemon) in members where !daemons.contains(where: { $0 === daemon }) { daemons.append(daemon) }
+        return daemons
     }
 
     /// The names a batch closed, from inside the window's lane and from the offline closes after it.
@@ -153,9 +187,11 @@ public struct WorkspaceSelectionCloseFlow {
         let firstRefused = results.first { $0.1 != nil }?.0.0.id
         for (member, failure) in results {
             // Settled: a refused row can be closed again at once.
-            Self.running.remove(member.0.id)
-            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? toastWindow : nil)
+            running.remove(member.0.id)
+            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure),
+                                         in: member.0.id == firstRefused ? toastWindow : nil)
         }
+        settled()
         return results.filter { $0.1 == nil }.map { $0.0.0.name }
     }
 
@@ -165,7 +201,7 @@ public struct WorkspaceSelectionCloseFlow {
         guard let key = workspace.key else { return nil }
         return await daemon.failureOnceConnected("close-workspace", waits: waits, while: { machines().contains { $0 === daemon } }) { connection in
             try await ClosingWorkspaces.shared.refusal()
-            try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+            try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
         }
     }
 }

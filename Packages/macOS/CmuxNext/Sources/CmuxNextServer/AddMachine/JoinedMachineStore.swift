@@ -1,14 +1,16 @@
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
-/// A Revoke or Rotate on a joined machine (a row shows the last one that failed).
+/// A Revoke, Rotate or Remove on a joined machine (a row shows the last one that failed).
 public nonisolated enum JoinedMachineChange: String, Sendable {
-    case revoke, rotate
+    case revoke, rotate, remove
 }
 
-/// The machines that joined the team with a one-line token, for the Machines section (Labs
-/// `labs.machineJoin`). Read once per trigger, never on a timer: at launch, when the section shows,
-/// when Add Device's card reads the list (its flip), and after a Revoke or Rotate.
+/// The person's machines joined through the hub (a pair code or a one-line token), for the Machines
+/// section. Read on a trigger: when the section shows, when Add Device's card reads the list (its
+/// flip), after a Revoke or Rotate, and while a section shows (``startAging(_:visible:)``), once
+/// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow``.
 @MainActor @Observable
 public final class JoinedMachineStore {
     public typealias Change = JoinedMachineChange
@@ -21,15 +23,113 @@ public final class JoinedMachineStore {
     /// The machine whose more menu shows as open (the capture fixture's): its button shows lit.
     public var openMenu: String?
 
-    /// The calls, nil while Labs `labs.machineJoin` is off (the store then lists nothing).
+    /// The calls, nil while nobody is signed in (the store then lists nothing).
     @ObservationIgnored private let service: () -> MachineJoinService?
     /// The last read ticket handed out (``beginRead()``), and the newest one whose rows (or the
     /// switch turning off) the store shows. A read that started before the shown one is dropped.
     @ObservationIgnored private var issued = 0
     @ObservationIgnored private var shown = 0
 
-    public init(service: @escaping () -> MachineJoinService?) {
+    /// The one deadline that re-checks online rows (``startAging(_:visible:)``): it never repeats on its own.
+    @ObservationIgnored private let ageTimer: DemandTimer
+    /// The sections showing the rows (one per window), each saying whether it is still on screen.
+    @ObservationIgnored private var watchers: [ObjectIdentifier: @MainActor () -> Bool] = [:]
+    @ObservationIgnored private let clock: () -> Date
+
+    public init(service: @escaping () -> MachineJoinService?, clock: @escaping () -> Date = { Date() }) {
         self.service = service
+        self.clock = clock
+        self.ageTimer = DemandTimer(owner: "machines.joined.age")
+    }
+
+    /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
+    /// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow`` (the hub's
+    /// 30 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
+    /// heartbeat, no deadline. With no section on screen (`visible` false: covered) no deadline is set,
+    /// and a fire finding none reads nothing; both wait for ``resumeAging()``; the section stays registered until ``stopAging(_:)``.
+    public func startAging(_ owner: AnyObject, visible: @escaping @MainActor () -> Bool) {
+        watchers[ObjectIdentifier(owner)] = visible
+        scheduleAge()
+    }
+
+    /// `owner`'s section hid or closed; the deadline stops when no section left is on screen (none
+    /// left, or only covered ones), so a covered window never wakes for the one that went.
+    public func stopAging(_ owner: AnyObject) {
+        watchers[ObjectIdentifier(owner)] = nil
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
+    }
+
+    /// Follows `account` (who is signed in and their team; nil signed out) for the store's life: each
+    /// change empties the rows at once, so another account's or team's machines never show, then
+    /// reads the list once. A read still in flight for the old account lands after the emptying and is
+    /// dropped (its ticket is older). Event-driven (Observation), no timer.
+    public func followAccount(_ account: @escaping @MainActor () -> String?) {
+        withObservationTracking { _ = account() } onChange: { [weak self] in
+            // task-owner: one read per account change; the store owns the follow for its life.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                followAccount(account)
+                await switchedAccount()
+            }
+        }
+    }
+
+    /// ``followAccount(_:)``, returning the store (for a lazy property's initializer).
+    public func following(account: @escaping @MainActor () -> String?) -> JoinedMachineStore {
+        followAccount(account)
+        return self
+    }
+
+    /// The account or team changed: the old rows go now, then one read fills the new ones.
+    func switchedAccount() async {
+        finishRead([], ticket: beginRead())
+        await refresh()
+    }
+
+    /// Whether a re-check deadline is pending (tests).
+    public var isAging: Bool { ageTimer.isScheduled }
+
+    /// Turns online rows whose heartbeat passed the window offline, at `now`.
+    public func age(now: Date) {
+        let next = machines.map { $0.aged(now: now) }
+        if next != machines { machines = next }
+    }
+
+    private func scheduleAge() {
+        // Only with a section on screen: one registering while covered, or a read landing after every
+        // window was covered, sets nothing (``resumeAging()`` starts it when a window shows).
+        guard watchers.values.contains(where: { $0() }), let due = JoinedMachine.nextExpiry(machines) else {
+            return ageTimer.cancel()
+        }
+        // A second past the expiry, so the row has crossed the window when it is read; at least one second.
+        let delay = max(1, due.timeIntervalSince(clock()) + 1)
+        ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
+    }
+
+    /// A section's window came back into view (the section's host, `MachineSectionHostView`, follows its window's
+    /// occlusion): aging restarts now. A row whose heartbeat passed the window while it was covered
+    /// is read at once; otherwise the deadline is the next expiry again.
+    /// A section's window was covered: with every section covered the deadline stops now, so a covered
+    /// window costs no wakeups at all (``resumeAging()`` starts it again).
+    public func pauseAging() {
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
+    }
+
+    public func resumeAging() {
+        guard watchers.values.contains(where: { $0() }), let due = JoinedMachine.nextExpiry(machines) else { return }
+        let delay = max(0, due.timeIntervalSince(clock()) + 1)
+        ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
+    }
+
+    /// The deadline. With every registered section covered it reads nothing and stops: a covered
+    /// window costs no wakeups, and ``resumeAging()`` starts it again when the window shows. With a
+    /// section on screen it reads the list once and ages what the read did not renew; the read
+    /// (``finishRead(_:ticket:)``) sets the next deadline.
+    func ageFired() async {
+        guard watchers.values.contains(where: { $0() }) else { return ageTimer.cancel() }
+        await refresh()
+        age(now: clock())
+        scheduleAge()
     }
 
     /// Reads `cmux machine list` once. With the switch off the list empties; a failed read keeps
@@ -56,6 +156,7 @@ public final class JoinedMachineStore {
         shown = ticket
         failed = [:]
         if rows != machines { machines = rows }
+        scheduleAge()
     }
 
     /// Shows `rows` now, over any read still in flight (fixtures and tests).
@@ -63,7 +164,7 @@ public final class JoinedMachineStore {
         finishRead(rows, ticket: beginRead())
     }
 
-    /// Revokes or rotates `id`, then reads the list again. False when the platform refused or the
+    /// Revokes, rotates or removes `id`, then reads the list again (a removed machine is not in it). False when the platform refused or the
     /// run failed (the row says so).
     @discardableResult
     public func perform(_ change: Change, _ id: String) async -> Bool {
@@ -75,6 +176,7 @@ public final class JoinedMachineStore {
         let ok = switch change {
         case .revoke: await service.revoke(id)
         case .rotate: await service.rotate(id)
+        case .remove: await service.remove(id)
         }
         await refresh()
         if !ok { failed[id] = change }

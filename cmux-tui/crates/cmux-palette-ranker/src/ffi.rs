@@ -5,10 +5,10 @@
 //! JSON request per keystroke. The response (ranked sections JSON, or an error message) stays
 //! owned by the ranker until its next call or until it is freed.
 
-use crate::{Entry, RankRequest, Ranker};
+use crate::{Entry, Frecency, RankRequest, Ranker};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 pub const OK: i32 = 0;
 pub const ERR_NULL: i32 = -1;
 pub const ERR_INVALID: i32 = -2;
@@ -86,6 +86,37 @@ pub unsafe extern "C" fn cmux_palette_ranker_install(
     result.unwrap_or(ERR_PANIC)
 }
 
+/// Installs a JSON usage history (`PaletteFrecency`: entries, picks, hidden keys) for
+/// `revision`; a request naming that `historyRevision` may omit `frecency`.
+///
+/// # Safety
+///
+/// `ranker` is a live handle; `history` points to `history_len` readable bytes (or is null with
+/// length 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_palette_ranker_install_history(
+    ranker: *mut CmuxPaletteRanker,
+    revision: i64,
+    history: *const u8,
+    history_len: usize,
+) -> i32 {
+    if ranker.is_null() {
+        return ERR_NULL;
+    }
+    let Some(history) = (unsafe { input(history, history_len) }) else { return ERR_NULL };
+    // SAFETY: a live handle, used by one caller at a time.
+    let handle = unsafe { &mut *ranker };
+    let result =
+        catch_unwind(AssertUnwindSafe(|| match serde_json::from_slice::<Frecency>(history) {
+            Ok(history) => {
+                handle.ranker.install_history(revision, history);
+                OK
+            }
+            Err(_) => ERR_INVALID,
+        }));
+    result.unwrap_or(ERR_PANIC)
+}
+
 /// Ranks one JSON request. On `OK` the response is the ranked sections JSON; on an error it is a
 /// message, except `ERR_NULL`, which leaves a null response of length 0 (or writes nothing when
 /// an out pointer is null). `*response`/`*response_len` stay valid until the next call on this
@@ -122,6 +153,16 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
             Ok(request) => request,
             Err(error) => return (ERR_INVALID, error.to_string().into_bytes()),
         };
+        if request.operation == "filter" {
+            // The query's filter tokens alone (`crate::filter`): for the host's own searches
+            // beside the ranker (agent chats), so they keep and drop the same sections.
+            let names = request.section_names.as_deref().unwrap_or_default();
+            let parsed = crate::filter::parse(request.query.as_deref().unwrap_or(""), names);
+            return match serde_json::to_vec(&parsed) {
+                Ok(bytes) => (OK, bytes),
+                Err(error) => (ERR_INVALID, error.to_string().into_bytes()),
+            };
+        }
         match handle.ranker.rank(&request) {
             Ok(sections) => match serde_json::to_vec(&sections) {
                 Ok(bytes) => (OK, bytes),

@@ -201,7 +201,7 @@ impl BrowserSurface {
         let _ = tx.try_send(wake);
     }
 
-    pub(super) fn command_sender(&self) -> anyhow::Result<SyncSender<SequencedBrowserCommand>> {
+    pub(super) fn command_sender(&self) -> anyhow::Result<BrowserCommandTx> {
         self.command_tx
             .lock()
             .unwrap()

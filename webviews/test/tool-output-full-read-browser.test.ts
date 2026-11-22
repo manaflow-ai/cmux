@@ -43,7 +43,7 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     }
     return page;
   };
-  test("a fetched Markdown result scrolls to its final line, drops the fade there, and expands", async () => {
+  test("a fetched Markdown result scrolls to its final line in its box and drops the fade there", async () => {
     const page = await stage("compact");
     try {
       expect(await page.locator(".cv-tool-output__markdown h2").first().textContent()).toBe("Network map: summary");
@@ -56,10 +56,11 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
         () => !document.querySelector(".cv-tool-output__markdown")?.hasAttribute("data-more-below"),
       );
       expect(await body.evaluate((node) => getComputedStyle(node).maskImage)).toBe("none");
-      await page.locator(".cv-output-more").click();
-      expect(await body.getAttribute("data-preview")).toBe("all");
+      // Short of the 400 lines past which only its end is drawn, the whole result is in the box:
+      // it scrolls there, with no Show all row under it.
+      expect(await body.getAttribute("data-preview")).toBe("cut");
       expect(await body.textContent()).toContain("End of the complete result.");
-      expect(await body.evaluate((node) => node.clientHeight)).toBeGreaterThan(300);
+      expect(await page.locator(".cv-output-more").count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -97,23 +98,32 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await page.close();
     }
   });
-  test("a single wrapped line always has an expansion control", async () => {
+  test("a single wrapped line past eight rows scrolls in its box, with no Show all row", async () => {
     const page = await stage("wrapped-line");
     try {
-      await page.getByRole("button", { name: "Show all 1 line", exact: true }).waitFor();
-      await page.getByRole("button", { name: "Show all 1 line", exact: true }).click();
-      expect(await page.getByRole("button", { name: "Show less", exact: true }).count()).toBe(1);
+      const body = page.locator("pre.cv-tool-output");
+      await page.waitForFunction(
+        () => document.querySelector("pre.cv-tool-output")?.getAttribute("data-preview") === "cut",
+      );
+      expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+      expect(await page.locator(".cv-output-more").count()).toBe(0);
+      await body.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await page.waitForFunction(() => !document.querySelector("pre.cv-tool-output")?.hasAttribute("data-more-below"));
+      expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
   });
-  test("an expanded wrapped line drops stale disclosure after its content or width fits", async () => {
+  test("a cut wrapped line drops its cut once its content or width fits", async () => {
     for (const change of ["content", "width"]) {
       const page = await stage("wrapped-line");
       try {
         const body = page.locator("pre.cv-tool-output");
-        await page.getByRole("button", { name: "Show all 1 line", exact: true }).click();
-        await page.getByRole("button", { name: "Show less", exact: true }).waitFor();
+        await page.waitForFunction(
+          () => document.querySelector("pre.cv-tool-output")?.getAttribute("data-preview") === "cut",
+        );
         await body.evaluate((node, change) => {
           if (change === "content") node.textContent = "Short result.";
           else node.style.width = "18000px";
@@ -127,7 +137,7 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     }
   });
   test("Raw shows the complete source while JSON and logs remain monospace", async () => {
-    const page = await stage("expanded");
+    const page = await stage("compact");
     try {
       const body = page.locator(".cv-tool-output__markdown");
       await body.evaluate(async () => {

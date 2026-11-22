@@ -1,12 +1,14 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A sent prompt whose attachments sat inline (`inlineParts`) draws them in its bubble in order,
-// as Messages does. These pin what the legacy bands already did right: a thumbnail keeps its
-// fixed-height crop (conversation.css), a pasted block is a chip that opens to its text
-// (PromptText.tsx PasteChip), and an image's retained original (`companionOf`) is never drawn
-// again as a separate file.
+// as Messages does. These pin what the legacy bands already did right: a thumbnail is the whole image
+// in its own shape, never a magnified crop (conversation.css; Leo, 2026-11-05: "I don't think we have
+// good enough looking previews for these"), a pasted block is part of the message's one text body
+// (ask-14d16a6247), and an image's retained original (`companionOf`) is never drawn again as a
+// separate file.
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -56,9 +58,11 @@ const { FindReveal } = await import("../src/agent-session/acpmux/conversation/ch
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
+const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/sourceBadgeModel");
 
 const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
 const host = dom.window.document.getElementById("root")!;
@@ -86,7 +90,7 @@ const render = async (
 };
 
 try {
-  test("an inline image keeps the sent thumbnail's fixed-height crop", async () => {
+  test("an inline image is the sent thumbnail: the whole image in its own shape", async () => {
     clearImageEntries();
     await render(
       prompt("inline-image", "look at this", [
@@ -95,17 +99,16 @@ try {
         { kind: "text", text: " at this" },
       ]),
     );
-    const img = host.querySelector<HTMLImageElement>("[data-inline-content] img")!;
+    const img = host.querySelector<HTMLImageElement>("[data-inline-attachment-strip] img")!;
     expect(img).not.toBeNull();
-    const style = dom.window.getComputedStyle(img);
-    // The same box as the image band above a legacy bubble: 120px tall, cropped to fill.
-    expect(style.height).toBe("120px");
-    expect(style.objectFit).toBe("cover");
+    // The same box as the image band above a legacy bubble: the image's own shape, so `cover` crops nothing.
+    const [width, height] = img.style.aspectRatio.split("/").map(Number);
+    expect(width! / height!).toBe(400 / 1600);
     const button = img.closest("button")!;
     expect(dom.window.getComputedStyle(button).cursor).toBe("zoom-in");
   });
 
-  test("an inline pasted block is a chip that opens to its text", async () => {
+  test("an inline pasted block is part of the message's one body, as the draft read", async () => {
     const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
@@ -114,11 +117,10 @@ try {
         { kind: "text", text: " after" },
       ]),
     );
-    const chip = host.querySelector<HTMLButtonElement>("[data-inline-content] .cv-user__paste");
-    expect(chip).not.toBeNull();
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")).toBeNull();
-    await act(async () => chip!.click());
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.textContent).toBe(pasted);
+    expect(host.querySelector(".cv-user__paste, .cv-user__pasted")).toBeNull();
+    const bodies = host.querySelectorAll("[data-inline-content] .cv-user__typed");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.textContent).toBe(`before ${pasted} after`);
   });
 
   test("an image's retained original is not drawn again as a file", async () => {
@@ -133,6 +135,59 @@ try {
     expect(host.querySelector("[data-inline-content]")).not.toBeNull();
     expect(host.textContent).not.toContain("shot-original.heic");
   });
+  // Leo, 2026-11-17: "Attachments render inline in the middle of the text line, at odd sizes. Put
+  // them in a block above the text." A sent prompt whose attachments the composer placed mid-text
+  // draws every one in one block before its bubble, in every attachment view, and its words as one
+  // plain flow below; each tile's box is fixed before its poster or thumbnail arrives.
+  for (const attachmentView of ["inline", "strip", "both"] as const)
+    test(`${attachmentView}: a row with inline parts renders its attachments before the text`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      await act(async () => setComposerSettings({ attachmentView }));
+      try {
+        // No bytes yet: the thumbnail's placeholder holds the tile's box.
+        await render(
+          prompt(`above-${attachmentView}`, "look at this and that please", [
+            { kind: "text", text: "look at " },
+            { kind: "image", id: "a", mimeType: "image/png", name: "a.png", width: 800, height: 600, placed: true },
+            { kind: "text", text: "this and " },
+            {
+              kind: "file",
+              name: "clip.mov",
+              mimeType: "video/quicktime",
+              uri: "file:///tmp/clip.mov",
+              placed: true,
+            },
+            { kind: "text", text: "that please" },
+          ]),
+          undefined,
+          // acpmux still reading the image.
+          () => new Promise<never>(() => {}),
+        );
+        const block = host.querySelector<HTMLElement>("[data-inline-attachment-strip]")!;
+        const bubble = host.querySelector<HTMLElement>(".cv-user__bubble")!;
+        expect(block).not.toBeNull();
+        expect(bubble).not.toBeNull();
+        // The block comes first in the row, the bubble after it.
+        expect(block.compareDocumentPosition(bubble) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(block.querySelector(".cv-user__image-placeholder")).not.toBeNull();
+        expect(block.querySelector(".cv-user__video")).not.toBeNull();
+        // The bubble holds no attachment: its words are one plain run.
+        expect(bubble.querySelector(".cv-user__inline-image, .cv-user__inline-file, .cv-user__video, img")).toBeNull();
+        expect(bubble.querySelector("[data-inline-content]")!.textContent).toBe("look at this and that please");
+        // The placeholder's box is the thumbnail's own (SENT_IMAGE_HEIGHT tall, 4:3), so nothing moves
+        // when it lands.
+        const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+        const width = Math.round((SENT_IMAGE_HEIGHT * 4) / 3);
+        const placeholder = block.querySelector<HTMLElement>(".cv-user__inline-image > .cv-user__image-placeholder")!;
+        expect(placeholder).not.toBeNull();
+        expect(placeholder.style.width).toBe(`${width}px`);
+        expect(placeholder.style.aspectRatio).toBe(`${width} / ${SENT_IMAGE_HEIGHT}`);
+      } finally {
+        await act(async () => setComposerSettings({ attachmentView: "inline" }));
+      }
+    });
+
   for (const attachmentView of ["inline", "strip"] as const) {
     test(`${attachmentView}: a 2,000-line interleaved prompt folds and toggles without losing its order`, async () => {
       resetTranscriptDisclosure();
@@ -153,18 +208,15 @@ try {
         [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map(
           (node) => node.querySelector("img")?.getAttribute("alt") ?? node.textContent,
         );
-      const expected =
-        attachmentView === "inline"
-          ? ["before\n", "first.png", text, "second.png", "\nafter"]
-          : ["before\n", text, "\nafter"];
+      // Every view draws the attachments in the block above and the words as one run below.
+      const expected = [`before\n${text}\nafter`];
       expect(body.classList.contains("is-clamped")).toBe(true);
       expect(toggle().textContent).toBe(translate("message.more"));
       expect(toggle().getAttribute("aria-controls")).toBe(body.id);
       expect(order()).toEqual(expected);
-      if (attachmentView === "strip")
-        expect(
-          [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
-        ).toEqual(["first.png", "second.png"]);
+      expect(
+        [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
+      ).toEqual(["first.png", "second.png"]);
       await act(async () => toggle().click());
       expect(body.classList.contains("is-clamped")).toBe(false);
       expect(toggle().textContent).toBe(translate("message.less"));
@@ -177,7 +229,7 @@ try {
     });
   }
 
-  test("opening a pasted block also opens its enclosing ordered prompt", async () => {
+  test("a long ordered prompt with a paste folds once, with no fold of the paste's own", async () => {
     resetTranscriptDisclosure();
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
     await render(
@@ -189,23 +241,29 @@ try {
     );
     const body = host.querySelector(".cv-user__text")!;
     expect(body.classList.contains("is-clamped")).toBe(true);
-    await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__paste")!.click());
+    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
+    await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__more")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
+    expect(body.textContent).toContain("before pasted details\nline 1");
   });
   // A prompt whose attachments the composer placed records each one `placed` (inlinePrompt.ts,
-  // acpmux hub/prompt_images.rs): it draws where it was put, the last part included, never in the
-  // legacy band above the bubble. An unplaced prompt (the old shape: text, pastes, then
-  // attachments) records no marker and keeps the band.
-  const inlineShape = () =>
-    [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
+  // acpmux hub/prompt_images.rs): its attachments draw in the block above its bubble, in their
+  // order, the last part included, and its words below (Leo, 2026-11-17: "Put them in a block
+  // above the text."), never in the legacy band. An unplaced prompt (the old shape: text, pastes,
+  // then attachments) records no marker and keeps the band.
+  const inlineShape = () => [
+    ...[...host.querySelectorAll<HTMLElement>("[data-inline-attachment-strip] img")].map(
+      (img) => `image:${img.getAttribute("alt")}`,
+    ),
+    ...[...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
       node.querySelector("img")
         ? `image:${node.querySelector("img")!.getAttribute("alt")}`
-        : node.querySelector(".cv-user__paste")
-          ? "paste"
+        : node.classList.contains("cv-user__pasted")
+          ? "apart"
           : node.textContent,
-    );
-  test("inline: a placed trailing image sits after its text inside the bubble", async () => {
+    ),
+  ];
+  test("inline: a placed trailing image sits in the block above its text", async () => {
     clearImageEntries();
     resetTranscriptDisclosure();
     await act(async () => setComposerSettings({ attachmentView: "inline" }));
@@ -217,7 +275,7 @@ try {
       images: [{ id: "trail", mimeType: "image/png", name: "trail.png" }],
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
-    expect(inlineShape()).toEqual(["look at this", "image:trail.png"]);
+    expect(inlineShape()).toEqual(["image:trail.png", "look at this"]);
   });
   test("inline: a placed prompt's text reads as a legacy prompt's does, Markdown and all", async () => {
     clearImageEntries();
@@ -234,7 +292,8 @@ try {
     // The shared prompt renderer (PromptText.tsx PromptTyped): no literal asterisks in the bubble.
     expect(content.querySelector(".cv-user__markdown strong")?.textContent).toBe("this");
     expect(content.textContent).not.toContain("**");
-    expect(content.querySelector(".cv-user__typed")?.textContent).toBe("one");
+    expect(content.textContent).toContain("one");
+    expect(content.querySelector("img")).toBeNull();
   });
   test("inline: a placed leading paste then a trailing image keep their order", async () => {
     clearImageEntries();
@@ -249,7 +308,7 @@ try {
       images: [{ id: "after-paste", mimeType: "image/png", name: "after-paste.png" }],
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
-    expect(inlineShape()).toEqual(["paste", "image:after-paste.png"]);
+    expect(inlineShape()).toEqual(["image:after-paste.png", pasted]);
   });
   test("inline: a placed prompt draws the same before and after acpmux echoes it", async () => {
     clearImageEntries();
@@ -277,7 +336,8 @@ try {
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
     const before = inlineShape();
-    expect(before).toEqual(["see this", "paste", "image:shot.png"]);
+    // One body: the paste went in right after the typed words, so it starts on the next line.
+    expect(before).toEqual(["image:shot.png", `see this\n${pasted}`]);
     // acpmux's echo: the same parts by its own ids, each still placed.
     await render({
       ...prompt("placed-send", text, [
@@ -307,7 +367,7 @@ try {
     expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("what is this");
   });
 
-  test("inline: a placed prompt keeps its unplaced strip image in the band, not in the text", async () => {
+  test("inline: a placed prompt draws its placed and unplaced images in one block above", async () => {
     clearImageEntries();
     resetTranscriptDisclosure();
     await act(async () => setComposerSettings({ attachmentView: "inline" }));
@@ -323,10 +383,10 @@ try {
         { id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
       ],
     });
-    expect(inlineShape()).toEqual(["look", "image:placed-shot.png", "here"]);
+    expect(inlineShape()).toEqual(["image:placed-shot.png", "image:strip-shot.png", "look\nhere"]);
     expect(
       [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
-    ).toEqual(["strip-shot.png"]);
+    ).toEqual(["placed-shot.png", "strip-shot.png"]);
   });
 
   test("inline: a placed image draws from its own bytes before acpmux knows it", async () => {
@@ -344,14 +404,14 @@ try {
       undefined,
       async () => undefined,
     );
-    expect(inlineShape()).toEqual(["look", "image:local.png", "here"]);
-    expect(host.querySelector("[data-inline-content] img")?.getAttribute("src")).toBe(src);
+    expect(inlineShape()).toEqual(["image:local.png", "look\nhere"]);
+    expect(host.querySelector("[data-inline-attachment-strip] img")?.getAttribute("src")).toBe(src);
   });
 
   // A placed prompt that is a text file alone, with nothing typed: its body went as a text block,
-  // so the bubble shows its chip, which opens to the file's text, in both views.
+  // and the bubble shows its file chip, as every attachment keeps its chip (ask-14d16a6247).
   for (const attachmentView of ["inline", "strip"] as const)
-    test(`${attachmentView}: a placed text file with no typed text shows its chip, which opens to its text`, async () => {
+    test(`${attachmentView}: a placed text file with no typed text shows its file chip`, async () => {
       clearImageEntries();
       resetTranscriptDisclosure();
       await act(async () => setComposerSettings({ attachmentView }));
@@ -362,10 +422,10 @@ try {
             { kind: "file", name: "notes.txt", mimeType: "text/plain", size: 22, text: body, placed: true },
           ]),
         );
-        const chip = host.querySelector<HTMLButtonElement>(".cv-user__bubble .cv-user__paste");
+        expect(host.querySelector(".cv-user__bubble .cv-user__paste, .cv-user__bubble .cv-user__pasted")).toBeNull();
+        const chip = host.querySelector(".cv-user__bubble .acpmux-file-chip");
         expect(chip).not.toBeNull();
-        await act(async () => chip!.click());
-        expect(host.querySelector(".cv-user__bubble .cv-user__paste-text")?.textContent).toBe(body);
+        expect(chip!.textContent).toContain("notes.txt");
       } finally {
         await act(async () => setComposerSettings({ attachmentView: "inline" }));
       }
@@ -400,7 +460,7 @@ try {
             },
           ]),
         );
-        const scope = attachmentView === "inline" ? "[data-inline-content]" : "[data-inline-attachment-strip]";
+        const scope = "[data-inline-attachment-strip]";
         const chips = [...host.querySelectorAll<HTMLElement>(`${scope} .acpmux-file-chip`)];
         expect(chips.map((chip) => chip.getAttribute("title"))).toEqual([
           "/Users/sample/app/config.json",
@@ -439,7 +499,7 @@ try {
     }
   });
 
-  test("Find in an ordered pasted block opens both the chip and its enclosing fold", async () => {
+  test("Find in an ordered paste opens the message's one fold", async () => {
     resetTranscriptDisclosure();
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
     await render(
@@ -451,11 +511,121 @@ try {
       { rowId: "ordered-paste-find", card: false, needle: "unique pasted match", repaint: () => {} },
     );
     expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
+    expect(host.querySelector(".cv-user__typed")?.textContent).toContain("before unique pasted match");
+  });
+  for (const attachmentView of ["inline", "strip"] as const) {
+    test(`${attachmentView}: a placed sent file and image keep their source's badge`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      resetSourceIcons();
+      // Every view draws the same tree now: start from an empty one, so the icons are asked for again.
+      await act(async () => root.render(null));
+      const asked: string[] = [];
+      (dom.window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+        "attachment.sourceIcon": async (params: Record<string, unknown>) => {
+          asked.push(String(params.bundleId));
+          return { src: "data:image/png;base64,iVBORw0KGgo=" };
+        },
+      };
+      await act(async () => setComposerSettings({ attachmentView }));
+      await render(
+        prompt(`sourced-${attachmentView}`, "compare with the numbers", [
+          { kind: "text", text: "compare " },
+          {
+            kind: "image",
+            id: `sourced-shot-${attachmentView}`,
+            mimeType: "image/png",
+            name: "shot.png",
+            placed: true,
+            source: { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" },
+          },
+          { kind: "text", text: " with the numbers " },
+          {
+            kind: "file",
+            name: "build-times.csv",
+            mimeType: "text/csv",
+            size: 18_400,
+            uri: "file:///Users/sample/build-times.csv",
+            placed: true,
+            source: { name: "Finder", bundleId: "com.apple.finder" },
+          },
+        ]),
+      );
+      // The host's icon answers land a tick later.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      const band = "[data-inline-attachment-strip]";
+      const file = host.querySelector<HTMLElement>(`${band} .cv-user__inline-file .acpmux-file-chip`)!;
+      expect(file).not.toBeNull();
+      expect(file.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Finder");
+      expect(file.getAttribute("title")).toBe("/Users/sample/build-times.csv\nFrom Finder");
+      const image = host.querySelector<HTMLElement>(`${band} .cv-user__inline-image .cv-user__sourced`)!;
+      expect(image).not.toBeNull();
+      expect(image.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Screenshot");
+      expect(asked.sort()).toEqual(["com.apple.finder", "com.apple.screenshot.launcher"]);
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    });
+  }
+  // The row's estimate (model.ts attachmentBandHeight) lays a placed prompt's attachments out as
+  // this CSS does: each in the block above the bubble with the margins the estimate adds, an image
+  // at the size UserBubble.tsx gives it, and a file at the shared chip's box.
+  test("attachments sit in the block above with the margins the row's estimate adds", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render(
+      prompt("estimate-css", "look at this", [
+        { kind: "text", text: "look " },
+        { kind: "image", id: "wide", mimeType: "image/png", name: "wide.png", width: 1600, height: 400, placed: true },
+        { kind: "text", text: " at " },
+        { kind: "file", name: "a.csv", uri: "file:///tmp/a.csv", size: 12, placed: true },
+      ]),
+    );
+    const { INLINE_ATTACHMENT_MARGIN, INLINE_FILE_CHIP } = await import("../src/agent-session/acpmux/model");
+    const style = (selector: string) => dom.window.getComputedStyle(host.querySelector(selector)!);
+    expect(style("[data-inline-content]").whiteSpace).toBe("pre-wrap");
+    for (const selector of [
+      "[data-inline-attachment-strip] .cv-user__inline-image",
+      "[data-inline-attachment-strip] .cv-user__inline-file",
+    ]) {
+      const box = style(selector);
+      // An image tile lays its thumbnail out as a flex box, so no text line's descent sits under it
+      // (conversation.css, #48558); a file chip stays on the line.
+      expect(box.display).toBe(selector.endsWith("image") ? "flex" : "inline-block");
+      expect(box.verticalAlign).toBe("middle");
+      expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
+        [
+          INLINE_ATTACHMENT_MARGIN.y,
+          INLINE_ATTACHMENT_MARGIN.y,
+          INLINE_ATTACHMENT_MARGIN.x,
+          INLINE_ATTACHMENT_MARGIN.x,
+        ].map((px) => `${px}px`),
+      );
+    }
+    expect(style("[data-inline-attachment-strip] .cv-user__inline-file").maxWidth).toBe(
+      `min(${INLINE_FILE_CHIP.maxWidth}px, 72vw)`,
+    );
+    // The image's box: its own shape at most SENT_IMAGE_MAX_WIDTH wide and SENT_IMAGE_HEIGHT tall
+    // (userBubbleModel.ts sentImageSize): the 1600 x 400 image is width-bound.
+    const { sentImageSize } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+    const drawn = sentImageSize({ width: 1600, height: 400 });
+    expect(drawn.width / drawn.height).toBe(4);
+    const img = host.querySelector<HTMLImageElement>("[data-inline-attachment-strip] img")!;
+    expect(img.style.width).toBe(`${drawn.width}px`);
+    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe(`${drawn.width}/${drawn.height}`);
+    // The chip's own box (composerAttachments.css `.acpmux-file-chip`): its height, sides and gap.
+    const chip = readFileSync(
+      new URL("../src/agent-session/acpmux/composerAttachments.css", import.meta.url),
+      "utf8",
+    ).match(/\n\.acpmux-file-chip \{([^}]*)\}/)![1]!;
+    expect(chip).toContain(`--acpmux-file-chip-gap: ${INLINE_FILE_CHIP.gap}px;`);
+    expect(chip).toContain(`height: ${INLINE_FILE_CHIP.height}px;`);
+    expect(chip).toContain(`padding: 0 ${INLINE_FILE_CHIP.side}px;`);
+    expect(chip).toContain(`max-width: min(${INLINE_FILE_CHIP.maxWidth}px, 72vw);`);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
+    await settleReact();
     for (const [key, present, value] of saved) {
       if (present) scope[key] = value;
       else delete scope[key];

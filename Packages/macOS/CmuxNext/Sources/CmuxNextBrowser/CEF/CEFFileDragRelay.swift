@@ -64,11 +64,15 @@ final class CEFFileDragRelay {
         pendingOver = nil
         if let lastPoint { leave(tab, at: lastPoint) }
         send("dragCancel", at: .zero)
+        tab.pageDragEnded?(false)
         reset()
     }
 
     func dropped(at point: CGPoint) -> Bool {
-        guard tab != nil else { return false }
+        guard let tab else { return false }
+        // The native drop, with its event in dispatch, before the page hears it: what backs the
+        // page's drop message (page script can post one, but cannot make this).
+        tab.pageDragEnded?(true)
         send("drop", at: point)
         reset()
         return true

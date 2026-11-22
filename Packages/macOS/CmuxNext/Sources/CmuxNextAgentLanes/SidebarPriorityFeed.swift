@@ -6,7 +6,7 @@ import Foundation
 import Observation
 
 /// The sidebar's Priority view (`sidebar.priorityView.enabled`, an App Store item, off by default):
-/// every acpmux chat on this Mac, its peers and the Chief home, and every agent chat on the other
+/// personal and explicitly opened/pinned acpmux chats, and every agent chat on the other
 /// machines the app shows, ranked by what needs the person (`AgentPriorityRanking`), at the top of each window's sidebar while the titlebar bell is on
 /// (`sidebar.priorityView.shown`). Event-driven: it redraws when a lane, a mark or the setting
 /// changes, and at the next snooze end, never on a poll. The App passes the settings, the
@@ -35,13 +35,17 @@ public final class SidebarPriorityFeed {
         public var rowAction: @MainActor (SidebarPriorityAction) -> Void
         /// Runs Toggle Priority View (the bell).
         public var toggleShown: @MainActor () -> Void
+        /// Session ids in actual open tabs, read inside the panel observation.
+        public var openedSessions: @MainActor () -> Set<String>
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
-                    rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void) {
+                    rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
+            self.openedSessions = openedSessions
         }
     }
 
@@ -60,8 +64,21 @@ public final class SidebarPriorityFeed {
         self.chats = chats
     }
 
-    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it).
-    public func start(_ view: SidebarView) -> Task<Void, Never> {
+    /// The window's Allow and Deny on its answerable rows and Needs You items (``SidebarApprovals``);
+    /// nil: no row answers.
+    var approvals: SidebarApprovals?
+
+    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it), with
+    /// `approvals` answering its rows and its Needs You tray.
+    public func start(_ view: SidebarView, approvals: SidebarApprovals? = nil) -> Task<Void, Never> {
+        self.approvals = approvals
+        let feed = observe(view)
+        guard let approvals else { return feed }
+        return feed.cancelling(approvals.followLanes())
+            .cancelling(approvals.followTray(view) { SidebarSessionTreeFeed.shared.workspaces(showing: $0) })
+    }
+
+    private func observe(_ view: SidebarView) -> Task<Void, Never> {
         view.onPriorityAction = { [weak self] action in self?.perform(action) }
         // task-owner: the sidebar bridge (cancelled in teardown); event-driven (Observation)
         // The task holds the feed: it lives as long as the window's sidebar shows it.
@@ -92,18 +109,29 @@ public final class SidebarPriorityFeed {
         _ = clock.ticks
         let built = chats.snapshot()
         self.built = built
-        let entries = chats.entries(built, now: Date())
+        let opened = hooks.openedSessions()
+        let visible = Set(built.lanes.filter {
+            !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
+        }.map(\.id))
+        let answerable = approvals?.answerable ?? [:]
+        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
+            var entry = entry
+            entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
+            return entry
+        }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
 
-    /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold and the bell are
-    /// the view's own.
+    /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a
+    /// dragged row's place are the view's own.
     func perform(_ action: SidebarPriorityAction) {
         switch action {
         case .open(let id): if let lane = chats.lane(id) { hooks.open(lane) }
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
+        case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
+        case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
         }
     }

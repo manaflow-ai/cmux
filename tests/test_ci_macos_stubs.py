@@ -9,9 +9,12 @@ output and on a hand-built Mach-O object.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import re
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,10 +65,22 @@ class StubTests(unittest.TestCase):
         stubs._run = FakeTools({"a": (DYLIBS, NM), "b": (DYLIBS, "                 (undefined) external _CFRetain (from CoreFoundation)\n")})
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
+        # The tool's own report lines: the cases that expect a refusal print "FAIL stubs: ...", which a CI log
+        # reader took for this suite failing (2026-11-19). They are kept here and shown only when a test fails.
+        self.tool_output = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.tool_output)
+        self.redirect.__enter__()
 
     def tearDown(self) -> None:
+        self.redirect.__exit__(None, None, None)
         stubs._run = self.original_run
         self.tmp.cleanup()
+
+    def run(self, result=None):
+        result = super().run(result)
+        if result is not None and any(test is self for test, _ in result.failures + result.errors):
+            sys.stderr.write(f"{self.id()} tool output:\n{self.tool_output.getvalue()}")
+        return result
 
     def test_imports_are_grouped_by_install_name_with_versions(self) -> None:
         libs = stubs.imports("a")
@@ -99,6 +114,15 @@ class StubTests(unittest.TestCase):
         installed = sysroot / "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd"
         self.assertEqual(installed.read_text(), (self.dir / "CoreFoundation.tbd").read_text())
         self.assertTrue((sysroot / "System/Library/Frameworks/Security.framework/Security.tbd").exists())
+
+    def test_tailnet_headers_and_link_stubs_are_installed_together(self) -> None:
+        stubs.cmd_install(ROOT / "scripts/ci/macos-stubs", self.dir)
+        for name in ["IOKit", "SystemConfiguration"]:
+            self.assertTrue((self.dir / f"System/Library/Frameworks/{name}.framework/{name}.tbd").is_file())
+        self.assertTrue((self.dir / "usr/lib/libresolv.tbd").is_file())
+        self.assertTrue((self.dir / "usr/include/CoreFoundation/CoreFoundation.h").is_file())
+        self.assertTrue((self.dir / "usr/include/IOKit/IOKitLib.h").is_file())
+        self.assertTrue((self.dir / "usr/include/Security/Security.h").is_file())
 
     def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
         # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an
@@ -144,6 +168,28 @@ class WeakenTests(unittest.TestCase):
         struct.pack_into("<I", data, 12, 0x2)  # MH_EXECUTE
         with self.assertRaises(SystemExit):
             weaken.weaken(data)
+
+
+# Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
+# The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
+# link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.
+LOCKED_CRATE_IMPORTS = {
+    # chrono's clock (Local) reads the system zone through iana-time-zone's CoreFoundation calls.
+    "iana-time-zone": ("CoreFoundation", ("_CFTimeZoneCopySystem", "_CFTimeZoneGetName", "_CFTimeZoneResetSystem")),
+}
+
+
+class LockedCrateImportTests(unittest.TestCase):
+    def test_a_locked_crate_that_calls_a_framework_has_its_imports_in_the_stub(self) -> None:
+        lock = (ROOT / "cmux-tui" / "Cargo.lock").read_text()
+        missing = []
+        for crate, (framework, symbols) in LOCKED_CRATE_IMPORTS.items():
+            if f'name = "{crate}"' not in lock:
+                continue
+            stub = (ROOT / "scripts" / "ci" / "macos-stubs" / f"{framework}.tbd").read_text()
+            held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub))
+            missing += [f"{framework}.tbd lacks {symbol} ({crate})" for symbol in symbols if symbol not in held]
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

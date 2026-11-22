@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A picture of Sleepy Mode's still scene (Motion off: the sky at time 0), written to
 /// `artifacts/sleepy-sky/sky.png` in the checkout, so the canvas sky and the Core Animation sky
 /// can be put side by side. Run on a GUI host: split-spring --suite=gui-tests --tests=SleepySkySnapshotTests.
-@MainActor @Suite(.serialized) struct SleepySkySnapshotTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SleepySkySnapshotTests {
     @Test(.enabled(if: NSScreen.main != nil, "the scene draws only on a screen: run on a GUI host"))
     func theStillSceneIsWrittenToThePicture() throws {
         _ = NSApplication.shared
@@ -26,6 +27,16 @@ import Testing
         host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
+        // The scene drew: the sky is not one flat color (stars, the glow and the hills differ from the night).
+        #expect(bitmap.pixelsWide >= Int(frame.width) && bitmap.pixelsHigh >= Int(frame.height))
+        var colors = Set<String>()
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: max(1, bitmap.pixelsHigh / 40)) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: max(1, bitmap.pixelsWide / 40)) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                colors.insert(String(format: "%.2f %.2f %.2f", color.redComponent, color.greenComponent, color.blueComponent))
+            }
+        }
+        #expect(colors.count > 4, "the still scene is \(colors.count) flat color(s): it drew nothing")
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../../../../artifacts/sleepy-sky", isDirectory: true).standardizedFileURL

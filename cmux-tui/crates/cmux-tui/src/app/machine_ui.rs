@@ -359,6 +359,7 @@ impl App {
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
+        self.synchronized_output.clear();
         self.pane_areas.clear();
         self.viewport_projection.clear();
         self.viewport_layout.clear();
@@ -428,6 +429,7 @@ impl App {
         self.last_applied_refresh_sequence = 0;
         self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
+        self.pending_completed_selection = None;
         self.drag = None;
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();

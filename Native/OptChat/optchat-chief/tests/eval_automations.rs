@@ -1,8 +1,10 @@
 //! Chief fast evals, group `automations` (deterministic, no model call;
-//! plans/cmux-next/chief-automations-DESIGN.md). A recurring job, or one
-//! the Chief's own subagents trigger, is a local `automation`; one that must
-//! run while the user's computers sleep, or that a URL starts, goes to the
-//! Cloud Chief, which makes it with `chief-auto`; sleep() is not a scheduler.
+//! plans/cmux-next/chief-automations-DESIGN.md). A recurring or triggered
+//! job, or one that must run while the user's computers sleep, is a cmux
+//! automation the Chief makes itself with `cmux automation` (`--target cloud`
+//! for the Cloud Chief, the default); a local one (this Mac's files or apps,
+//! or one the Chief's own subagents start) goes first to the Chief's own
+//! `automation` tool, else this Mac's runner; sleep() is not a scheduler.
 
 use optchat_chief::prompt::{Tools, chief_system_text};
 
@@ -19,12 +21,16 @@ fn the_chief_prompt_sends_recurring_and_sleeping_computer_jobs_to_the_cloud_chie
     ] {
         let flat = flat(&text);
         for want in [
-            "- Jobs: a recurring job",
-            "is an automation: make it at once with `automation`",
+            "- Jobs: a recurring or triggered job",
+            "goes first to your `automation` tool when you have it",
+            "or the event agent_done",
             "while the user's computers sleep",
-            "id chief:<name>",
-            "`chief-auto`",
+            "`cmux automation create NAME --target cloud --prompt",
             "results post in the Cloud Chief's chat",
+            "needs this Mac's files or apps",
+            "`cmux automation runner install`",
+            "`cmux automation list --target cloud`",
+            "never delete an automation unless the user asked",
             "sleep() is only for looking again at your own work",
         ] {
             assert!(flat.contains(want), "{name}: prompt lacks {want:?}");

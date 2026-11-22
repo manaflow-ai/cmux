@@ -11,17 +11,19 @@ import AppKit
 /// One message: role, sender, text and time.
 final class MessageAccessibilityElement: NSAccessibilityElement {
     let messageID: ID
+    /// cmux: its links' elements by link index, reused (Cmux/TranscriptLinkAccess.swift).
+    var cmuxLinks: [Int: TranscriptLinkElement] = [:]
     init(messageID: ID) { self.messageID = messageID; super.init() }
 }
 
 extension NativeStrings {
-    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
-    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
+    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// "Attachment: %@"
-    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: .module) }
-    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: .module) }
+    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// sender, text, time
-    static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: .module) }
+    static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
 }
 
 extension ChatController {
@@ -65,6 +67,7 @@ extension ChatController {
         // elements are kept, one per message id and reused. AX clients hold them between calls; an
         // element made on every call was freed before a client read it (the AX dump's list was empty).
         let visible = visibleMessages()
+        let linkRows = accessibilityLinkRows() // cmux: links as AXLink children (Cmux/TranscriptLinkAccess.swift)
         let keep = Set(visible.map(\.id))
         selection.axElements = selection.axElements.filter { keep.contains($0.key) }
         return visible.map { m in
@@ -84,6 +87,10 @@ extension ChatController {
             e.setAccessibilityParent(parent)
             let inWindow = host.convert(m.frame, to: nil)
             e.setAccessibilityFrame(window.convertToScreen(inWindow))
+            // cmux: each visible link is a child (role link, press opens it as a click); the element is an
+            // accessibility element explicitly, so a client that skips ignored elements reads it.
+            e.setAccessibilityElement(true)
+            e.setAccessibilityChildren(accessibilityLinkElements(linkRows[m.id] ?? [], of: e, window: window))
             return e
         }
     }
@@ -110,10 +117,8 @@ final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
-    /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
-    /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
-    /// (225, 229, 235) (lossless still selected-text.png).
-    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
+    // cmux: the fill (MessagesLab's screen blend of P3 (2.6, 37.7, 85), Messages' dark highlight) is per row now,
+    // from the surface under it: SelectionHighlightStyle.
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?
@@ -257,6 +262,13 @@ final class TranscriptSelection {
     /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
     /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
     /// their TextLayout; offsets are the display string's in every case.
+    /// cmux: the highlight's style for a text row: the blend that shows on its bubble (sent or received) in the
+    /// palette of the window view that draws it (SelectionHighlightStyle).
+    static func highlightStyle(_ spec: RowSpec, palette: PaletteBox?) -> SelectionHighlightStyle {
+        guard case let .part(p) = spec.kind else { return .screen }
+        return PaletteScope.with(palette) { SelectionHighlightStyle.style(on: p.outgoing ? Fixture.outgoing : Fixture.incoming) }
+    }
+
     static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
         guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
         return p.geometry(width: spec.width)
@@ -382,7 +394,7 @@ final class TranscriptSelection {
         let visible = (demo.bounds.minY - h - top)...(demo.bounds.maxY + h - top)
         let path = CGMutablePath()
         for rect in Self.highlightRects(sel, body: RowDraw.bodyRect(spec), geometry: g, visible: visible) { path.addRect(rect) }
-        cell.setSelectionHighlight(path.isEmpty ? nil : path)
+        cell.setSelectionHighlight(path.isEmpty ? nil : path, style: Self.highlightStyle(spec, palette: demo.palette)) // cmux
     }
 }
 

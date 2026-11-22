@@ -2,9 +2,9 @@
 // schemas/settings/source/auto-archive.json. Do not edit; edit the JSON and rerun.
 
 extension AutoArchiveSettings {
-    /// `workspaces.autoArchive.style`: suggest by default (Lawrence 12659 asked for variations; Chief picked suggest-first so nothing leaves the sidebar without a click). quiet archives on its own with an Undo toast; groups only archives in groups that set their own rule; manual only archives on Archive Idle Workspaces; off never.
+    /// `workspaces.autoArchive.style`: manual by default (Lawrence 18515/18517: the Tidy Up card popping up on its own was annoying): nothing runs in the background and nothing pops up; Archive Idle Workspaces (palette, sidebar menu) archives on request. suggest shows the Tidy Up card; quiet archives on its own with an Undo toast (the card's Always Archive picks it); groups only archives in groups that set their own rule; off never.
     public nonisolated static let stylePath = ["workspaces", "autoArchive", "style"]
-    public nonisolated static let styleDefault: AutoArchiveStyle = .suggest
+    public nonisolated static let styleDefault: AutoArchiveStyle = .manual
     /// `workspaces.autoArchive.idleDays`: Days since the workspace was last shown, typed in or printed output, or its agent spoke. 3 days: a long weekend away does not count as done. A group's own rule wins.
     public nonisolated static let idleDaysPath = ["workspaces", "autoArchive", "idleDays"]
     public nonisolated static let idleDaysDefault: Double = 3
@@ -22,7 +22,7 @@ nonisolated enum AutoArchiveSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.autoArchive.style", "Idle Workspaces"),
-                help: SettingsText.keyed("settings.autoArchive.style.help", "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."),
+                help: SettingsText.keyed("settings.autoArchive.style.help", "Archived workspaces stay dimmed in their group and come back when opened."),
                 kind: .choice([
                     SettingChoice(AutoArchiveStyle.suggest.rawValue, SettingsText.keyed("settings.choice.autoArchiveSuggest", "Suggest Archiving")),
                     SettingChoice(AutoArchiveStyle.quiet.rawValue, SettingsText.keyed("settings.choice.autoArchiveQuiet", "Archive Automatically")),
@@ -38,7 +38,7 @@ nonisolated enum AutoArchiveSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.autoArchive.idleDays", "Idle For"),
-                help: SettingsText.keyed("settings.autoArchive.idleDays.help", "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."),
+                help: SettingsText.keyed("settings.autoArchive.idleDays.help", "Days unopened and unchanged. Pinned, running and waiting workspaces never archive."),
                 kind: .number(SettingNumber(AutoArchiveSettings.idleDaysRange, step: 1, unit: .days)),
                 default: .number(AutoArchiveSettings.idleDaysDefault),
                 keywords: ["archive", "idle", "days", "age", "old"]

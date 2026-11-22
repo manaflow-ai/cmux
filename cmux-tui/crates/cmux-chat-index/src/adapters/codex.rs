@@ -7,20 +7,28 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use rusqlite::Connection;
 use serde_json::Value;
 
 use super::{PathRole, role};
 use crate::entry::{AdapterKind, ChatEntry, Resume, TitleSource};
 use crate::lines::{contains, fold_lines, read_first_record, read_whole_json};
 use crate::scan::FileRead;
-use crate::sqlite::{columns, open_read_only};
 use crate::stamp::{FileStamp, FileState};
 use crate::text::{prompt_text, title_line};
 use crate::time::parse_rfc3339_ms;
 
+mod rows;
+mod threads;
+pub use rows::{CodexThreadRow, thread_rows};
+pub use threads::forget;
+use threads::query_threads;
+
 const ARCHIVED: &str = "archived_sessions";
+/// The folders that hold rollouts ([`classify`]'s sessions); every other file of the root that
+/// [`classify`] reads is the root's own entry.
+pub(super) const SESSION_FOLDERS: &[&str] = &["sessions", ARCHIVED];
 
 pub(super) fn list(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
@@ -296,125 +304,12 @@ fn newest_state_db(root: &Path) -> io::Result<Option<PathBuf>> {
     Ok(best.map(|(_, path)| path))
 }
 
-fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
-    let root = db.parent().unwrap_or(db).to_path_buf();
-    let real_root = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
-    let conn = open_read_only(db)?;
-    let cols = columns(&conn, "threads")?;
-    if !cols.contains("id") {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    let col = |name: &str| if cols.contains(name) { name.to_owned() } else { "NULL".to_owned() };
-    let millis = |name: &str| {
-        if cols.contains(&format!("{name}_ms")) {
-            format!("{name}_ms")
-        } else if cols.contains(name) {
-            format!("{name} * 1000")
-        } else {
-            "NULL".to_owned()
-        }
-    };
-    let mut filters = vec!["1 = 1".to_owned()];
-    // `has_user_event` is only a hint: Codex 0.159+ leaves it 0 on every
-    // thread. A thread is a chat when it has the flag or any user text.
-    let texts: Vec<String> = ["first_user_message", "title", "preview", "name"]
-        .into_iter()
-        .filter(|name| cols.contains(*name))
-        .map(|name| format!("coalesce({name}, '') <> ''"))
-        .collect();
-    if cols.contains("has_user_event") {
-        let mut any = vec!["has_user_event = 1".to_owned()];
-        any.extend(texts);
-        filters.push(format!("({})", any.join(" OR ")));
-    }
-    if cols.contains("thread_source") {
-        filters.push("coalesce(thread_source, '') <> 'subagent'".to_owned());
-    }
-    for agent_col in ["agent_nickname", "agent_role"] {
-        if cols.contains(agent_col) {
-            filters.push(format!("({agent_col} IS NULL OR {agent_col} = '')"));
-        }
-    }
-    if let Some(child) = spawn_child_column(&conn) {
-        filters.push(format!(
-            "id NOT IN (SELECT {child} FROM thread_spawn_edges WHERE {child} IS NOT NULL)"
-        ));
-    }
-    let sql = format!(
-        "SELECT id, {name}, {title}, {preview}, {first}, {cwd}, {created}, {updated}, {archived}, {originator}, {rollout}
-         FROM threads WHERE {filters}",
-        name = col("name"),
-        title = col("title"),
-        preview = col("preview"),
-        first = col("first_user_message"),
-        cwd = col("cwd"),
-        created = millis("created_at"),
-        updated = millis("updated_at"),
-        archived = col("archived"),
-        originator = col("originator"),
-        rollout = col("rollout_path"),
-        filters = filters.join(" AND "),
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |row| {
-        let text = |index: usize| row.get::<_, Option<String>>(index);
-        let candidates = [
-            (text(1)?, TitleSource::Custom),
-            (text(2)?, TitleSource::Ai),
-            (text(3)?, TitleSource::Prompt),
-            (text(4)?, TitleSource::Prompt),
-        ];
-        let (title, title_source) = candidates
-            .into_iter()
-            .find_map(|(value, source)| {
-                value.as_deref().and_then(title_line).map(|title| (Some(title), Some(source)))
-            })
-            .unwrap_or((None, None));
-        let created_ms = row.get::<_, Option<i64>>(6)?;
-        Ok(ChatEntry {
-            harness: AdapterKind::Codex,
-            session_id: row.get(0)?,
-            title,
-            title_source,
-            cwd: text(5)?.filter(|cwd| !cwd.is_empty()),
-            created_ms,
-            updated_ms: row.get::<_, Option<i64>>(7)?.or(created_ms).unwrap_or(0),
-            message_count: None,
-            // A recorded path outside the home is not followed (it could be
-            // anywhere, guarded folders included).
-            source_path: text(10)?
-                .map(PathBuf::from)
-                .filter(|path| {
-                    path.is_absolute() && (path.starts_with(&root) || path.starts_with(&real_root))
-                })
-                .unwrap_or_else(|| db.to_path_buf()),
-            originator: text(9)?,
-            archived: row.get::<_, Option<i64>>(8)?.unwrap_or(0) != 0,
-            resume: Resume::Adopt,
-        })
-    })?;
-    rows.collect()
-}
-
-fn spawn_child_column(conn: &Connection) -> Option<&'static str> {
-    let cols = columns(conn, "thread_spawn_edges").ok()?;
-    ["child_thread_id", "child_id"].into_iter().find(|name| cols.contains(*name))
-}
-
 /// Names from `session_index.jsonl` replace every title except a DB name.
 pub(super) fn apply_session_index(root: &Path, entries: &mut [ChatEntry]) {
-    let mut names: HashMap<String, Option<String>> = HashMap::new();
-    let folded = fold_lines(&root.join("session_index.jsonl"), 0, |line| {
-        if let Ok(record) = serde_json::from_slice::<Value>(line)
-            && let Some(id) = record.get("id").and_then(Value::as_str)
-        {
-            let name = record.get("thread_name").and_then(Value::as_str).and_then(title_line);
-            names.insert(id.to_owned(), name);
-        }
-    });
-    if folded.is_err() {
+    if entries.is_empty() {
         return;
     }
+    let Some(names) = session_index_names(&root.join("session_index.jsonl")) else { return };
     for entry in entries {
         if entry.title_source == Some(TitleSource::Custom) {
             continue;
@@ -424,6 +319,40 @@ pub(super) fn apply_session_index(root: &Path, entries: &mut [ChatEntry]) {
             entry.title_source = Some(TitleSource::Custom);
         }
     }
+}
+
+type Names = HashMap<String, Option<String>>;
+
+/// Each session index read, by path, with the stamp it was read at.
+type ReadIndexes = HashMap<PathBuf, (FileStamp, Arc<Names>)>;
+static SESSION_INDEXES: Mutex<Option<ReadIndexes>> = Mutex::new(None);
+
+/// The names `index` gives (last line per id wins), None when it cannot be read. Read again
+/// only when its stamp moved: a watcher applies each rollout write through
+/// [`apply_session_index`], and the index holds a line per named thread, so reading it whole
+/// each time made one rollout line cost the whole index.
+fn session_index_names(index: &Path) -> Option<Arc<Names>> {
+    let stamp = FileStamp::of(&fs::metadata(index).ok()?);
+    let mut guard = SESSION_INDEXES.lock().unwrap_or_else(PoisonError::into_inner);
+    let known = guard.get_or_insert_with(HashMap::new);
+    if let Some((at, names)) = known.get(index)
+        && *at == stamp
+    {
+        return Some(names.clone());
+    }
+    let mut names = Names::new();
+    fold_lines(index, 0, |line| {
+        if let Ok(record) = serde_json::from_slice::<Value>(line)
+            && let Some(id) = record.get("id").and_then(Value::as_str)
+        {
+            let name = record.get("thread_name").and_then(Value::as_str).and_then(title_line);
+            names.insert(id.to_owned(), name);
+        }
+    })
+    .ok()?;
+    let names = Arc::new(names);
+    known.insert(index.to_path_buf(), (stamp, names.clone()));
+    Some(names)
 }
 
 fn record_type(record: &Value) -> Option<&str> {

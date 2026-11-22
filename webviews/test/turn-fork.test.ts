@@ -71,4 +71,14 @@ await requireBrowserLane("turn-fork.test.ts", async () => {
     const result = await play("fork-latest-turn-only");
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  test("Cloud offers Try another approach only on the latest turn", async () => {
+    const result = await play("try-another-approach-cloud");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("The sibling shows its parent label", async () => {
+    const result = await play("try-another-approach-child");
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

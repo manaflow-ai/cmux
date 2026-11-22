@@ -14,6 +14,13 @@ public import Foundation
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
+    /// The workspace's color as the row's leading rail or full fill (`workspaceColors.indicatorStyle`,
+    /// #25653); nil for the dot style, an uncolored workspace or `sidebar.showColors` off.
+    public var rowColor: GroupColor?
+    /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
+    public var colorStyle: WorkspaceColorIndicatorStyle = .dot
+    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
+    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.
@@ -56,8 +63,19 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
+    public var runsInCloud = false
+    /// The computer as a one-list row names it, with its status when it cannot connect
+    /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
+    /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
+    /// says it, whether or not the row draws a machine mark. Nil for this Mac and a grouped sidebar.
+    public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
+    /// The session tree: the parent's title, when this row's own title is the same name. The row reads
+    /// "Subagent of <parent>" instead of its parent's name again (Leo 2026-10-30: "the sidebar tab shouldn't
+    /// just be named claude sr2 coord if you can just say it's Subagent of sr2 coord").
+    public var subagentOf: String?
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
@@ -73,6 +91,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
+    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
+    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
+    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -91,11 +112,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public static let separator = " · "
 
     /// The content of `ws`'s row under `preferences`; `now` decides whether
-    /// the last activity shows a time (today) or a date. `machine` (the
-    /// computer of a workspace in the one-list sidebar that is not this Mac)
-    /// leads the second line whatever the preferences show, followed by the
-    /// workspace's folder on that computer and a starting Cloud machine's
-    /// stage (`SidebarWorkspace.stage`).
+    /// the last activity shows a time (today) or a date. The second line holds
+    /// only the elements the person turned on (`sidebar.workspaceRow`, none by
+    /// default): no line of its own repeating the computer, its folder, a Cloud
+    /// stage or the description (Leo 2026-10-30, of "local · claude-sr2-coord":
+    /// "remove the second line"). The computer stays in the row's machine mark,
+    /// its hover card and its accessibility label; the description in its hover
+    /// card; an expanded row (`init(expanded:...)`) keeps its own meta line.
     init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
         self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
     }
@@ -106,15 +129,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
         let set = preferences.resolved(for: ws.rowKind)
-        // Another computer's workspace names its folder after the computer, so the row says
-        // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
-        let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage), Self.descriptionLine(ws)].compactMap { $0 }
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
-        var items = lead + secondLine.map(\.1)
+        var items = secondLine.map(\.1)
         var status = Self.status(ws.reported, set)
         // A one-line status leaves a one-line row one line: its text moves to the name's line.
-        let others = lead + secondLine.filter { $0.0 != .agentStatus }.map(\.1)
+        let others = secondLine.filter { $0.0 != .agentStatus }.map(\.1)
         var trailing: String?
         if others.isEmpty {
             if let line = secondLine.first(where: { $0.0 == .agentStatus })?.1, status == nil {
@@ -128,7 +147,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             // Task status is already represented by the trailing status dots; only a user icon
             // belongs before the title (Chrome's chat list has no extra idle/status ring).
             icon: set.shows(.icon) ? ws.icon : nil,
-            detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
+            detail: Self.nonRedundantDetail(items.isEmpty ? nil : items.joined(separator: Self.separator), title: ws.title),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
@@ -137,7 +156,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -159,15 +178,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
-            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
-                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            detail: Self.nonRedundantDetail(
+                (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
+                    ?? Self.summaryLine(ws) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+                title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: Self.bar(ws),
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
@@ -223,7 +244,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // The status block draws the reported entries; the line repeats none.
         case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
-        case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
+        case .lastActivity: ws.rowAge.map { activityText($0, now: now) }
         case .notification: nonEmpty(ws.notificationText)
         case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }
@@ -243,14 +264,44 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
     }
 
+    /// The agent chat's rolling summary, with its next action after an arrow ("Tests pass → Open
+    /// the PR"): where the chat stands, said better than its raw last reply.
+    static func summaryLine(_ ws: SidebarWorkspace) -> String? {
+        guard let summary = nonEmpty(ws.detail.summary) else { return nil }
+        guard let next = nonEmpty(ws.detail.nextAction) else { return summary }
+        return Strings.summaryWithNext(summary, next)
+    }
+
     /// The description's first non-empty line, trimmed: what a row shows of it.
     static func descriptionLine(_ ws: SidebarWorkspace) -> String? {
         ws.workspaceDescription?.split(whereSeparator: \.isNewline).lazy
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
     }
 
+    /// Drops the agent-session row's synthetic local/session label when it repeats the title.
+    /// Other hosts and facts remain visible; the decision is based on the rendered data.
+    static func nonRedundantDetail(_ detail: String?, title: String) -> String? {
+        guard let detail = nonEmpty(detail) else { return nil }
+        let parts = detail.components(separatedBy: Self.separator).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if parts.count == 2, parts[0].caseInsensitiveCompare("local") == .orderedSame,
+           parts[1].caseInsensitiveCompare(title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            return nil
+        }
+        return detail
+    }
+
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
+    }
+}
+
+nonisolated extension WorkspaceRowContent {
+    /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
+    static func sameTitle(_ a: String, _ b: String) -> Bool {
+        let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !a.isEmpty && a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
     }
 }

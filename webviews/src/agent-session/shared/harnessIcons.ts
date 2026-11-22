@@ -110,16 +110,26 @@ export const harnessIconsSnapshot = (): ReadonlyMap<string, HarnessIconSpec> => 
 
 type SymbolHost = (name: string) => Promise<string | null>;
 let symbolHost: SymbolHost | undefined;
+// A request belongs to exactly one host generation; a retired host's response is ignored.
+let symbolHostRevision = 0;
 let symbols: ReadonlyMap<string, string | null> = new Map();
 const asked = new Set<string>();
 
-/** The page's host for symbol images; tests pass their own, undefined forgets every answer. */
-export function setHarnessSymbolHost(host: SymbolHost | undefined): void {
+/** The page's host for symbol images. Returns a release for its own registration only. */
+export function setHarnessSymbolHost(host: SymbolHost | undefined): () => void {
+  symbolHostRevision++;
   symbolHost = host;
   symbols = new Map();
   asked.clear();
   listeners.forEach((notify) => notify());
+  return () => {
+    // An older page may unmount after another page has registered a new host.
+    if (symbolHost === host) setHarnessSymbolHost(undefined);
+  };
 }
+
+/** A mounted mark re-asks its host when it changes, without re-asking on every icon response. */
+export const harnessSymbolHostSnapshot = (): number => symbolHostRevision;
 
 /** Every symbol image answered so far (a useSyncExternalStore snapshot). */
 export const harnessSymbolsSnapshot = (): ReadonlyMap<string, string | null> => symbols;
@@ -128,14 +138,20 @@ export const harnessSymbolsSnapshot = (): ReadonlyMap<string, string | null> => 
 export function loadHarnessSymbol(name: string): void {
   if (!symbolHost || asked.has(name) || symbols.has(name)) return;
   asked.add(name);
-  symbolHost(name).then(
+  const generation = symbolHostRevision;
+  const host = symbolHost;
+  host(name).then(
     (src) => {
+      if (generation !== symbolHostRevision) return;
       asked.delete(name);
       const next = new Map(symbols);
       next.set(name, typeof src === "string" && src.startsWith("data:image/png;base64,") ? src : null);
       symbols = next;
       listeners.forEach((notify) => notify());
     },
-    () => asked.delete(name),
+    () => {
+      // A rejected request from the old host must not unlock the new host's in-flight request.
+      if (generation === symbolHostRevision) asked.delete(name);
+    },
   );
 }

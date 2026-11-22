@@ -1,9 +1,11 @@
-// Retry with another model (cx-ncc.62, Claude parity): beside a prompt's Retry, a menu lists the chat
-// harness's models with the current one checked; picking one retries the prompt on that model. A
-// harness with one model has no menu.
+// Retry with another model (cx-ncc.62, Claude parity): beside the last turn's Retry on its reply
+// footer, a menu lists the chat harness's models with the current one checked; picking one retries the
+// turn's prompt on that model. A harness with one model has no menu. Leo, 2026-11-04: "Put it, with
+// the model switch, in the last turn's footer." (TurnRows.tsx TurnFooter).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -42,28 +44,29 @@ Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
-const prompt: AcpmuxRow = {
-  id: "user-1",
+// The chat's last turn, which turns.ts marks retryable with the prompt it sends again.
+const lastTurn: AcpmuxRow = {
+  id: "summary-1",
   version: 1,
   at: Date.now(),
-  kind: "user",
-  seq: 1,
-  text: "Add retry to the uploader",
+  kind: "turnSummary",
+  status: "failed",
+  text: "Added it.",
+  retryable: true,
+  retryTarget: true,
+  prompt: "Add retry to the uploader",
+  retryRowId: "user-1",
 };
 const button = (label: string) =>
   [...dom.window.document.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === label);
@@ -72,7 +75,7 @@ const menuItem = (label: string) =>
     item.textContent?.includes(label),
   );
 
-test("Retry's model menu retries the prompt on the model picked there", async () => {
+test("a failed reply retains its model Retry menu", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: (rowId: string, prompt: string) => retried.push([rowId, prompt]),
@@ -88,7 +91,7 @@ test("Retry's model menu retries the prompt on the model picked there", async ()
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -98,7 +101,7 @@ test("Retry's model menu retries the prompt on the model picked there", async ()
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-sonnet-5-5"]]);
 });
 
-test("a harness with one model offers Retry alone", async () => {
+test("a failed reply with one model offers Retry alone", async () => {
   const actions = {
     retry: () => {},
     retryWith: {
@@ -110,7 +113,7 @@ test("a harness with one model offers Retry alone", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -127,7 +130,7 @@ const rowName = (item: Element) => item.querySelector(".acpmux-menu-label")?.tex
 const shownRows = () =>
   [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')].map(rowName);
 
-test("Retry's model menu lists the top models, the rest under More models, one row per model", async () => {
+test("a failed reply keeps top models and More models, one row per model", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: () => {},
@@ -152,7 +155,7 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -170,4 +173,55 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   expect(more, "older models fold under More models").toBeDefined();
   await act(async () => menuItem("Fable 5.1")!.click());
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-fable-5-1"]]);
+});
+
+test("a successful reply has no inline Retry or model split control", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => {},
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "completed", answerId: "answer-1" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry")).toBeUndefined();
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(host.querySelector(".cv-turn-retry")).toBeNull();
+});
+
+test("an interrupted reply keeps resend out of the inline recovery controls", async () => {
+  const retried: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: (rowId) => {
+            retried.push(rowId);
+          },
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "interrupted" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(button("Retry")).toBeUndefined();
+  expect(retried).toEqual([]);
 });

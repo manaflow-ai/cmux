@@ -19,6 +19,9 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
         self.passwords = passwords
     }
 
+    /// The fixture's items by name, as the Keychain would list them.
+    public var names: [SafeStorageName] { passwords.keys.sorted().map { SafeStorageName(service: $0) } }
+
     public func password(service: String) throws(CookieImportError) -> SecretBytes {
         guard let password = passwords[service] else { throw .keyNotFound(service: service) }
         return SecretBytes(copying: Array(password.utf8))

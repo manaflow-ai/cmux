@@ -7,12 +7,14 @@
 //! for a silent fallback at the next turn.
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
-//! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
+//! compactor_model, permission_mode, permission_mode_source, ...}, "choice": <engine.json>, "last_turn": <turn.end>|null,
 //! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
 //! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
 //! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
-//! unavailable, unavailableReason?, ...}...]}}` (harness_offer.rs), or
-//! `{"error": {"code", "message"}}`.
+//! unavailable, unavailableReason?, ...}...], "skills": [{name, description,
+//! source}...]}}` (harness_offer.rs; `skills` is what `/` lists in a Chief
+//! composer, slash_skills.rs, so a phone or a Mac whose Chief host runs
+//! elsewhere lists the same skills), or `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
@@ -79,9 +81,22 @@ impl Brain {
             compactor_speed,
             compactor_harness,
             compactor_model,
+            turn_routing,
             reactions,
         } = request
         {
+            if let Some(value) = turn_routing {
+                match crate::engine::parse_turn_routing(&value) {
+                    Ok(value) => choice.turn_routing = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = reactions.permission_mode.clone() {
+                match crate::engine::parse_mode_flag(&value) {
+                    Ok(value) => choice.permission_mode = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
             // A speed the target harness has (the turns' after this set;
             // the compactor's when acpmux says its family).
             let s = &self.settings;
@@ -178,6 +193,7 @@ impl Brain {
         // The reaction classifier this Chief runs now (its engine.json over
         // the user's cmux.json, reaction_wake.rs).
         let reactions = self.reaction_config_for(choice);
+        let permission = self.chief_permission_mode(choice);
         let s = &self.settings;
         let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
         let ends: Vec<Value> = s
@@ -218,6 +234,12 @@ impl Brain {
                 (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
                 Vec::new()
             });
+        // What `/` lists in a Chief composer (slash_skills.rs): a phone or a
+        // Mac whose Chief host runs elsewhere cannot read these folders.
+        let skills = offered_skills(&crate::slash_skills::catalog(
+            &self.file.mux_home(),
+            &crate::compactor::user_claude_home(),
+        ));
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -235,11 +257,18 @@ impl Brain {
                     reactions.prompt.as_str()
                 },
                 "reactions_can_wake": reactions.can_wake,
+                "turn_routing": choice.turn_routing.as_deref().unwrap_or("off"),
+                // What the next Claude turn runs in, and what chose it (cmux#37392).
+                "permission_mode": permission.0,
+                "permission_mode_source": permission.1,
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses},
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses, "skills": skills},
+            // The open-source brains (brain_home.rs): `{family: {state, reason?, harness?,
+            // base_url?, fallback?}}`, so a picker shows which one runs and why one does not.
+            "brains": self.settings.brains.root.as_deref().map(crate::brain_home::load_states).unwrap_or_default(),
         })
     }
 
@@ -251,12 +280,64 @@ impl Brain {
     pub(super) fn owner_stop(&mut self) -> Value {
         let turn = self.phase == Phase::Running;
         if turn {
+            if self.turn_side().is_none() {
+                let answers = self
+                    .state
+                    .turn
+                    .as_ref()
+                    .map(|t| t.answers.clone())
+                    .unwrap_or_default();
+                self.state.stopped_reply = Some(crate::state::StoppedReply {
+                    messages: self
+                        .state
+                        .awaiting
+                        .iter()
+                        .filter(|a| answers.contains(&a.id))
+                        .cloned()
+                        .collect(),
+                    requires_approval: self.turn_ask,
+                });
+                self.save();
+            }
             self.owner_stopped = true;
             self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");
         }
         json!({"stopped": turn})
     }
+}
+
+/// How many skills `offered.skills` names, and how many characters of a
+/// description it keeps: a menu row shows one line, and the daemon refuses
+/// an answer over 1 MiB (cmux-tui chief_control.rs `MAX_REPLY_BYTES`).
+const OFFERED_SKILLS: usize = 1000;
+const SKILL_DESCRIPTION_CHARS: usize = 300;
+
+/// `offered.skills`: each listed skill as `{name, description, source}`,
+/// `source` one of `chief`, `claude` or `plugin:<plugin>`, in lookup order.
+fn offered_skills(skills: &[crate::slash_skills::SlashSkill]) -> Vec<Value> {
+    use crate::slash_skills::Source;
+    skills
+        .iter()
+        .take(OFFERED_SKILLS)
+        .map(|s| {
+            let source = match s.source {
+                Source::Chief => "chief".to_owned(),
+                Source::Claude => "claude".to_owned(),
+                Source::Plugin => {
+                    let plugin = s.skill.name.split(':').next().unwrap_or_default();
+                    format!("plugin:{plugin}")
+                }
+            };
+            let description: String = s
+                .skill
+                .description
+                .chars()
+                .take(SKILL_DESCRIPTION_CHARS)
+                .collect();
+            json!({"name": s.skill.name, "description": description, "source": source})
+        })
+        .collect()
 }
 
 /// The fields of a `turn.end` an engine panel shows.

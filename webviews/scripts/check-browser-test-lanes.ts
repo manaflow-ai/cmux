@@ -99,10 +99,7 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
  * moves to galleryFrame. Narrowed in batches by area; the files other lanes' open PRs change wait
  * for those PRs.
  */
-export const EVERY_ENTRY_PENDING = new Map<string, string>([
-  // Files other lanes' open PRs change.
-  ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
-]);
+export const EVERY_ENTRY_PENDING = new Map<string, string>([]);
 
 /**
  * A browser test opens a gallery frame for its own entry alone (test/support/galleryFrame.ts):

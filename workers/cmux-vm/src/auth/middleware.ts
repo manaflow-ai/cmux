@@ -12,6 +12,7 @@ import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, type ServiceUnavailable, Unauthorized, unavailable } from "../errors.ts";
 import { serviceMayActFor, servicePrincipal } from "../proofs/service-may-act-for.ts";
+import { CiTrust, type CiTrustMatch } from "./ci-trust.ts";
 import { ServiceKeys, type ServiceKey } from "./service-keys.ts";
 import {
   API_KEY_PREFIX,
@@ -33,6 +34,7 @@ export const authenticationLayer = Layer.effect(
     const membership = yield* TeamMembership;
     const apiKeys = yield* ApiKeyStore;
     const serviceKeys = yield* ServiceKeys;
+    const ciTrust = yield* CiTrust;
 
     /** A service key acts only for the team its request names, and only when its team list allows that team. */
     const fromServiceKey = (
@@ -40,14 +42,62 @@ export const authenticationLayer = Layer.effect(
     ): Effect.Effect<Principal, Unauthorized | Forbidden, HttpServerRequest.HttpServerRequest> =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const tenant = decodeTenantId(request.headers[TEAM_HEADER]);
+        // A team key (src/auth/team-keys.ts) acts for its one team, so it need not name it.
+        const own = key.budget !== undefined && key.teams?.size === 1 ? [...key.teams][0] : undefined;
+        const named = request.headers[TEAM_HEADER];
+        const tenant = named === undefined && own !== undefined ? Option.some(own) : decodeTenantId(named);
         if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Service keys must name a team in the X-Cmux-Team-Id header"));
         return yield* name(key, tenant.value, (service, team) => {
           const proof = serviceMayActFor(service, team);
-          return proof === null
-            ? Effect.fail(new Forbidden({ message: "This service key may not act for this team" }))
-            : Effect.succeed(servicePrincipal(service, team, proof));
+          if (proof === null) return Effect.fail(new Forbidden({ message: `This ${service.value.budget === undefined ? "service" : "team"} key may not act for this team` }));
+          const principal = servicePrincipal(service, team, proof);
+          // A team key's creates are held to its machine count and $/h budget (handlers/agent-sandboxes.ts).
+          return Effect.succeed(service.value.budget === undefined ? principal : { ...principal, agent: service.value.budget });
         });
+      });
+
+    /**
+     * A GitHub Actions job a CI trust row names acts for that row's team only, as the service `row.id`, confined to
+     * the row's labels, within its VM budget, and with every VM it creates on a run cap.
+     */
+    const fromCiToken = (
+      match: CiTrustMatch,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden, HttpServerRequest.HttpServerRequest> =>
+      Effect.gen(function* () {
+        const { row, expiresAt } = match;
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const named = request.headers[TEAM_HEADER];
+        if (named !== undefined && named !== row.team) return yield* Effect.fail(new Forbidden({ message: "This CI job may not act for this team" }));
+        const identity = { id: row.id, scopes: row.scopes, labels: row.labels, teams: new Set([row.team]) };
+        return yield* name(identity, row.team, (service, team) => {
+          const proof = serviceMayActFor(service, team);
+          if (proof === null) return Effect.fail(new Forbidden({ message: "This CI job may not act for this team" }));
+          const principal: Principal = {
+            ...servicePrincipal(service, team, proof),
+            credentialExpiresAt: expiresAt,
+            agent: { maxVms: row.maxVms, maxUsdPerHour: row.maxUsdPerHour },
+            maxRunSeconds: row.maxRunSeconds,
+          };
+          return Effect.succeed(principal);
+        });
+      });
+
+    const fromBearerJwt = (
+      token: Redacted.Redacted<string>,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden | ServiceUnavailable, HttpServerRequest.HttpServerRequest> =>
+      Effect.gen(function* () {
+        const now = new Date(yield* Clock.currentTimeMillis);
+        const match = yield* ciTrust.verify(Redacted.value(token), now).pipe(
+          Effect.catchTags({
+            CiTokenRejected: () => Effect.fail(unauthorized()),
+            CiTrustUnavailable: (error) =>
+              Effect.logWarning("cmux-vm dependency unavailable").pipe(
+                Effect.annotateLogs({ operation: `github.${error.reason}` }),
+                Effect.zipRight(Effect.fail(unavailable(error))),
+              ),
+          }),
+        );
+        return Option.isSome(match) ? yield* fromCiToken(match.value) : yield* fromSession(token);
       });
 
     const fromApiKey = (
@@ -61,7 +111,7 @@ export const authenticationLayer = Layer.effect(
         if (Option.isSome(service)) return yield* fromServiceKey(service.value);
         const record = yield* apiKeys.findActiveByHash(hash, now).pipe(
           Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: error.operation }))),
-          Effect.mapError(() => unavailable()),
+          Effect.mapError(unavailable),
         );
         if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
         const principal: Principal = {
@@ -95,13 +145,13 @@ export const authenticationLayer = Layer.effect(
             IdentityUnavailable: (error) =>
               Effect.logWarning("cmux-vm dependency unavailable").pipe(
                 Effect.annotateLogs({ operation: `stack.${error.reason}` }),
-                Effect.zipRight(Effect.fail(unavailable())),
+                Effect.zipRight(Effect.fail(unavailable(error))),
               ),
           }),
         );
         const member = yield* membership.isMember(tenant.value, userId).pipe(
           Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: `stack.${error.reason}` }))),
-          Effect.mapError(() => unavailable()),
+          Effect.mapError(unavailable),
         );
         if (!member) return yield* Effect.fail(new Forbidden({ message: "You are not a member of this team" }));
         const principal: Principal = {
@@ -118,7 +168,7 @@ export const authenticationLayer = Layer.effect(
       bearer: (token) => {
         const raw = Redacted.value(token);
         if (raw.length === 0) return Effect.fail(unauthorized());
-        return raw.startsWith(API_KEY_PREFIX) ? fromApiKey(raw) : fromSession(token);
+        return raw.startsWith(API_KEY_PREFIX) ? fromApiKey(raw) : fromBearerJwt(token);
       },
     });
   }),

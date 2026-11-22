@@ -27,10 +27,6 @@ pub enum LinkConfig {
     /// A `link.get` waits for its answer.
     Waiting,
     Ready(LinkPaths),
-    /// A valid answer with `hub_socket: null`: no `cmux link` runs. Connect
-    /// answers `link_unavailable` and sends one new `link.get`; that answer
-    /// or a `link.changed` brings the hub.
-    NoHub,
     /// The host answered `host.error`. `retry`: the next connect sends one
     /// new `link.get` (each retryable error allows one; nothing loops).
     HostError {
@@ -56,34 +52,14 @@ fn path(value: &Value, key: &str) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-/// A checked `link.get` answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LinkDetails {
-    Ready(LinkPaths),
-    /// Every other field is valid and `hub_socket` is null.
-    NoHub,
-}
-
-impl LinkDetails {
-    /// [`LinkPaths::decode`], with an explicit `hub_socket: null` read as
-    /// "no live `cmux link`" (the rest must still be valid).
-    pub fn decode(value: &Value) -> Result<Self, String> {
-        if value.get("hub_socket").is_some_and(Value::is_null) {
-            let mut probe = value.clone();
-            probe["hub_socket"] = json!("/");
-            LinkPaths::decode(&probe)?;
-            return Ok(Self::NoHub);
-        }
-        LinkPaths::decode(value).map(Self::Ready)
-    }
-}
-
 impl LinkPaths {
-    /// Checks the host's `{binary, hub_socket, state_dir, socket_dir,
-    /// device_name}`: absolute paths only (no `..`, no control
-    /// characters), a socket folder short enough for a socket path, and a
-    /// device name that is not empty and has no control characters. Any
-    /// failure refuses the whole answer.
+    /// Checks the host's `{state_dir, socket_dir, device_name}`: absolute
+    /// paths only (no `..`, no control characters), a socket folder short
+    /// enough for a socket path, and a device name that is not empty and has
+    /// no control characters. Any failure refuses the whole answer. The
+    /// daemon's `binary` and `hub_socket` are not read: no stream spawns a
+    /// process or goes through `cmux link` (the Mac app's carrier carries
+    /// it, super::dial).
     pub fn decode(value: &Value) -> Result<Self, String> {
         if !value.is_object() {
             return Err("the link details are not an object".into());
@@ -105,8 +81,6 @@ impl LinkPaths {
             );
         }
         Ok(Self {
-            binary: path(value, "binary")?,
-            hub_socket: path(value, "hub_socket")?,
             state_dir: path(value, "state_dir")?,
             socket_dir,
             device_name: device_name.to_owned(),
@@ -171,18 +145,8 @@ impl<C: ControlPlane> Server<C> {
     /// its forwards close as for any link change). Invalid: new connects
     /// get a typed error; links that run keep their last valid details.
     fn apply_link_details(&mut self, value: &Value) {
-        let paths = match LinkDetails::decode(value) {
-            Ok(LinkDetails::Ready(paths)) => paths,
-            Ok(LinkDetails::NoHub) => {
-                // No `cmux link` runs: a link through the old hub cannot
-                // carry anything, so every live link ends (the next connect
-                // after a hub comes back opens a new one).
-                let attach = self.attach_mut();
-                attach.link = LinkConfig::NoHub;
-                attach.supervisor.pump();
-                attach.supervisor.disconnect_all("the cmux link is not running");
-                return;
-            }
+        let paths = match LinkPaths::decode(value) {
+            Ok(paths) => paths,
             Err(why) => {
                 eprintln!("cmux-cloud: the link details from cmux are not valid: {why}");
                 self.attach_mut().link = LinkConfig::Invalid(why);
@@ -196,15 +160,8 @@ impl<C: ControlPlane> Server<C> {
         }
         attach.supervisor.pump();
         for machine in attach.supervisor.live_machines() {
-            let Some(host) = attach.hosts.get(&machine).cloned() else { continue };
-            let command = match attach.env.child_env() {
-                Ok(env) => link_command(&paths, &machine, &host, &env),
-                Err(e) => {
-                    eprintln!("cmux-cloud: no private home for the link to {machine}: {e}");
-                    attach.supervisor.disconnect(&machine);
-                    continue;
-                }
-            };
+            let Some(upstream) = attach.upstreams.get(&machine).cloned() else { continue };
+            let command = link_command(&paths, &machine, &upstream);
             if let Err(failure) = attach.supervisor.respawn(&machine, &command) {
                 eprintln!("cmux-cloud: the link to {machine} did not restart: {failure:?}");
             }
@@ -219,20 +176,10 @@ impl<C: ControlPlane> Server<C> {
         };
         match self.attach().link.clone() {
             LinkConfig::Ready(paths) => Ok(paths),
-            LinkConfig::Unrequested => Err(unavailable(
-                "cmux did not give the Cloud app a link binary and network hub",
-                false,
-            )),
-            LinkConfig::Waiting => Err(unavailable("cmux has not sent the link details yet", true)),
-            LinkConfig::NoHub => {
-                // A link may have started since the answer: this connect asks
-                // once more (one request per connect; a connect while it waits
-                // sends none, so nothing loops).
-                if self.host_requests().request(LINK_GET, json!({})) {
-                    self.attach_mut().link = LinkConfig::Waiting;
-                }
-                Err(unavailable("the cmux link is not running", true))
+            LinkConfig::Unrequested => {
+                Err(unavailable("cmux did not give the Cloud app its link folders", false))
             }
+            LinkConfig::Waiting => Err(unavailable("cmux has not sent the link details yet", true)),
             LinkConfig::Invalid(why) => Err(CloudError::new(
                 LINK_DETAILS_INVALID,
                 format!("cmux sent link details that are not valid: {why}"),

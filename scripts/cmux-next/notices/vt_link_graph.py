@@ -69,9 +69,12 @@ def attribute(paths: list[str], src: str, cache: str, zig_lib: str) -> dict:
     unattributed: set[str] = set()
     src, cache, zig_lib = (p.rstrip("/") + "/" for p in (src, cache, zig_lib))
     for raw in paths:
-        path = os.path.normpath(raw.strip()) if raw.strip() else ""
-        if not path:
+        # Zig 0.17.0's CodeView (Windows) records generated files relative to
+        # the build root and with backslashes (.zig-cache\\o\\<hash>\\generated.zig).
+        text = raw.strip().replace("\\", "/")
+        if not text:
             continue
+        path = os.path.normpath(text if text.startswith("/") else src + text)
         package = None
         for prefix in (src + "zig-pkg/", cache + "p/"):
             if path.startswith(prefix):

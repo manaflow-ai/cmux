@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # nightly.yml recover-nightly-next-notarization: "Generate the recovered Sparkle appcast". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# A recovered build is new to the feed: Dev first, as in build-sign-notarize-nightly.
 set -euo pipefail
 SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
 export SPARKLE_PRIVATE_KEY

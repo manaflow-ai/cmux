@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// A WebKit browser tab's `<input type="file">` goes through the engine's one file-input path
 /// (`WebKitEngine.fileInput`, in the app the made-ahead `MadeAheadOpenPanel`), as an agent composer page's does
@@ -23,7 +24,7 @@ import Testing
 /// process (`OpenPanelWarmGate`), which then fails the whole CmuxNextBrowserTests run instead of this test. Unverified
 /// premises of the green, to be recorded per macOS major on the fleet: that the script's user gesture lets
 /// `input.click()` reach `runOpenPanelWith`, and that WebKit asks for a web view in a window never ordered on screen.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabFileInputTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WebKitTabFileInputTests {
     @MainActor private final class Answerer: WebFileInputAnswering {
         struct Ask {
             let allowsMultipleSelection: Bool

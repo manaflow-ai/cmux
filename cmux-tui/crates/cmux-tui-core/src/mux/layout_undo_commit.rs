@@ -26,7 +26,7 @@ impl Mux {
             let expected_resource_revision = if !confirmed_close {
                 None
             } else {
-                Some(self.workspace_registry.lock().unwrap().resource_topology_snapshot()?.revision)
+                Some(self.workspace_registry.lock().unwrap().resource_revision()?)
             };
             #[cfg(test)]
             if let Some(hook) = self.layout_undo_before_commit.lock().unwrap().clone() {

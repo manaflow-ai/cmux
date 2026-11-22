@@ -100,7 +100,10 @@ fn policies<'a, const N: usize>(
 fn saved(dir: &std::path::Path) -> Vec<SessionMeta> {
     let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Local;
-    let mut metas = crate::store::open(&cfg.store, dir).unwrap().list().unwrap();
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    let mut metas = store.list().unwrap();
+    // A reader's seal: the journal's lock passes to the next open.
+    store.seal();
     metas.sort_by(|a, b| a.id.cmp(&b.id));
     metas
 }
@@ -237,7 +240,9 @@ async fn a_vm_host_era_ambiguous_or_inherited_grant_asks_after_the_upgrade() {
         [(LOCAL, all), (FORK_OF_LOCAL, all)],
         "here"
     );
-    // Saved, so the client lists them as asking and a restart reads ask.
+    // Saved, so the client lists them as asking and a restart reads ask (after this daemon's
+    // shutdown seal, which passes the journal's lock to the next open).
+    hub.seal();
     let metas = saved(dir.path());
     let policy = |id: &str| {
         let m = metas.iter().find(|m| m.id == id).unwrap();
@@ -260,6 +265,8 @@ async fn an_owner_grant_after_the_upgrade_still_approves_after_a_restart() {
     let s = hub.resolve(VM_HOST_ERA).unwrap();
     hub.set_policy_unless_moving(&s, PermissionPolicy::ApproveAll).await.unwrap();
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll);
+    // The daemon's shutdown seal: the journal's lock passes to the next one.
+    hub.seal();
     drop((s, hub));
     let hub = hub_at(dir.path());
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll, "cleared again");
@@ -271,9 +278,10 @@ async fn an_owner_grant_after_the_upgrade_still_approves_after_a_restart() {
 async fn a_second_run_changes_nothing() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     legacy_store(dir.path());
-    drop(hub_at(dir.path()));
+    // Each run ends with its shutdown seal, which passes the journal's lock to the next open.
+    hub_at(dir.path()).seal();
     let once = saved(dir.path());
-    drop(hub_at(dir.path()));
+    hub_at(dir.path()).seal();
     assert_eq!(saved(dir.path()), once);
     // And the rule itself, on what the first run left.
     for mut meta in once {
@@ -358,6 +366,8 @@ async fn a_policy_set_before_the_old_host_ended_keeps_the_end_and_the_grant() {
     assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll);
     hub.store.flush().unwrap();
+    // The daemon's shutdown seal: the journal's lock passes to the next one.
+    hub.seal();
     drop((s, hub));
     let hub = hub_at(dir.path());
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll, "cleared again");

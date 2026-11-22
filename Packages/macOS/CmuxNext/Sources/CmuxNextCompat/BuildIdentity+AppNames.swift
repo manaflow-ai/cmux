@@ -99,7 +99,7 @@ extension BuildIdentity {
     }
 
     /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`) under
-    /// `appSupport` (`~/Library/Application Support/cmux`): `tags/<tag>/tui`
+    /// `appSupport` (`~/Library/Application Support/cmux-next`): `tags/<tag>/tui`
     /// for a kept tag, `builds/<key>/tui` for names of the key, nil for
     /// release (cmux-tui's default root) and outside any bundle.
     public func daemonStateDirectory(appSupport: URL) -> URL? {

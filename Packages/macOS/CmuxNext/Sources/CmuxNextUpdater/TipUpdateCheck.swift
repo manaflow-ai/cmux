@@ -34,7 +34,7 @@ import Foundation
 /// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
 /// sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
 ///
-/// A cmux NEXT NIGHTLY (track ``UpdateTrack/nightly``, not the tip app) runs the same check every
+/// A cmux NEXT NIGHTLY (track ``UpdateTrack/nightlyNext``, not the tip app; classic ``UpdateTrack/nightly`` too) runs the same check every
 /// ``nightlyInterval`` (Leo 2026-10-26: "am I on the latest nightly here, or not? ... why is the
 /// last nightly, like, four fucking hours away?"). nightly-next ships every 20 to 40 minutes, and
 /// the hourly Sparkle schedule left a NIGHTLY an hour or more behind. A newer build is asked for at
@@ -48,7 +48,10 @@ final class TipUpdateCheck {
     /// The read interval for `identity`'s app: the tip app's, a NIGHTLY's, or nil (no fast check).
     static func interval(for identity: UpdateBuildIdentity) -> TimeInterval? {
         if identity.isTipBuild { return interval }
-        return identity.track == .nightly ? nightlyInterval : nil
+        switch identity.track {
+        case .nightly, .nightlyNext: return nightlyInterval
+        case .stable, .rc, .development: return nil
+        }
     }
     /// Starts the check that downloads the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?

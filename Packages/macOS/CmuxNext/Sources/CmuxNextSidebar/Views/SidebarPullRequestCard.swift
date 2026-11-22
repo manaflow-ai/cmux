@@ -8,7 +8,6 @@ import CmuxNextWakeups
 /// pull requests its sessions opened or work on, newest first, one line each: the title, a state
 /// pill, `owner/repo #N` and the lines added and removed. A click opens the pull request in a
 /// browser tab of the focused pane. It scrolls past ``SidebarPullRequestCardView/visibleRows``.
-/// `sidebar.pullRequestCard` (Debug Settings, on by default) turns it off.
 ///
 /// It shows in the app's one hover card window as an owned card (`HoverCardCoordinator.presentOwned`),
 /// as the update card's highlights do: it takes clicks and scrolls, a workspace card that shows
@@ -23,12 +22,18 @@ final class SidebarPullRequestCardController {
     static let cardID = HoverTargetID("sidebar:pull-requests")
 
     /// How long the card stays after the pointer leaves the badge or the card, so it can cross
-    /// the gap between them.
-    static let grace: Duration = .milliseconds(250)
+    /// the gap between them: the hover card grace (`HoverIntentTiming.cardGrace`).
+    static var grace: Duration { HoverIntentTiming.current.cardGrace }
+    /// How long the pointer rests on the badge before a cold card opens: the delay every hover card
+    /// waits (`sidebar.hoverCards.delay`, Chrome's 1300 ms). While a card shows, or just went (Chrome's
+    /// `kShowWithoutDelayTimeBuffer`, the coordinator's grace phase), it opens at once, as Chrome
+    /// moves its card to the next tab.
+    static var openDelay: Duration { DesignSettings.shared.hoverCardDelay }
 
     private let host = SidebarPopoverIslandHost(width: SidebarPullRequestCardView.width)
     private let content = SidebarPullRequestCardView()
     private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
+    private let opener = DemandTimer(owner: "sidebar.pull-request-card.open")
     private weak var badge: SidebarPullRequestBadgeView?
     private weak var cards: HoverCardCoordinator?
     private var open: ((URL) -> Void)?
@@ -52,8 +57,25 @@ final class SidebarPullRequestCardController {
     /// clicked one.
     func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
                       open: @escaping (URL) -> Void) {
-        guard Self.isEnabled, !items.isEmpty, let window = badge.window else { return }
+        guard !items.isEmpty, badge.window != nil else { return }
         closer.cancel()
+        opener.cancel()
+        let machine = cards.machine
+        if isPresented || machine.ownedCardShown || machine.shownTarget != nil || machine.phase.isGrace {
+            present(badge, items: items, cards: cards, open: open)
+            return
+        }
+        opener.schedule(after: Self.openDelay) { @MainActor [weak self, weak badge, weak cards] in
+            // The row may have been reused, its pull requests changed or its badge hidden during the
+            // wait: open with what the badge under the pointer lists now, or not at all.
+            guard let self, let badge, let cards, let items = badge.pointedItems, !items.isEmpty else { return }
+            self.present(badge, items: items, cards: cards, open: open)
+        }
+    }
+
+    private func present(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
+                         open: @escaping (URL) -> Void) {
+        guard let window = badge.window else { return }
         self.badge = badge
         self.cards = cards
         self.open = open
@@ -67,17 +89,16 @@ final class SidebarPullRequestCardController {
 
     /// The pointer left the badge: the card closes unless it reaches the card in time.
     func badgeExited() {
+        opener.cancel()
         scheduleClose()
     }
 
     func dismiss() {
+        opener.cancel()
         closer.cancel()
         open = nil
         cards?.endOwned(Self.cardID)
     }
-
-    /// `sidebar.pullRequestCard`.
-    static var isEnabled: Bool { SidebarTunables.pullRequestCard.value }
 
     /// The card left the window: closed by ``dismiss()``, or taken by a workspace or tab card.
     private func ended() {
@@ -116,7 +137,7 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
     static let visibleRows = 8
 
     var onOpen: ((SidebarPullRequestItem) -> Void)?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = FlippedView()
     private(set) var rows: [SidebarPullRequestCardRow] = []
 
@@ -206,7 +227,7 @@ final class SidebarPullRequestCardRow: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space1
+        layer?.cornerRadius = Metrics.controlCornerRadius
         pill.wantsLayer = true
         pill.addSubview(pillLabel)
         [title, pill, place, additions, deletions].forEach(addSubview)

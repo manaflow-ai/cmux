@@ -5,6 +5,7 @@
 // (scripts/agent-pane/reactCompilerPlugin.mjs), draws a harness's mark before its icon is known,
 // then delivers the icon: the compiled mark must redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,8 +38,12 @@ beforeAll(() => {
   }
 });
 
-afterAll(() => {
-  for (const [key, value] of saved) scope[key] = value;
+afterAll(async () => {
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom.window.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -127,5 +132,23 @@ test("an SF Symbol icon draws the host's image, and its monogram until then", as
   const symbol = dom.window.document.querySelector<HTMLElement>(".agent-mark-symbol");
   expect(symbol?.dataset.symbol).toBe("hammer.fill");
   expect(symbol?.getAttribute("style")).toContain(png);
+
+  // A page may replace its host without remounting the icon component (Settings, tab reuse).
+  // Resetting the image cache must make a mounted mark ask the new host for its image.
+  const updatedPng = "data:image/png;base64,TkVXTkVX";
+  let updatedReply: (src: string | null) => void = () => {};
+  const newRequests: string[] = [];
+  await mod.act(async () => {
+    mod.setHarnessSymbolHost((name: string) => {
+      newRequests.push(name);
+      return new Promise<string | null>((resolve) => (updatedReply = resolve));
+    });
+  });
+  expect(newRequests).toEqual(["hammer.fill"]);
+  expect(dom.window.document.querySelector(".agent-mark-monogram")?.textContent).toBe("H");
+  await mod.act(async () => updatedReply(updatedPng));
+  expect(dom.window.document.querySelector(".agent-mark-symbol")?.getAttribute("style")).toContain(updatedPng);
+
   await mod.act(async () => root.unmount());
+  mod.setHarnessSymbolHost(undefined);
 });

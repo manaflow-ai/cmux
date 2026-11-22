@@ -59,11 +59,22 @@ public enum TerminalSessionChoice {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
-            return MockTerminalSession()
+            // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
+            let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
+            return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
         }
         #endif
         return PendingTerminalSession(macName: macName, programName: programName)
     }
+
+    #if DEBUG
+    /// `-cmux-mobile-term-rtt-ms N`: the mock shell answers N ms after each key.
+    static var mockRoundTripMilliseconds: Int {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "-cmux-mobile-term-rtt-ms"), flag + 1 < arguments.count else { return 0 }
+        return max(0, Int(arguments[flag + 1]) ?? 0)
+    }
+    #endif
 
     /// Files and Links for a tab with no live source: the mock files only in
     /// mock mode, else an empty source that says the Mac is not connected.
