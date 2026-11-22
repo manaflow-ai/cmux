@@ -34,27 +34,42 @@ import Testing
     static let parents: [WorkspaceID: WorkspaceID] = [members[1]: members[0], members[3]: members[2]]
 
     nonisolated enum Place: String, CaseIterable, Sendable {
-        case top = "at the top", aboveGroup = "right above the group", belowGroup = "right below the group", bottom = "at the bottom"
+        case top = "at the top", aboveGroup = "right above the group", inGroup = "inside the group", belowGroup = "right below the group",
+             bottom = "at the bottom"
+    }
+
+    /// The row selected before the create.
+    nonisolated enum Selected: String, CaseIterable, Sendable {
+        case lead = "a lead selected", child = "a sub-session selected", loose = "a loose row selected", nothing = "nothing selected"
+        var id: WorkspaceID? {
+            switch self {
+            case .lead: WorkspaceID("lead-2")
+            case .child: WorkspaceID("sub-1")
+            case .loose: WorkspaceID("a")
+            case .nothing: nil
+            }
+        }
     }
 
     static func ws(_ id: WorkspaceID) -> SidebarWorkspace { SidebarWorkspace(id: id, title: id.rawValue) }
 
-    static func sections(new place: Place? = nil) -> [SidebarSection] {
+    static func sections(new place: Place? = nil, closed: Bool = false) -> [SidebarSection] {
         let added: [SidebarNode] = [.workspace(ws(new))]
         var nodes: [SidebarNode] = place == .top ? added : []
         nodes += above.map { .workspace(ws($0)) }
         if place == .aboveGroup { nodes += added }
-        nodes.append(.group(SidebarGroup(id: leads, name: "Leads", color: .blue, workspaces: members.map(ws))))
+        nodes.append(.group(SidebarGroup(id: leads, name: "Leads", color: .blue, isCollapsed: closed,
+                                         workspaces: (members + (place == .inGroup ? [new] : [])).map(ws))))
         if place == .belowGroup { nodes += added }
         nodes += below.map { .workspace(ws($0)) }
         if place == .bottom { nodes += added }
         return [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    static func make(selected: WorkspaceID) -> (SidebarModel, SidebarView, NSWindow) {
+    static func make(selected: WorkspaceID?, closed: Bool) -> (SidebarModel, SidebarView, NSWindow) {
         _ = NSApplication.shared
-        let model = SidebarModel(sections: sections(), activeWorkspaceID: selected)
-        model.selection = [selected]
+        let model = SidebarModel(sections: sections(closed: closed), activeWorkspaceID: selected)
+        model.selection = selected.map { [$0] } ?? []
         let sidebar = SidebarView(model: model, design: DesignSettings())
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -116,15 +131,16 @@ import Testing
     nonisolated struct Run: Sendable, CustomTestStringConvertible {
         var place: Place
         var tree = false
-        /// The row selected before the create: a group member (a lead) or a loose row.
-        var memberSelected = true
+        var selected = Selected.lead
+        /// The Leads group is closed: it draws its header, and its selected member if it has one.
+        var groupClosed = false
         var intent = true
         var newWorkspace = false
         /// The daemon lists the row at the bottom first and the app places it two frames later (a placement's move).
         var placedLater = false
         var testDescription: String {
             "\(newWorkspace ? "[newWorkspace motion] " : "")create \(place.rawValue), then close"
-                + "\(tree ? " [session tree]" : "")\(memberSelected ? " [a lead selected]" : " [a loose row selected]")"
+                + "\(tree ? " [session tree]" : "") [\(selected.rawValue)]\(groupClosed ? " [group closed]" : "")"
                 + "\(intent ? "" : " (calm)")\(placedLater ? " [listed at the bottom, placed 2 frames later]" : "")"
         }
 
@@ -134,8 +150,12 @@ import Testing
                 for place in Place.allCases {
                     runs.append(Run(place: place, tree: tree))
                 }
-                runs.append(Run(place: .belowGroup, tree: tree, memberSelected: false))
-                runs.append(Run(place: .top, tree: tree, memberSelected: false))
+                for selected in [Selected.child, .loose, .nothing] {
+                    for place in [Place.inGroup, .belowGroup, .bottom] { runs.append(Run(place: place, tree: tree, selected: selected)) }
+                }
+                for selected in [Selected.lead, .loose, .nothing] {
+                    for place in [Place.inGroup, .belowGroup, .bottom] { runs.append(Run(place: place, tree: tree, selected: selected, groupClosed: true)) }
+                }
                 runs.append(Run(place: .belowGroup, tree: tree, intent: false))
                 runs.append(Run(place: .belowGroup, tree: tree, newWorkspace: true))
                 runs.append(Run(place: .top, tree: tree, newWorkspace: true))
@@ -191,8 +211,8 @@ import Testing
     }
 
     static func run(_ run: Run, log: inout [String]) -> [String] {
-        let selected = run.memberSelected ? members[2] : above[0]
-        let (model, sidebar, window) = make(selected: selected)
+        let selected = run.selected.id
+        let (model, sidebar, window) = make(selected: selected, closed: run.groupClosed)
         defer { window.close() }
         let list = sidebar.list
         let label = run.testDescription
@@ -235,12 +255,12 @@ import Testing
 
         // The create, as + makes it: the new row listed and selected in one set.
         let before = sample(list, flipped: flipped)
-        if before.selected != [name(.workspace(selected))] { failures.append("\(label): before the create the selection draws on \(before.selected)") }
+        if before.selected != (selected.map { [name(.workspace($0))] } ?? []) { failures.append("\(label): before the create the selection draws on \(before.selected)") }
         show({
-            model.setSections(sections(new: run.placedLater ? .bottom : run.place))
+            model.setSections(sections(new: run.placedLater ? .bottom : run.place, closed: run.groupClosed))
             model.activeWorkspaceID = new
             model.selection = [new]
-        }, then: run.placedLater ? { model.setSections(sections(new: run.place)) } : nil)
+        }, then: run.placedLater ? { model.setSections(sections(new: run.place, closed: run.groupClosed)) } : nil)
         let created = settle()
         trace("create", traced)
         check("\(label), create", before: before, frames: frames, applies: applies, after: created, skip: key,
@@ -266,7 +286,7 @@ import Testing
         trace("close", traced)
         check("\(label), close", before: created, frames: frames, applies: applies, after: closed, skip: key, turn: nil, failures: &failures)
         if closed.rows[key] != nil { failures.append("\(label), close: the closed row is still listed") }
-        if closed.selected.count != 1 { failures.append("\(label), close: once settled the selection draws on \(closed.selected)") }
+        if closed.selected.count > 1 { failures.append("\(label), close: once settled the selection draws on \(closed.selected)") }
         // Every row is back where it started.
         for (rowKey, was) in before.rows where was.shown {
             guard let end = closed.rows[rowKey], end.shown else { failures.append("\(label), close: \(name(rowKey)) is not drawn once settled"); continue }
