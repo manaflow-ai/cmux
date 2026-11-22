@@ -1093,13 +1093,26 @@ class NoVerdict(str):
 
 
 def outside_cause(head_stopped: str, base_stopped: str | None = None) -> str | None:
-    """Why a check's no verdict at the head is not the push's own doing, or None when it is: a timeout or a signal
-    (this machine's load or a hang), or no verdict at the base either (the check is broken without the push)."""
-    if head_stopped.startswith(("timed out", "was killed by signal")):
-        return f"it {head_stopped}: this machine's load or a hang, not the push's diff"
+    """Why a check's no verdict at the head is not the push's own doing, or None when it is: only when the base run
+    of the same check gave no verdict either (it crashed, timed out or was killed there too: the check is broken, or
+    this machine too loaded, without the push). A check that judged the base and timed out, was killed or crashed at
+    the head stopped on the push's change, and refuses (#50633 review B2)."""
     if base_stopped:
-        return f"it gave no verdict at the base either ({base_stopped}), so the push's diff did not cause it"
+        return (f"it {head_stopped} at the pushed head and gave no verdict at the base either ({base_stopped}), so "
+                "the push's diff did not cause it")
     return None
+
+
+# Whether this run is a developer's own push through the installed hook (--pre-push with the reviewed checks copy,
+# off GitHub Actions). Only then does a no verdict from outside the push's diff warn and let the push through
+# (own_refusals, main(), the unbounded range, the watchdog). Every other run (--base/--head, --commits, no installed
+# copy, CI) takes the check code from the pushed head on both sides, so a push that breaks a checker would read as
+# "no verdict at the base either": there any no verdict fails, as before (#50633 review B1/B3). Set by _main.
+HOOK_RUN = False
+
+
+def hook_run(pre_push: bool, trusted_scripts: Path | None) -> bool:
+    return bool(pre_push and trusted_scripts is not None and not os.environ.get("GITHUB_ACTIONS"))
 
 
 class CannotDecide(SystemExit):
@@ -1108,16 +1121,24 @@ class CannotDecide(SystemExit):
     catches one (fail-open layers) still does."""
 
 
-def own_refusals(found: list[tuple[str, list[str]]]) -> tuple[list[tuple[str, list[str]]], list[str]]:
-    """(the findings that refuse the push, a warning line for each NoVerdict whose cause is outside the diff)."""
+REFUSED_WORDS = re.compile(r",? so (?:the )?push is refused|,? and (?:the )?push is refused|(?:the )?push is refused")
+
+
+def own_refusals(found: list[tuple[str, list[str]]], hook: bool) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """(the findings that refuse the push, a warning line for each NoVerdict whose cause is outside the diff). Off a
+    hook run (HOOK_RUN) every finding refuses, a no verdict too."""
+    if not hook:
+        return found, []
     kept, warned = [], []
     for name, records in found:
         mine = []
         for record in records:
             if isinstance(record, NoVerdict) and record.outside:
+                # The record's own text says the push is refused, which is not so here (#50633 review F3).
+                said = REFUSED_WORDS.sub("", str(record))
                 warned.append(f"prepush-gate: WARNING: {name} could not judge this push for a reason outside its "
                               f"diff ({record.outside}); the push goes through unchecked by it, so say so in your "
-                              f"report (CI still runs its own checks). What it said: {record}")
+                              f"report (CI still runs its own checks). What it said: {said}")
             else:
                 mine.append(record)
         if mine:
@@ -2082,7 +2103,7 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
     twin PR in a `Main-Twin:` trailer. A file whose main copy was already another workflow before the push (other
     job ids or triggers, _twin_identity) is held by its crons only, like a main dispatcher: no twin of a job change
     can exist there. A scheduled file main lacks that base already had with the same crons is base's drift too: a
-    warning. A push when main cannot be read passes (local only: not a CI gate)."""
+    warning on a hook run (HOOK_RUN; any other run refuses it, as before). A push when main cannot be read passes (local only: not a CI gate)."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
                             check=False).decode(errors="replace").split()
              if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
@@ -2116,7 +2137,8 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
         if main is None:
             if name == MAIN_TWIN_FILE or Path(name).name in NO_MAIN_TWIN or not MAIN_TWIN_SCHEDULE.search(ours):
                 continue
-            if before is not None and MAIN_TWIN_SCHEDULE.search(before) and _twin_shape(before)[1] == _twin_shape(ours)[1]:
+            if (HOOK_RUN and before is not None and MAIN_TWIN_SCHEDULE.search(before)
+                    and _twin_shape(before)[1] == _twin_shape(ours)[1]):
                 # Base already had this schedule and main no copy: the drift is not the push's (it leaves the crons
                 # as base had them), so it warns, never refuses (Leo 2026-11-22: refuse only the pusher's own diff).
                 log(f"prepush-gate: WARNING: {name}: has a schedule, but {main_ref} has no copy of it, so the schedule "
@@ -3978,6 +4000,8 @@ def _main(argv: list[str] | None = None) -> int:
                                 else (None, None))
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
+    global HOOK_RUN
+    HOOK_RUN = hook_run(args.pre_push, trusted_scripts)
 
     if args.commits and only == {"sidebar"}:
         # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
@@ -4044,6 +4068,9 @@ def _main(argv: list[str] | None = None) -> int:
         # a gate refuses only for the pusher's own diff); CI still names a commit that adds a violation.
         for error in errors:
             print(f"prepush-gate: cannot tell which commits are this push's own: {error}")
+        if not HOOK_RUN:
+            print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
+            return 1
         print("prepush-gate: WARNING: nothing was checked, and the push goes through UNCHECKED (the reason above is "
               "this clone's, not the push's diff). Fix the clone as said above; say so in your report.")
         return 0
@@ -4090,7 +4117,7 @@ def _main(argv: list[str] | None = None) -> int:
     elapsed = time.monotonic() - started
     # A check that gave no verdict for a reason outside the push's diff warns and lets the push through; a finding in
     # the push's own change, and a no verdict the push's change caused, still refuse.
-    found_any, warned = own_refusals(found_any)
+    found_any, warned = own_refusals(found_any, HOOK_RUN)
     for line in warned:
         print(line)
     if not found_any:
@@ -4157,11 +4184,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
     except ToolOutputNoVerdict as error:
+        if not HOOK_RUN:
+            print(f"prepush-gate: no verdict: {error}")
+            return 1
         # A tool's output this gate cannot read (ps, a checker's count) is this machine's, not the push's diff.
         print(f"prepush-gate: WARNING: no verdict: {error}. The push goes through UNCHECKED: the cause is outside "
               "its diff; say so in your report.")
         return 0
-    except CannotDecide as error:
+    except CannotDecide:
+        if not HOOK_RUN:
+            raise  # a SystemExit with its message: exit 1, as before
+        error = sys.exc_info()[1]
         print(f"{error.code}\nprepush-gate: WARNING: the gate could not judge this push for a reason outside its "
               "diff (above); the push goes through UNCHECKED. Fix it as said; say so in your report.")
         return 0
@@ -4231,6 +4264,15 @@ def start_watchdog(limit: float) -> None:
     import threading
 
     def fire() -> None:
+        if not HOOK_RUN:
+            sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
+                             "push refused. A Mac too loaded to finish it pushes through an idle one: "
+                             "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
+            sys.stderr.flush()
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            stop(_descendants(os.getpid()))
+            sys.stdout.flush()
+            os._exit(1)
         sys.stderr.write(f"prepush-gate: WARNING: the gate ran past its {limit:g}s limit "
                          "(CMUX_NEXT_GATE_LIMIT_SECONDS), which is this machine's load or a hang, not the push's "
                          "diff: the push goes through UNCHECKED; say so in your report. Where each thread was:\n")
