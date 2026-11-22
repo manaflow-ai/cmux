@@ -6,7 +6,7 @@
 # usage: nice -n 10 bench-slice.sh [RUNS]
 # env:   RTT_MS (default 50), MBPS (default 400), ROOT (default ~/Projects/scratch/slice-bench),
 #        BIN (slice_bench binary; default: built from this checkout), JOBS (default 16),
-#        COPY_TIMEOUT (default 1800 s), OUT (default $ROOT/results.jsonl)
+#        COPY_TIMEOUT (default 1800 s), OUT (default $ROOT/results.jsonl), ARMS=projected (skip the copy)
 #
 # The fixture is `git archive HEAD` of this checkout (the cmux repo: no .git, target/ or
 # node_modules) in $ROOT/mac. Per run it appends one JSON line per arm to $OUT:
@@ -53,6 +53,11 @@ link_bytes() {
   python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["bytes_up"], d["bytes_down"])' "$1" 2>/dev/null || echo "0 0"
 }
 down_of() { link_bytes "$1" | cut -d' ' -f2; }
+# A link's round trips so far: writes going up, one per ask.
+asks_of() {
+  sleep 0.3
+  python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("writes_up", 0))' "$1" 2>/dev/null || echo 0
+}
 json_or_null() { if [ -n "$1" ]; then echo "$1"; else echo null; fi; }
 
 cleanup() {
@@ -161,6 +166,8 @@ run_projected() {
   local run=$1 at=$ROOT/mnt-proj state=$ROOT/state-proj out=$LOGS/mount-$run.out
   local down0 mount_s first warm dropped ls_start ls_b0 ls_b1 ls_s ls_n r20 cold warmb bun down1
   down0=$(down_of "$ROOT/link-proj.json")
+  local asks0 asks_c0 asks_c1 asks_l0 asks_l1
+  asks0=$(asks_of "$ROOT/link-proj.json")
   drop
   log "projected $run: mount"
   start_mount "$at" "$state" "$out"
@@ -177,7 +184,9 @@ run_projected() {
   ls_b1=$(down_of "$ROOT/link-proj.json")
   r20=$(read20_ms "$at")
   log "projected $run: cargo cold"
+  asks_c0=$(asks_of "$ROOT/link-proj.json")
   cold=$(build "$at" "$LOGS/cargo-proj-cold-$run.log")
+  asks_c1=$(asks_of "$ROOT/link-proj.json")
   echo >>"$at/cmux-tui/$WIRE"
   log "projected $run: cargo warm"
   warmb=$(build "$at" "$LOGS/cargo-proj-warm-$run.log")
@@ -191,7 +200,9 @@ run_projected() {
   log "projected $run: cargo cold, local target"
   start_mount "$at" "$ROOT/state-proj2" "$LOGS/mount2-$run.out"
   local cold_local
+  asks_l0=$(asks_of "$ROOT/link-proj.json")
   cold_local=$(CARGO_TARGET_DIR=$ROOT/target-proj build "$at" "$LOGS/cargo-proj-localtarget-$run.log")
+  asks_l1=$(asks_of "$ROOT/link-proj.json")
   stop_mount "$at" "$MOUNT_PID"
   local stats2; stats2=$(sed -n 3p "$LOGS/mount2-$run.out")
   down1=$(down_of "$ROOT/link-proj.json")
@@ -212,7 +223,8 @@ row = dict(arm="projected", run=$run, load1=float(open("/proc/loadavg").read().s
   cargo_warm_s=$warm_s, cargo_warm_compiling=$warm_n, cargo_warm_exit=$warm_rc,
   cargo_cold_localtarget_s=$local_s, cargo_cold_localtarget_compiling=$local_n,
   cargo_cold_localtarget_exit=$local_rc, bun_install_s=$bun_i, bun_build_s=$bun_b, bun_exit=$bun_rc,
-  link_bytes_down=$down1 - $down0, stats=stats, stats_localtarget_mount=stats2,
+  link_bytes_down=$down1 - $down0, link_asks=$asks_l1 - $asks0,
+  cargo_cold_asks=$asks_c1 - $asks_c0, cargo_cold_localtarget_asks=$asks_l1 - $asks_l0, stats=stats, stats_localtarget_mount=stats2,
   fetched_files=stats and stats["remote_reads"], fetched_bytes=stats and stats["remote_bytes"],
   time_to_first_build_done_s=round($mount_s + $cold_s, 3))
 open(sys.argv[1], "a").write(json.dumps(row) + "\n")
@@ -278,7 +290,7 @@ EOF
 
 for run in $(seq 1 "$RUNS"); do
   run_projected "$run"
-  run_copy "$run"
+  [ "${ARMS:-both}" = projected ] || run_copy "$run"
 done
 rm -rf "$ROOT/state-proj" "$ROOT/state-proj2" "$ROOT/target-proj"
 log "done: $OUT"

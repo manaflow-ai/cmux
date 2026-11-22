@@ -207,7 +207,11 @@ fn link(args: &[String]) -> anyhow::Result<()> {
         rate: mbps.filter(|mbps| *mbps > 0.0).map(|mbps| mbps * 1e6 / 8.0),
     });
     // up: client to target (machine to Mac); down: target to client (Mac to machine).
-    let counts = Arc::new([AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)]);
+    // The fourth count is writes going up: the machine flushes one ask at a time and waits for
+    // nothing else, so it is the number of round trips (asks sent at once can share a write, so
+    // it is a floor).
+    let counts =
+        Arc::new([AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)]);
     if let Some(stats) = stats {
         let counts = counts.clone();
         std::thread::spawn(move || {
@@ -215,10 +219,10 @@ fn link(args: &[String]) -> anyhow::Result<()> {
             loop {
                 let now = counts.each_ref().map(|count| count.load(Ordering::Relaxed));
                 if last != Some(now) {
-                    let [up, down, connections] = now;
+                    let [up, down, connections, writes_up] = now;
                     let temp = format!("{stats}.tmp");
                     let line = format!(
-                        "{{\"bytes_up\":{up},\"bytes_down\":{down},\"connections\":{connections}}}\n"
+                        "{{\"bytes_up\":{up},\"bytes_down\":{down},\"connections\":{connections},\"writes_up\":{writes_up}}}\n"
                     );
                     if std::fs::write(&temp, line)
                         .and_then(|()| std::fs::rename(&temp, &stats))
@@ -250,8 +254,8 @@ fn link(args: &[String]) -> anyhow::Result<()> {
         };
         let (up, down) = (counts.clone(), counts.clone());
         let (up_model, down_model) = (model.clone(), model.clone());
-        std::thread::spawn(move || relay(client_read, server, &up_model, &up[0]));
-        std::thread::spawn(move || relay(server_read, client, &down_model, &down[1]));
+        std::thread::spawn(move || relay(client_read, server, &up_model, &up[0], Some(&up[3])));
+        std::thread::spawn(move || relay(server_read, client, &down_model, &down[1], None));
     }
     Ok(())
 }
@@ -259,7 +263,13 @@ fn link(args: &[String]) -> anyhow::Result<()> {
 /// Moves bytes `from` to `to` as the model says: each chunk leaves once the capped rate has sent
 /// it, and lands `delay` later. The reader stamps and queues; the writer releases on time, so
 /// chunks in flight overlap and the delay costs latency, not throughput.
-fn relay(mut from: TcpStream, mut to: TcpStream, model: &Model, count: &AtomicU64) {
+fn relay(
+    mut from: TcpStream,
+    mut to: TcpStream,
+    model: &Model,
+    count: &AtomicU64,
+    writes: Option<&AtomicU64>,
+) {
     // A bounded queue: at most this many chunks in flight, so a slow side pushes back.
     let (send, receive) = mpsc::sync_channel::<(Instant, Vec<u8>)>(1024);
     let writer = std::thread::spawn(move || {
@@ -285,6 +295,9 @@ fn relay(mut from: TcpStream, mut to: TcpStream, model: &Model, count: &AtomicU6
             Ok(read) => read,
         };
         count.fetch_add(read as u64, Ordering::Relaxed);
+        if let Some(writes) = writes {
+            writes.fetch_add(1, Ordering::Relaxed);
+        }
         let now = Instant::now();
         let leaves = match model.rate {
             Some(rate) => {

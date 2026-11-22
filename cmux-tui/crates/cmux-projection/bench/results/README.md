@@ -62,11 +62,16 @@ slower link against the fast one.
   enough to copy in half a minute. The copy's cost grows with the folder; the mount's does not (0.12 s for
   a 771 KB listing).
 - A build on the mount is 11.4 s slower than on a copy. 3 s of that is writing `target/` through FUSE
-  (34.2 s against 31.3 s with `target/` on local disk). The other 8.5 s is first reads: the build faulted
-  266 files (4.1 MB) one round trip each, and the compiler reads them one after another. 266 reads at
-  about 32 ms is 8.5 s. The bytes are not the cost; the round trips are.
-- So the next gain is fewer round trips, not more bandwidth: when one file in a directory faults, fetch
-  its small siblings in the same ask. `Fetch::batch` exists for this; nothing calls it on a cold fault yet.
+  (34.2 s against 31.3 s with `target/` on local disk). The other 8.5 s is first reads: the build fetched
+  266 files (4.1 MB) in 161 round trips. 8.5 s over 161 is 53 ms each, what a 50 ms link costs when
+  the asks run one after another. Whether they did run one after another is not measured here; the
+  arithmetic fits. The bytes are not the cost.
+  (`slice-round-trips-2026-11-22.jsonl`: two more projected runs with the link counting writes going up,
+  160 and 161 round trips in both.)
+- The overlay already fetches a faulting file's small siblings in the same ask (`Overlay::whole`), which
+  is why 266 files took 161 asks and not 266. What is left is one round trip per directory the build
+  enters. So the next gain is reading ahead across directories: on a fault, also ask for the small files
+  of the folders under the same crate, or replay the working set a previous build recorded.
 - Warm reads cost the same as local disk within 2 ms, including after the page cache is dropped (the blob
   cache on disk answers).
 
