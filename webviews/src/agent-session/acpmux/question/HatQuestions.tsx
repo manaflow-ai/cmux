@@ -28,7 +28,7 @@
 // (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
 // waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
 // keeps the asker line above to itself, cut only where the pager and the × begin.
-import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
@@ -72,6 +72,18 @@ const REPLY = "\u0000reply";
 /// Whether the band's height transition is still running; with motion off it never starts.
 const moving = (element: HTMLElement | null) =>
   element?.getAnimations().some((animation) => animation.playState === "running") ?? false;
+
+/// The parts of a shown question that are cut to their room until More: the question (two lines),
+/// the line under it, and who asks and what about (the head's room).
+const CUT_TEXT =
+  ".acpmux-hat-questions__prompt, .acpmux-hat-questions__detail, .acpmux-hat-questions__who, .acpmux-hat-questions__about";
+
+/// Whether any of `question`'s cut parts runs past its room.
+export function hasCutText(question: HTMLElement): boolean {
+  return Array.from(question.querySelectorAll<HTMLElement>(CUT_TEXT)).some(
+    (part) => part.scrollHeight > part.clientHeight + 1 || part.scrollWidth > part.clientWidth + 1,
+  );
+}
 
 /// Where a started chat's question puts its reply field (the gallery compares them): on its own line
 /// under the choices (shipped), at the end of the choices' line, or behind a Reply button.
@@ -134,18 +146,22 @@ export function HatQuestions({
   useEffect(() => {
     if (replying) focusRoute(fieldRef.current, "system", "a question to reply to", { preventScroll: true });
   }, [replying]);
-  // Whether the question runs past its two lines: only then is there a More to offer.
+  // Whether any of the ask is cut: the question past its two lines, the line under it, or who asks
+  // and what about past the head's room. Only then is there a More to offer, and it opens all of
+  // them, so the whole ask can be read in the hat (the started chat's [irreversible] ask was cut
+  // mid-word in its head and its line under the question).
   const promptRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
   useLayoutEffect(() => {
     const element = promptRef.current;
     if (!element || whole) return;
-    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    const question = element.closest<HTMLElement>(".acpmux-hat-questions__question") ?? element;
+    const measure = () => setOverflows(hasCutText(question));
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    observer.observe(question);
     return () => observer.disconnect();
-  }, [shown?.id, shown?.prompt, whole]);
+  }, [shown?.id, shown?.prompt, shown?.detail, shown?.who, shown?.about, whole]);
 
   // The band's height follows its content's, eased; zero while leaving or before it arrives.
   const outer = useRef<HTMLDivElement | null>(null);
@@ -401,6 +417,7 @@ export function HatQuestions({
       ref={outerRef}
       className="acpmux-hat-questions"
       data-look={look}
+      data-whole={whole || undefined}
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
       data-dismiss={dismissLook}
@@ -432,6 +449,7 @@ export function HatQuestions({
               className="acpmux-hat-questions__question"
               data-direction={direction}
               data-asker={asker || undefined}
+              data-whole={whole || undefined}
             >
               <div className="acpmux-hat-questions__head">
                 <span className="acpmux-hat-questions__mark" aria-hidden="true" />
