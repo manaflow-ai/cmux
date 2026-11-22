@@ -97,6 +97,13 @@ final class FeedCollectionController: UIViewController {
 
 final class FeedCollectionView: UITableView {
     var onWidthChange: ((CGFloat) -> Void)?
+    /// The list left or joined a window (the spare's timer stops when it leaves).
+    var onWindowChange: ((Bool) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onWindowChange?(window != nil)
+    }
     private var lastWidth: CGFloat = 0
 
     override func layoutSubviews() {
@@ -208,6 +215,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         catcher.isArmed = { [weak self] in self?.jumpingToTop ?? false }
         view.addGestureRecognizer(catcher)
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
+        view.onWindowChange = { [weak self] inWindow in
+            guard let self else { return }
+            if inWindow { self.scheduleSpare() } else { self.cancelSpareTimer() }
+        }
 
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
             MainActor.assumeIsolated { () -> UITableViewCell in
@@ -593,10 +604,25 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let timer = Timer(timeInterval: Self.spareStillness, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.spareTimerFired() }
         }
+        spareTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    private var spareTimer: Timer?
+
+    /// The Feed left the window, or its controller goes: no spare build is left pending.
+    private func cancelSpareTimer() {
+        spareTimer?.invalidate()
+        spareTimer = nil
+        spareScheduled = false
+    }
+
+    isolated deinit {
+        spareTimer?.invalidate()
+    }
+
     private func spareTimerFired() {
+        spareTimer = nil
         spareScheduled = false
         guard let view = collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
               CACurrentMediaTime() - lastScroll >= Self.spareStillness, !jumpingToTop, !rowAnimating(in: view) else {
@@ -640,6 +666,17 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // stay accessibility elements: FeedParkedSpareUITests saw one at y 1419): in a holder off
         // the window's bounds, hidden from accessibility and touches, its layers drawn at the next
         // commit as any view in the window.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SPARE_MUTANT"] == "visible" {
+            // Red for FeedParkedSpareUITests: parked in the table at a row's frame, readable.
+            cell.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
+            view.addSubview(cell)
+            cell.layoutIfNeeded()
+            spare = cell
+            sparesMade += 1
+            return
+        }
+        #endif
         let holder = sparePark(beside: view)
         holder.frame = CGRect(x: -CGFloat(layout.key.width) - 1000, y: 0, width: CGFloat(layout.key.width), height: layout.height)
         holder.addSubview(cell)
