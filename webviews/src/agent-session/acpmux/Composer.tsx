@@ -27,6 +27,7 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
@@ -769,7 +770,12 @@ function ComposerFrame({
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
   /// What + wrote over the draft, so Escape can put the draft back.
-  const plusDraft = useRef<{ written: string; original: string } | undefined>(undefined);
+  /// `shown`: the frame has rendered the write. A blur in the same event as the write (the + menu
+  /// closing as its row writes "/") reads the text before it, as the render-time text did.
+  const plusDraft = useRef<{ written: string; original: string; shown?: boolean } | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (plusDraft.current) plusDraft.current.shown = true;
+  });
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
@@ -1574,6 +1580,11 @@ function ComposerFrame({
     const text = promptText.text;
     return plus && plus.written === text ? plus.original : text;
   };
+  /// `text` without the tokens of attachments neither staged nor being read.
+  const withoutDeadTokens = (text: string) => {
+    const dead = inlineTokenSpans(text, (id) => attachmentId(id)).filter((span) => !span.known);
+    return dead.reduceRight((rest, span) => rest.slice(0, span.from) + rest.slice(span.to), text);
+  };
   /// An attachment's id, staged or still being read: its token in the text is a place, not words.
   const attachmentId = (id: string) =>
     attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id);
@@ -1636,7 +1647,9 @@ function ComposerFrame({
       return true;
     }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
-    const draftText = unwrapped();
+    // A token whose attachment is gone (sent, then the clear undone in the same task, before the
+    // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
+    const draftText = withoutDeadTokens(unwrapped());
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -1912,7 +1925,7 @@ function ComposerFrame({
     const first = /^\/(\S*)/.exec(text)?.[1];
     const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
     const next = named ? text : text ? `/ ${text}` : "/";
-    plusDraft.current = { written: next, original: text };
+    plusDraft.current = { written: next, original: text, shown: false };
     pendingCaret.current = 1;
     edit(next, 1);
     field.current?.focus();
@@ -2181,8 +2194,10 @@ function ComposerFrame({
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     unsentDraft.current?.flush();
+    const unrendered = plusDraft.current?.shown === false;
     const original = unwrapped();
     plusDraft.current = undefined;
+    if (unrendered) return;
     if (original !== promptText.text) edit(original, original.length);
     else if (open) promptText.dismiss("slash");
     else if (mentionAt) promptText.dismiss("mention");
