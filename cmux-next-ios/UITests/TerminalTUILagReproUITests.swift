@@ -1,7 +1,7 @@
 import XCTest
 
 /// Leo, 2026-11-22: "just off some basic scroll throughs of the tui on my
-/// phone, the thing still lags. cosmic-gray on ethernet, iphone on wifi ...
+/// phone, the thing still lags. [the Mac] on ethernet, iphone on wifi ...
 /// if the data was sent through... why cant you simply scroll through the
 /// depiction that was already given?" His load, not a fixture: the terminal
 /// demo's `tuipan-paged` phase runs Claude Code on the primary screen of a
@@ -21,12 +21,28 @@ final class TerminalTUILagReproUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    @MainActor func testOneFingerScrollThroughPagedClaudeCodeHistoryWhileItStreams() throws {
+    // Each fetch over a cmux-fault link profile (cmux-tui/crates/cmux-fault/
+    // link-profiles.json): the simulator step has no shaper, so the mock
+    // takes the row's round trip, down rate, jitter and loss
+    // (`claudepaged ROWS CHUNK RTT MS KBIT JITTER LOSS%`, `MockLink`).
+    @MainActor func testPagedPanOverGoodWifi() throws {
+        try pan(profile: "good-wifi@1", spec: "12000 2000 2 80 40000 0 0")
+    }
+
+    @MainActor func testPagedPanOverLTE() throws {
+        try pan(profile: "lte@1", spec: "12000 2000 70 80 12000 0 0.5")
+    }
+
+    @MainActor func testPagedPanOverLossy3() throws {
+        try pan(profile: "lossy-3@1", spec: "12000 2000 70 80 12000 300 3")
+    }
+
+    @MainActor private func pan(profile: String, spec: String) throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                "-CmuxMobileTerminalDemoPhases", "tuipan-paged"]
+                                "-CmuxMobileTerminalDemoPhases", "tuipan-paged", "-CmuxMobileTerminalDemoPaged", spec]
         app.launch()
         defer { app.terminate() }
 
@@ -63,12 +79,12 @@ final class TerminalTUILagReproUITests: XCTestCase {
         }
         // The readout as a text attachment: a UI test's print never reaches
         // the step's exported logs, its attachments do.
-        let numbers = XCTAttachment(string: "tui-lag-repro \(demo) drags=\(drags)\n")
-        numbers.name = "tui-lag-repro-paged"
+        let numbers = XCTAttachment(string: "tui-lag-repro profile=\(profile) \(demo) drags=\(drags)\n")
+        numbers.name = "tui-lag-repro-paged-\(profile)"
         numbers.lifetime = .keepAlways
         add(numbers)
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "tui-lag-repro-paged-end"
+        shot.name = "tui-lag-repro-paged-\(profile)-end"
         shot.lifetime = .keepAlways
         add(shot)
         XCTAssertTrue(demo.hasPrefix("tuipan-paged done"), "the phase finished: \(demo)")

@@ -347,6 +347,13 @@ final class TerminalDemoDriver {
             return "\(Int((replay.parsed - ask) * 1000))/\(Int((replay.parsed - replay.reset) * 1000))"
         }.joined(separator: ",")
         result += " fetchMs(askToParsed/parse)=\(fetchMs.isEmpty ? "-" : fetchMs)"
+        // Of the rows replayed: sent to the phone before (the reset dropped
+        // them) or never sent (older than any attach), rows and KB.
+        let tally = session.replayRows.suffix(taken.count)
+        let sentRows = tally.map(\.sentRows).reduce(0, +), neverRows = tally.map(\.neverRows).reduce(0, +)
+        result += " replayedRows(sentBefore/neverSent)=\(sentRows)/\(neverRows)"
+            + " replayedKB(sentBefore/neverSent)=\(tally.map(\.sentBytes).reduce(0, +) / 1024)/\(tally.map(\.neverBytes).reduce(0, +) / 1024)"
+            + " linkMs=\(session.linkMs.suffix(session.historyFetches - fetches).map(String.init).joined(separator: ","))"
         model.demoNote = "tuipan-paged done " + result
         mark(model.demoNote)
         mark("state " + controller.debugState)

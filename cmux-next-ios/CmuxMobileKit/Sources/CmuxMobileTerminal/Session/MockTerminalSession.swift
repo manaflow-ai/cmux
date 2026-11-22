@@ -72,6 +72,13 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var replays: [(at: TimeInterval, bytes: Int)] = []
     /// DEBUG bench: when each `claudepaged` older-row fetch was asked for.
     public private(set) var fetchAsks: [TimeInterval] = []
+    /// DEBUG bench: each `claudepaged` replay's rows and bytes the phone had
+    /// been sent before (the screen, rows streamed past, earlier replays:
+    /// the reset dropped them) and never been sent (older than any attach).
+    public private(set) var replayRows: [MockReplayRows] = []
+    /// DEBUG bench: each `claudepaged` fetch's link time (round trip, jitter,
+    /// transfer at the profile's rate, a round trip per lost segment), ms.
+    public private(set) var linkMs: [Int] = []
     /// DEBUG bench: an older-row fetch is on its way (`claudepaged`).
     public var historyFetchPending: Bool { paged?.fetching ?? false }
     /// DEBUG bench: the "Mac" still holds rows older than the phone's (`claudepaged`).
@@ -271,16 +278,29 @@ public final class MockTerminalSession: TerminalSession {
         paged = state
         historyFetches += 1
         fetchAsks.append(ProcessInfo.processInfo.systemUptime)
-        let delay = state.delay
+        // The replay's size is known at the ask (rows come only at the end),
+        // so the link time can include its transfer.
+        let planned = min(state.allowance + state.chunk, state.next - 1)
+        let plannedFirst = max(1, state.next - planned - rows)
+        let plannedBytes = (plannedFirst..<state.next).reduce(0) { $0 + MockPagedHistory.row($1).utf8.count + 2 }
+        let delay = state.link.ms(bytes: plannedBytes, fetch: historyFetches)
+        linkMs.append(delay)
         let task = Task { [weak self] in
             try? await self?.pause(delay)
             guard let self, !Task.isCancelled, var state = self.paged, case .agentCLI = self.program else { return }
             state.allowance = min(state.allowance + state.chunk, state.next - 1)
             state.fetching = false
-            self.paged = state
             let first = max(1, state.next - state.allowance - self.rows)
+            var tally = MockReplayRows()
+            for index in first..<state.next {
+                let bytes = MockPagedHistory.row(index).utf8.count + 2
+                if index >= state.oldestSent { tally.sentRows += 1; tally.sentBytes += bytes } else { tally.neverRows += 1; tally.neverBytes += bytes }
+            }
+            state.oldestSent = min(state.oldestSent, first)
+            self.paged = state
             let replay = (first..<state.next).map { MockPagedHistory.row($0) + "\r\n" }.joined()
                 + Self.claudeRegion(tick: state.tick, rule: state.rule)
+            self.replayRows.append(tally)
             self.replays.append((ProcessInfo.processInfo.systemUptime, replay.utf8.count))
             self.handler?(.output(TerminalReclaimHold.reset))
             self.write(replay)
@@ -544,14 +564,16 @@ public final class MockTerminalSession: TerminalSession {
             tasks.append(task)
             return
         case "claudepaged":
-            // claudepaged [ROWS=12000] [CHUNK=2000] [RTT=60] [MS=80]: Claude
+            // claudepaged [ROWS=12000] [CHUNK=2000] [RTT=60] [MS=80]
+            // [KBIT=0] [JITTER=0] [LOSS%=0]: Claude
             // Code on the primary screen as a Mac terminal delivers it
             // (DaemonTerminalSession): ROWS styled transcript rows (SGR
             // colors, wide characters) on the Mac, the screen alone on the
             // phone; each older-row fetch is a reset and a replay of CHUNK
             // more rows than before, RTT ms after the ask. The live region is
             // redrawn every MS ms with a new transcript row every 6th frame,
-            // throughout (fetches included).
+            // throughout (fetches included). KBIT, JITTER and LOSS% model a
+            // cmux-fault link profile (link-profiles.json) on each fetch.
             func number(_ index: Int, _ fallback: Int) -> Int { parts.count > index ? Int(parts[index]) ?? fallback : fallback }
             let count = max(1, number(1, 12_000)), chunk = max(1, number(2, 2_000))
             let rtt = max(0, number(3, 60)), delay = max(10, number(4, 80))
@@ -560,7 +582,10 @@ public final class MockTerminalSession: TerminalSession {
             programName = "claude"
             handler?(.title("claude — cmux-next"))
             let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
-            paged = MockPagedHistory(next: count + 1, allowance: 0, chunk: chunk, delay: rtt, rule: rule)
+            let link = MockLink(rttMs: rtt, downKbit: max(0, number(5, 0)), jitterMs: max(0, number(6, 0)),
+                                lossPercent: parts.count > 7 ? Double(parts[7]) ?? 0 : 0)
+            paged = MockPagedHistory(next: count + 1, allowance: 0, chunk: chunk, link: link, rule: rule,
+                                     oldestSent: max(1, count + 1 - rows))
             write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + (max(1, count + 1 - rows)...count).map { MockPagedHistory.row($0) + "\r\n" }.joined()
                 + Self.claudeRegion(tick: 0, rule: rule))
             let task = Task { [weak self] in
@@ -756,8 +781,11 @@ struct MockPagedHistory {
     var next: Int
     var allowance: Int
     let chunk: Int
-    let delay: Int
+    let link: MockLink
     let rule: String
+    /// The oldest row the phone has been sent (the attach's screen, then
+    /// each replay's first row); rows streamed after it were sent too.
+    var oldestSent: Int
     var tick = 0
     var fetching = false
 
@@ -810,3 +838,35 @@ enum MockKey: Equatable {
     }
 }
 #endif
+
+/// One `claudepaged` replay's rows: sent to the phone before (and dropped by
+/// the reset) or never sent.
+public struct MockReplayRows: Equatable, Sendable {
+    public var sentRows = 0, sentBytes = 0, neverRows = 0, neverBytes = 0
+}
+
+/// A fetch's time over a cmux-fault link profile, seeded: the round trip, a
+/// jitter in 0...jitterMs, the replay's transfer at downKbit, and a round trip
+/// for each 1,460-byte segment lost (a fast retransmit; RTOs not modelled).
+struct MockLink: Equatable {
+    var rttMs: Int
+    var downKbit: Int
+    var jitterMs: Int
+    var lossPercent: Double
+
+    func ms(bytes: Int, fetch: Int) -> Int {
+        var seed = UInt64(truncatingIfNeeded: fetch) &* 0x9E37_79B9_7F4A_7C15 &+ 0xD1B5_4A32_D192_ED03
+        func next() -> Double {
+            seed &+= 0x9E37_79B9_7F4A_7C15
+            var z = seed
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return Double((z ^ (z >> 31)) >> 11) / Double(1 << 53)
+        }
+        let transfer = downKbit > 0 ? Double(bytes) * 8 / Double(downKbit) : 0
+        let jitter = jitterMs > 0 ? next() * Double(jitterMs) : 0
+        let segments = (bytes + 1_459) / 1_460
+        let lost = lossPercent > 0 ? (0..<segments).filter { _ in next() * 100 < lossPercent }.count : 0
+        return rttMs + Int(jitter + transfer) + lost * rttMs
+    }
+}
