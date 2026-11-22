@@ -194,7 +194,7 @@ struct TerminalComposer: View {
         // when you have >3 lines"). Clear glass looks the same at every
         // height, the look a one-line draft always had
         // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
-        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
