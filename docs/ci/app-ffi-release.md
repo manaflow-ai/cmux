@@ -79,12 +79,25 @@ Otherwise it falls back to the `app-ffi-repin` pull request, which the app
 compile proves before it lands. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
 `1`, like the base autofix.
 
+A GitHub call that the re-pin makes and GitHub refuses for its rate limit
+(HTTP 429, an error that names a rate limit, or a 403 with
+`x-ratelimit-remaining: 0`) waits and asks again. The wait comes from the refusal's `retry-after`
+header. Without that header, it waits until `x-ratelimit-reset`. Without
+either, it waits 60 s, then doubles. One run waits at most
+`REPIN_RATE_LIMIT_WAIT_S` (600 s) in all. When the refusal still stands after
+that, or the reset is further off, the job fails with "Re-pin rate-limited"
+and the reason, and its failure step starts `app-ffi-repin.yml`. Before
+this, a rate-limited read of the open re-pin pull request counted as a failed
+read. The job then ended green with "left app-ffi-repin alone": on
+2026-11-20, runs 44804668946, 44820694017 and 44823028309 all did that, and
+#48065 kept an older pin.
+
 There is no merge queue on `feat-cmux-next`. next-autoland lands that pull
 request with no review receipt (`repin_bot_exempt`) once its checks finish, and judges it
 first on every pass. Its runner-lost reds get one rerun. The base's pin check
 fails 120 min after the FFI change (`--stale-grace 7200`). At 90 min,
 base-red-watch sends the coordinator a WARN that names the open re-pin pull
-request. If the PR is still unmerged then, land it by hand: `merge_hold
+request. If the PR is still unmerged then, land it by hand: `land-judge
 explain`, then a pinned squash. Only with a passing `cmux-next fast tier` (on a
 re-pin it runs `HandlerCoverageTests` alone) at the PR head: a `cancelled` or
 skipped tier is no verdict. When the release's action catalog differs from the
@@ -213,10 +226,12 @@ release workflow's push paths, the router, `build_class.py` and
    A step A that changes the action catalog marks what the pinned FFI does not
    have yet with one file per entry under
    `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`: `actions/<id>`
-   for a new action, `shortcut/<id>` and `shortcut-removal/<id>` for a default
+   for a new action, `removal/<id>` for a removed one (the exports keep its row
+   until the re-pin), `shortcut/<id>` and `shortcut-removal/<id>` for a default
    shortcut added or dropped, `fields/<id>` (one JSON pointer per line) for
    changed fields of an existing action, `family/<family>/<id>` for a new palette
-   family member. Text after a `#` is a note. `swift_parity` names the file to
+   family member, `bindings/<list>` (one JSON pointer into the list per line,
+   `/2/when_text`) for changed fields of a `key_binding_defaults` list. Text after a `#` is a note. `swift_parity` names the file to
    create when an export lacks a change, and the file to delete once the re-pin
    carries it. One file per id means two pull requests that mark or clear
    different ids never touch the same path, so they never conflict there.

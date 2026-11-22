@@ -75,6 +75,6 @@ public struct CloudTeamStrings {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "CloudTeam", bundle: .module)
+        String(localized: key, defaultValue: english, table: "CloudTeam", bundle: .localizedModule)
     }
 }

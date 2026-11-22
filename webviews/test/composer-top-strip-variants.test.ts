@@ -99,10 +99,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    // The strip over the New Tab card is the Default template's with Claude's quiet row: Cards
-    // draws it in a row under its pill field, and since #24519 (2026-10-27, one quiet row) every
-    // other template with Claude's plain footer draws it in the quiet row under the box
-    // (NewTabScreen.tsx locationInFooter; new-tab-cards-template, composer-one-row-layout).
+    // The strip over the New Tab card is Minimal's with Claude's quiet row: since #24519 (2026-10-27,
+    // one quiet row) it draws in the quiet row under the box (NewTabScreen.tsx locationInFooter;
+    // composer-one-row-layout).
     {
       name: "New Tab strip",
       entry: "agent-pane.new-tab",
