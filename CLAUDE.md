@@ -73,6 +73,7 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 
 Into `feat-cmux-next` you merge your own PR, pinned (`gh pr merge N --squash --match-head-commit <sha>`), once it
 causes no red of its own; review runs beside it. Into `main` it needs a review SHIP at the head. Never `--admin`.
+Adding a test or a CI job needs no CI thought: put the test where the code's tests already live, and the routers run only what a diff can affect from each job's declared inputs. A new PR job gets an entry in its router's map; one you forget is recorded as runs-always by `scripts/ci/job_inputs.py fix` (the PR autofix), never refused. Team members: [the CI protocol](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/ci/protocol.md).
 Which CI a PR runs: [CI coverage](skills/cmux-testing/references/pr-ci-coverage.md). Full rules:
 [landing](docs/ci/landing.md).
 
@@ -105,6 +106,8 @@ Read these before working in their scope; nested files may not load automaticall
 | Dev build backend data, local state and sign-in | [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md) |
 | Finishing a task: dev build, simulator, iPhone hand-off | [finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md) |
 | Outside PRs, licenses, PR text, CI, review and merge | [landing](docs/ci/landing.md), [STYLE.md](STYLE.md), [risk tiers](docs/ci/risk-tiers.md) |
+| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
+| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |

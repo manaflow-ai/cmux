@@ -375,7 +375,7 @@ public final class CEFEngine: BrowserEngine {
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
-        let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
+        let pane = configuration.pane ?? BrowserPaneID(rawValue: CEFPaneHost.ownTabPrefix + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
