@@ -1350,3 +1350,128 @@ async fn duress_matrix() {
     }
     set_link_profile(None, 0);
 }
+
+static COST_PHONE: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
+static COST_MAC: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
+
+fn cost_phone(len: usize) {
+    COST_PHONE.lock().unwrap().push((std::time::Instant::now(), len));
+}
+
+fn cost_mac(len: usize) {
+    COST_MAC.lock().unwrap().push((std::time::Instant::now(), len));
+}
+
+/// Bytes, datagrams and wakeups (bursts a second or more apart) one side
+/// handed the OS in `[from, to)`.
+fn cost_between(
+    sends: &std::sync::Mutex<Vec<(std::time::Instant, usize)>>,
+    from: std::time::Instant,
+    to: std::time::Instant,
+) -> (usize, usize, usize) {
+    let sends = sends.lock().unwrap();
+    let window: Vec<_> = sends.iter().filter(|(at, _)| *at >= from && *at < to).collect();
+    let wakes = window
+        .windows(2)
+        .filter(|pair| pair[1].0.duration_since(pair[0].0) >= Duration::from_secs(1))
+        .count()
+        + usize::from(!window.is_empty());
+    (window.iter().map(|(_, len)| len).sum(), window.len(), wakes)
+}
+
+/// One idle minute, one link alone in the process: the phone on
+/// `LinkConfig::default` with `foreground_probe`, the Mac on the default.
+/// (phone, Mac) as (bytes, datagrams, wakeups).
+async fn cost_minute(foreground: bool) -> ((usize, usize, usize), (usize, usize, usize)) {
+    let base = duress_options(Duress { shaped: true, stream: false });
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    {
+        let base = base.clone();
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, base) = (mac.clone(), base.clone());
+                tokio::spawn(async move {
+                    let options = DialOptions { on_udp_sent: Some(cost_mac), ..base };
+                    let connected =
+                        dial::answer(&mac, session.first, events, &options, LinkConfig::default())
+                            .await
+                            .unwrap();
+                    while connected.link.accept().await.is_some() {}
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { on_udp_sent: Some(cost_phone), ..base };
+    let config = LinkConfig { foreground_probe: foreground, ..LinkConfig::default() };
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, config).await.expect("dial");
+    // Past the handshake and the first exchanges.
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let from = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let to = std::time::Instant::now();
+    assert!(!connected.link.is_closed());
+    connected.link.close("done");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    (cost_between(&COST_PHONE, from, to), cost_between(&COST_MAC, from, to))
+}
+
+/// What the foreground probe costs a minute, under each link profile: one
+/// link at a time (the matrix's counts share statics with concurrent runs),
+/// off then on, three minutes each, the median printed.
+/// `COST_PROFILES=lte cargo test --release -p cmux-mobile-link --test roaming foreground_probe_cost -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: six idle minutes a profile; run on its own"]
+async fn foreground_probe_cost() {
+    let names = std::env::var("COST_PROFILES").unwrap_or_else(|_| "lte,lossy-3,lossy-10".into());
+    let median = |mut v: Vec<usize>| {
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        set_link_profile(Some(LinkProfile::named(name)), 0x5064_1000);
+        let mut cols = Vec::new();
+        for foreground in [false, true] {
+            let mut runs = Vec::new();
+            for _ in 0..3 {
+                runs.push(cost_minute(foreground).await);
+            }
+            let pick = |f: fn(&((usize, usize, usize), (usize, usize, usize))) -> usize| {
+                median(runs.iter().map(f).collect())
+            };
+            let row = [
+                pick(|r| r.0.0),
+                pick(|r| r.1.0),
+                pick(|r| r.0.0 + r.1.0),
+                pick(|r| r.0.1),
+                pick(|r| r.1.1),
+                pick(|r| r.0.2),
+                pick(|r| r.1.2),
+            ];
+            eprintln!(
+                "COST profile={name} foreground={foreground}: per minute phone_bytes={} mac_bytes={} both_bytes={} phone_datagrams={} mac_datagrams={} phone_wakeups={} mac_wakeups={} runs={runs:?}",
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+            );
+            cols.push(row);
+        }
+        let d = |i: usize| cols[1][i] as i64 - cols[0][i] as i64;
+        eprintln!(
+            "COST profile={name} delta: both_bytes={:+} phone_bytes={:+} mac_bytes={:+} phone_datagrams={:+} phone_wakeups={:+} mac_wakeups={:+}",
+            d(2),
+            d(0),
+            d(1),
+            d(3),
+            d(5),
+            d(6)
+        );
+    }
+}

@@ -142,6 +142,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: called with each plain UDP datagram's length as
+    /// WireGuard hands it to the OS (the bytes a radio sends).
+    #[doc(hidden)]
+    pub on_udp_sent: Option<fn(usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -248,6 +252,7 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
             input_lane: true,
