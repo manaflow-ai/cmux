@@ -154,7 +154,7 @@ import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
-import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
+import { drawPaneSnapshot, drawRestoredTail, PendingPaneDraw } from "./paneSnapshotLane";
 import {
   folderFields,
   isAgentHome,
@@ -6810,6 +6810,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
+  // The restored tail the pane drew before the direct client's first snapshot (watchRestoredTail).
+  const restoredTailDrawn = useRef<AcpmuxSnapshot | undefined>(undefined);
   /// The direct client's newest snapshot, drawn or not: a running command's output update is told
   /// apart from the one before it (liveToolOutput.ts `toolOutputOnly`).
   const receivedSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -7659,10 +7661,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return;
       rowsRef.current = next.rows;
       snapshotRef.current = next;
+      restoredTailDrawn.current = next;
       acpmuxPerf.markLaunch("restoredTailDrawn");
-      setSnapshot(next);
-      setRestoredTailSession(next.sessionId);
-      setContextKnown(true);
+      // A transition the socket's messages go between, under the copy (paneSnapshotLane.ts).
+      drawRestoredTail(() => {
+        setSnapshot(next);
+        setRestoredTailSession(next.sessionId);
+        setContextKnown(true);
+      });
     });
   }, []);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
@@ -8923,7 +8929,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             toolOutputEpoch.current = liveToolOutput.redraw();
             // A redraw of the whole pane is a transition a key can go before, unless it answers what
             // the person just did or opens another chat (paneSnapshotLane.ts).
-            const drewBefore = drawnSnapshot.current;
+            // Before the client's first, the pane drew the restored tail (if any): the same chat's
+            // kept rows redraw as a transition too, not as a first frame.
+            const drewBefore = drawnSnapshot.current ?? restoredTailDrawn.current;
             drawnSnapshot.current = next;
             drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
               setSnapshot((previous) => {

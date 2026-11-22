@@ -139,3 +139,17 @@ export function drawPaneSnapshot(
   if (urgent) draw();
   else startTransition(draw);
 }
+
+/// Runs `draw` (the pane's first `setSnapshot`, of the chat's restored tail) as a transition.
+///
+/// At relaunch the tail the app host kept draws before the handshake (restoredTail.ts), under the
+/// copy of the last frame (chatSnapshot), which stays on screen until the live page commits. That
+/// first render mounts the whole pane: as a default-lane update it ran in one piece, about 320 ms
+/// of renderer main thread on the restart bench (PROFILE=1, rtt50), and acpmux's `initialize`
+/// answer, there 150 ms before, waited behind it, so the attach went out that much later
+/// (Leo, 2026-11-22: "the agent gui needs that too"). As a transition React renders it in 5 ms
+/// slices, and the socket's messages are handled between them. Nothing new shows until it commits
+/// whole, and the copy covers the pane until then, so it neither blanks nor shifts.
+export function drawRestoredTail(draw: () => void): void {
+  startTransition(draw);
+}
