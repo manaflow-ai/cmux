@@ -1260,6 +1260,56 @@ pub fn cancel(login_id: &str) -> bool {
     end(login_id)
 }
 
+/// The CLI's own logout (the Mac's Settings `signOutLine`): `codex logout`, `claude auth
+/// logout`. None for an agent this does not sign out.
+pub fn logout_args(agent: Agent) -> Option<&'static [&'static str]> {
+    match agent {
+        Agent::Codex => Some(&["logout"]),
+        Agent::Claude => Some(&["auth", "logout"]),
+        _ => None,
+    }
+}
+
+/// How long a CLI's logout has.
+pub const LOGOUT_WAIT: Duration = Duration::from_secs(30);
+
+/// Signs `agent` out with its CLI's own logout, in `home` (its home variable set) or where the
+/// CLI keeps its login. A sign-in of `agent` running in that store stops first.
+pub async fn sign_out_in(cli: &Cli, agent: Agent, home: Option<&Path>) -> Result<(), LoginError> {
+    let Some(args) = logout_args(agent) else {
+        return Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!("{} has no sign-out here", agent.name()),
+        ));
+    };
+    let mut cli = cli.clone();
+    if let Some(home) = home {
+        let Some(var) = agent.home_var() else {
+            return Err(LoginError::new(
+                reason::UNSUPPORTED,
+                format!("{} does not sign in to an account home of its own", agent.name()),
+            ));
+        };
+        cli.env.insert(var.to_owned(), home.display().to_string());
+    }
+    let slot: Slot = (agent, cli.store(agent));
+    let running = lock_table().get(&slot).map(|e| e.id.clone());
+    if let Some(id) = running {
+        end(&id);
+    }
+    let cmd = cli.command(args, &std::env::temp_dir());
+    match crate::complete::run::run(cmd, None, LOGOUT_WAIT).await {
+        Ok(out) if out.success => Ok(()),
+        Ok(_) => Err(LoginError::new(reason::FAILED, format!("{} logout failed", agent.name()))),
+        Err(crate::complete::run::RunError::Timeout) => {
+            Err(LoginError::new(reason::FAILED, format!("{} logout did not finish", agent.name())))
+        }
+        Err(crate::complete::run::RunError::Spawn(e)) => {
+            Err(LoginError::new(reason::CLI_MISSING, format!("start {}: {e}", agent.name())))
+        }
+    }
+}
+
 /// Saves `key` as `agent`'s own sign-in (module docs).
 pub async fn save_api_key(
     machine: &Machine,

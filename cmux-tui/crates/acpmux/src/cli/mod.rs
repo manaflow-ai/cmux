@@ -10,6 +10,7 @@ pub(crate) mod archive;
 pub mod beads;
 pub mod bg;
 pub(crate) use crate::bounded_child;
+pub mod account;
 pub mod bridge;
 pub mod chats;
 pub mod cli_agent;

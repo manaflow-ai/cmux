@@ -146,10 +146,11 @@ pub fn parse_status_text(text: &str) -> Vec<GhAccount> {
         }
     }
     // gh before multi-account named no active one: a lone signed-in account is it.
-    if out.len() == 1 && !plain.to_ascii_lowercase().contains("active account") {
-        if let Some(a) = out.first_mut() {
-            a.active = a.signed_in;
-        }
+    if out.len() == 1
+        && !plain.to_ascii_lowercase().contains("active account")
+        && let Some(a) = out.first_mut()
+    {
+        a.active = a.signed_in;
     }
     out
 }
