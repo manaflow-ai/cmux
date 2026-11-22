@@ -140,6 +140,12 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
 }
 
 extension ComputerUseSettings {
+    /// SECURITY: Computer Use may act in cmux itself (Leo, 2026-11-22: "why not. it should be able to"),
+    /// so Settings > Computer Use (`computerUse.*`: the mode, the deny list, foreground input, the saved
+    /// approvals) changes only with the person's own click or key, never one an agent posted to cmux:
+    /// the Settings page, its Reset All, the `--confirm` sheet and Saved approvals check this.
+    public static func isPersonOnly(_ path: [String]) -> Bool { path.first == modePath.first }
+
     /// The entries earlier default deny lists held that today's does not: the terminals and cmux
     /// itself (Leo, 2026-11-22: "why not. it should be able to"). The engine's list, entry for entry
     /// (`policy.rs`, `retired_default_denied_apps`; `ComputerUseSettingsTests` compares the two).

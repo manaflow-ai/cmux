@@ -135,10 +135,8 @@ enum AgentHandlers {
                 if id == "computerUse.approval.set", decision != "always", decision != "never" {
                     return .refused(ComputerUseSessionStrings.noDecision)
                 }
-                // SECURITY: Computer Use may act in cmux itself, so the Settings page's Always and Forget
-                // (each widens access) count only with the person's own HID click or key; Never narrows.
-                if invocation.origin == .page, id == "computerUse.approval.forget" || decision == "always",
-                   !context.services.personInput.backs(ProcessInfo.processInfo.systemUptime) {
+                // SECURITY: Always and Forget widen, so from the page they need the person's own input (``ComputerUseSettings/isPersonOnly(_:)``).
+                if invocation.origin == .page, id != "computerUse.approval.set" || decision == "always", !context.services.personInput.backsNow {
                     return .refused(RefusalStrings.personOnlyFromPage)
                 }
                 let remote = context.services.cmuxRemote
