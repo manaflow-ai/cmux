@@ -43,7 +43,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
-import { setRailShow, useRailControl, useRailShow, useThreadMinimapArm } from "../chatDisplay";
+import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
 import { RAIL_SHOWS, type RailShow } from "./railShow";
 import { threadMinimapReplies } from "./replies.experiment";
 import { RailShowControl } from "./RailShowControl";
@@ -54,10 +54,6 @@ import {
   LANDING_OFFSET,
   MIN_PROMPTS,
   minimapTurns,
-  keepsIndexed,
-  railEntries,
-  sameEntries,
-  railShowsOffered,
   railFade,
   railFadeReach,
   railFades,
@@ -84,6 +80,10 @@ import {
   type RowsChange,
   WAVE_SHAPES,
   replyMore,
+  keepsIndexed,
+  railEntries,
+  sameEntries,
+  railShowsOffered,
   type RowTops,
 } from "./model";
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
@@ -940,6 +940,15 @@ function ThreadMinimapView({
     indexAsk.current = ask;
     return ask.read;
   }).current;
+  /// The pointer reaching the rail asks for the prompt index while pending ticks are drawn, so a click
+  /// on a far-back tick that follows waits on one read (its page), not two in a row (the index, then
+  /// its page). It is the rail's one ask per chat (askPromptIndex), so a pointer that comes and goes
+  /// costs nothing more (Leo, 2026-11-21: "the problem is that it lags ... make sure that that can
+  /// load fast").
+  const revealAndWarm = () => {
+    revealRail();
+    if (live.current.turns.pendingCount > 0) void askPromptIndex();
+  };
   const [{ jump, advance }] = useState(() => {
     /// Moves a jump to a pending tick on: the jump itself once its row is a named prompt (the index
     /// answered, or a page held it), else one more page before the oldest held prompt (Leo, 2026-11-03:
@@ -1638,7 +1647,7 @@ function ThreadMinimapView({
           }}
           onPointerEnter={() => {
             overStrip.current = true;
-            revealRail();
+            revealAndWarm();
           }}
           onPointerLeave={(event) => {
             overStrip.current = false;
@@ -1692,7 +1701,7 @@ function ThreadMinimapView({
               }
             }
           }}
-          onPointerEnter={revealRail}
+          onPointerEnter={revealAndWarm}
           onBlur={(event) => {
             const next = event.relatedTarget as Node | null;
             if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
@@ -1880,7 +1889,7 @@ function ThreadMinimapView({
               }
             }
           }}
-          onPointerEnter={revealRail}
+          onPointerEnter={revealAndWarm}
           onFocus={() => {
             revealRail();
             setCardFocus(true);
