@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSettingsWindow
 
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
@@ -19,12 +20,7 @@ enum MainMenu {
         let quitIDs: [ActionID] = ["quit"]
         let placedElsewhere = Set((quitIDs + [ActionID("about")]).compactMap { registry.title(for: $0) })
         app += compactMainMenuItems(for: .app, registry: registry).filter { !placedElsewhere.contains($0.title) }
-        if let customizations {
-            let after = [registry.title(for: "customize.open"), registry.title(for: "openSettings")].compactMap { title in
-                app.lastIndex(where: { $0.title == title })
-            }.first
-            app.insert(customizations, at: after.map { $0 + 1 } ?? app.count)
-        }
+        if let customizations { app = CustomizationsMenu.inserting(customizations, into: app, after: [registry.title(for: "customize.open"), registry.title(for: "openSettings")]) }
         app += [
             .separator(),
             NSMenuItem(title: Strings.menuHide, action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),

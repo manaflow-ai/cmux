@@ -1,6 +1,6 @@
-import AppKit
+public import AppKit
 import CmuxNextActions
-import CmuxNextSettings
+public import CmuxNextSettings
 import os
 
 /// App menu > Customizations: every Experiments and Labs switch as a checkmark row, two clicks from
@@ -8,21 +8,24 @@ import os
 /// and are rebuilt each time the menu opens, so the checkmarks show the value in effect and a new
 /// schema row appears with no edit here. A click flips the switch through
 /// `SettingsController.flip` (the guarded `setSetting`); a managed row is disabled. The last row
-/// opens Settings > Customize.
+/// runs `openAll` (Settings > Customize).
 @MainActor
-final class CustomizationsMenu: NSObject, NSMenuDelegate {
-    private weak var services: AppServices?
+public final class CustomizationsMenu: NSObject, NSMenuDelegate {
+    private let settings: @MainActor () -> SettingsController?
+    private let openAll: @MainActor () -> Void
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "menu.customizations")
 
-    private init(services: AppServices) {
-        self.services = services
+    private init(settings: @escaping @MainActor () -> SettingsController?, openAll: @escaping @MainActor () -> Void) {
+        self.settings = settings
+        self.openAll = openAll
     }
 
-    /// The submenu's item; it keeps its delegate alive (`representedObject`, since `NSMenu.delegate` is weak).
-    static func item(services: AppServices) -> NSMenuItem {
-        let owner = CustomizationsMenu(services: services)
-        let item = NSMenuItem(title: Strings.menuCustomizations, action: nil, keyEquivalent: "")
-        let menu = NSMenu(title: Strings.menuCustomizations)
+    /// The submenu's item; it keeps its delegate alive (`representedObject`: `NSMenu.delegate` is weak).
+    public static func item(settings: @escaping @MainActor () -> SettingsController?,
+                            openAll: @escaping @MainActor () -> Void) -> NSMenuItem {
+        let owner = CustomizationsMenu(settings: settings, openAll: openAll)
+        let item = NSMenuItem(title: SettingsWindowStrings.customizationsMenu, action: nil, keyEquivalent: "")
+        let menu = NSMenu(title: SettingsWindowStrings.customizationsMenu)
         menu.autoenablesItems = false
         menu.delegate = owner
         item.submenu = menu
@@ -30,9 +33,17 @@ final class CustomizationsMenu: NSObject, NSMenuDelegate {
         return item
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    /// `items` with `item` after the last one titled the first of `titles` found, else at the end.
+    public static func inserting(_ item: NSMenuItem, into items: [NSMenuItem], after titles: [String?]) -> [NSMenuItem] {
+        let index = titles.compactMap { title in items.lastIndex(where: { $0.title == title }) }.first
+        var items = items
+        items.insert(item, at: index.map { $0 + 1 } ?? items.count)
+        return items
+    }
+
+    public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let settings = services?.settings
+        let settings = settings()
         for group in SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled) {
             menu.addItem(.sectionHeader(title: group.title))
             for descriptor in group.rows {
@@ -46,13 +57,13 @@ final class CustomizationsMenu: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
-        let all = NSMenuItem(title: Strings.menuAllCustomizations, action: #selector(openAll(_:)), keyEquivalent: "")
+        let all = NSMenuItem(title: SettingsWindowStrings.allCustomizations, action: #selector(openAllClicked(_:)), keyEquivalent: "")
         all.target = self
         menu.addItem(all)
     }
 
     @objc private func flip(_ sender: NSMenuItem) {
-        guard let settings = services?.settings, let id = sender.representedObject as? String,
+        guard let settings = settings(), let id = sender.representedObject as? String,
               let descriptor = SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init)) else { return }
         Task {
             do {
@@ -63,12 +74,5 @@ final class CustomizationsMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Settings > Customize; a build whose page lacks that category opens the default one (`categoryOf`).
-    @objc private func openAll(_ sender: NSMenuItem) {
-        do {
-            try services?.settingsWindow.show(section: nil, route: "#/settings/customize")
-        } catch {
-            Self.logger.error("customizations menu: Settings did not open: \(String(describing: error), privacy: .public)")
-        }
-    }
+    @objc private func openAllClicked(_ sender: NSMenuItem) { openAll() }
 }
