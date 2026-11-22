@@ -122,7 +122,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
-    /// The Cloud machines listed: their rows draw a cloud mark beside the name (``WorkspaceRowContent/runsInCloud``)
+    /// The Cloud machines listed: their rows draw a small muted cloud in the trailing status cluster (``WorkspaceRowContent/runsInCloud``)
     /// and never their machine's name.
     public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
