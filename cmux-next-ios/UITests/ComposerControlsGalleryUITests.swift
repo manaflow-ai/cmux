@@ -62,7 +62,9 @@ final class ComposerControlsGalleryUITests: XCTestCase {
             if attach.exists {
                 XCTAssertGreaterThan(tile.frame.minX, attach.frame.maxX, "the tile is inside the field, right of +")
             }
-            let field = app.textViews.firstMatch
+            // The composer's own text view: `textViews.firstMatch` is the terminal's, far offscreen.
+            let field = app.textViews["terminal.composer.field"]
+            XCTAssertTrue(field.exists, "the composer field shows\n\(app.debugDescription)")
             if field.exists {
                 XCTAssertLessThan(abs(tile.frame.minX - field.frame.minX), 16, "the tile starts where the text starts")
                 XCTAssertLessThan(tile.frame.maxY, field.frame.minY + 4, "the tile sits above the draft")
