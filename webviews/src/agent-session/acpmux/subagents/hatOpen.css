@@ -113,7 +113,7 @@
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   width: var(--acpmux-tray-stop-width);
-  height: var(--ui-row-height, 28px);
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
   display: inline-flex;
   align-items: center;
   justify-content: center;
