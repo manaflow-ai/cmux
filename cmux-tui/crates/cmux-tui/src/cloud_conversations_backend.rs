@@ -689,17 +689,11 @@ mod tests {
     }
 
     /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
-    /// read within the stall window, not the reply window.
+    /// read within the stall window, not the reply window. At d79ff855 the
+    /// same held for a derived image's (bytes) reply body, though its whole
+    /// request has UPLOAD_TIMEOUT (10 min). Both read `reply_body_window()`.
     #[test]
     fn a_streamed_uploads_reply_body_has_the_reply_window() {
-        assert_eq!(reply_body_window(), UPLOAD_REPLY);
-    }
-
-    /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
-    /// read within the stall window, not the reply window, though its whole
-    /// request has UPLOAD_TIMEOUT (10 min).
-    #[test]
-    fn a_byte_uploads_reply_body_has_the_reply_window_too() {
         assert_eq!(reply_body_window(), UPLOAD_REPLY);
     }
 

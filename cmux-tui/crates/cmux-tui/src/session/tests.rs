@@ -89,18 +89,6 @@ fn already_sized_first_layout_does_not_send_redundant_resize() {
 }
 
 #[test]
-fn shared_resize_does_not_reassert_unchanged_local_report() {
-    let desired = (123, 65);
-    assert!(!resize_action(desired, Some(desired)));
-}
-
-#[test]
-fn steady_state_does_not_send() {
-    let desired = (123, 65);
-    assert!(!resize_action(desired, Some(desired)));
-}
-
-#[test]
 fn local_set_split_ratio_rejects_an_unknown_split() {
     let session = Session::Local(Mux::new("unknown-local-split-test", SurfaceOptions::default()));
 

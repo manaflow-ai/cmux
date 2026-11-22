@@ -21,6 +21,10 @@ fn agent_list_ranks_by_needs_me_by_default() {
     assert_eq!(list.operation.name().unwrap(), "agent.list");
     assert_eq!(list.params.get("state"), None);
     assert_eq!(list.view, ResponseView::AgentRoster(AgentRosterView::default()));
+    // The bare list and the derived default agree; pin what that default is.
+    let ResponseView::AgentRoster(view) = list.view else { panic!("{:?}", list.view) };
+    assert_eq!(view.sort, AgentSort::NeedsMe);
+    assert_eq!(view.limit, None);
 }
 
 #[test]

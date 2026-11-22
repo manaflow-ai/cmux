@@ -67,12 +67,6 @@ fn needs_me_puts_blocked_then_working_then_idle_then_unknown_then_ended_newest_f
 }
 
 #[test]
-fn needs_me_is_the_default_sort() {
-    assert_eq!(AgentRosterView::default().sort, AgentSort::NeedsMe);
-    assert_eq!(AgentRosterView::default().limit, None);
-}
-
-#[test]
 fn recent_sort_ignores_state_and_breaks_ties_by_id() {
     let result = shape(mixed(), &[], &HashSet::new(), view(AgentSort::Recent, None), NOW);
     assert_eq!(

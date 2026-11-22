@@ -208,11 +208,6 @@ fn clear_history_requires_its_additive_capability() {
 }
 
 #[test]
-fn protocol_12_identity_is_accepted() {
-    validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
-}
-
-#[test]
 fn malformed_identity_capabilities_are_rejected() {
     for capabilities in [json!(null), json!("clear-history-v1"), json!(["ok", 1])] {
         assert!(

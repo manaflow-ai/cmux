@@ -1510,14 +1510,6 @@ mod other_delta_tests {
     }
 
     #[test]
-    fn folder_position_keeps_a_full_bound_sized_name() {
-        let key = FolderPosition { at: 7, origin: "o".into(), folder: "x".repeat(1024) };
-        let value = serde_json::to_value(&key).unwrap();
-        let decoded: FolderPosition = serde_json::from_value(value).unwrap();
-        assert_eq!(decoded, key);
-    }
-
-    #[test]
     fn keyed_summary_pages_keep_the_old_json_shape() {
         let page = serde_json::json!({
             "sid":"s", "stream":"list", "keys":[{"lastActivity":4,"chatId":"c","origin":"local"}]

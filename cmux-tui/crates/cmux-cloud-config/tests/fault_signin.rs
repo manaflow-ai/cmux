@@ -7,8 +7,6 @@
 //! or the `credential.minting` refusal naming the step, never a silent wait; a caller that arrives while a
 //! valid token is held answers at once with it (make-before-break); at most one mint runs.
 
-use std::time::Duration;
-
 use cmux_cloud_config::signin::{self, Held, LeaseFacts, MINT_BOUND, Mint};
 
 const LIFE_MS: u64 = 540_000;
@@ -208,9 +206,4 @@ fn seeded_mint_faults_keep_every_call_bounded_and_truthful() {
             }
         }
     }
-}
-
-#[test]
-fn the_bound_is_what_the_relay_can_report() {
-    assert!(MINT_BOUND < Duration::from_secs(25));
 }

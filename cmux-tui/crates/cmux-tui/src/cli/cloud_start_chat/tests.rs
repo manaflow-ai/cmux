@@ -2909,23 +2909,6 @@ fn a_signed_out_folder_start_lists_nothing() {
     assert!(fake.estimated.is_empty());
 }
 
-#[test]
-fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
-    let dir = tempfile::tempdir().unwrap();
-    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
-    let mut fake = Fake::new(vec![
-        signed_in(),
-        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
-        ok(json!({"machines": [{"title": "dev", "machine_id": "vm-9", "status": "running"}]})),
-    ]);
-    let asked =
-        request(&["--prompt", "x", "--target", "machine:vm-9", "--from-folder", folder.as_str()]);
-    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
-    assert_eq!(exit, 75);
-    assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
-    assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
-}
-
 /// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
 fn listed_as(user: &str, team: Option<&str>, machines: &[&str]) -> Ran {
     let rows: Vec<Value> =

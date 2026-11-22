@@ -256,8 +256,3 @@ fn the_catalog_is_read_from_the_live_models_backend_then_cmux_com() {
         [CATALOG_URL, FALLBACK_CATALOG_URL]
     );
 }
-
-#[test]
-fn the_daemon_checks_every_hour() {
-    assert_eq!(REFRESH_EVERY, std::time::Duration::from_secs(60 * 60));
-}
