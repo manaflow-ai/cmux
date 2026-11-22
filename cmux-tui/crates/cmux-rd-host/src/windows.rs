@@ -128,7 +128,11 @@ impl GdiCapture {
             )
         };
         if copied == 0 {
-            return Err("Windows screen capture: BitBlt failed".into());
+            return Err(format!(
+                "Windows screen capture: BitBlt failed ({})",
+                io::Error::last_os_error()
+            )
+            .into());
         }
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
@@ -272,6 +276,48 @@ fn dxgi_desktop_duplication_probe() -> bool {
 /// Capture and encode a bounded sample.  This is the Windows CI selftest and
 /// the service's preflight: it exercises a real desktop frame, the BGRX to
 /// I420 conversion, and Annex-B output through the production encoder trait.
+/// Why this process cannot read the interactive desktop, or None when it can:
+/// session 0 is the services session and has no user desktop, and a failed
+/// `OpenInputDesktop` means no input desktop reaches this window station.
+fn no_interactive_desktop() -> Option<String> {
+    use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, OpenInputDesktop, DESKTOP_READOBJECTS,
+    };
+    let mut session = u32::MAX;
+    // SAFETY: `session` is a valid out pointer for the duration of the call.
+    let known = unsafe { ProcessIdToSessionId(std::process::id(), &mut session) } != 0;
+    if known && session == 0 {
+        return Some("no_interactive_session: this process runs in session 0 (a service session with no desktop)".into());
+    }
+    // SAFETY: a plain query; a returned handle is closed at once.
+    let desktop = unsafe { OpenInputDesktop(0, 0, DESKTOP_READOBJECTS) };
+    if desktop.is_null() {
+        return Some(format!(
+            "no_input_desktop: OpenInputDesktop failed in session {} ({})",
+            if known { session.to_string() } else { "unknown".into() },
+            io::Error::last_os_error()
+        ));
+    }
+    unsafe { CloseDesktop(desktop) };
+    None
+}
+
+/// A moving top-down BGRX test pattern, for the encoder when no desktop can be captured.
+fn generated_frame(pixels: &mut Vec<u8>, width: u32, height: u32, frame: usize) {
+    let (width, height) = (width as usize, height as usize);
+    pixels.resize(width * height * 4, 0);
+    let shift = frame * 4;
+    for (y, row) in pixels.chunks_exact_mut(width * 4).enumerate() {
+        for (x, px) in row.chunks_exact_mut(4).enumerate() {
+            px[0] = (x + shift) as u8;
+            px[1] = (y + shift / 2) as u8;
+            px[2] = ((x ^ y) >> 2) as u8;
+            px[3] = 255;
+        }
+    }
+}
+
 pub fn selftest(opts: &Opts) -> Res<()> {
     #[cfg(feature = "bench")]
     if opts.flag("loopback") {
@@ -286,8 +332,20 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         (None, None) => None,
         _ => return Err("--width and --height must be supplied together".into()),
     };
-    let mut capture = GdiCapture::new(requested)?;
-    let (width, height) = capture.size();
+    // A process with no interactive desktop (a runner service in session 0, a
+    // locked or disconnected session) cannot BitBlt the screen. Then only the
+    // capture cell is skipped, with its reason, and the encoder still runs on
+    // generated frames of the same size.
+    let capture_skipped = no_interactive_desktop();
+    let mut capture = match capture_skipped {
+        Some(_) => None,
+        None => Some(GdiCapture::new(requested)?),
+    };
+    let (width, height) = match &capture {
+        Some(capture) => capture.size(),
+        None => requested.map_or((1920, 1080), |(w, h)| (w.max(2) & !1, h.max(2) & !1)),
+    };
+    let mut generated = Vec::new();
     let codec = opts.str_or("codec", "openh264");
     let mut encoder = encoder::open(&EncCfg {
         width,
@@ -307,7 +365,13 @@ pub fn selftest(opts: &Opts) -> Res<()> {
     let mut idr = 0usize;
     let start = now_ns();
     for frame in 0..frames {
-        let pixels = capture.capture()?;
+        let pixels = match capture.as_mut() {
+            Some(capture) => capture.capture()?,
+            None => {
+                generated_frame(&mut generated, width, height, frame);
+                &generated[..]
+            }
+        };
         bgrx_rect_to_i420(pixels, &mut picture, 0, 0, width as usize, height as usize, 2);
         if encoder.encode(&picture, frame == 0, frame as i64 * 16_667, &mut access_unit)? {
             idr += 1;
@@ -320,7 +384,8 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         "{}",
         serde_json::json!({
             "platform": "windows",
-            "capture": "gdi-readback",
+            "capture": if capture_skipped.is_some() { "skipped" } else { "gdi-readback" },
+            "capture_skipped_reason": capture_skipped,
             "desktop_duplication_available": dxgi_desktop_duplication_probe(),
             "hardware_backend_probe": "media-foundation",
             "media_foundation_available": media_foundation_probe(),
@@ -330,7 +395,8 @@ pub fn selftest(opts: &Opts) -> Res<()> {
             "encoded_bytes": bytes,
             "idr_frames": idr,
             "fps": fps,
-            "capture_encode_ok": frames > 0 && bytes > 0,
+            "encode_ok": frames > 0 && bytes > 0,
+            "capture_encode_ok": capture_skipped.is_none() && frames > 0 && bytes > 0,
         })
     );
     if frames == 0 || bytes == 0 {

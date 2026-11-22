@@ -39,7 +39,7 @@ fn a_keyframe_leaves_within_half_a_frame_interval_in_order() {
     for (t, _) in &sent {
         *per_time.entry(*t).or_insert(0usize) += 1;
     }
-    let rate = 345_600.0 / 8_333.0; // bytes per us
+    let rate = 345_600.0 / 8_333.0_f64.min(MAX_SPREAD_US); // bytes per us
     let burst = (rate * BURST_US as f64 / 1152.0).ceil() as usize + 1;
     assert!(per_time.values().all(|&n| n <= burst), "{per_time:?}");
 }
@@ -111,6 +111,23 @@ fn a_small_frame_goes_at_once_and_a_p_frame_at_two_and_a_half_times_the_target()
     let sent = drain(&mut p, 100_000);
     let span = sent.last().unwrap().0 - 100_000;
     assert!((4_200..=7_000).contains(&span), "span {span}");
+}
+
+/// Detector for the class "the send stage scales with the frame interval": an
+/// at-budget frame at 30 fps (and at 15 fps) leaves within `MAX_SPREAD_US`, not
+/// 0.4 of its interval.
+#[test]
+fn a_low_frame_rate_frame_leaves_within_the_absolute_spread_window() {
+    for (fps, interval_us) in [(30u64, 33_333u64), (15, 66_667)] {
+        let mut p = Pacer::new();
+        // One 30 Mbps frame at this rate.
+        let n = (30_000_000 / 8 / fps as usize).div_ceil(1152);
+        p.push_frame(frame(n), 30_000_000, interval_us, 0);
+        let sent = drain(&mut p, 0);
+        assert_eq!(sent.len(), n);
+        let span = sent.last().unwrap().0;
+        assert!(span <= MAX_SPREAD_US as u64, "{fps} fps: span {span} us");
+    }
 }
 
 #[test]

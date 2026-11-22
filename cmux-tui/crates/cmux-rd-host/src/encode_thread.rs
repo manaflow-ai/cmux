@@ -11,6 +11,7 @@
 use crate::clock::now_ns;
 use crate::desktop::FrameSource;
 use crate::Res;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_engine::EncodeRequest;
 use std::collections::VecDeque;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -53,6 +54,9 @@ pub struct Frame {
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    /// The profile this frame was encoded with, when the encoder applies one (None when it has
+    /// no ultra mode and kept its settings).
+    pub profile: Option<EncodeProfile>,
 }
 
 /// A nonblocking pipe: the encode thread writes a byte after each finished frame, so the loop
@@ -247,6 +251,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        profile: source.applies_profile().then_some(req.profile),
     })
 }
 
