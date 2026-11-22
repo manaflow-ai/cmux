@@ -40,6 +40,7 @@ import {
 import type { BookmarksSnapshot, BookmarksStore, RowIcon } from "./store";
 import { FolderGlyph, GlobeGlyph } from "./glyphs";
 import type { Bookmark } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** `two-pane` ships: the folder tree beside the list (the tree drops below 480 px and the
  * breadcrumb takes its place). `breadcrumb` and `compact` are gallery alternatives. */
@@ -490,34 +491,39 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
   }, [node, unasked, onShown]);
   return (
     // A row of the multi-select grid: the grid pane takes its keys (Up/Down, Return, Delete).
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
-    <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
-      role="row"
-      tabIndex={focused ? 0 : -1}
-      aria-selected={selected}
-      aria-rowindex={index + 1}
-      data-bookmark={node.id}
-      className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
-      style={style}
-      aria-description={layout === "compact" && node.url ? node.url : undefined}
-      draggable
-      onClick={on.onClick}
-      onDoubleClick={on.onOpen}
-      onContextMenu={on.onMenu}
-      onDragStart={on.onDragStart}
-      onDragEnd={on.onDragEnd}
-      onDragOver={on.onDragOver}
-      onDragLeave={on.onDragLeave}
-      onDrop={on.onDrop}
-    >
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
-      <span className="bm-row-cell" role="gridcell">
-        <BookmarkIcon node={node} icon={icon} />
-        <span className="bm-row-title">{title}</span>
-        {detail ? <span className="bm-row-detail">{detail}</span> : null}
-      </span>
-    </div>
+    // A compact row shows no address: its hover card does.
+    <WithFacts facts={[{ value: layout === "compact" && node.url ? node.url : "", code: true }]}>
+      {(facts) => (
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
+        <div
+          {...facts}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
+          role="row"
+          tabIndex={focused ? 0 : -1}
+          aria-selected={selected}
+          aria-rowindex={index + 1}
+          data-bookmark={node.id}
+          className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
+          style={style}
+          draggable
+          onClick={on.onClick}
+          onDoubleClick={on.onOpen}
+          onContextMenu={on.onMenu}
+          onDragStart={on.onDragStart}
+          onDragEnd={on.onDragEnd}
+          onDragOver={on.onDragOver}
+          onDragLeave={on.onDragLeave}
+          onDrop={on.onDrop}
+        >
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
+          <span className="bm-row-cell" role="gridcell">
+            <BookmarkIcon node={node} icon={icon} />
+            <span className="bm-row-title">{title}</span>
+            {detail ? <span className="bm-row-detail">{detail}</span> : null}
+          </span>
+        </div>
+      )}
+    </WithFacts>
   );
 }
 
