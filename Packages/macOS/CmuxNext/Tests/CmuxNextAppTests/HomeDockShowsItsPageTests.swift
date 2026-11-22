@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextTestSupport
 import Foundation
@@ -21,6 +22,7 @@ struct HomeDockShowsItsPageTests {
     /// The pane that showed Home's page last and goes (the pane Home's workspace opened with).
     @MainActor final class OldPane: SurfacePresenter {
         func surfaceWasDisplaced(_ key: String) {}
+        func surfaceIsFree(_ key: String) {}
     }
 
     /// The pane controller of daemon pane `id` in the window's shown workspace.
@@ -39,6 +41,29 @@ struct HomeDockShowsItsPageTests {
         guard let pane = pane(f, id) else { return "no pane \(id)" }
         return "pane \(id): selected \(pane.stripModel.selectedID?.rawValue ?? "-"), shown \(pane.currentTabKey ?? "-"), "
             + "content \(pane.currentContent.map { "\($0.kind)" } ?? "nil")"
+    }
+
+    /// The ledger offers a key back to the pane it was taken from once the taker lets it go: when the taker goes, and
+    /// when it shows another tab; never to a pane that went, and never while another pane holds the key.
+    @Test func aTakenKeyIsOfferedBackWhenItsTakerLetsItGo() {
+        var ledger = SurfaceLedger<String, Int>(capacity: 8)
+        _ = ledger.present("home", by: 1, presence: .visible)
+        let taken = ledger.present("home", by: 2, presence: .visible)
+        #expect(taken.displaced == [.init(key: "home", owner: 1)] && taken.freed.isEmpty)
+        let gone = ledger.removeOwner(2)
+        #expect(gone.freed == [.init(key: "home", owner: 1)], "the pane that stays was not told: \(gone.freed)")
+        #expect(ledger.removeOwner(1).freed.isEmpty)
+
+        _ = ledger.present("home", by: 3, presence: .visible)
+        _ = ledger.present("home", by: 4, presence: .visible)
+        #expect(ledger.withdraw("home", by: 4).freed == [.init(key: "home", owner: 3)], "a taker that showed another tab offered nothing")
+        _ = ledger.present("home", by: 3, presence: .visible)
+        #expect(ledger.withdraw("home", by: 3).freed.isEmpty, "the key was offered to the pane that just let it go")
+
+        _ = ledger.present("chat", by: 5, presence: .visible)
+        _ = ledger.present("chat", by: 6, presence: .visible)
+        _ = ledger.removeOwner(5)
+        #expect(ledger.removeOwner(6).freed.isEmpty, "the key was offered to a pane that went")
     }
 
     /// The dock move as the launch makes it: the old pane shows Home's page last, taking its view from the dock pane,
