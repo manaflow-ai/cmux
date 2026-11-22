@@ -661,6 +661,19 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
     return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
 
 
+# The idle runners an owned label keeps as headroom: more than this many idle beside a stalled queue and the label is
+# not full (label_evidence()). A few idle runners are a reading's noise (one finishing its job, one about to take the
+# next); hundreds are room the queue is not using. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+OWNED_IDLE_HEADROOM = 4
+
+
+def owned_idle(load: Mapping[str, Any]) -> int | None:
+    """The idle runners the janitor's roster read (queue_janitor.attach_owned_idle()) shows on an owned label's
+    pool entry, or None without a usable reading (an older janitor, no token, a failed read)."""
+    idle = load.get("idle")
+    return idle if isinstance(idle, int) and not isinstance(idle, bool) and idle >= 0 else None
+
+
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
     """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
@@ -717,8 +730,17 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
             if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
                 continue
             if owned_lead(label):
-                # Our own machines, not a cloud: a job that waited the cutoff there means every VM is taken, so the
-                # pool overflows to its Blacksmith members until the queue drains, even while the VMs start jobs.
+                # Our own machines, not a cloud: a job that waited the cutoff there and no idle runner past
+                # OWNED_IDLE_HEADROOM means every VM is taken, so the pool overflows to its Blacksmith members until
+                # the queue drains, even while the VMs start jobs. Idle runners beside the wait mean the waiting
+                # jobs are ones these runners do not take, so the pool stays (owned_idle()). With no idle reading
+                # the wait alone decides, as before.
+                idle = owned_idle(load)
+                if idle is not None and idle > OWNED_IDLE_HEADROOM:
+                    started.add(label)
+                    notes.append(f"{label}: {queued} queued, oldest {oldest:g} min, but {idle} runners idle; "
+                                 "not full")
+                    continue
                 full.add(label)
                 continue
             if started_nothing_while_queued(snapshot, label, load, oldest, generated):
