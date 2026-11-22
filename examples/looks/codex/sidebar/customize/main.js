@@ -1,7 +1,10 @@
 // A chat sidebar after a desktop coding agent app. Public surfaces only: cmux.section/1 (the list),
 // cmux.hovercard/1 (the thread card) and cmux.sidebar.rows/1 (row decorations).
 // Numbers are the reference's: rows 36 high, 10 round, inset 6, 10 inside, 14 pt text, a 16 wide
-// status slot at the left, the age at the right. One chat read per change; nothing polls.
+// status slot at the left, the age at the right. Chats come from the live chat.list signal (with
+// archived ones, so a chat you archive drops out at once); nothing polls. Pin and Archive are the
+// host's chat.pin and chat.archive. Only the sort, organize, collapsed and expanded choices are
+// kept in this app's storage.
 
 const ROW_HEIGHT = 36
 const ROW_RADIUS = 10
@@ -10,14 +13,17 @@ const ROW_PAD = 10
 const TEXT = 14
 const SHOW_FIRST = 10 // chats shown before "Show more"
 
-const [chats, setChats] = signal([])
+const [source, setSource] = signal(null)
 const [openWorkspace, setOpenWorkspace] = signal(null)
 const [now, setNow] = signal(Date.now())
-const [prefs, setPrefs] = signal({ sort: "updated", organize: "project", pinned: [], archived: [], collapsed: {}, expanded: {} })
+const [prefs, setPrefs] = signal({ sort: "updated", organize: "project", collapsed: {}, expanded: {} })
 
 const message = (e) => (e instanceof Error ? e.message : String(e))
 const refused = (what) => (e) => cmux.toast({ title: `Turn on ${what} for this view`, message: message(e), tone: "warning" })
 const run = (id, args) => cmux.actions.run(id, args).catch(refused("Run actions"))
+
+// The live chat.list read, once per section render.
+const chats = computed(() => (source() && source()()) || [])
 
 function savePrefs(patch) {
   const next = { ...prefs(), ...patch }
@@ -25,23 +31,21 @@ function savePrefs(patch) {
   cmux.storage.set("sidebar.prefs", next).catch(() => {})
 }
 
+// Only the open workspace is read by hand; the chat list is live.
 let reading = false
 let again = false
-async function loadChats() {
+async function loadWorkspace() {
   if (reading) return void (again = true)
   reading = true
   try {
-    const [list, workspaces] = await Promise.all([cmux.call("agent_chat.list", {}), cmux.workspace.list({}).catch(() => [])])
-    setChats(list.chats)
+    const workspaces = await cmux.workspace.list({}).catch(() => [])
     setOpenWorkspace((workspaces.find((w) => w.focused) || {}).id || null)
     setNow(Date.now())
-  } catch (e) {
-    setChats([])
   } finally {
     reading = false
     if (again) {
       again = false
-      loadChats()
+      loadWorkspace()
     }
   }
 }
@@ -50,18 +54,22 @@ let following = false
 function follow() {
   if (following) return
   following = true
+  setSource(cmux.live("chat.list", { include_archived: true }))
   cmux.storage.get("sidebar.prefs").then((saved) => saved && setPrefs({ ...prefs(), ...saved })).catch(() => {})
-  loadChats()
-  cmux.events.on("agent_chat.changed", loadChats)
-  cmux.events.on("workspace.changed", loadChats)
+  loadWorkspace()
+  cmux.events.on("workspace.changed", loadWorkspace)
   cmux.timer.every(30_000, () => setNow(Date.now()))
 }
 
-const updatedAt = (c) => Math.max(c.updated_ms || 0, c.since_ms || 0, c.created_ms || 0)
-const stamp = (c) => (prefs().sort === "created" ? c.created_ms || 0 : updatedAt(c))
+// A machine and its peer can each list a chat with the same id.
+const chatKey = (c) => JSON.stringify([c.machine || "", c.id])
+const num = (v) => Number(v) || 0
+
+const updatedAt = (c) => Math.max(num(c.updated_ms), num(c.since_ms), num(c.created_ms))
+const stamp = (c) => (prefs().sort === "created" ? num(c.created_ms) : updatedAt(c))
 const isOpen = (c) => c.workspace != null && c.workspace === openWorkspace()
-const isPinned = (c) => prefs().pinned.includes(c.id)
-const isArchived = (c) => prefs().archived.includes(c.id)
+const isPinned = (c) => Boolean(c.pinned)
+const isArchived = (c) => Boolean(c.archived)
 
 // "now", "7m", "2h", "3d": the compact age at the right of a row.
 function age(ms) {
@@ -87,22 +95,32 @@ const projects = computed(() => {
 })
 
 function show(chat) {
-  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadChats, refused("Change workspaces"))
-  else run("agent.openSessionTab", { session: chat.id })
+  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
+  else run("agent.openSessionTab", session(chat))
 }
 
+const session = (c) => ({ session: c.id, ...(c.machine ? { host: c.machine } : {}) })
+const target = (c) => ({ chat: c.id, ...(c.machine ? { machine: c.machine } : {}) })
+const failed = (what) => (e) => cmux.toast({ title: `Could not ${what}`, message: message(e), tone: "warning" })
+
 function togglePin(chat) {
-  const list = prefs().pinned
-  savePrefs({ pinned: list.includes(chat.id) ? list.filter((id) => id !== chat.id) : [...list, chat.id] })
+  cmux.call("chat.pin", { ...target(chat), pinned: !isPinned(chat) }).catch(failed(isPinned(chat) ? "unpin the chat" : "pin the chat"))
 }
 
 function archive(chat) {
-  savePrefs({ archived: [...prefs().archived, chat.id], pinned: prefs().pinned.filter((id) => id !== chat.id) })
-  cmux.toast({ title: "Archived 1 chat", message: chat.title })
+  const call = { targets: [{ chat: chat.id, peer: chat.machine || null }], archived: true }
+  cmux.call("chat.archive", call).then(
+    (results) => {
+      const bad = (results || []).find((r) => r.error != null)
+      if (bad) failed("archive the chat")(bad.error)
+      else cmux.toast({ title: "Archived 1 chat", message: chat.title })
+    },
+    failed("archive the chat")
+  )
 }
 
-// The status slot: a spinner while it works, a question mark when it waits on you, a dot when its
-// answer is unread; otherwise empty, 16 wide so titles line up.
+// The status slot: a spinner while it works, a question mark when it waits on you, a warning
+// triangle when it failed or was lost, a dot when its answer is unread; otherwise empty, 16 wide so titles line up.
 function mark(c) {
   return HStack({ spacing: 0 }, [
     () =>
@@ -110,7 +128,9 @@ function mark(c) {
         ? ProgressView().frame({ width: 12, height: 12 })
         : c().state === "input"
           ? Icon("questionmark.circle").size(13).color(cmux.theme.warning)
-          : c().unread
+          : c().state === "failed" || c().state === "lost"
+            ? Icon("exclamationmark.triangle").size(13).color(cmux.theme.warning)
+            : c().unread
             ? Icon("circle.fill").size(8).color(cmux.theme.accent)
             : null
   ]).frame({ width: 16, height: 16 })
@@ -128,12 +148,12 @@ function thread(c) {
     .cornerRadius(ROW_RADIUS)
     .background(() => (isOpen(c()) ? "selected" : null))
     .hoverBackground(() => (isOpen(c()) ? "selected" : "hover"))
-    .help(() => [c().title, c().cwd, c().step].filter(Boolean).join("\n"))
+    .help(() => [c().title, c().cwd, c().step, c().state === "failed" || c().state === "lost" ? c().error : null].filter(Boolean).join("\n"))
     .cursor("pointer")
     .onTap(() => show(c()))
     .contextMenu(() => [
       Button(isPinned(c()) ? "Unpin chat" : "Pin chat", () => togglePin(c())),
-      Button("Open in New Tab", () => run("agent.openSessionTab", { session: c().id })),
+      Button("Open in New Tab", () => run("agent.openSessionTab", session(c()))),
       Divider(),
       Button("Archive chat", () => archive(c()))
     ])
@@ -149,7 +169,7 @@ function heading(title, trailing) {
 function limited(key, items) {
   const open = () => !!prefs().expanded[key]
   return VStack({ spacing: 0 }, [
-    ForEach({ items: () => (open() ? items() : items().slice(0, SHOW_FIRST)), key: (c) => c.id }, thread),
+    ForEach({ items: () => (open() ? items() : items().slice(0, SHOW_FIRST)), key: chatKey }, thread),
     () =>
       items().length > SHOW_FIRST
         ? Text(open() ? "Show less" : "Show more")
@@ -190,7 +210,7 @@ function renderChats() {
       .onTap(() => run("palette.newAgentChat", {})),
     () =>
       pinned().length
-        ? VStack({ spacing: 0 }, [heading("Pinned"), ForEach({ items: pinned, key: (c) => c.id }, thread)])
+        ? VStack({ spacing: 0 }, [heading("Pinned"), ForEach({ items: pinned, key: chatKey }, thread)])
         : null,
     () =>
       prefs().organize === "list"

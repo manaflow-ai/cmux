@@ -1,60 +1,81 @@
 // Activity and Archive views of your agent chats, after a desktop coding agent app's. One sidebar
 // section (cmux.section/1) with two views you flip between: Activity (Priority first, then Today,
 // Yesterday and older days; Mark all as read; Clear read chats) and Archive (search, Unarchive).
-// The host has no archive or mark-read op for chats yet, so read, cleared and archived marks live in
-// this app's own storage, keyed to a chat's last change: a chat that moves again comes back.
+// Chats come from the live chat.list signal, with archived ones. Mark as read is the host's
+// chat.mark_read, and Archive and Unarchive are its chat.archive. The host has no op to hide a read
+// chat or to mark one unread, so "Clear read chats" is an app-local mark in this app's storage,
+// keyed to a chat's last change: a chat that moves again comes back. There is no Mark as unread.
 
 const ROW_HEIGHT = 36
 const ROW_RADIUS = 10
 const TEXT = 14
 
-const [chats, setChats] = signal([])
+const [source, setSource] = signal(null)
 const [openWorkspace, setOpenWorkspace] = signal(null)
 const [now, setNow] = signal(Date.now())
 const [view, setView] = signal("activity") // "activity" | "archive"
 const [query, setQuery] = signal("")
-const [loaded, setLoaded] = signal(false)
-// id -> the chat's last change when you marked it. read: seen; cleared: hidden from Activity;
-// archived: in the Archive view.
-const [marks, setMarks] = signal({ read: {}, cleared: {}, archived: {} })
+// Chat key -> the chat's last change when you cleared it from Activity.
+const [cleared, setCleared] = signal({})
+
+// The live chat.list read, once per section render.
+const chats = computed(() => (source() && source()()) || [])
+const loaded = () => Boolean(source()) && !source().loading()
 
 const message = (e) => (e instanceof Error ? e.message : String(e))
 const refused = (what) => (e) => cmux.toast({ title: `Turn on ${what} for this view`, message: message(e), tone: "warning" })
 const run = (id, args) => cmux.actions.run(id, args).catch(refused("Run actions"))
 
-function mark(kind, ids) {
-  const at = Object.fromEntries(ids.map((id) => [id, changed(chats().find((c) => c.id === id) || {})]))
-  const next = { ...marks(), [kind]: { ...marks()[kind], ...at } }
-  setMarks(next)
-  cmux.storage.set("threads.marks", next).catch(() => {})
+// A machine and its peer can each list a chat with the same id.
+const chatKey = (c) => JSON.stringify([c.machine || "", c.id])
+const num = (v) => Number(v) || 0
+const failed = (what) => (e) => cmux.toast({ title: `Could not ${what}`, message: message(e), tone: "warning" })
+
+function clear(items) {
+  const at = Object.fromEntries(items.map((c) => [chatKey(c), changed(c)]))
+  const next = { ...cleared(), ...at }
+  setCleared(next)
+  cmux.storage.set("threads.marks", { cleared: next }).catch(() => {})
 }
 
-function unmark(kind, id) {
-  const { [id]: _gone, ...rest } = marks()[kind]
-  const next = { ...marks(), [kind]: rest }
-  setMarks(next)
-  cmux.storage.set("threads.marks", next).catch(() => {})
+// Mark chats read in the host. One refused chat does not stop the rest.
+async function markRead(items) {
+  const results = await Promise.allSettled(
+    items.map((c) => cmux.call("chat.mark_read", { chat: c.id, ...(c.machine ? { machine: c.machine } : {}) }))
+  )
+  const bad = results.find((r) => r.status === "rejected")
+  if (bad) failed(items.length > 1 ? "mark all as read" : "mark the chat as read")(bad.reason)
+}
+
+async function setArchived(items, value) {
+  if (!items.length) return
+  try {
+    const results = await cmux.call("chat.archive", {
+      targets: items.map((c) => ({ chat: c.id, peer: c.machine || null })),
+      archived: value
+    })
+    const bad = (results || []).find((r) => r.error != null)
+    if (bad) failed(value ? "archive the chat" : "unarchive the chat")(bad.error)
+    else if (value) cmux.toast({ title: `Archived ${items.length} chat${items.length === 1 ? "" : "s"}`, message: title(items[0]) })
+  } catch (e) {
+    failed(value ? "archive the chat" : "unarchive the chat")(e)
+  }
 }
 
 let reading = false
 let again = false
-async function loadChats() {
+async function loadWorkspace() {
   if (reading) return void (again = true)
   reading = true
   try {
-    const [list, workspaces] = await Promise.all([cmux.call("agent_chat.list", {}), cmux.workspace.list({}).catch(() => [])])
-    setChats(list.chats)
+    const workspaces = await cmux.workspace.list({}).catch(() => [])
     setOpenWorkspace((workspaces.find((w) => w.focused) || {}).id || null)
     setNow(Date.now())
-    setLoaded(true)
-  } catch (e) {
-    setChats([])
-    setLoaded(true)
   } finally {
     reading = false
     if (again) {
       again = false
-      loadChats()
+      loadWorkspace()
     }
   }
 }
@@ -63,19 +84,20 @@ let following = false
 function follow() {
   if (following) return
   following = true
-  cmux.storage.get("threads.marks").then((saved) => saved && setMarks({ read: {}, cleared: {}, archived: {}, ...saved })).catch(() => {})
-  loadChats()
-  cmux.events.on("agent_chat.changed", loadChats)
-  cmux.events.on("workspace.changed", loadChats)
+  setSource(cmux.live("chat.list", { include_archived: true }))
+  cmux.storage.get("threads.marks").then((saved) => saved && saved.cleared && setCleared(saved.cleared)).catch(() => {})
+  loadWorkspace()
+  cmux.events.on("workspace.changed", loadWorkspace)
   cmux.timer.every(30_000, () => setNow(Date.now()))
 }
 
-const changed = (c) => Math.max(c.updated_ms || 0, c.since_ms || 0, c.created_ms || 0)
-// A mark holds only while the chat has not moved since.
-const held = (kind, c) => marks()[kind][c.id] !== undefined && marks()[kind][c.id] >= changed(c)
-const isArchived = (c) => held("archived", c)
-const needsYou = (c) => c.state === "input" || c.state === "approval"
-const isUnread = (c) => c.unread && !held("read", c)
+const changed = (c) => Math.max(num(c.updated_ms), num(c.since_ms), num(c.created_ms))
+// A cleared mark holds only while the chat has not moved since.
+const isCleared = (c) => cleared()[chatKey(c)] !== undefined && cleared()[chatKey(c)] >= changed(c)
+const isArchived = (c) => Boolean(c.archived)
+const needsYou = (c) => c.state === "input"
+const hasFailed = (c) => c.state === "failed" || c.state === "lost"
+const isUnread = (c) => Boolean(c.unread)
 const isRead = (c) => !needsYou(c) && c.state !== "working" && !isUnread(c)
 const title = (c) => (c.title && c.title.trim()) || "Untitled chat"
 const isOpen = (c) => c.workspace != null && c.workspace === openWorkspace()
@@ -106,7 +128,7 @@ const live = computed(() => chats().filter((c) => !isArchived(c)))
 const priority = computed(() => live().filter((c) => needsYou(c) || isUnread(c)).sort((a, b) => changed(b) - changed(a)))
 const recent = computed(() =>
   live()
-    .filter((c) => !priority().includes(c) && !held("cleared", c))
+    .filter((c) => !priority().includes(c) && !isCleared(c))
     .sort((a, b) => changed(b) - changed(a))
 )
 const days = computed(() => {
@@ -127,11 +149,14 @@ const archived = computed(() => {
     .sort((a, b) => changed(b) - changed(a))
 })
 const archivedCount = computed(() => chats().filter(isArchived).length)
+const unread = computed(() => live().filter(isUnread))
+
+const session = (c) => ({ session: c.id, ...(c.machine ? { host: c.machine } : {}) })
 
 function show(chat) {
-  mark("read", [chat.id])
-  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadChats, refused("Change workspaces"))
-  else run("agent.openSessionTab", { session: chat.id })
+  if (isUnread(chat)) markRead([chat])
+  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
+  else run("agent.openSessionTab", session(chat))
 }
 
 // "Chat · web": the kind of chat, then its project.
@@ -144,7 +169,9 @@ function status(c) {
         ? ProgressView().frame({ width: 12, height: 12 })
         : needsYou(c())
           ? Icon("questionmark.circle").size(13).color(cmux.theme.warning)
-          : isUnread(c())
+          : hasFailed(c())
+            ? Icon("exclamationmark.triangle").size(13).color(cmux.theme.warning)
+            : isUnread(c())
             ? Icon("circle.fill").size(8).color(cmux.theme.accent)
             : null
   ]).frame({ width: 16, height: 16 })
@@ -165,7 +192,7 @@ function row(c, trailing) {
     .cornerRadius(ROW_RADIUS)
     .background(() => (isOpen(c()) ? "selected" : null))
     .hoverBackground(() => (isOpen(c()) ? "selected" : "hover"))
-    .help(() => [title(c()), c().cwd, c().step].filter(Boolean).join("\n"))
+    .help(() => [title(c()), c().cwd, c().step, hasFailed(c()) ? c().error : null].filter(Boolean).join("\n"))
     .cursor("pointer")
 }
 
@@ -173,20 +200,17 @@ const activityRow = (c) =>
   row(c, (item) => Text(() => age(changed(item()))).font(TEXT).color(cmux.theme.text.tertiary).monospaced().fixedSize("horizontal"))
     .onTap(() => show(c()))
     .contextMenu(() => [
-      Button("Open in New Tab", () => run("agent.openSessionTab", { session: c().id })),
-      Button(isUnread(c()) ? "Mark as read" : "Mark as unread", () => (isUnread(c()) ? mark("read", [c().id]) : unmark("read", c().id))),
+      Button("Open in New Tab", () => run("agent.openSessionTab", session(c()))),
+      ...(isUnread(c()) ? [Button("Mark as read", () => markRead([c()]))] : []),
       Divider(),
-      Button("Archive chat", () => {
-        mark("archived", [c().id])
-        cmux.toast({ title: "Archived 1 chat", message: title(c()) })
-      })
+      Button("Archive chat", () => setArchived([c()], true))
     ])
 
 // An archived row: the title, and Unarchive at the right.
 const archivedRow = (c) =>
   row(c, (item) =>
-    Button(Icon("arrow.uturn.backward"), () => unmark("archived", item().id)).help(`Unarchive ${title(item())}`)
-  ).contextMenu(() => [Button(`Unarchive ${title(c())}`, () => unmark("archived", c().id))])
+    Button(Icon("arrow.uturn.backward"), () => setArchived([item()], false)).help(`Unarchive ${title(item())}`)
+  ).contextMenu(() => [Button(`Unarchive ${title(c())}`, () => setArchived([c()], false))])
 
 function heading(text, trailing) {
   return HStack({ spacing: 6 }, [Text(text).font(TEXT).weight("medium").color(cmux.theme.text.secondary), Spacer(), ...(trailing || [])])
@@ -203,8 +227,8 @@ function activity() {
       Text("Activity").font(TEXT).weight("medium"),
       Spacer(),
       Menu("Options", () => [
-        Button("Mark all as read", () => mark("read", chats().filter(isUnread).map((c) => c.id))),
-        Button("Clear read chats", () => mark("cleared", live().filter(isRead).map((c) => c.id))),
+        Button("Mark all as read", () => markRead(unread())),
+        Button("Clear read chats", () => clear(live().filter(isRead))),
         Divider(),
         Button("Archive", () => setView("archive"))
       ])
@@ -214,16 +238,16 @@ function activity() {
     () =>
       priority().length
         ? VStack({ spacing: 0 }, [
-            heading("Priority", [link("Mark all as read", () => mark("read", chats().filter(isUnread).map((c) => c.id)))]),
-            ForEach({ items: priority, key: (c) => c.id }, activityRow)
+            heading("Priority", [link("Mark all as read", () => markRead(unread()))]),
+            ForEach({ items: priority, key: chatKey }, activityRow)
           ])
         : null,
     ForEach({ items: days, key: (g) => g.name }, (g) =>
       VStack({ spacing: 0 }, [
         heading(g().name, [
-          g().name === "Today" && recent().some(isRead) ? link("Clear read chats", () => mark("cleared", live().filter(isRead).map((c) => c.id))) : null
+          () => (g().name === "Today" && recent().some(isRead) ? link("Clear read chats", () => clear(live().filter(isRead))) : null)
         ]),
-        ForEach({ items: () => g().threads, key: (c) => c.id }, activityRow)
+        ForEach({ items: () => g().threads, key: chatKey }, activityRow)
       ])
     ),
     () => {
@@ -245,7 +269,7 @@ function archive() {
       .paddingHorizontal(10)
       .frame({ height: ROW_HEIGHT }),
     TextField(query, { placeholder: "Search archived chats", onEdit: setQuery }).font(TEXT).paddingHorizontal(10),
-    ForEach({ items: archived, key: (c) => c.id }, archivedRow),
+    ForEach({ items: archived, key: chatKey }, archivedRow),
     () => {
       if (!loaded()) return Text("Loading archived chats…").font(TEXT).color(cmux.theme.text.secondary).paddingHorizontal(10)
       if (archivedCount() === 0) return EmptyState({ title: "No archived chats", symbol: "archivebox" })

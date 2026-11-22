@@ -19,11 +19,12 @@
     "cmux.sidebar.rows/1": { "export": "decorateRows" }
   },
   "scopes": {
-    "agent_chat:read": "Read your agent chats, to list them.",
+    "chat:read": "List your chats, including archived ones, to hide them.",
     "workspace:read": "Know which workspace is open, to mark its chat.",
     "workspace:write": "Show a chat's workspace when you click it.",
+    "chat:write": "Pin and archive the chats you choose.",
     "actions:run": "Start a chat, or open one in a tab.",
-    "storage:local": "Remember what you pinned and archived, and the sort."
+    "storage:local": "Remember the sort, grouping and which lists are open."
   },
   "activation": ["onInterface:cmux.section/1", "onInterface:cmux.hovercard/1", "onInterface:cmux.sidebar.rows/1"],
   "files": ["main.js"]
