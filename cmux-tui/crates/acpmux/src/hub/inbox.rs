@@ -922,7 +922,7 @@ fn body(text: &str) -> &str {
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
     fire_notice(item.tool_notice.as_ref())
-        || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+        || wakes_as(meta, item.class, item.report || item.waited, item.from_session.as_deref())
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -1270,7 +1270,12 @@ impl Hub {
         let meta_now = session.meta();
         let waited = crate::prompt_provenance::waited(provenance);
         let wakes_now = fire_notice(provenance.and_then(|p| p.get("notice")))
-            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+            || wakes_as(
+                &meta_now,
+                class,
+                is_report(provenance) || waited,
+                sender_session.as_deref(),
+            );
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
