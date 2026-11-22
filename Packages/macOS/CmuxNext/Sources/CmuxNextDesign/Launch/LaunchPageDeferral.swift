@@ -5,12 +5,10 @@
 /// draws its last frame (the app's `AgentTabContent.drawLastPage`) or its empty ground, and shows the page
 /// once the frame committed, from `FirstFrameGate`.
 ///
-/// Unbound (tests, a launch with no app delegate) it defers nothing.
+/// The app's is ``LaunchReveal/pages``. Unbound (tests, a launch with no app delegate) it defers nothing.
 /// The predicate for which tab makes a page lives at its call sites (`PaneController.content(for:)`, `AgentTabContent`).
 @MainActor
 public final class LaunchPageDeferral {
-    /// The app's one deferral; AppDelegate binds it to its first-frame gate.
-    public static let shared = LaunchPageDeferral()
     private var gate: FirstFrameGate?
     /// Writes a launch mark (the app's `DebugTimings.markLaunch`).
     private var mark: @MainActor (String) -> Void = { _ in }
