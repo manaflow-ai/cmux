@@ -2,13 +2,18 @@
 //! past its bound disconnected with a typed reason, and replies counted like every other line.
 
 use super::Message;
-use super::outbound::{OVERRUNS, TOTAL_HELD, TOTAL_OVERRUNS, start_bounded, start_limited};
+use super::outbound::{Limits, OVERRUNS, TOTAL_OVERRUNS, start_bounded, start_limited};
 use serde_json::{Value, json};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
 const BOUND: usize = 4 << 10;
+
+/// A daemon-wide sum of its own for one test's queues.
+fn own_pool() -> &'static AtomicUsize {
+    Box::leak(Box::new(AtomicUsize::new(0)))
+}
 
 fn note(n: usize) -> String {
     Message::notification("session/update", json!({"n": n, "pad": "x".repeat(200)})).to_line()
@@ -172,14 +177,16 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
     const FAIR: usize = 8 << 10;
     const OWN: usize = 1 << 20;
     let scope = cmux_scope::Scope::new("outbound-test");
-    // Other tests' queues count too: the bound is what they hold now and 32 KiB more.
-    let total = TOTAL_HELD.load(Ordering::Relaxed) + (32 << 10);
+    // Its own pool: other tests' queues, filling and draining beside it, never move its bound.
+    let pool = own_pool();
+    let limits =
+        || Limits { pool, total_bound: 32 << 10, fair_share: FAIR, reader_stall: Duration::ZERO };
     let (t1, _rx1) = mpsc::channel(1);
     let (t2, _rx2) = mpsc::channel(1);
     let (t3, _rx3) = mpsc::channel(1);
-    let (big, _) = start_limited(&scope, None, t1, OWN, total, FAIR, Duration::ZERO);
-    let (other, _) = start_limited(&scope, None, t2, OWN, total, FAIR, Duration::ZERO);
-    let (small, _) = start_limited(&scope, None, t3, OWN, total, FAIR, Duration::ZERO);
+    let (big, _) = start_limited(&scope, None, t1, OWN, limits());
+    let (other, _) = start_limited(&scope, None, t2, OWN, limits());
+    let (small, _) = start_limited(&scope, None, t3, OWN, limits());
     let cuts = TOTAL_OVERRUNS.load(Ordering::Relaxed);
     let mut queued = 0;
     while big.push(note(queued)) {
@@ -210,11 +217,12 @@ async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection()
     const OWN: usize = 1 << 20;
     const STALL: Duration = Duration::from_millis(300);
     let scope = cmux_scope::Scope::new("outbound-test");
-    let total = TOTAL_HELD.load(Ordering::Relaxed) + (16 << 10);
+    let pool = own_pool();
+    let limits = || Limits { pool, total_bound: 16 << 10, fair_share: FAIR, reader_stall: STALL };
     let (t1, mut reading) = mpsc::channel(4);
     let (t2, _stuck) = mpsc::channel(1);
-    let (pane, _) = start_limited(&scope, None, t1, OWN, total, FAIR, STALL);
-    let (cli, _) = start_limited(&scope, None, t2, OWN, total, FAIR, STALL);
+    let (pane, _) = start_limited(&scope, None, t1, OWN, limits());
+    let (cli, _) = start_limited(&scope, None, t2, OWN, limits());
     // The stuck reader fills the daemon-wide bound; it is new, so not yet stalled.
     let mut n = 0;
     while cli.push(note(n)) && n * 200 < OWN / 2 {

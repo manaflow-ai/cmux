@@ -589,7 +589,8 @@
     "eventStream": 1,
     "visible": 1,
     "waitLogs": 1,
-    "settled": 1
+    "settled": 1,
+    "afterSeq": 1
    }
   },
   "mode_fields": null,
