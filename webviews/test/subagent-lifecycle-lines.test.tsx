@@ -148,6 +148,45 @@ test("the batched start names both agents with their own marks and no disclosure
   expect(html).not.toContain("cv-agent-activity__chevron");
 });
 
+// Leo, 2026-11-22, on a start line whose chips shrank as more agents joined it: "there's like a
+// secondary animation that shifts as it recalculates to shrink stuff ... with better designs this
+// won't happen". A line names the agents one record started; it is never rewritten for a later one.
+test("an agent the group starts later gets its own start line under the rows before it", () => {
+  const record = recorded("claude");
+  const cache: DoneLineCache = new Map();
+  const group = () => [...record.groups.values()];
+  const starts = (rows: readonly AcpmuxRow[]) => rows.filter((entry) => entry.kind === SUBAGENT_STARTED);
+  const [first] = starts(withSubagentLines([prompt, ...group()], cache));
+  expect(first!.subagents?.map((agent) => agent.id)).toEqual(["review-a", "review-b"]);
+  // The chat ran a tool, then started a third agent (the fold's events are a second apart).
+  const tool = { ...call, at: 1_500 };
+  record.feed("subagent_spawned", [
+    { id: "review-c", parent: null, name: "Review C", task: "Dummy task three", state: "running" },
+  ]);
+  expect(group()).toHaveLength(1);
+  const later = { ...answer, at: 9_000 };
+  const out = withSubagentLines([prompt, ...group(), tool, later], cache);
+  expect(out.map((entry) => entry.kind)).toEqual(["user", SUBAGENT_STARTED, "activity", SUBAGENT_STARTED, "assistant"]);
+  const [kept, joined] = starts(out);
+  // The first line is the same row: nothing in it is drawn again.
+  expect(kept).toBe(first!);
+  expect(joined!.subagents?.map((agent) => agent.id)).toEqual(["review-c"]);
+  expect(joined!.id).not.toBe(kept!.id);
+  expect(renderToStaticMarkup(<SubagentStartedLine row={joined!} />)).toContain("Dummy task three");
+  // A fourth agent leaves both lines as they are and adds its own at the end.
+  record.feed("subagent_spawned", [
+    { id: "review-d", parent: null, name: "Review D", task: "Dummy task four", state: "running" },
+  ]);
+  const again = starts(withSubagentLines([prompt, ...group(), tool, later], cache));
+  expect(again).toHaveLength(3);
+  expect(again[0]).toBe(kept!);
+  expect(again[1]).toBe(joined!);
+  // Read again with nothing new, every row is the same object.
+  const settled = withSubagentLines([prompt, ...group(), tool, later], cache);
+  expect(starts(settled)).toEqual(again);
+  starts(settled).forEach((entry, index) => expect(entry).toBe(again[index]!));
+});
+
 test("late kind and prompt metadata update a cached start label", () => {
   const record = recorded("claude");
   record.feed("subagent_spawned", [

@@ -1,7 +1,7 @@
 // Running subagents, background commands and the chats the agent started live in one tray at the
 // foot of the chat, in the bottom stack right above the composer (SubagentTray.tsx), never in the
 // middle of history (Leo 2026-10-20: "put the subagent situation at the bottom of the chat and
-// anchor"). The transcript keeps a compact start line for each recorded group, and a finished
+// anchor"). The transcript keeps a compact start line for each run of a recorded group, and a finished
 // line for each subagent where it ended. The tray owns live progress and Stop; lifecycle lines
 // stay readable when the turn's work folds.
 //
@@ -219,11 +219,33 @@ const STARTED_STATES = new Set(["running", "completed", "failed", "cancelled", "
 const hasStarted = (agent: Subagent) =>
   agent.id.trim() !== "" && Number.isFinite(agent.startedAt) && STARTED_STATES.has(agent.state);
 
-function startedLine(group: AcpmuxRow, cache: DoneLineCache, made: Set<string>, workflows: boolean): AcpmuxRow[] {
-  const agents = (group.subagents ?? []).filter((agent) => hasStarted(agent) && !(workflows && isWorkflow(agent)));
-  if (!agents.length) return [];
-  const id = `${SUBAGENT_STARTED}:${group.id}`;
-  const at = Math.min(...agents.map((agent) => agent.startedAt));
+/// A group's started agents in the runs they started in: the agents one record started (they share
+/// its time) are one run, and each later record's are a run of their own.
+function startedRuns(group: AcpmuxRow, workflows: boolean): Subagent[][] {
+  const runs: Subagent[][] = [];
+  for (const agent of group.subagents ?? []) {
+    if (!hasStarted(agent) || (workflows && isWorkflow(agent))) continue;
+    const last = runs[runs.length - 1];
+    if (last && last[0]!.startedAt === agent.startedAt) last.push(agent);
+    else runs.push([agent]);
+  }
+  return runs;
+}
+
+/// One run's start line. It names the agents that started together and no others, so the line is
+/// whole on its first frame: an agent the group starts later gets a line of its own under the rows
+/// that came before it, and the names already drawn keep their width (Leo, 2026-11-22, on a start
+/// line whose chips shrank as more agents joined: "there's like a secondary animation that shifts as
+/// it recalculates to shrink stuff"). The group's first run keeps the group's id.
+function startedLine(
+  group: AcpmuxRow,
+  agents: Subagent[],
+  first: boolean,
+  cache: DoneLineCache,
+  made: Set<string>,
+): AcpmuxRow {
+  const id = first ? `${SUBAGENT_STARTED}:${group.id}` : `${SUBAGENT_STARTED}:${group.id}:${agents[0]!.id}`;
+  const at = agents[0]!.startedAt;
   const key = JSON.stringify([
     at,
     group.inBackground,
@@ -231,7 +253,7 @@ function startedLine(group: AcpmuxRow, cache: DoneLineCache, made: Set<string>, 
   ]);
   made.add(id);
   const kept = cache.get(id);
-  if (kept?.key === key) return [kept.row];
+  if (kept?.key === key) return kept.row;
   const row: AcpmuxRow = {
     id,
     kind: SUBAGENT_STARTED,
@@ -241,7 +263,7 @@ function startedLine(group: AcpmuxRow, cache: DoneLineCache, made: Set<string>, 
     ...(group.inBackground !== undefined && { inBackground: group.inBackground }),
   };
   cache.set(id, { key, row });
-  return [row];
+  return row;
 }
 
 /// A cheap stable number for a done line's content, its row version.
@@ -447,16 +469,23 @@ export function withSubagentLines(
       const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
+    // The agents a later record started: their line goes under the rows that came before them.
+    for (const run of startedRuns(row, workflowCards).slice(1)) {
+      let at = index + 1;
+      while (at < rows.length && rows[at]!.at <= run[0]!.startedAt) at += 1;
+      before.set(at, [...(before.get(at) ?? []), startedLine(row, run, false, cache, made)]);
+    }
   }
   // The rows drawn other than as they are: the groups' starts and workflow cards, and the reports
   // of a reported subagent (its line); and where the done lines go.
   const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
   for (const index of groups)
     if (!isRunGroup(rows[index]!))
-      changed.set(index, () => [
-        ...startedLine(rows[index]!, cache, made, workflowCards),
-        ...(cards.get(index) ?? NO_ROWS),
-      ]);
+      changed.set(index, () => {
+        const run = startedRuns(rows[index]!, workflowCards)[0];
+        const line = run ? [startedLine(rows[index]!, run, true, cache, made)] : NO_ROWS;
+        return [...line, ...(cards.get(index) ?? NO_ROWS)];
+      });
   reportPass.items.forEach((origin, at) => {
     const agent = reported.get(origin);
     if (agent) {
