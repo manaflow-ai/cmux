@@ -1563,6 +1563,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1946,6 +1947,7 @@ dependencies = [
  "base64",
  "cmux-apps",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
@@ -2214,6 +2216,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "serde",
+ "serde_json",
  "sha1",
  "sha2 0.10.9",
  "tempfile",
