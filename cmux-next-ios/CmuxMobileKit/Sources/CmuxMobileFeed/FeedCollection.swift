@@ -217,7 +217,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     return cell
                 }
                 let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
-                    ?? self?.spares.popLast() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+                    ?? self?.takeSpare() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
                 guard let self, let layout = self.layout(for: id) else { return row }
                 row.delegate = self
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
@@ -618,6 +618,16 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
         }
     }
+
+    /// A spare, reset as the table resets a dequeued cell (it was last filled with a warm-up row).
+    private func takeSpare() -> FeedRowCell? {
+        guard let cell = spares.popLast() else { return nil }
+        cell.prepareForReuse()
+        sparesTaken += 1
+        return cell
+    }
+
+    private(set) var sparesTaken = 0
 
     /// One spare row cell with every warmed shape's parts built (one per idle run-loop turn).
     private func makeSpare() {
