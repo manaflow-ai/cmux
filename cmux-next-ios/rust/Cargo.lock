@@ -669,7 +669,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cmux-signed-envelope",
- "ring",
  "serde",
  "serde_json",
 ]
