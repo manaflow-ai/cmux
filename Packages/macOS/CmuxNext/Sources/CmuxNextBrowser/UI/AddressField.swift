@@ -215,8 +215,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // theme-scoped: called only inside performWithTheme
     private func writeScoped(_ text: String, style: OmnibarPresentation.Style) {
         let font = font ?? OmnibarStyle.font
+        // One read of the bar's ink per write (`OmnibarInk` fits it to every ground the bar shows).
+        let ink = OmnibarStyle.ink
+        let primary = ink.primaryColor
         if let editor = currentEditor() as? NSTextView {
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primary]
             editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
             editor.typingAttributes = attributes
             // The cell draws the placeholder under an empty editor (`EditorAlignedTextFieldCell`).
@@ -226,14 +229,14 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         lastStyle = style
         switch style {
         case .plain:
-            attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: OmnibarStyle.textPrimary])
+            attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: primary])
         case .compactURL(let url):
             let attributed = NSMutableAttributedString(string: text, attributes: [
                 .font: font,
-                .foregroundColor: OmnibarStyle.textSecondary,
+                .foregroundColor: ink.secondaryColor,
             ])
             let host = BrowserURLDisplay.hostRange(in: text, for: url) ?? NSRange(location: 0, length: (text as NSString).length)
-            attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+            attributed.addAttribute(.foregroundColor, value: primary, range: host)
             attributedStringValue = attributed
         }
     }

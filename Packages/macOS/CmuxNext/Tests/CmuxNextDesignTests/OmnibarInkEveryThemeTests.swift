@@ -17,8 +17,9 @@ import CmuxNextDesignTokens
             ("flat", .flat(coverage: 0)),
             ("flat-covered", .flat(coverage: 0.6)),
             ("transparent", .clear(hover: tokens.hoverFill)),
-            ("glass", .glass(tint: tokens.chromeBackground.withAlpha(tokens.chromeBackground.alpha * 0.35), hover: tokens.hoverFill)),
-            ("glass-untinted", .glass(tint: nil, hover: tokens.hoverFill)),
+            ("glass", .glass(tints: [tokens.chromeBackground.withAlpha(tokens.chromeBackground.alpha * 0.35),
+                                     tokens.chromeBackground.withAlpha(tokens.chromeBackground.alpha * 0.5)], hover: tokens.hoverFill)),
+            ("glass-untinted", .glass(tints: [nil], hover: tokens.hoverFill)),
         ]
     }
 
@@ -41,10 +42,16 @@ import CmuxNextDesignTokens
                 for (name, backing) in Self.backings(theme.tokens) {
                     let ink = surface.ink(backing, secondaryText: theme.tokens.textSecondary)
                     let inks = [("primary", ink.primary), ("secondary", ink.secondary), ("icon", ink.icon),
-                                ("badge", ink.icon(on: theme.tokens.hoverFill))]
+                                ("badge", ink.icon(on: [theme.tokens.hoverFill], bare: false)),
+                                ("hovered icon", ink.icon(on: [theme.tokens.hoverFill, theme.tokens.pressedFill]))]
                     for (role, color) in inks {
                         checked += 1
-                        let grounds = role == "badge" ? ink.grounds.map { theme.tokens.hoverFill.composited(over: $0) } : ink.grounds
+                        let plated = ink.grounds.map { theme.tokens.hoverFill.composited(over: $0) }
+                        let grounds = switch role {
+                        case "badge": plated
+                        case "hovered icon": ink.grounds + plated + ink.grounds.map { theme.tokens.pressedFill.composited(over: $0) }
+                        default: ink.grounds
+                        }
                         if !Self.readsOrBest(color, grounds) {
                             failures.append(String(format: "%@ %@ window %.1f: %@ %.2f:1", theme.label, name, windowOpacity, role,
                                                    OmnibarInk.worstContrast(color, over: grounds)))

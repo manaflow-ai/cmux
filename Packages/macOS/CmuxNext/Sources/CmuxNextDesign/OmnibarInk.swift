@@ -37,11 +37,14 @@ public nonisolated struct OmnibarInk: Hashable, Sendable {
         self.icon = Self.readable(text.withAlpha(text.alpha * 0.83), over: grounds, minimum: minimum, fallback: primary)
     }
 
-    /// The icon ink for a mark on `fill` laid over the bar (a badge's plate): the icon ink when it reads on the
-    /// plate over every ground, else the primary, else a step toward black or white.
-    public func icon(on fill: ThemeRGB, minimum: Double = ThemeTokens.minimumTextContrast) -> ThemeRGB {
-        let plates = grounds.map { fill.composited(over: $0) }
-        return Self.readable(icon, over: plates, minimum: minimum, fallback: primary)
+    /// The icon ink for a mark that sits on the bar bare and on each of `plates` laid over it (a badge's plate, the
+    /// star's and the chip's hover and press plates): the icon ink when it reads on all of them, else the primary, else a
+    /// step toward black or white. One color, so a hover or a press changes the plate, never the mark.
+    public func icon(on plates: [ThemeRGB], bare: Bool = true, minimum: Double = ThemeTokens.minimumTextContrast) -> ThemeRGB {
+        var under = bare ? grounds : []
+        for plate in plates { under += grounds.map { plate.composited(over: $0) } }
+        guard !under.isEmpty else { return icon }
+        return Self.readable(icon, over: under, minimum: minimum, fallback: primary)
     }
 
     /// The least contrast `ink` keeps over `grounds` (composited, for a translucent ink).
@@ -74,9 +77,9 @@ public extension AddressBarSurface {
         case flat(coverage: Double)
         /// No fill: the toolbar shows through; `hover` is the see-through hover fill.
         case clear(hover: ThemeRGB)
-        /// Glass: the material in this theme's light or dark look, under `tint` (nil: none) and the bar's
-        /// `hover` lift.
-        case glass(tint: ThemeRGB?, hover: ThemeRGB)
+        /// Glass: the material in this theme's light or dark look, under each of `tints` (the rest tint and the
+        /// editing one, stronger; nil: none) and the bar's `hover` lift.
+        case glass(tints: [ThemeRGB?], hover: ThemeRGB)
     }
 
     /// The desktop extremes behind a see-through window (`worstContrast`); one ground in an opaque window.
@@ -106,12 +109,14 @@ public extension AddressBarSurface {
         case .clear(let hover):
             grounds += toolbarGrounds
             grounds += toolbarGrounds.map { hover.composited(over: $0) }
-        case .glass(let tint, let hover):
+        case .glass(let tints, let hover):
             let frost = Self.glassFrost(isDark: isDark)
             for ground in toolbarGrounds {
-                var glass = ground.mixed(toward: frost.toward, frost.step)
-                if let tint { glass = tint.composited(over: glass) }
-                grounds += [glass, hover.composited(over: glass)]
+                let frosted = ground.mixed(toward: frost.toward, frost.step)
+                for tint in tints.isEmpty ? [nil] : tints {
+                    let glass = tint.map { $0.composited(over: frosted) } ?? frosted
+                    grounds += [glass, hover.composited(over: glass)]
+                }
             }
         }
         return grounds
@@ -124,12 +129,12 @@ public extension AddressBarSurface {
 }
 
 public extension Palette {
-    /// The omnibar's ink in the active theme scope and its window (`addressBar`): over `glassTint`'s glass when
-    /// `glass`, over nothing (the toolbar) when `transparent`, else over the flat fill at `coverage`.
-    @MainActor static func omnibarInk(glass: Bool, transparent: Bool, glassTint: NSColor?, coverage: Double) -> OmnibarInk {
+    /// The omnibar's ink in the active theme scope and its window (`addressBar`): over the glass under each of
+    /// `glassTints` when `glass`, over nothing (the toolbar) when `transparent`, else over the flat fill at `coverage`.
+    @MainActor static func omnibarInk(glass: Bool, transparent: Bool, glassTints: [NSColor?], coverage: Double) -> OmnibarInk {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let backing: AddressBarSurface.Backing = if glass {
-            .glass(tint: glassTint.flatMap(ThemeRGB.init(srgb:)), hover: tokens.hoverFill)
+            .glass(tints: glassTints.map { $0.flatMap(ThemeRGB.init(srgb:)) }, hover: tokens.hoverFill)
         } else if transparent {
             .clear(hover: tokens.hoverFill)
         } else {
@@ -150,9 +155,10 @@ public extension OmnibarInk {
     nonisolated func reads(_ color: NSColor) -> Bool {
         ThemeRGB(srgb: color).map { Self.worstContrast($0, over: grounds) >= ThemeTokens.minimumTextContrast } ?? false
     }
-    /// ``icon(on:minimum:)`` for a plate of `plate`'s color (the icon ink for a color with no sRGB form).
-    nonisolated func iconColor(on plate: NSColor) -> NSColor {
-        (ThemeRGB(srgb: plate).map { icon(on: $0) } ?? icon).nsColor
+    /// ``icon(on:bare:minimum:)`` for plates of these colors (a color with no sRGB form is left out). `bare`: the
+    /// mark also shows with no plate (the star and chip at rest; a badge always has its plate).
+    nonisolated func iconColor(on plates: [NSColor], bare: Bool = true) -> NSColor {
+        icon(on: plates.compactMap(ThemeRGB.init(srgb:)), bare: bare).nsColor
     }
 }
 

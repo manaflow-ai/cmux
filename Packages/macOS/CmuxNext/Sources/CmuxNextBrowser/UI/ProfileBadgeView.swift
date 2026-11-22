@@ -108,7 +108,7 @@ final class ProfileBadgeView: NSView {
             layer?.backgroundColor = plate.cgColor
             // The bar's ink on this plate over every ground the bar shows (`OmnibarInk`), not the theme's secondary
             // text, which a color plate or the bar's lift could take under 4.5:1 (issue 50986).
-            let ink = OmnibarStyle.ink.iconColor(on: plate)
+            let ink = OmnibarStyle.ink.iconColor(on: [plate], bare: false)
             label.textColor = ink
             symbol.contentTintColor = ink
         }

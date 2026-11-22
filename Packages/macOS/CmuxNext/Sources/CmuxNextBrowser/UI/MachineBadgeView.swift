@@ -62,7 +62,7 @@ final class MachineBadgeView: NSView {
         performWithTheme {
             layer?.backgroundColor = Palette.hoverFill.cgColor
             // The bar's ink on the plate (`OmnibarInk`; issue 50986).
-            label.textColor = OmnibarStyle.ink.iconColor(on: Palette.hoverFill)
+            label.textColor = OmnibarStyle.ink.iconColor(on: [Palette.hoverFill], bare: false)
         }
     }
 

@@ -71,8 +71,9 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     /// The bar's ink with this look (`OmnibarInk`), in the active theme scope.
     // theme-scoped: read inside performWithTheme (OmnibarStyle.ink)
     @MainActor var ink: OmnibarInk {
-        Palette.omnibarInk(glass: drawsGlass, transparent: material == .transparent, glassTint: drawsGlass ? tintColor() : nil,
-                           coverage: backgroundOpacity)
+        // The rest tint and the editing one (`OmnibarPillView.refresh`: boost 0.15).
+        Palette.omnibarInk(glass: drawsGlass, transparent: material == .transparent,
+                           glassTints: drawsGlass ? [tintColor(), tintColor(boost: 0.15)] : [], coverage: backgroundOpacity)
     }
 
     /// The bar's corner radius at `barHeight`.

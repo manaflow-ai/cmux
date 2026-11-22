@@ -301,9 +301,9 @@ public final class AddressBarView: NSView {
         set { profileBadgeView.makeMenu = newValue }
     }
 
-    /// The badge shown now, for diagnostics (`debug.browser`).
     /// The profile badge's text color now (tests).
     var profileBadgeTextColor: NSColor? { profileBadgeView.shownTextColor }
+    /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
     /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once

@@ -357,7 +357,9 @@ enum OmnibarStyle {
     static var textSecondary: NSColor { ink.secondaryColor } // theme-scoped
     /// The chip's glyph, the star in both states and the badges: Chrome's `kColorOmniboxResultsIcon` tone, the primary
     /// text at 83% (#C6C6C6 over Helium's dark bar, #464747 over its light one), where that reads on the bar.
-    static var iconInk: NSColor { ink.iconColor } // theme-scoped
+    static var iconInk: NSColor { ink.iconColor(on: [chipHoverFill, Palette.pressedFill, starHoverFill(isDark: isDarkTheme)]) } // theme-scoped
+    /// Whether the active theme scope is dark.
+    static var isDarkTheme: Bool { Palette.addressBar.isDark } // theme-scoped
     /// The suggestion rows' glyphs, on the card: Chrome's results-icon tone, the theme's primary text at 83%.
     static var resultsIcon: NSColor { Palette.textPrimary.withAlphaComponent(Palette.textPrimary.alphaComponent * 0.83) } // theme-scoped
 }

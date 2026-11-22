@@ -149,14 +149,14 @@ struct OmnibarInkTests {
         workspace.adopt(window)
 
         let f = try fixture(window: window, url: "https://example.com", inWindow: false)
-        f.bar.starButton.display()
+        f.bar.starButton.updateLayer()
         let outside = f.bar.starButton.shownTint
         f.content.addSubview(f.chrome)
         settle(window)
         let inside = f.bar.performWithTheme { OmnibarStyle.iconInk }
         #expect(try !same(outside, inside), "the app's ink is not another color than the workspace's")
         #expect(try same(f.bar.starButton.shownTint, inside), "the star keeps the app theme's ink in the dark workspace")
-        #expect(try same(f.bar.profileBadgeTextColor, f.bar.performWithTheme { OmnibarStyle.ink.iconColor(on: Palette.hoverFill) }),
+        #expect(try same(f.bar.profileBadgeTextColor, f.bar.performWithTheme { OmnibarStyle.ink.iconColor(on: [Palette.hoverFill], bare: false) }),
                 "the profile badge keeps the app theme's ink in the dark workspace")
     }
 }
