@@ -1,0 +1,25 @@
+{
+  "family": "saved_tab_group",
+  "ops": {
+    "saved_tab_group.delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "6150c5e4cee6b09f"
+    },
+    "saved_tab_group.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "dc194d0a85b96858"
+    },
+    "saved_tab_group.reopen": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "5063bbcea42c60c4"
+    },
+    "saved_tab_group.save": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "d51052a0ee2888bc"
+    }
+  }
+}

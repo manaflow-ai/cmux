@@ -26,6 +26,15 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
+  "switch.2": (
+    <>
+      <rect x="1.8" y="2.4" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="11.9" cy="4.7" r="1.2" fill="currentColor" />
+      <rect x="1.8" y="9" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="4.1" cy="11.3" r="1.2" />
+    </>
+  ),
   "sidebar.left": (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />

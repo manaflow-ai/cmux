@@ -557,6 +557,15 @@ impl Desktop for FakeDesktop {
         self.excludes_apps
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Ok(Box::new(crate::record::synthetic::SyntheticEncoder::new(width, height)))
+    }
+
     fn capture_apps(&self) -> DResult<Vec<App>> {
         let mut apps = self.apps.clone();
         apps.extend(self.capture_only_apps.iter().cloned());
@@ -865,5 +874,17 @@ impl Desktop for FakeDesktop {
                 Some(prior.clone());
         }
         Ok(self.restore_works)
+    }
+
+    /// The one display `capture(Display(_))` returns.
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Ok(vec![crate::displays::Display {
+            id: "0".into(),
+            frame: Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 },
+            scale: self.scale,
+            main: true,
+            builtin: Some(false),
+            is_virtual: Some(true),
+        }])
     }
 }
