@@ -1772,7 +1772,7 @@ export function NewTabScreen(props: Props) {
       input.writeText(fill, fill.length, fill.length);
       return;
     }
-    if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
+    if (event.key === "Tab" && plain && rows.length && !yieldRows && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
       // can leave the field.
@@ -1786,7 +1786,8 @@ export function NewTabScreen(props: Props) {
     // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     // Only drawn rows take the arrows: a prompt whose one row is its own hidden Ask keeps them for the caret.
-    if (step && drawnRows) {
+    // Hidden rows (they gave way to a chip's menu, cmux#50983) take no keys.
+    if (step && drawnRows && !yieldRows) {
       event.preventDefault();
       pick(stepRows(current, step));
     } else if (step && dismissed !== undefined && text) {
@@ -2480,7 +2481,7 @@ export function NewTabScreen(props: Props) {
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current] && current >= firstDrawn
+                    : rows[current] && current >= firstDrawn && !yieldRows
                       ? `nt-row-${current}`
                       : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off

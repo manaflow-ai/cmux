@@ -8,17 +8,14 @@ import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Popover } from "../src/ui/Popover";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../src/ui/Menu";
-import {
-  anotherPopupOpen,
-  popupSurfaceAttributes,
-  SOLID_POPUP_ATTRIBUTE,
-  SolidPopups,
-  useYieldsToPopup,
-  YIELDING_POPUP_ATTRIBUTE,
-} from "../src/ui/solidPopups";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+// src/ loads with a document in place (support/importWithDom.ts): Base UI and Floating UI decide once.
+const { Popover } = await importWithDom(() => import("../src/ui/Popover"));
+const { Menu, MenuButton, MenuItem, MenuPopup } = await importWithDom(() => import("../src/ui/Menu"));
+const { anotherPopupOpen, popupSurfaceAttributes, SOLID_POPUP_ATTRIBUTE, SolidPopups, useYieldsToPopup, YIELDING_POPUP_ATTRIBUTE } =
+  await importWithDom(() => import("../src/ui/solidPopups"));
 
 const SRC = join(import.meta.dir, "../src");
 
@@ -117,7 +114,7 @@ test("a menu opened inside a composer is solid; one outside keeps the App's menu
     <Menu open onOpenChange={() => {}}>
       <MenuButton>{name}</MenuButton>
       <MenuPopup className={`menu-${name}`}>
-        <MenuItem onClick={() => {}}>Full access</MenuItem>
+        <MenuItem onSelect={() => {}}>Full access</MenuItem>
       </MenuPopup>
     </Menu>
   );
