@@ -43,6 +43,9 @@ const TURNS = Number(process.argv[3] ?? 100);
 const IDLE_WINDOW_MS = Number(process.env.IDLE_MS ?? 5000);
 const RELEASE = process.env.RELEASE === "1";
 const REOPEN = Number(process.env.REOPEN ?? 10);
+// NOCHAT=1: each page is the pane with no chat attached (no session in its URL), so a row is what one more document
+// of the app costs before any chat content: the share a chat would not pay if hidden chats shared one document.
+const NOCHAT = process.env.NOCHAT === "1";
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -189,7 +192,7 @@ try {
   releases.push(() => statics.stop(true));
   const origin = `http://127.0.0.1:${statics.port}`;
   const urlFor = (index: number) =>
-    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t${NOCHAT ? "" : `&session=${sessionId(index)}`}`;
 
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
@@ -340,6 +343,12 @@ try {
       const index = pages.length;
       const page = await context.newPage();
       await page.goto(urlFor(index));
+      if (NOCHAT) {
+        await page.waitForLoadState("load");
+        await settledAt(page).catch(() => undefined);
+        pages.push({ page, cdp: await context.newCDPSession(page) });
+        continue;
+      }
       const shown = await page.waitForFunction(
         (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
         FIRST_TEXT,
