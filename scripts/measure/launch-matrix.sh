@@ -32,7 +32,8 @@
 # Isolation per launch (--profile, auto by default): chromium (Chrome, Edge, Helium and Electron apps:
 # --user-data-dir and xbench.py's flags), home (cmux NEXT: an empty HOME with its own login keychain, as
 # launch-premain.swift gives it), none (Safari and anything sandboxed: the build user's own state; this Mac's only
-# user is the build user, so no person's state is touched or restored).
+# user is the build user, so no person's state is touched or restored). warm, cold-quit and evicted keep one profile
+# per scenario across their reps (a relaunch reopens its own state); the other arms clone one per launch.
 # --phase before: one launch and quit, kern.boottime saved in OUT; then the caller reboots (never this script).
 # --phase after: refuses (exit 3) unless kern.boottime changed since before and the boot is < 600 s old; then one
 # measured launch, scenario after-reboot.
@@ -236,16 +237,17 @@ print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "${4:-{\}}" "$NAME" "$(load
 arm() {
   local scenario="$1" rep="$2" state="$3" src="$4" tag="$1-$2" dir extra="{}" target="$APP" json
   case "$scenario" in
-    warm)
-      dir="$(clone_profile "$tag")"
-      # The short run the relaunch follows: the previous launch, or for rep 1 one of its own.
-      if [[ "$rep" == 1 ]]; then launch "short-$tag" "$APP" "$dir" 1 >/dev/null; gone "$APP"; fi
-      sleep 3 ;;
-    cold-quit)
-      dir="$(clone_profile "$tag")"; sleep 60 ;;
-    evicted)
-      dir="$(clone_profile "$tag")"; sleep 60
-      extra="$(evict "$APP")" ;;
+    warm|cold-quit|evicted)
+      # A relaunch: one profile per scenario that every rep reopens, as a person's app reopens its own state. A fresh
+      # clone per rep is a first open of a moved profile, not a relaunch (Chrome: window 4.7 s against 0.6 s on
+      # cmux13s). Rep 1 follows a short run of its own; every later rep follows the previous rep.
+      dir="$OUT/profiles/$scenario"
+      if [[ "$rep" == 1 ]]; then dir="$(clone_profile "$scenario")"; launch "short-$tag" "$APP" "$dir" 1 >/dev/null; gone "$APP"; fi
+      case "$scenario" in
+        warm) sleep 3 ;;
+        cold-quit) sleep 60 ;;
+        evicted) sleep 60; extra="$(evict "$APP")" ;;
+      esac ;;
     large-session)
       dir="$OUT/profiles/$tag"; rm -rf "$dir"; cp -cR "$state" "$dir" 2>/dev/null || cp -R "$state" "$dir"; sleep 3 ;;
     update)
