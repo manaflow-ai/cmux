@@ -66,7 +66,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         id: "sidebar",
         title: SIDEBAR,
         surface: "sidebar",
-        menus: &["sidebarBackground", "sidebarNew", "sidebarFooter"],
+        menus: &["sidebarBackground", "sidebarFooter"],
         settings: &["sidebar.side", "sidebar.style", "sidebar.density", "sidebar.textSize", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "appearance.sidebarSurface", "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity", "appearance.metrics.sidebarWidth"],
         tokens: &["sidebarBackground", "sidebarStep", "textPrimary", "textSecondary", "separator"],
     },
