@@ -59,7 +59,7 @@ it("returns STUN on a cold deadline and keeps a late TURN mint for the next call
   const slow = new Promise<Response>((resolve) => { finish = resolve })
   const fetcher = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(slow)
   const fallback = await cachedIceServers(env, ctx)
-  expect(fallback).toMatchObject({ turn: false, iceServers: [{ urls: [STUN] }] })
+  expect(fallback).toMatchObject({ turn: false, ttl: 60, iceServers: [{ urls: [STUN] }] })
   finish(minted("late"))
   await waitOnExecutionContext(ctx)
   const next = createExecutionContext()

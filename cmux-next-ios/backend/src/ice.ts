@@ -52,7 +52,13 @@ export type CachedIce = { issuedAt: number; usableUntil: number; answer: IceAnsw
 type IceScope = { key: string; entry?: CachedIce; mint?: Promise<IceAnswer> }
 
 const safetyMarginMs = 30_000
-const coldWaitMs = 2_500
+// A true cold miss waits for the TURN mint almost as long as the Mac does
+// (host.rs ICE_BUDGET, 5 s), so a slow link still gets TURN. Shorter, and a
+// lossy-10 cold miss served 94 of 250 phones STUN-only.
+const coldWaitMs = 4_500
+// A STUN-only answer from a cold miss is kept briefly, so the caller
+// refetches and finds the TURN answer the background mint stored.
+const coldFallbackTtl = 60
 let isolate: IceScope | undefined
 
 const remainingMs = (entry: CachedIce) => entry.issuedAt + entry.answer.ttl * 1000 - Date.now()
@@ -106,7 +112,7 @@ export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([pending, new Promise<IceAnswer>((resolve) => {
-      timer = setTimeout(() => resolve({ iceServers: [{ urls: [STUN] }], turn: false, ttl: iceTtl(env) }), coldWaitMs)
+      timer = setTimeout(() => resolve({ iceServers: [{ urls: [STUN] }], turn: false, ttl: coldFallbackTtl }), coldWaitMs)
     })])
   } finally {
     clearTimeout(timer)
