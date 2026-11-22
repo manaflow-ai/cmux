@@ -58,6 +58,8 @@ mod load_trial;
 mod local_reload;
 #[cfg(unix)]
 mod locale;
+#[cfg(unix)]
+mod signals_cache;
 
 /// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
 /// preview words (`server::conversations`).
@@ -121,6 +123,8 @@ mod store_trust;
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;
+#[cfg(unix)]
+mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
