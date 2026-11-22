@@ -19,7 +19,6 @@ CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
-CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 
 # Every check runs, in its own subshell, even when an earlier one fails, and
 # each reports under its own name: one red check can neither skip nor hide
@@ -53,80 +52,6 @@ run_check() {
   if [ -n "${CMUX_GUARD_CHECK_RESULTS:-}" ]; then
     printf '%s\t%s\n' "$([ "$rc" -eq 0 ] && echo 1 || echo 0)" "$label" >> "$CMUX_GUARD_CHECK_RESULTS"
   fi
-}
-
-check_cla_guard_runner() {
-  # The guard parses attacker-controlled YAML with a trusted token, so only an
-  # ephemeral runner may take it: GitHub-hosted ubuntu-24.04, or a one-job
-  # Blacksmith VM through the CI_TRUSTED_RUNNER selector. The selector cannot
-  # name a persistent machine (its allowlist lives in this base-branch file,
-  # and anything else falls back to Blacksmith). validate-cla-policy.rb holds
-  # the same exact allowlist and is the authority; this keeps it visible.
-  local hosted selector runs_on
-  hosted="    runs-on: ubuntu-24.04"
-  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
-  runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
-  if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
-    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
-    exit 1
-  fi
-
-  if grep -Eq '^    runs-on:.*(vars\.LINUX_RUNNER|self-hosted|glaeda-)' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must not allow a persistent or owned runner"
-    exit 1
-  fi
-
-  # A Blacksmith VM reports runner.environment 'self-hosted', so the selector
-  # needs the guard step that also admits Blacksmith scale-set VM names.
-  local hosted_guard ephemeral_guard
-  hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
-
-  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
-  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
-  # owned-host marker back out of the guard and check that it admits those
-  # names and refuses owned glaeda hosts.
-  local prefixes marker case_line expected name admitted prefix
-  prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
-  marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
-  if [[ -z "$prefixes" || -z "$marker" ]]; then
-    echo "FAIL: CLA runner guard must name Blacksmith prefixes and an owned-host marker"
-    exit 1
-  fi
-  for case_line in \
-    'admit blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
-    'admit blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
-    'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
-    'refuse cmuxs-mac-mini-5-glaeda-1' \
-    'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
-    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
-    'refuse blacksmith-4vcpu-ubuntu-2404'; do
-    expected="${case_line%% *}"
-    name="${case_line#* }"
-    admitted=refuse
-    while IFS= read -r prefix; do
-      if [[ "$name" == "$prefix"* ]]; then
-        admitted=admit
-      fi
-    done <<<"$prefixes"
-    if [[ "$name" == *"$marker"* ]]; then
-      admitted=refuse
-    fi
-    if [[ "$admitted" != "$expected" ]]; then
-      echo "FAIL: CLA runner guard must $expected self-hosted runner $name"
-      exit 1
-    fi
-  done
-  if [[ "$runs_on" == "$hosted" ]] && ! grep -Fqx "$hosted_guard" "$CLA_GUARD_FILE" && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must refuse a runner that is not GitHub-hosted"
-    exit 1
-  fi
-  if [[ "$runs_on" == "$selector" ]] && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must refuse a runner that is neither GitHub-hosted nor Blacksmith"
-    exit 1
-  fi
-
-  echo "PASS: CLA policy guard uses an ephemeral GitHub-hosted or Blacksmith runner"
 }
 
 check_macos_runner() {
@@ -704,7 +629,11 @@ check_dmg_signing_uses_build_keychain() {
 }
 
 check_create_dmg_uses_run_local_npm_prefix() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  # nightly.yml runs the step as scripts/ci/nightly-steps/install-create-dmg.sh; read it inline.
+  local nightly_text
+  nightly_text="$(mktemp)"
+  python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$nightly_text"
+  for file in "$nightly_text" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
       /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
@@ -717,7 +646,7 @@ check_create_dmg_uses_run_local_npm_prefix() {
       in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
       END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
+      echo "FAIL: $([ "$file" = "$nightly_text" ] && echo nightly.yml || basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
       exit 1
     fi
   done
@@ -1112,10 +1041,6 @@ check_no_github_hosted_runners() {
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not (review of #46492, F1).
-    # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands: a
-    # pull_request_target write token on fork pull requests (trust policy).
-    "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
-    "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # The one file still on the CI_TRUSTED_RUNNER selector that admits ubuntu-24.04: its own guard refuses a
     # change to it without Leo's leo-approved-port label; a follow-up PR carries it.
     "language-boundaries.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
@@ -1774,8 +1699,6 @@ PYTHON
   fi
   echo "PASS: owned pool labels reach jobs only through the pull request pool picker"
 }
-
-run_check check_cla_guard_runner
 
 # ci-macos.yml jobs
 run_check check_no_github_hosted_runners

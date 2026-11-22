@@ -72,7 +72,7 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.carrierTeam) }
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0) } // in the install token's team (CloudSpareReadiness.Dependencies.team)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -103,8 +103,8 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
-    /// Whether a create no person started asks first (`cloud.agentsStartWithoutAsking` off); unset, nothing asks.
-    @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { false }
+    /// How a create no person started goes: asks first (`cloud.agentsStartWithoutAsking` off), idle-pauses (`labs.pauseAgentMachines`); unset, neither.
+    @ObservationIgnored var agentCreatePolicy: @MainActor () -> CloudMachineCreatePolicy = { CloudMachineCreatePolicy() }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
     @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?
@@ -483,7 +483,7 @@ final class CloudService {
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
-            logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            logger.error("machine list failed: \(CloudAppOpFailure.logText(error), privacy: .public)")
             return false
         }
     }
@@ -644,7 +644,7 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app (`ownCreate`: one no agent, script or socket run started, sent as the person); any other
-    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; ``agentsAskFirst`` or the legacy opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; ``agentCreatePolicy`` or the legacy opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create. A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
     /// `proceed` runs once the server answered, before anything else about the new machine (its
@@ -677,8 +677,8 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let idlePause = request.persistent ? 0 : nil
-        let asksFirst = !startedByPerson && agentsAskFirst()
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
+        let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
             return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }

@@ -25,6 +25,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case agentIntegrations
         /// Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On, an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`.
         case agentTools
+        /// Settings > Agents > Claude Code & Codex > Skills (Labs labs.agentCustomization; drawn only while it is on): every skill and slash command Claude Code and Codex load, per agent and scope, with name, description and file; Edit opens the SKILL.md in cmux's editor, the switch turns a skill on or off in the agent's own settings (`cmux agent-config skills --json`); `cmux.settings.agentSkills.*`.
+        case agentSkills
         case chiefs
         case advancedInfo
         case advancedActions
@@ -62,7 +64,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case customizeLibrary
         /// Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys.
         case keys
-        /// Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks; `cmux.settings.agentHooks.*`, which the app runs through the bundled `cmux --json agent-config hooks`.
+        /// Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (`cmux.settings.agentConfig`, the bundled `cmux --json agent-config settings`), and every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks (`cmux.settings.agentHooks.*`, the bundled `cmux --json agent-config hooks`).
         case agentCustomization
         /// Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers.
         case mcpServers
@@ -70,6 +72,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case worktreeSetup
         /// Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey.
         case cloudModels
+        /// Settings > Customize: every customization one click away (Leo 2026-11-22: "it should just be as easy as a click toggle"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize.
+        case customizeChecklist
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }

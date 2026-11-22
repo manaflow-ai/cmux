@@ -76,7 +76,9 @@ extension NewTabPage {
         }
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
-        let spare = seed == nil && pane.daemon.isLocal
+        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, when no other window of the workspace draws that tab or has it selected, or one that no window shows): the new
+        // tab takes that one when the pane shows it (`AgentTabStore.idlePage`), in this turn, so a hold of this key makes no page and uses no spare.
+        let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane) == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
@@ -88,30 +90,30 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The page's tab shows: from now on the key hold ends as soon as the pane shows another tab.
         services.keyRouter.newTabInputCoordinator.didShow(in: pane.view.window)
-        // The adopted page is alive: show it this frame and give it the keyboard now, so the
-        // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        let showedSpare = spare != nil && services.presentation.showNow(pane)
-        if showedSpare {
-            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-        }
+        // The adopted page (a spare, or an idle page that the tab took at its show) is alive: show it this frame and give it
+        // the keyboard now, so the first key typed after the open reaches its field (fleet test: it went to the old responder).
+        //
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
         // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
         // budget (cx-98s). A cold page still gets the strip sync now: its view is made by the
         // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
-        if !showedSpare {
+        let showedSpare = pane.selectedContentIsAlive && services.presentation.showNow(pane)
+        if showedSpare {
+            services.keyRouter.newTabInputCoordinator.tookPage(in: pane) // the view that had the keyboard at the key can be the new tab's now: the hold then drops no key
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+        } else {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
-        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+        services.newTabSpares.record(.init(spare: spare != nil, idle: spare == nil && showedSpare, crossWindow: spare?.crossWindow == true, // idle: the tab took an idle page at its show (`AgentTabStore.idlePage`), no page of the pool
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
         fillPaletteActions(services)
     }
 
-    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page.
+    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page
+    /// that has a view. The stored page of a tab never takes them: its view asks here again at its make (`listsAtViewMake`).
     static func fillPaletteActions(_ services: AppServices, again: Bool = false) {
         services.newTabActions.fill(again: again) { [weak tabs = services.agentTabs] in
-            tabs?.newTabPages.entries.map { entry in
-                AgentPaneNewTabActions.Page(view: tabs?.views[entry.key], stored: entry.value.page, store: { [weak tabs] in tabs?.newTabPages[entry.key]?.page.omnibar.actions = $0 })
-            } ?? []
+            tabs?.newTabPages.keys.map { AgentPaneNewTabActions.Page(view: tabs?.views[$0]) } ?? []
         }
     }
 
@@ -300,13 +302,14 @@ extension NewTabPage {
         }
         let list = NativeNewTabList(services.newTabActions)
         let actions = nativeActions(key, cwd: page.cwd, pane: pane, list: list)
+        let favicons = NativeNewTabFavicons(revision: { [weak services] in services.map { $0.favicons.revision &+ $0.bookmarks.generation } ?? 0 }, page: { [weak services] current in services.map { current.refreshingSuggestions(Self.omnibar($0, excluding: key, paletteActions: false)) } ?? current })
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats)
+            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats)
+        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then
