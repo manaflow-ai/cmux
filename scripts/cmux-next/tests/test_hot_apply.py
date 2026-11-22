@@ -1100,6 +1100,17 @@ class LiveFromWholeApp(unittest.TestCase):
                 self.assertIn(path, out["floor_paths"])
                 self.assertEqual(self.hot.pins_daemon(self.repo, native), [])
 
+    def test_daemon_from_walks_past_the_whole_app_floor(self):
+        # The nightly-live channel swaps only the daemon: an app built before a Swift or web change can still
+        # run the newer daemon, so daemon_from goes on past live_from's floor, to the root commit here (it adds
+        # the project file, so it is the daemon floor itself).
+        native = self.commit("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n")
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        out = self.hot.live_from(self.repo, daemon, 3)
+        self.assertEqual((out["live_from"], out["floor"]), ([daemon, native], native))
+        self.assertEqual(out["daemon_from"], [daemon, native, self.base])
+        self.assertEqual(out["daemon_floor"], self.base)
+
     def test_function_body_and_deleted_swift_also_need_the_full_app(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
         self.commit(path, "func value() -> Int {\n    return 1\n}\n")
@@ -1213,6 +1224,15 @@ class PinCompatibility(unittest.TestCase):
         result = self.hot.live_from(self.repo, removed)
         self.assertEqual(result["live_from"], [removed])
         self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
+    def test_a_repin_floors_daemon_from_too(self):
+        self.pin.unlink()
+        removed = self.commit()
+        (self.repo / "docs.md").write_text("docs\n")
+        docs = self.commit()
+        result = self.hot.live_from(self.repo, docs)
+        self.assertEqual((result["live_from"], result["daemon_from"]), ([docs, removed], [docs, removed]))
+        self.assertEqual(result["daemon_floor_paths"], [self.hot.ffi_part.PIN_FILE])
 
     def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
         self.pin.write_text("not JSON\n")
