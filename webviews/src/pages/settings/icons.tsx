@@ -76,6 +76,9 @@ const paths: Record<string, ReactNode> = {
       <path d="m7.3 8.7 6-6M11.2 4.8l1.6 1.6M9.6 6.4l1.2 1.2" />
     </>
   ),
+  "textformat.size": (
+    <path d="M1.8 4.2V2.8h7.4v1.4M5.5 2.8v10.4M4.2 13.2h2.6M9.4 8.2V7.2h4.8v1M11.8 7.2v6M10.8 13.2h2" />
+  ),
   "square.stack": (
     <>
       <rect x="3.2" y="5" width="9.6" height="8.6" rx="1.6" />

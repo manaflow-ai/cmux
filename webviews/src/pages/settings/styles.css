@@ -2993,3 +2993,35 @@ button.menu-disclosure {
   margin: 0;
   color: var(--muted-text);
 }
+
+/* Settings > Design System (DesignSystemCard): the SDK viewer's scene, drawn by the scene renderer as
+ * an extension pane is, then the design files that did not read. */
+.design-system-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+  overflow: hidden;
+}
+
+.design-system-card__unavailable {
+  margin: 0;
+  padding: var(--ds-space-3);
+  color: var(--muted-text);
+}
+
+.design-system-card__problems {
+  padding: 0 var(--ds-space-3) var(--ds-space-3);
+}
+
+.design-system-card__problems .group-title {
+  margin: 0 0 var(--ds-space-2);
+}
+
+.design-system-card__problems ul {
+  margin: 0;
+  padding-left: var(--ds-space-4);
+  color: var(--muted-text);
+  user-select: text;
+}

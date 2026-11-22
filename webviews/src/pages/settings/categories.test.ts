@@ -40,6 +40,8 @@ test("the categories are the approved ones, in order", () => {
     // Settings overhaul (2026-11-07): the sidebar and tabs have pages.
     "sidebar",
     "tabs",
+    // Design System: the design system extension views draw with (RFD 0009 slice 8).
+    "designSystem",
     "terminal",
     "editor",
     "browser",

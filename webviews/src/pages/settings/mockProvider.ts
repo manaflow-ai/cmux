@@ -32,6 +32,7 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type DesignSystemState,
   type LibraryListing,
   type LibraryRun,
   type SharesState,
@@ -81,6 +82,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
+import { mockDesignSystem } from "./mockDesignSystem";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
@@ -619,6 +621,7 @@ export class MockSettingsProvider {
       },
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.designSystem.state": () => this.designSystem,
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
       "cmux.settings.keys.decline": (params) =>
@@ -929,6 +932,7 @@ export class MockSettingsProvider {
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
+      "cmux.settings.designSystem.state",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
@@ -1064,6 +1068,9 @@ export class MockSettingsProvider {
     this.library = next;
     return { library: next };
   }
+
+  /** Settings > Design System as the CLI answers it: cmux's own system, nothing changed. */
+  designSystem: DesignSystemState = mockDesignSystem("cmux");
 
   /** Settings > Keys as the app answers it: one request waiting and three keys (live, expired,
    * revoked). */

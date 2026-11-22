@@ -47,6 +47,7 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
+  DesignSystemState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -72,6 +73,8 @@ export type SettingsPageVariant = VariantBase & {
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;
+  /** Settings > Design System fixture state (the CLI's answer and scene); default cmux's own. */
+  designSystem?: DesignSystemState;
   /** Settings > Keys fixture state (requests and keys); default the mock's. */
   keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */

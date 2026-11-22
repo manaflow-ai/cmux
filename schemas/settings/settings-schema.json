@@ -753,6 +753,29 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "designSystem",
+        "lead" : [
+          "designSystem"
+        ],
+        "symbol" : "textformat.size",
+        "title" : {
+          "key" : "settings.category.designSystem",
+          "text" : "Design System"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "terminal"
         ],
         "aliases" : [
@@ -2384,7 +2407,8 @@
         "categories" : [
           "appearance",
           "sidebar",
-          "tabs"
+          "tabs",
+          "designSystem"
         ],
         "id" : "look",
         "title" : {

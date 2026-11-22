@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { SceneOp } from "../../apps/scene/store";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -1080,6 +1081,25 @@ export type SharesState = {
   titles?: Record<string, string>;
 };
 
+/** Settings > Design System (`cmux.settings.designSystem.state`): what `cmux --json ext design
+ * --show --scene` prints (cmux-tui cli/ext/design_layers.rs). The system is resolved in Rust, layer
+ * over layer (cmux, the active theme file's `design` key, design.json beside the settings file), and
+ * `scene` is the SDK's own DesignSystemView of it, drawn in the CLI's app host: the page only
+ * applies the ops, it never draws the viewer itself. */
+export type DesignLayerWire = { kind: string; file: string; applied: boolean };
+/** A layer that did not read: one `system` finding; the layers under it still apply. */
+export type DesignProblemWire = { check: string; message: string; fix?: string };
+/** A value cmux changed since the person's recorded base (`ext design --stamp`). */
+export type DesignChangeWire = { key: string; kept: boolean; text: string; file?: string };
+export type DesignSystemState = {
+  layers: DesignLayerWire[];
+  changed: DesignChangeWire[];
+  design: DesignProblemWire[];
+  note: string;
+  /** One batch of scene ops a SceneStore applies (apps/scene/store.ts). */
+  scene: SceneOp[];
+};
+
 /** Settings > Keys (`cmux.settings.keys.list`): what `cmux keys ls --json` lists (cmux-tui
  * cli/key_broker.rs) and the key requests agents sent with `cmux keys request` that wait for the
  * person. A record never carries a value. Times are RFC 3339 (UTC, `Z`). Older records may lack
@@ -1825,6 +1845,9 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: Settings > Design System: the resolved design system and its scene (`cmux --json ext
+   * design --show --scene` through the bundled CLI); read only. */
+  "cmux.settings.designSystem.state": [Record<string, never>, DesignSystemState];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's

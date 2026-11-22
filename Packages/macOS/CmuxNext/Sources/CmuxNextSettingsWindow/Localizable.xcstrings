@@ -1981,6 +1981,60 @@
         }
       }
     },
+    "settingsPage.designSystem.unavailable": {
+      "comment": "Settings > Design System when the design system could not be read (no cmux command line tool in this build).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The design system could not be read."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت قراءة نظام التصميم."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sistem dizajna se nije mogao pročitati."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Designsystemet kunne ikke læses."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Designsystem konnte nicht gelesen werden."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo leer el sistema de diseño."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de lire le système de design."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile leggere il sistema di design."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "デザインシステムを読み込めませんでした。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចអានប្រព័ន្ធរចនាបានទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "디자인 시스템을 읽을 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Designsystemet kunne ikke leses."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie udało się odczytać systemu projektowego."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível ler o sistema de design."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось прочитать дизайн-систему."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อ่านระบบการออกแบบไม่ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tasarım sistemi okunamadı."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося прочитати дизайн-систему."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không đọc được hệ thống thiết kế."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法读取设计系统。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法讀取設計系統。"}}
+      }
+    },
+    "settingsPage.designSystem.problems": {
+      "comment": "Settings > Design System: heading over the design files that did not read; the layers under each still apply.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Not Applied"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لم يُطبَّق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije primijenjeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ikke anvendt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nicht angewendet"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No aplicado"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Non appliqué"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non applicato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "適用されていません"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនបានអនុវត្ត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "적용되지 않음"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ikke brukt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie zastosowano"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não aplicado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не применено"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่ได้นำไปใช้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Uygulanmadı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не застосовано"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chưa áp dụng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "未应用"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "未套用"}}
+      }
+    },
     "debug.tunableChoice.unknown": {
       "comment": "Error when a debug choice action (Sidebar Toggle Icon, Status Icons) gets a value it does not know. %@ is the comma-separated list of the values it accepts.",
       "extractionState": "manual",

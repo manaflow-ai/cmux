@@ -62,6 +62,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case sharedLinks
         /// Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
         case customizeLibrary
+        /// Settings > Look and Feel > Design System: the resolved design system (`cmux --json ext design --show --scene`, cmux-tui cli/ext/design_layers.rs) as the scene the SDK's DesignSystemView draws, its layers and the layers that did not read; `cmux.settings.designSystem.state`. Deep link: #/settings/designSystem.
+        case designSystem
         /// Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys.
         case keys
         /// Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (`cmux.settings.agentConfig`, the bundled `cmux --json agent-config settings`), and every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks (`cmux.settings.agentHooks.*`, the bundled `cmux --json agent-config hooks`).

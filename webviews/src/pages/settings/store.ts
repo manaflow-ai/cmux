@@ -53,6 +53,7 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type DesignSystemState,
   type LibraryListing,
   type LibraryRun,
   type SharesState,
@@ -959,6 +960,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Design System: the resolved design system, its layers and the SDK viewer's scene;
+   * null when the host has no CLI or the read failed. */
+  async designSystem(): Promise<DesignSystemState | null> {
+    const reply = await this.request("cmux.settings.designSystem.state", {});
+    return reply.ok && Array.isArray(reply.value?.scene) ? reply.value : null;
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

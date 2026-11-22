@@ -96,6 +96,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     )),
   customizeChecklist: () =>
     import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
+  designSystem: () =>
+    import("./DesignSystemCard").then(({ DesignSystemCard }) => (_focus, _workspace, reveal) => (
+      <DesignSystemCard reveal={reveal} />
+    )),
   keys: () =>
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>
