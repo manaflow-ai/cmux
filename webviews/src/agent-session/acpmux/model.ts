@@ -676,6 +676,9 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A "Worked for" with nothing under it (a person's turn that only replied): it holds the heading's
+  /// slot and says the time, and opens nothing (conversation/turns.ts `shapeTurn`, TurnRows.tsx `WorkedFor`).
+  inert?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it

@@ -64,7 +64,8 @@ export type Violation = {
     | "b-mid-turn-shrink"
     | "c-rerender"
     | "e-settled-live"
-    | "e-heading-gone";
+    | "e-heading-gone"
+    | "e-heading-late";
   step: number;
   at: number;
   label: string;
@@ -191,6 +192,8 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const headsAt = new Map<string, { worked: number[]; working: number[] }>();
   const settledHeads = new Set<string>();
   const brokenHeads = new Set<string>();
+  // The prompts whose heading has been drawn at some step (`e-heading-late`).
+  const headedPrompts = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let shaped = 0;
@@ -450,9 +453,26 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (worked.length !== at.worked.length || working.length !== at.working.length) touched.add(prompt);
       headsAt.set(prompt, { worked, working });
     }
+    // A heading drawn for the first time over a row its turn already drew moved that row and every one
+    // under it down: the heading's slot was not held from the send (Leo, 2026-11-22). Only rows past the
+    // unchanged prefix can be new, so only those of the step before are read.
+    let drawnBefore: Set<string> | undefined;
     for (let at = stable; at < rows.length; at += 1) {
       const row = rows[at]!;
       if (row.kind !== "worked" && row.kind !== "working") continue;
+      const fresh = headOf(row.id);
+      const under = rows[at + 1];
+      if (
+        fresh &&
+        !headedPrompts.has(fresh[0]) &&
+        under &&
+        under.id !== fresh[0] &&
+        rowTurn.get(under.id) === rowTurn.get(row.id)
+      ) {
+        drawnBefore ??= new Set(prevRows.slice(stable).map((each) => each.id));
+        if (drawnBefore.has(under.id))
+          flag("e-heading-late", row.id, `the heading of ${fresh[0]} came in over ${under.id}, drawn the step before`);
+      }
       // A joined line ("Worked for" over several bare turns, turns.ts `joinBareWorked`) heads each member.
       const ids = new Set([row.id, ...(row.workedRun?.ids ?? [])]);
       for (const id of ids) {
@@ -462,6 +482,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         const entry = headsAt.get(prompt) ?? { worked: [], working: [] };
         entry[kind].push(at);
         headsAt.set(prompt, entry);
+        headedPrompts.add(prompt);
         touched.add(prompt);
       }
     }
