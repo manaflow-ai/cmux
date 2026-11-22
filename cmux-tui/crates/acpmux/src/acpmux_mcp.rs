@@ -76,6 +76,8 @@ pub(crate) mod bridge;
 mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
+#[path = "acpmux_mcp_inbox.rs"]
+mod inbox;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
@@ -119,10 +121,14 @@ fn base_tools() -> Value {
     let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": format!("Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages, newest first, marked read; without it, the threads with their unread counts. The answer is at most {} characters: it keeps the threads with unread messages first, at most limit rows, clips long text, and counts what it left out under omitted.", inbox::MAX_CHARS),
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+                "properties": {
+                    "thread": {"type": "string", "description": "A threadId, as the notice or the list names it."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": inbox::MAX_LIMIT, "description": format!("Most threads, or messages of one thread, to answer with (default {}). Unread threads come first, so a larger limit adds quiet ones.", inbox::BRIEF_ROWS)},
+                    "detail": {"type": "boolean", "description": format!("The whole inbox or thread, every row and every field, instead of the {}-character answer (default false). Only when the short answer's omitted counts say the detail you need was cut.", inbox::MAX_CHARS)}
+                }
             }
         },
         {
@@ -591,7 +597,12 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
         (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
     };
     match reply {
-        Ok(v) => ok(crate::cli::session_inbox::describe(&v), v),
+        // Bounded (`inbox::brief`): a whole inbox is past a caller's room, and an answer it
+        // cannot read is a call that comes back with nothing.
+        Ok(v) => {
+            let short = inbox::brief(&v, inbox::limit_of(args), inbox::detail_of(args));
+            ok(inbox::text(&short), short)
+        }
         Err(e) => refusal(e),
     }
 }
