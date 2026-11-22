@@ -301,36 +301,40 @@ impl Swap {
             .map_err(|e| format!("{}: {e}", self.installed.display()))
     }
 
-    /// Keeps the bundle from before the swap in the store (`helpers/<digest>/<name>`) for
-    /// `undo`, and gives the receipt's step and undo record.
+    /// Where `keep` puts the bundle from before the swap: `helpers/<digest>/<name>` in the store.
+    fn kept(&self, store: &Store) -> PathBuf {
+        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
+        store.root.join("helpers").join(&self.from).join(name)
+    }
+
+    /// Copies the installed bundle into the store for `undo`, before `swap` touches it: a
+    /// swap whose prior bundle could not be kept is refused, so `undo` always has it.
+    pub(super) fn keep(&self, store: &Store) -> Result<(), String> {
+        let kept = self.kept(store);
+        if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
+            return Ok(());
+        }
+        let dir = kept.parent().ok_or("the store has no folder")?;
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let _ = fs::remove_dir_all(&kept);
+        copy_tree(&self.installed, &kept)?;
+        if digest(&kept)? != self.from {
+            let _ = fs::remove_dir_all(&kept);
+            return Err(format!("the copy at {} is not the installed helper", kept.display()));
+        }
+        Ok(())
+    }
+
+    /// The receipt's step and undo record; `keep` already put the prior bundle in the store.
     pub(super) fn finish(&self, store: &Store) -> (Value, Value) {
         let step = json!({
             "did": "swapped", "bundle": self.installed.to_string_lossy(),
             "from": self.from, "to": self.to,
         });
-        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
-        let kept = store.root.join("helpers").join(&self.from).join(name);
-        let keep = || -> Result<(), String> {
-            if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
-                return Ok(());
-            }
-            let dir = kept.parent().ok_or("the store has no folder")?;
-            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            let _ = fs::remove_dir_all(&kept);
-            if fs::rename(&self.aside, &kept).is_err() {
-                copy_tree(&self.aside, &kept)?;
-            }
-            Ok(())
-        };
-        let undo = match keep() {
-            Ok(()) => json!({
-                "bundle": self.installed.to_string_lossy(), "copy": kept.to_string_lossy(),
-                "digest": self.from, "set": self.to,
-            }),
-            Err(error) => {
-                json!({ "bundle": self.installed.to_string_lossy(), "copy": null, "error": error })
-            }
-        };
+        let undo = json!({
+            "bundle": self.installed.to_string_lossy(), "copy": self.kept(store).to_string_lossy(),
+            "digest": self.from, "set": self.to,
+        });
         (step, undo)
     }
 }
