@@ -66,6 +66,9 @@ pub(super) struct Wanted {
     until: StdMutex<Option<Instant>>,
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
+    /// When `peerWake` last ran for a message (`Peer::wake`): it runs again once `WAKE_FOR` has
+    /// passed since, while messages still wait.
+    hook_at: StdMutex<Option<Instant>>,
     asked: Notify,
     /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
     cut_at: StdMutex<Option<Instant>>,
@@ -85,9 +88,12 @@ impl Peer {
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
     ///
-    /// The first message of a window (none marked it within `WAKE_FOR`) also runs the daemon's
-    /// `peerWake` command once ([`WakeHook`]), whatever route the peer has: an ssh route with no
-    /// ProxyCommand that wakes (a VM its idle guard powered off) is resumed by it too.
+    /// A message also runs the daemon's `peerWake` command ([`WakeHook`]), whatever route the
+    /// peer has: an ssh route with no ProxyCommand that wakes (a VM its idle guard powered off) is
+    /// resumed by it too. Once per `WAKE_FOR`: the first message runs it, and a message still
+    /// waiting runs it again each `WAKE_FOR` (its outbox's retries mark the peer again), so a
+    /// machine parked again before the message went in is resumed again (cmuxterm-hq#17784: the
+    /// retries kept the window open, and the hook never ran a second time).
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
@@ -96,7 +102,12 @@ impl Peer {
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
-        if opens {
+        let mut ran = self.wanted.hook_at.lock().unwrap_or_else(|e| e.into_inner());
+        // BEFORE (for the PR's before/after run): only a window that opens runs it.
+        let due = opens;
+        if due {
+            *ran = Some(now);
+            drop(ran);
             self.run_wake_hook();
         }
     }
@@ -475,6 +486,7 @@ mod tests {
         assert_eq!(read(), "1 huge-blue\n");
         // A window that lapsed opens again on the next message.
         *peer.wanted.wake_until.lock().unwrap() = Some(Instant::now());
+        *peer.wanted.hook_at.lock().unwrap() = Instant::now().checked_sub(WAKE_FOR);
         peer.wake();
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while read().lines().count() < 2 {
@@ -484,6 +496,55 @@ mod tests {
         // A reload that removes the key stops it at once (`catalog_reload.rs`).
         *hook.lock().unwrap() = None;
         assert_eq!(peer.wake_argv(), None);
+    }
+
+    /// cmuxterm-hq#17784: a message whose machine was resumed, then parked again before it went
+    /// in, is retried by its outbox (2, 5, 10, 30, 60, 120, 300 s), and each retry marks the peer
+    /// again. Before, those marks kept the window open and `peerWake` ran once, at the first;
+    /// now it runs again each `WAKE_FOR` while they come. The clock is tokio's, paused.
+    #[tokio::test(start_paused = true)]
+    async fn a_message_still_waiting_runs_peer_wake_again_each_window() {
+        let peer = peer();
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("woken");
+        let script = format!("printf '%s\\n' \"$1\" >> {}", log.display());
+        let hook: WakeHook =
+            Arc::new(StdMutex::new(Some(vec!["sh".into(), "-c".into(), script, "wake".into()])));
+        peer.set_wake_hook(hook);
+        let runs = || std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+        // Polls on the real clock, so the paused one moves only by `advance`: the hook's task
+        // gets the thread between polls.
+        async fn settle(runs: &dyn Fn() -> usize, want: usize) {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while runs() < want && std::time::Instant::now() < deadline {
+                tokio::task::yield_now().await;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for _ in 0..10 {
+                tokio::task::yield_now().await;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        let started = Instant::now();
+        let mut at = Duration::ZERO;
+        let mut seen = Vec::new();
+        for retry in [0u64, 2, 5, 10, 30, 60, 120, 300] {
+            let to = Duration::from_secs(retry);
+            tokio::time::advance(to - at).await;
+            at = to;
+            peer.wake();
+            let want = 1 + usize::try_from(retry / WAKE_FOR.as_secs()).unwrap();
+            settle(&runs, want).await;
+            assert!(peer.waking(), "marked to wake while the message waits");
+            seen.push((retry, runs()));
+        }
+        assert_eq!(Instant::now() - started, Duration::from_secs(300));
+        // Runs at 0 s and at 300 s (the first retry past 180 s), none between.
+        assert_eq!(
+            seen,
+            [(0, 1), (2, 1), (5, 1), (10, 1), (30, 1), (60, 1), (120, 1), (300, 2)],
+            "peerWake runs once per window while the message waits"
+        );
     }
 
     #[tokio::test(start_paused = true)]
