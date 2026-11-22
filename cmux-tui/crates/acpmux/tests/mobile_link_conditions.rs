@@ -1078,7 +1078,8 @@ async fn chat_bytes_per_minute() {
         let shaper = Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
         let start = Instant::now();
         let deadline = start + BOUND;
-        let mut link = Link::open_as(app, ask, shaper.addr(), &listener.token, deadline).await.unwrap();
+        let mut link =
+            Link::open_as(app, ask, shaper.addr(), &listener.token, deadline).await.unwrap();
         let (at, reply) = link.attach_as(app, &session, deadline).await.unwrap();
         let k = key("bw_open");
         emit(&k, "first_content_ms", Some(ms(at - start)));
