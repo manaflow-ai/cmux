@@ -29,97 +29,98 @@ type Held = {
   line: number;
 };
 
-/// Puts the ticking waiting line in the stack, then reads every painted frame for `ms`: how far each
-/// row in view at the start moved, and whether Jump to latest showed.
-const hold = (page: Page, ms: number): Promise<Held> =>
-  page.evaluate(
-    async ({ rowSelector, ms }) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
-      const fromEnd = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-      const startGap = fromEnd();
-      // HostWaitingLine's markup: the group, its line, the message with its clock and the quiet
-      // Restart agent service after it.
-      const group = document.createElement("output");
-      group.className = "acpmux-host-line-group";
-      group.dataset.testHostLine = "";
-      group.innerHTML =
-        '<div class="acpmux-host-line"><p class="acpmux-host-line-message">Waiting for the agent service (1:48)</p><button type="button" class="acpmux-host-line-quiet">Restart agent service</button></div>';
-      dock.insertBefore(group, dock.querySelector(":scope > .acpmux-composer"));
-      const message = group.querySelector("p")!;
-      let seconds = 108;
-      const tick = setInterval(() => {
-        seconds += 1;
-        message.textContent = `Waiting for the agent service (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")})`;
-      }, 1000);
-      const painted = () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => {
-            const channel = new MessageChannel();
-            channel.port1.onmessage = () => resolve();
-            channel.port2.postMessage(0);
-          }),
-        );
-      // Two frames for the line's own arrival (it lies over the foot; host-line-still covers it).
-      await painted();
-      await painted();
-      const view = scroller.getBoundingClientRect();
-      const tops = () =>
-        new Map(
-          [...document.querySelectorAll<HTMLElement>(rowSelector)].map((row) => [
-            row.dataset.rowId!,
-            row.getBoundingClientRect().top,
-          ]),
-        );
-      const before = new Map([...tops()].filter(([, top]) => top > view.top && top < view.bottom));
-      const moves: Held["moves"] = [];
-      let most = 0;
-      let jump = false;
-      let worstGap = 0;
-      const start = performance.now();
-      while (performance.now() - start < ms) {
-        await painted();
-        const now = tops();
-        const shown = !!document.querySelector(".acpmux-jump-latest[data-shown]");
-        jump ||= shown;
-        let frameMost = 0;
-        let frameId = "";
-        for (const [id, top] of before) {
-          const at = now.get(id);
-          const dy = at === undefined ? 9999 : at - top;
-          if (Math.abs(dy) > Math.abs(frameMost)) {
-            frameMost = dy;
-            frameId = id;
-          }
-          most = Math.max(most, Math.abs(dy));
-        }
-        if (Math.abs(frameMost) > 0.5 && moves.length < 60)
-          moves.push({
-            t: Math.round(performance.now() - start),
-            id: frameId,
-            dy: Math.round(frameMost * 10) / 10,
-            scrollTop: Math.round(scroller.scrollTop),
-            fromEnd: Math.round(fromEnd()),
-            jump: shown,
-          });
-        worstGap = Math.max(worstGap, fromEnd());
-      }
-      clearInterval(tick);
-      return { rows: before.size, most, moves, jump, startGap, worstGap, line: group.getBoundingClientRect().height };
-    },
-    { rowSelector: TRANSCRIPT_ROW, ms },
-  );
-
-const expectStill = (result: Held) => {
-  expect(result.startGap).toBeLessThanOrEqual(2);
-  expect(result.rows).toBeGreaterThan(3);
-  expect(result.line).toBeGreaterThan(12);
-  expect(result.jump).toBe(false);
-  expect(result.most).toBeLessThanOrEqual(0.5);
-};
-
 await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => {
   setDefaultTimeout(300_000);
+
+  /// Puts the ticking waiting line in the stack, then reads every painted frame for `ms`: how far each
+  /// row in view at the start moved, and whether Jump to latest showed.
+  const hold = (page: Page, ms: number): Promise<Held> =>
+    page.evaluate(
+      async ({ rowSelector, ms }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const fromEnd = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+        const startGap = fromEnd();
+        // HostWaitingLine's markup: the group, its line, the message with its clock and the quiet
+        // Restart agent service after it.
+        const group = document.createElement("output");
+        group.className = "acpmux-host-line-group";
+        group.dataset.testHostLine = "";
+        group.innerHTML =
+          '<div class="acpmux-host-line"><p class="acpmux-host-line-message">Waiting for the agent service (1:48)</p><button type="button" class="acpmux-host-line-quiet">Restart agent service</button></div>';
+        dock.insertBefore(group, dock.querySelector(":scope > .acpmux-composer"));
+        const message = group.querySelector("p")!;
+        let seconds = 108;
+        const tick = setInterval(() => {
+          seconds += 1;
+          message.textContent = `Waiting for the agent service (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")})`;
+        }, 1000);
+        const painted = () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => {
+              const channel = new MessageChannel();
+              channel.port1.onmessage = () => resolve();
+              channel.port2.postMessage(0);
+            }),
+          );
+        // Two frames for the line's own arrival (it lies over the foot; host-line-still covers it).
+        await painted();
+        await painted();
+        const view = scroller.getBoundingClientRect();
+        const tops = () =>
+          new Map(
+            [...document.querySelectorAll<HTMLElement>(rowSelector)].map((row) => [
+              row.dataset.rowId!,
+              row.getBoundingClientRect().top,
+            ]),
+          );
+        const before = new Map([...tops()].filter(([, top]) => top > view.top && top < view.bottom));
+        const moves: Held["moves"] = [];
+        let most = 0;
+        let jump = false;
+        let worstGap = 0;
+        const start = performance.now();
+        while (performance.now() - start < ms) {
+          await painted();
+          const now = tops();
+          const shown = !!document.querySelector(".acpmux-jump-latest[data-shown]");
+          jump ||= shown;
+          let frameMost = 0;
+          let frameId = "";
+          for (const [id, top] of before) {
+            const at = now.get(id);
+            const dy = at === undefined ? 9999 : at - top;
+            if (Math.abs(dy) > Math.abs(frameMost)) {
+              frameMost = dy;
+              frameId = id;
+            }
+            most = Math.max(most, Math.abs(dy));
+          }
+          if (Math.abs(frameMost) > 0.5 && moves.length < 60)
+            moves.push({
+              t: Math.round(performance.now() - start),
+              id: frameId,
+              dy: Math.round(frameMost * 10) / 10,
+              scrollTop: Math.round(scroller.scrollTop),
+              fromEnd: Math.round(fromEnd()),
+              jump: shown,
+            });
+          worstGap = Math.max(worstGap, fromEnd());
+        }
+        clearInterval(tick);
+        return { rows: before.size, most, moves, jump, startGap, worstGap, line: group.getBoundingClientRect().height };
+      },
+      { rowSelector: TRANSCRIPT_ROW, ms },
+    );
+
+  const expectStill = (result: Held) => {
+    expect(result.startGap).toBeLessThanOrEqual(2);
+    expect(result.rows).toBeGreaterThan(3);
+    expect(result.line).toBeGreaterThan(12);
+    expect(result.jump).toBe(false);
+    expect(result.most).toBeLessThanOrEqual(0.5);
+  };
+
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
@@ -135,6 +136,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
     const page = await pane.open({ width: 900, height: 700 });
     try {
       // Let the open settle first: the first draw's own motion is not this test's.
+      // fixed-wait: the first draw's own motion is not under test; the hold judges what follows.
       await page.waitForTimeout(1500);
       const result = await hold(page, 10_000);
       console.log("ticking", JSON.stringify(result));
@@ -149,6 +151,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
     const sentBefore = pane.methods.length;
     let resend: ReturnType<typeof setInterval> | undefined;
     try {
+      // fixed-wait: the first draw's own motion is not under test; the hold judges what follows.
       await page.waitForTimeout(1500);
       pane.slowReplies.ms = 8000;
       resend = setInterval(
@@ -190,6 +193,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
     });
     try {
       const page = await away.open({ width: 900, height: 700 });
+      // fixed-wait: the first draw's own motion is not under test; the hold judges what follows.
       await page.waitForTimeout(1500);
       const update = {
         method: "session/update",
@@ -215,10 +219,12 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
   test("flicking down at the bottom of a followed, ticking chat moves no row", async () => {
     const page = await pane.open({ width: 900, height: 700 });
     try {
+      // fixed-wait: the first draw's own motion is not under test; the hold judges what follows.
       await page.waitForTimeout(1500);
       const box = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.7);
       const held = hold(page, 10_000);
+      // fixed-wait: the hold's first frames pass before the flicks start.
       await page.waitForTimeout(200);
       for (let burst = 0; burst < 6; burst++) {
         for (let step = 0; step < 18; step++) {
@@ -242,6 +248,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
   test("a reconnect to a slow acpmux holds the followed chat still", async () => {
     const page = await pane.open({ width: 900, height: 700 });
     try {
+      // fixed-wait: the first draw's own motion is not under test; the hold judges what follows.
       await page.waitForTimeout(1500);
       pane.slowReplies.ms = 5000;
       pane.drop();

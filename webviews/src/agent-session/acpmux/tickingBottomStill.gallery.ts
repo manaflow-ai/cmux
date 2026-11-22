@@ -14,7 +14,7 @@ import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { activity, assistant, chat, tool, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
 import { startHeldTracker } from "../../gallery/shift";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { TRANSCRIPT_ROW } from "./transcriptSelectors";
 
 const SUBMIT = "cmux-ci submit --kind cmux --label macos-26 --request-key kit-macos-build-43360-31";
@@ -22,7 +22,7 @@ const BACKGROUND = "wt new cmux leo/checkout --topic build";
 
 /// The chat, the same rows (ids included) on every call: a re-sent copy is the same chat.
 function tickingChat(): AcpmuxSnapshot {
-  const rows = [];
+  const rows: AcpmuxRow[] = [];
   for (let n = 0; n < 24; n++) {
     const at = 90 - n * 3;
     rows.push(user(`Question ${n + 1}: is the build on the merged head green yet?`, at, { id: `ticking-user-${n}` }));
