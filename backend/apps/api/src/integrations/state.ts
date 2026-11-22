@@ -24,6 +24,10 @@ export interface ConnectState {
   readonly configure_url?: string
 }
 
+/** The page provider redirects come back to: INTEGRATIONS_CALLBACK_ORIGIN when set (development), else DASHBOARD_ORIGIN. */
+export const integrationCallbackUrl = (env: Pick<Env, "DASHBOARD_ORIGIN" | "INTEGRATIONS_CALLBACK_ORIGIN">): string =>
+  `${(env.INTEGRATIONS_CALLBACK_ORIGIN || env.DASHBOARD_ORIGIN || "").replace(/\/$/, "")}/integrations/callback`
+
 const AUDIENCE = "cmux-integration-state"
 export const STATE_TTL_SECONDS = 15 * 60
 

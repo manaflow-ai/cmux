@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 /// Names a `cmux` child (`cmux acp`, the acpmux daemon it may start and the agents that daemon
 /// runs) keeps on purpose, each group with why.
 const ALLOWED: &[&str] = &[
+    // Not a credential: the Computer Use worker's experimental keyboard handoff switch
+    // (cmux-computer-use platform/macos/key_focus.rs, "1" or unset); "KEY" is the keyboard.
+    "CMUX_CU_KEY_HANDOFF",
     // The agents' own logins: the harnesses the daemon runs read them (acpmux login_env.rs,
     // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs, provider_cloud_auth.rs).
     "AI_GATEWAY_API_KEY",
@@ -24,6 +27,12 @@ const ALLOWED: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CMUX_BYO_API_KEY",
     "CODEX_API_KEY",
+    // Codex's ChatGPT-plan logins: acpmux's machine auth (cli/machine_auth.rs) and its credentialed
+    // spawns (agent_credentials.rs) read them, like CODEX_API_KEY. A daemon a `cmux` child starts
+    // serves every later agent, so stripping them would leave those agents signed out.
+    "CHATGPT_ACCESS_TOKEN",
+    "CODEX_ACCESS_TOKEN",
+    "CMUX_CHATGPT_ACCESS_TOKEN",
     "COPILOT_GITHUB_TOKEN",
     "CURSOR_API_KEY",
     "CURSOR_AUTH_TOKEN",
@@ -147,6 +156,23 @@ const ALLOWED: &[&str] = &[
     "TOP_LEVEL_KEY",
     "VAULT_SECRET",
     "XAUTHORITY",
+    // Not secrets. acpmux's marker holds the NAME of a credential's variable, never its value
+    // (agent_credentials.rs MARKER).
+    "ACPMUX_LAUNCH_CREDENTIAL",
+    // Path and Keychain-service overrides of the secret index and the key audit log
+    // (cli/cloud_secret.rs, cli/key_broker.rs): where a secret is kept, not the secret.
+    "CMUX_NEXT_CLOUD_SECRETS_FILE",
+    "CMUX_NEXT_CLOUD_SECRETS_SERVICE",
+    "CMUX_NEXT_KEYS_AUDIT_FILE",
+    // The auth server's error codes (cmux-stack-auth auth_error.rs), not environment names.
+    "INVALID_APPLE_CREDENTIALS",
+    "INVALID_TOKEN",
+    "OAUTH_CANCELLED",
+    "OAUTH_ERROR",
+    "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
+    "PASSKEY_AUTHENTICATION_FAILED",
+    "PASSKEY_WEBAUTHN_ERROR",
+    "UNAUTHORIZED",
 ];
 
 /// cmux-tui's whole tree: its crates, relays, bindings and build support (not vendored code).
