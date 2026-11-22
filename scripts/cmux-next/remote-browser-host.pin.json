@@ -7,7 +7,7 @@
   "source_commit": "54508d0636c12ff1468355bd9b770735c988a762",
   "crate_tree": "97fe88b6716fd00a11aa76560f91229bbda0a410",
   "cef_version": "cef-157-in-tree-pages-36g-macos-arm64",
-  "cef_sha256": "baa82b304061addea2b1e6150596d6096a4796d5edefb90868b3582ad09f35cb",
+  "cef_sha256": "bcbe043a843a87dc1ffbd25e02cd9f92a5d7ce3042ba66bca5a76e760c83d70c",
   "build_step": "cmux-ci step a74c1ce6af00ecdf3e90443d",
   "github_repo": "manaflow-ai/cef",
   "github_tag": "cef-157-in-tree-pages-36g-macos-arm64"
