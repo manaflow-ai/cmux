@@ -1,15 +1,18 @@
 import XCTest
 
-/// Leo, 2026-11-22: "just off some basic scroll throughs of the tui on my
-/// phone, the thing still lags ... if the data was sent through... why cant
-/// you simply scroll through the depiction that was already given?" Reading
-/// a TUI on the phone is local: a one-finger pan scrolls what the phone
-/// already holds and sends nothing to the Mac. The terminal demo's `tuipan`
-/// phases run a mock Claude Code (`primary`: the primary screen with its live
-/// region redrawn every 80 ms; `mouse`: its full-screen mode on the alternate
-/// screen with the mouse asked for; `keys`: the same without the mouse) and
-/// measure while this test pans with one finger for 10 s: frame time p50 and
-/// p95, hitches, main-thread stalls and the bytes the phone sent.
+/// Leo, 2026-11-22 06:04Z: "just off some basic scroll throughs of the tui
+/// on my phone, the thing still lags", and 2026-11-12: "surely we're not
+/// regressing behavior, right? Like, you can still scroll through things and
+/// click on things and whatnot". A one-finger pan over a full-screen app
+/// scrolls the app (its wheel, sent to the Mac); over the primary screen it
+/// scrolls what the phone already holds and sends nothing. The terminal
+/// demo's `tuipan` phases run a mock Claude Code (`primary`: the primary
+/// screen with its live region redrawn every 80 ms; `mouse`: its
+/// full-screen mode on the alternate screen with the mouse asked for;
+/// `keys`: the same without the mouse) and measure while this test pans with
+/// one finger for 10 s: frame time p50, p95 and max, hitches, main-thread
+/// stalls, the bytes and sends the phone made (one send per main-queue
+/// turn, as `DaemonTerminalSession` batches) and the most sends in a frame.
 final class TerminalTUILocalPanUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
@@ -19,11 +22,11 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         try pan(variant: "primary")
     }
 
-    @MainActor func testOneFingerPanOverAFullScreenAppWithTheMouseSendsNothing() throws {
+    @MainActor func testOneFingerPanOverAFullScreenAppWithTheMouseScrollsTheApp() throws {
         try pan(variant: "mouse")
     }
 
-    @MainActor func testOneFingerPanOverAFullScreenAppWithoutTheMouseSendsNothing() throws {
+    @MainActor func testOneFingerPanOverAFullScreenAppWithoutTheMouseScrollsTheApp() throws {
         try pan(variant: "keys")
     }
 
@@ -47,7 +50,7 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         }
         XCTAssertTrue(demo.hasPrefix("tuipan-\(variant) ready"), "the mock Claude Code is up: \(demo)")
 
-        // 10 s of one-finger reading: drags toward older rows and back, each
+        // 10 s of one finger: drags toward older rows and back, each
         // released moving (a fling), as a thumb reads through a transcript.
         let window = app.windows.firstMatch
         let high = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32))
@@ -81,8 +84,13 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         let values = Self.values(demo)
         XCTAssertTrue(demo.contains(variant == "primary" ? "isTUI=false" : "isTUI=true"), "the mock is on the screen it emulates: \(demo)")
         XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
-        XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan sent the Mac nothing: \(demo)")
-        XCTAssertEqual(values["appScrolls"] ?? -1, 0, "the app was never scrolled by a one-finger pan: \(demo)")
+        if variant == "primary" {
+            XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan over the primary screen sent the Mac nothing: \(demo)")
+            XCTAssertEqual(values["appScrolls"] ?? -1, 0, "nothing scrolled the app: \(demo)")
+        } else {
+            XCTAssertGreaterThan(values["appScrolls"] ?? 0, 0, "a one-finger drag scrolled the full-screen app: \(demo)")
+            XCTAssertGreaterThan(values["bytes"] ?? 0, 0, "its wheel went to the Mac: \(demo)")
+        }
     }
 
     /// `key=N` words of the demo's label.

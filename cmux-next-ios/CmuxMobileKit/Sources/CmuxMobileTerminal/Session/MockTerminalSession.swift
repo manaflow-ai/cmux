@@ -53,6 +53,14 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var bytesFromPhone = 0
     /// DEBUG bench: wheel reports and cursor keys `claudefull` scrolled by.
     public private(set) var appScrolls = 0
+    /// DEBUG bench (`tuipan`): input goes the way `DaemonTerminalSession`
+    /// sends it, one `send` per main-queue turn with everything Ghostty
+    /// wrote in it (`scheduleInputDrain`), on a later turn: the finger's
+    /// frame never waits on the "Mac". False: each write is taken at once.
+    public var batchesInputPerTurn = false
+    /// DEBUG bench: the sends to the "Mac" (with `batchesInputPerTurn`, one per turn).
+    public private(set) var sends = 0
+    private var turnInput: Data?
 
     private enum Program {
         case shell
@@ -102,6 +110,23 @@ public final class MockTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         bytesFromPhone += bytes.count
+        guard batchesInputPerTurn else {
+            sends += 1
+            return forward(bytes)
+        }
+        if turnInput == nil {
+            turnInput = Data()
+            Task { [weak self] in
+                guard let self, let batch = self.turnInput else { return }
+                self.turnInput = nil
+                self.sends += 1
+                self.forward(batch)
+            }
+        }
+        turnInput?.append(bytes)
+    }
+
+    private func forward(_ bytes: Data) {
         guard roundTrip > .zero else { return deliver(bytes) }
         inFlight.append((ContinuousClock.now + roundTrip, bytes))
         guard delivery == nil else { return }
