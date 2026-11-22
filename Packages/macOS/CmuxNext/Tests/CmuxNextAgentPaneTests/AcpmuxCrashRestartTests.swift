@@ -64,15 +64,36 @@ struct AcpmuxCrashRestartTests {
     }
 
     /// cmux#48605: the page's own retries are reconnects, which never start a stopped daemon, so a
-    /// stopped daemon is said at once (no `details.reconnecting`) and its line offers Retry. Before,
-    /// it counted as transient: the pane said nothing and looked usable while it stayed down.
-    @Test func aStoppedDaemonIsSaidAtOnceSoItsRetryShows() async throws {
+    /// stopped daemon is said at once (no `details.reconnecting`; AcpmuxRefusedRestartTests) and its
+    /// line offers Retry. A person's restart from another pane stops it too, and the reconnects of the
+    /// other chats stay quiet while that restart's start runs; one that never came is said after it.
+    @Test func aReconnectAfterAPersonsRestartStaysQuietOnlyForItsWindow() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
+        let daemons = AcpmuxLocalDaemons()
+        let stopped = ContinuousClock.now
+        daemons.noteStoppedByPerson(home: fixture.environment.home, at: stopped)
+        let host = AcpmuxHost(daemons: daemons, environment: fixture.environment)
 
-        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
-        #expect(!AgentPaneHostError.daemonStopped.isTransient, "a stopped daemon would wait silently on retries that never start it")
+        await #expect(throws: AgentPaneHostError.daemonRestarting) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(!fixture.launched, "a reconnect during a person's restart started a daemon of its own")
+        #expect(daemons.stoppedByPerson(home: fixture.environment.home, at: stopped + .seconds(19)))
+        #expect(!daemons.stoppedByPerson(home: fixture.environment.home, at: stopped + AcpmuxLocalDaemons.personRestartWindow),
+                "a restart that never started the daemon kept the pane quiet past its window")
+    }
+
+    /// An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's to start: its stop stays quiet
+    /// (no Retry this app could not honor), and the pane finds it when its owner starts it again.
+    @Test func anAttachedDaemonsStopStaysQuiet() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var attached = fixture.environment
+        attached.isAttached = true
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: attached)
+
+        await #expect(throws: AgentPaneHostError.daemonRestarting) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        await #expect(throws: AgentPaneHostError.daemonRestarting) { _ = try await host.handshake(sessionId: "s") }
+        #expect(!fixture.launched, "this app started an attached daemon")
     }
 
     /// A handoff or Restart agent service stopping the daemon ends without the person: its reconnect
