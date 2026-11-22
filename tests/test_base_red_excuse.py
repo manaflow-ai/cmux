@@ -15624,6 +15624,8 @@ SCANNERS = {
 }
 # Readers the sweep does not time, each with why.
 NOT_SWEPT = {
+    "base_red_excuse._reads_needs": "reads a workflow step's env, run, with or if (the rollups contract's `reports`), "
+                                    "never a PR's log; its split and word search are linear",
     "failed_steps_log._aligned_starts": "timed on its own adversarial shapes (AlignedStartsIsLinear): it reads a "
                                        "workflow's headers, which HostileLog has none of",
     "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
