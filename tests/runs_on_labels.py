@@ -56,6 +56,10 @@ GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
 # The nightly-only build-lane runner, registered with this label alone; only the release path names it
 # (tests/test_release_runner_reserved.py). Attempt 1 of the nightly path takes it, attempt 2 the label above.
 GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
+# The Freestyle Linux rung's label (main's pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
+# same-repository job. The linux, linux_2 and linux_8 pools list it after the GCP lead, so a full GCP pool overflows
+# to it before Blacksmith (Leo, 2026-11-19: "stop ... relying on [Blacksmith]. [...] We could use Freestyle").
+FREESTYLE_LINUX = "cmux-freestyle-linux-x64"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
@@ -416,7 +420,8 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX,
+                                                     FREESTYLE_LINUX}
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:
