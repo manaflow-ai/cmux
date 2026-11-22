@@ -178,6 +178,7 @@ impl Customize {
                     overlay: Some(Value::String(overlay.path.clone())),
                     enabled: Some(Value::Bool(false)),
                     no_file: false,
+                    text: None,
                 };
                 match self.write_web_dev(&WebTarget::Base, &off) {
                     Ok(()) => out.expired.push(Expired {
@@ -288,6 +289,7 @@ impl Customize {
             overlay: Some(Value::String(overlay.path.clone())),
             enabled: Some(Value::Bool(true)),
             no_file: false,
+            text: None,
         };
         self.write_web_dev(&WebTarget::Base, &on)?;
         let mut file = self.read_expired();
