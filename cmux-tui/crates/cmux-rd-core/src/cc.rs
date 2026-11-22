@@ -47,6 +47,11 @@ pub struct CcConfig {
     pub lan_rtt_us: u64,
 }
 
+/// A round trip under this is a LAN: the start jumps to `lan_start_bps`. Wi-Fi in one home
+/// (an iPhone or laptop viewing a Mac) sits at 5 to 10 ms, under a 5 ms limit it started at
+/// 8 Mbit/s and reached 15 Mbit/s only after about 1 s of motion. A WAN is 20 ms and up.
+pub const LAN_RTT_US: u64 = 10_000;
+
 impl Default for CcConfig {
     fn default() -> Self {
         Self {
@@ -55,9 +60,7 @@ impl Default for CcConfig {
             start_bps: 8_000_000,
             relay_max_bps: 4_000_000,
             lan_start_bps: 30_000_000,
-            // The wired fleet pair (cmux20 to cmux17) measures 3.8 to 5.8 ms; at 5 ms its
-            // first second sat at the 8 Mbit/s start. A WAN is 20 ms and up.
-            lan_rtt_us: 10_000,
+            lan_rtt_us: LAN_RTT_US,
         }
     }
 }
