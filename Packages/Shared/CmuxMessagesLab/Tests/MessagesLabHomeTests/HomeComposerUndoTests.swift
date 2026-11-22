@@ -159,6 +159,29 @@ import UniformTypeIdentifiers
         }
         await until { sentPictures() == 3 }
         #expect(sentPictures() == 3, "the message holds the picture three times")
+        // Each copy in the bubble opens, drags and saves its file, whatever id its part has.
+        let bubble = try #require(r.view.controller.store?.state.conversation.messages.last { m in
+            m.parts.contains { if case .attachment = $0 { true } else { false } }
+        })
+        let copies = bubble.parts.compactMap { p -> String? in if case let .attachment(a) = p { a.id } else { nil } }
+        #expect(copies.count == 3)
+        for copy in copies {
+            var file: URL?
+            for _ in 0..<200 where file == nil {
+                file = await r.view.projection.attachmentFile(bubble.id, copy)
+                await Task.yield()
+            }
+            #expect(file != nil, "copy \(copy) of the sent picture has its file")
+        }
+    }
+
+    /// A copy's chip id names its picture: `hash#N` is `hash`; any other `#` is part of the id.
+    @Test func aCopysChipIdNamesItsPicturesHash() {
+        #expect(HomeProjection.contentHash(ofChip: "abc") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#2") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#12") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#x") == "abc#x")
+        #expect(HomeProjection.contentHash(ofChip: "abc#") == "abc#")
     }
 
     /// The crash: a picture, a key after it, the picture deleted, then Cmd+Z again and again. The

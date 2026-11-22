@@ -531,7 +531,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         homeStore.setDraft("", for: conversation)
         homeStore.setDraftAttachments([], for: conversation)
         for a in attachments { media.useLocal(a.files, for: a.ref.hash) }
-        for chip in draft.attachments { drafts[chip.id] = nil }
+        // The field is empty and its undo forgotten: no chip it had, sent or deleted, comes back.
+        drafts.removeAll()
         reportDraftAttachments(draftAttachments)
         let homeStore = self.homeStore, conversation = self.conversation
         let plain = pieces.map(\.part)
@@ -611,6 +612,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard !stopped, controller.store != nil else { return }
         await media.prepare(attachment)
         restoreDraft(attachment)
+    }
+
+    /// The content hash of chip `id` (``draftChipID(for:)``): the id without its copy's `#N`. A bubble
+    /// that flew from the field keeps its chips' ids; HomeStore's item names each copy by its hash.
+    static func contentHash(ofChip id: ID) -> String {
+        guard let mark = id.lastIndex(of: "#") else { return id }
+        let copy = id.suffix(from: mark).dropFirst()
+        let numbered = !copy.isEmpty && copy.allSatisfy({ $0.isASCII && $0.isNumber })
+        return numbered ? String(id.prefix(upTo: mark)) : id
     }
 
     /// The id of a new chip for `hash`: the hash for its first copy in the field, `hash#2`, `hash#3`…
@@ -735,11 +745,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 media.request(ref)
                 guard !tableHashes(item).contains(ref.hash) else { continue }
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
-                let have = message.parts.lazy.compactMap { p -> Attachment? in
-                    if case let .attachment(a) = p, a.id == ref.hash { return a }
-                    return nil
-                }.first
-                if let have, have != want { updates.append((id: id, attachment: want)) }
+                // Every copy of the picture in the message (the same one sent twice, #50984), each
+                // under its own id: `hash` from HomeStore's item, `hash#2` in the bubble that flew.
+                for case let .attachment(have) in message.parts where Self.contentHash(ofChip: have.id) == ref.hash {
+                    var shown = want
+                    shown.id = have.id
+                    if have != shown, !updates.contains(where: { $0.id == id && $0.attachment.id == shown.id }) {
+                        updates.append((id: id, attachment: shown))
+                    }
+                }
             }
         }
     }
@@ -948,8 +962,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
-        item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
-            if case .attachment(let r) = p, r.hash == attachment { return r }
+        let hash = Self.contentHash(ofChip: attachment)
+        return item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
+            if case .attachment(let r) = p, r.hash == hash { return r }
             return nil
         }.first
     }
