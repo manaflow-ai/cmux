@@ -105,23 +105,25 @@ if [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; 
     fi
     return 0
   }
-  python3() {
+  # Each wrapper exists only where its program does: a function named curl would make `command -v curl` true on a
+  # PATH with no curl (workers/iroh-v2's deploy guard checks exactly that).
+  if type -P python3 >/dev/null 2>&1; then python3() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python3 "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python3 "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  python() {
+  }; fi
+  if type -P python >/dev/null 2>&1; then python() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  curl() {
+  }; fi
+  if type -P curl >/dev/null 2>&1; then curl() {
     { local _x=$-; set +x; } 2>/dev/null
     local a prev="" url="" meth="" auth="" own="" data="" tmp="" rc
     for a in "$@"; do
@@ -182,7 +184,7 @@ EOF_API_CALL_LOG
     } >/dev/null 2>&1 </dev/null || true
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
+  }; fi
 fi
 unset -f _api_call_log_setup 2>/dev/null || true
 unset _api_call_log_fd2 _api_call_log_flush 2>/dev/null || true
