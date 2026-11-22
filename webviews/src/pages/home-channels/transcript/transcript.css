@@ -1,4 +1,4 @@
-/* The Messages transcript (home-messages/transcript). The bubble metrics are MessagesLab's measured
+/* The Messages transcript (home-channels/transcript). The bubble metrics are MessagesLab's measured
    Messages values (Layout.swift, RowDrawing.swift), defined once here as tokens: a 17 pt corner, the
    tail, 12 pt side padding, a 36 pt avatar in a glass name pill header. Colours come from the look
    (iMessage's blue and grey, the theme's accent and surface, or an outline) and the chat's own

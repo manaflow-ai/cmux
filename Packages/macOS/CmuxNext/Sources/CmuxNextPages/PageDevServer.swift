@@ -47,7 +47,6 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.group-editor",
         "cmux.history",
         "cmux.home-channels",
-        "cmux.home-messages",
         "cmux.icon-picker",
         "cmux.keybindings",
         "cmux.machines",

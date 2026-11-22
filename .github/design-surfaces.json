@@ -354,8 +354,7 @@
         "home inbox"
       ],
       "paths": [
-        "webviews/src/pages/home-channels/",
-        "webviews/src/pages/home-messages/"
+        "webviews/src/pages/home-channels/"
       ]
     },
     "diff-viewer": {

@@ -43,7 +43,6 @@ github
 group-editor
 history
 home-channels
-home-messages
 icon-picker
 keybindings
 machines

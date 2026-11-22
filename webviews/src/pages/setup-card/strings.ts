@@ -1,8 +1,8 @@
 // The cards' words: `Localizable.xcstrings` next to this file, with the keys of the Swift catalogs
 // they replace (`home.mcpConnect.*`, `home.agentPane.*`, `home.firstRun.*`, `home.starter.*`,
 // `home.linkPreview.*`, `home.headerPanels.*`), so translations carry over. gen-strings.mjs
-// (`home-messages-cards`) writes `generated/strings.json` from it.
-import { createStrings, type Strings } from "../../shared/i18n";
+// (`setup-card`) writes `generated/strings.json` from it.
+import { createStrings, type Strings } from "../shared/i18n";
 import table from "./generated/strings.json";
 
 export type { Strings };
