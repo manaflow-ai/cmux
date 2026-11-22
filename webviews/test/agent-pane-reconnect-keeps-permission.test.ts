@@ -214,7 +214,7 @@ for (const slow of [false, true]) {
       const next = reconnected;
       if (slow) {
         // The new daemon takes longer than the open's hold (direct.ts OPEN_HOLD_MS) to answer.
-        await new Promise((resolve) => setTimeout(resolve, 1800));
+        await new Promise((resolve) => setTimeout(resolve, 1800)); // fixed-wait: a daemon slower than the 1.5 s open hold is the subject.
         daemon.release();
       }
       await next;
@@ -251,8 +251,10 @@ test("a waiting permission ask stays on screen when the client reconnects by its
   await flush();
   expect(seen).toBe(true);
   for (let drop = 1; drop <= 3; drop += 1) {
+    const before = daemons.length;
     daemons.at(-1)!.drop();
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // The client's own backoff picks the moment: wait until it opened its next connection.
+    while (daemons.length === before) await new Promise((resolve) => setTimeout(resolve, 0));
     await flush();
   }
   expect(daemons.length).toBeGreaterThan(1);
