@@ -74,6 +74,19 @@ view (only for a browser tab in a view and for a page in a Chromium child window
 counts of 0 are not facts of the app. The journal changes no verdict: with no read, and with an entry of a form
 that the tool does not know, the record has `journal.not_read` with the why.
 
+AFTER THE SELECT. `engine` None before the select does not say which engine has the first new tab's page: a page
+in Chromium whose focus the app did not change has no entry, and a New Tab page in a WebKit view has none at all.
+So a case reads the journal ONE more time, as its LAST call: after the select, after the verdict's read of the
+field and after each read of the places (no read that a verdict or `letter_is` uses comes after it). The record's
+`journal_after_select` has the same counts as `journal`, of the entries after the journal's last number at the
+last read before the select, to the case's end (the tool's selects of the case's other tabs are in them), and
+`engine_after_select` is the last engine word of the first new tab in those entries (None: no such entry names
+the tab, or no read). The app writes an entry only at a change: a page in Chromium that had the app's page focus
+before the select can get no new entry at it (`engine` has its word then), so None in the 2 keys is not `the page
+is in a WebKit view`. A read only: it changes no verdict and no other key of the record. With no read the record
+has `journal_after_select.not_read` with the why (`no read before the select`: that read gave no last number, and
+the tool then reads no entries), and the case goes on. A case that is `not_run` before its select has no such key.
+
 THE 3 KEYS: a New Tab key, the letter x 30 ms later, a second New Tab key 30 ms after the letter. The second New Tab
 key is a key with Command while the hold has the letter: the hold ends with no field ready (`release: chord`).
 
@@ -173,7 +186,8 @@ OLDER = "{} texts were in the park before the case's keys: a text that waits lat
 # by the app's clock, and only a text that stays on its way into its page gets to this bound.
 WAIT_S = 4.0
 WAIT_STEP_S = 0.1  # between 2 reads of the park while a text waits there
-JOURNAL_LAST = 600  # the entries of the journal's read before the select: a case's keys and pages write far fewer
+JOURNAL_LAST = 600  # the entries of a read of the journal (before the select, after it): a case's keys and pages write far fewer
+UNMARKED = "no read before the select"  # why the read after the select has no entries: no last number to count from
 ENGINES = ("webkit", "chromium", "chromium-key", "chromium-unchosen-key")  # the app's words (FocusEffectApplier.swift)
 # The notes of a page's input readiness in the journal (PageInputReadiness.swift `trace`), by the record's name.
 NOTES = (("focus", re.compile(r"^page (?:.* )?epoch=\d+(?: |$)")), ("editing_on", re.compile(r"^page (?:.* )?editing=(?:1|true)(?: |$)")),
@@ -381,6 +395,7 @@ class Letters:
         self.before = []  # of a case: (tab, the text of its field) for each tab that the pane showed before the keys
         # Of the last sequence: the clock's time at the app's reply to its call, and the seconds that its steps take.
         self.clock, self.keyed, self.played_s = clock, 0.0, 0.0
+        self.noted_to = None  # of a case: the journal's last number at its last read before the select (None: no such read)
 
     def focus(self):
         """ONE read of `debug.focus`: the hold's log, the park's counts, the app's active state, the key window."""
@@ -406,19 +421,38 @@ class Letters:
             return None, "no stats"
         return (None, "off") if stats.get("enabled") is False else (reply, None)
 
-    def before_select(self, mark, why, tab):
-        """The record's `journal` and `engine` for the first new tab `tab`: `noted` of the entries after `mark`, the
-        journal's last number before the keys (None: that read gave none, and `why`). With no read: `not_read`."""
+    def entries_after(self, mark, why, tab):
+        """ONE read of the journal for the first new tab `tab`: (`noted` of the entries after the number `mark`, the
+        engine word, the journal's last number at this read). `mark` None: no call, and `why` says why. With no read:
+        ({"not_read": why}, None, None)."""
         reply, why = self.journal(JOURNAL_LAST) if mark is not None else (None, why)
         if reply and not isinstance(reply.get("entries"), list):
             why = "no entries"
         if why:
-            return {"journal": {"not_read": why}, "engine": None}
+            return {"not_read": why}, None, None
         try:
             found = noted(reply["entries"], mark, tab)
         except Exception as error:  # noqa: BLE001  the journal takes no verdict: an entry of a form that the tool does not know must not stop the case
-            return {"journal": {"not_read": type(error).__name__}, "engine": None}
-        return {"journal": found, "engine": (found["first_new_tab"]["engines"] or [None])[-1]}
+            return {"not_read": type(error).__name__}, None, None
+        return found, (found["first_new_tab"]["engines"] or [None])[-1], int(reply["stats"]["lastSeq"])
+
+    def before_select(self, mark, why, tab):
+        """The record's `journal` and `engine` for the first new tab `tab`: `noted` of the entries after `mark`, the
+        journal's last number before the keys (None: that read gave none, and `why`). With no read: `not_read`.
+        `self.noted_to` gets the journal's last number at this read (None with no read): `after_select` counts from it."""
+        found, engine, self.noted_to = self.entries_after(mark, why, tab)
+        return {"journal": found, "engine": engine}
+
+    def after_select(self, tab):
+        """The record's `journal_after_select` and `engine_after_select` for the first new tab `tab` (AFTER THE
+        SELECT): ONE read of the journal, the case's last call. `noted` of the entries after the journal's last
+        number at the last read before the select; with no such number no call, and `not_read` says so. No
+        exception leaves it: the case has its verdict and its places, and this read changes none of them."""
+        try:
+            found, engine, _ = self.entries_after(self.noted_to, UNMARKED, tab)
+        except Exception as error:  # noqa: BLE001  a read only: it must not make a case that ran `not_run`
+            found, engine = {"not_read": type(error).__name__}, None
+        return {"journal_after_select": found, "engine_after_select": engine}
 
     @staticmethod
     def texts(counts, absent=None):
@@ -681,6 +715,8 @@ class Letters:
             text = self.wait(lambda: self.field().get("text"), 5, 0.1) or self.field().get("text")
             record.update({"field": seen(text), **judge(notes, text, waits)})
             self.located(record, workspace, target, made, text)
+            # The case's last call: a read only, after each read of the verdict and of the places (AFTER THE SELECT).
+            record.update(self.after_select(made[0]))
         except NotRun as error:
             record["not_run"] = str(error)
         except Exception as error:  # noqa: BLE001  one case that stopped must not lose the other cases
