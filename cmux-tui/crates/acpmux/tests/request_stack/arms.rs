@@ -99,10 +99,25 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"key": "0000000000000000000000000000000000000000000000000000000000000000"})),
         ),
         (
-            method::MUX_COMPUTER_USE_ENROLL,
+            method::MUX_COMPUTER_USE_CALL,
             Any(
-                json!({"socket": "$CWD/cua.sock", "agentToken": "t"}),
-                "an unsigned build refuses (invalid params) before it reads the socket",
+                json!({"machine": "nowhere", "name": "status", "session": "$S", "call_id": "c1"}),
+                "the hub has no peer of that name (unknown_machine)",
+            ),
+        ),
+        (method::MUX_COMPUTER_USE_MACHINES, Run(json!({}))),
+        (
+            method::MUX_WHO_ELSE,
+            Any(
+                json!({"sessionId": "$S"}),
+                "an arm from before this row; any answer is right here",
+            ),
+        ),
+        (
+            method::MUX_COMPUTER_USE_STATE,
+            Any(
+                json!({}),
+                "the local socket is refused: only a peer asks for this machine's state",
             ),
         ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),
@@ -145,6 +160,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
+        (method::MUX_USAGE, Run(json!({}))),
         (
             method::MUX_WEB_MODES,
             Run(json!({"sessionId": "$S", "configId": "model", "value": "m1"})),
@@ -353,6 +369,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"sessionId": "$S", "id": "0000000000000000000000000000000000000000000000000000000000000000"}),
             ),
         ),
+        (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,
@@ -393,6 +410,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"name": "lso-register"}),
                 "taken only from the unix socket, by the peer's pid (invalid params)",
             ),
+        ),
+        (
+            method::MUX_INBOX_RELAY,
+            Any(json!({}), "taken only from a process a Claude Code session runs (invalid params)"),
         ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (

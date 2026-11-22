@@ -22,7 +22,7 @@ public protocol PageChromiumHosting: AnyObject {
     func serves(_ page: PageDescriptor) -> Bool
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
-    /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
+    /// (``ChromiumPageHostBridge/setUp(documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
     /// - Parameter page: The page's descriptor (its origin and policy).
@@ -164,6 +164,11 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended
+    /// The Chromium engine stopped for the app's quit (`CEFRuntime.shutdown` closed every browser): the page is
+    /// not reopened in WebKit, and no crash is reported. Each quit was logged as every Chromium page's crash and
+    /// started a WebKit load of each while the app quit (Leo's Mac, 2026-11-21: four quits read as four
+    /// "chromium-failed" New Tab pages).
+    case engineStopped
     /// The page asked to open `url` in a new tab or window (`window.open`, a `target=_blank` link).
     case openRequested(URL)
     /// A drag of these files from outside the app entered the page (their paths, which the page

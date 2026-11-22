@@ -419,6 +419,16 @@ pub(super) async fn backend_token(
     source: &TokenSource,
     team: Option<&str>,
 ) -> Result<String, String> {
+    backend_credential(source, team).await.map(|(token, _)| token)
+}
+
+/// The backend's token and, when its answer names one, the cmux API that issued it (`cmux auth token --json`'s
+/// `api_origin`): a verb run by the app with no `--api` (the start gate's `inference gateway status`, hq#15762) asks
+/// the API the app is signed in to.
+pub(super) async fn backend_credential(
+    source: &TokenSource,
+    team: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let raw = match source {
         TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
         TokenSource::File(path) => tokio::fs::read_to_string(path)
@@ -428,28 +438,37 @@ pub(super) async fn backend_token(
         TokenSource::App => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             // An install token acts only for the team it was minted for: mint it for the gateway's team.
-            let mut args = vec!["auth", "token"];
+            let mut args = vec!["auth", "token", "--json"];
             if let Some(team) = team {
                 args.extend(["--team", team]);
             }
             command_output(&exe.to_string_lossy(), &args).await?
         }
     };
-    let token = raw.trim();
-    // `cmux auth token --json` and friends: take its access_token.
-    let token = match serde_json::from_str::<Value>(token) {
-        Ok(Value::Object(o)) => {
-            o.get("access_token").and_then(Value::as_str).unwrap_or_default().to_owned()
-        }
-        _ => token.to_owned(),
-    };
+    let (token, issued_by) = credential_answer(&raw);
     if token.is_empty() || token.contains(char::is_whitespace) {
         return Err(
             "no cmux access token (sign in to cmux, or pass --token-file or --token-command)"
                 .into(),
         );
     }
-    Ok(token)
+    Ok((token, issued_by))
+}
+
+/// A token source's answer: a bare token, or `cmux auth token --json`'s object (its `access_token`, and its
+/// `api_origin` when it names one).
+pub(super) fn credential_answer(raw: &str) -> (String, Option<String>) {
+    let raw = raw.trim();
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Object(o)) => {
+            let text = |key: &str| o.get(key).and_then(Value::as_str).map(str::trim);
+            (
+                text("access_token").unwrap_or_default().to_owned(),
+                text("api_origin").filter(|v| !v.is_empty()).map(str::to_owned),
+            )
+        }
+        _ => (raw.to_owned(), None),
+    }
 }
 
 /// The model paths a machine may call, the same list as the cmux-platform Worker's `GATEWAY_CALL_PATH`.
@@ -633,6 +652,9 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     request.headers_mut().insert("authorization", bearer);
     if let Some(team) = options.team.as_deref().and_then(|t| HeaderValue::from_str(t).ok()) {
         request.headers_mut().insert("x-cmux-team", team);
+    }
+    if let Err(error) = cmux_build_space::insert(request.headers_mut()) {
+        return Ended::Stop(error.to_string());
     }
     // No Sec-WebSocket-Protocol: the backend (InferenceGateway.ts) negotiates none, and tungstenite refuses a
     // handshake whose offered protocol the server does not echo. The version is checked on its `hello` frame below.

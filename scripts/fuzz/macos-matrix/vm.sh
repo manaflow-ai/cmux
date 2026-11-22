@@ -156,7 +156,7 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
       --agent "$AGENT_BIN" --nightly-build "${NIGHTLY_BUILD:-}" --out "$out" --ssh-opt=-oPubkeyAuthentication=no \
       --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
       >"$out/onboarding.log" 2>&1 || echo "onboarding exit $?" >"$out/failure"
-    grep -E '^(ONBOARDING|[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
+    grep -E '^(ONBOARDING|TCC |[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
     return 0
   fi
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
@@ -339,9 +339,10 @@ for m in majors:
     elif suite == "onboarding":
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
-        line = "%-4s %-8s onboarding %-10s nightly=%s failed=%s actions=%s/%s findings=%d %s" % (
+        line = "%-4s %-8s onboarding %-10s nightly=%s failed=%s actions=%s/%s findings=%d tcc_grant_prompts=%s %s" % (
             m, s.get("os", "?"), verdict, s.get("nightly_build") or "-", ",".join(s.get("failed_steps", [])) or "-",
-            s.get("person_actions_to_ready", "-"), s.get("reference_actions_to_ready", "-"), len(s.get("findings", [])), fail)
+            s.get("person_actions_to_ready", "-"), s.get("reference_actions_to_ready", "-"), len(s.get("findings", [])),
+            (s.get("tcc") or {}).get("cmux_grant_prompt_count", "-"), fail)
     elif suite == "smoke":
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")

@@ -16,6 +16,7 @@ pub mod loss;
 pub mod pacer;
 pub mod packetize;
 pub mod policy;
+pub mod profile;
 pub mod reassembly;
 pub mod service;
 pub mod session;
