@@ -231,6 +231,54 @@ This crate is its own Cargo workspace (excluded from the cmux-tui workspace) bec
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
 
+### Stage ledger: where each frame's milliseconds go (`cmux.rd-stage-ledger/1`)
+
+Decision D8 of cmuxterm-hq `docs/design/screen-share-under-100ms.md`. A viewer that offers
+cap `ledger` (and `clock`, so its times convert to the host's) gets, after each frame's last
+shard, a `FrameTimes` datagram (kind 12, cmux-rd-proto `frame_times.rs`) with the host's times
+for that frame: display time (ScreenCaptureKit's, 0 where the capture backend has none), encode
+start, bitstream ready, first and last datagram handed to the carrier. The viewer adds first
+shard, last shard (the frame became decodable), released, decoded and presented
+(cmux-rd-core `ledger.rs`). A viewer that does not offer the cap gets nothing new.
+
+`cmux-rd bench` prints the run's table as `stage_ledger` in its report line, and the app logs
+it every 5 s (`remote-view-rd`, "stage ledger: ..."). One JSON object, all times in ms on the
+host's clock:
+
+```json
+{"schema":"cmux.rd-stage-ledger/1","clock":"host monotonic","frames":N,"frames_with_host_times":N,
+ "offset_us":-1234,"received_mbps":14.2,
+ "stages":[{"stage":"Capture","from":"display time","to":"encode start","budget_ms":8.000,
+            "n":N,"p50_ms":3.1,"p95_ms":6.0,"reason":null}, ...],
+ "display_to_decoded":{"n":N,"p50_ms":..,"p95_ms":..}}
+```
+
+`stages` always has these twelve rows, in order: Input, Screen, Capture, Encode, Send,
+Network, Transport, Recovery, Reassembly, Decode, Present, Total. They are the ten rows of the
+design's budget table plus Network split in two right after it: Transport + Recovery = Network
+for every frame. A row with no samples has `n: 0`, null percentiles and a `reason`:
+
+| Stage | From, to | Filled by |
+| --- | --- | --- |
+| Input | viewer key down to host inject | the fleet harness (observer input receipt + host `inject_us`) |
+| Screen | inject to display time | the fleet harness (host `inject_us` + `shown_us`) |
+| Capture | display time to encode start | host |
+| Encode | encode start to bitstream ready | host |
+| Send | bitstream ready to last datagram sent | host |
+| Network | last datagram sent to last shard received | host + viewer (needs the clock offset) |
+| Transport | first datagram sent to first shard received: the path's one-way delay | host + viewer (needs the clock offset) |
+| Recovery | arrival spread (first to last shard) minus send spread (first to last datagram): time lost to retransmits, waiting for parity, jitter and queueing; can be negative when the path squeezes the burst | host + viewer (one clock each) |
+| Reassembly | last shard to frame released | viewer |
+| Decode | released to decoded | viewer |
+| Present | decoded to on glass (drawable presented time) | the app; `cmux-rd bench` has no renderer |
+| Total | display time to presented | the app; the bench reports `display_to_decoded` instead |
+
+Send ends when the last datagram is handed to the carrier: on a link carrier that is the link
+thread's queue, not the socket. `CMUX_RD_TIMING_LOG` lines carry the same host times per frame
+(`release_us` is the gate's release, `capture_us` the frame's `t_capture_us`, `encode_start_us`,
+`encoded_us`, `first_sent_us`, `sent_us`), for the harness to join with its observer's input and
+presented-marker receipts.
+
 ## Release
 
 `.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
