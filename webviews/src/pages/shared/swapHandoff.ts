@@ -17,6 +17,7 @@
 // The probe (`cmux-swap-probe` on window, `window.__cmuxSwapProbe`, the agent page's flicker log
 // `swap` records) says what came back, for scripts/measure/graceful-swap.py.
 
+import { focusRoute } from "../../ui/focusRoute";
 import { elementPath } from "./pageHealth";
 
 /** sessionStorage (it survives a reload): the state a page handed over before the host reloaded it. */
@@ -333,17 +334,20 @@ function putBack(doc: Document, handoff: SwapHandoff): void {
     }
   }
   const focus = handoff.focus ? find(doc, handoff.focus) : null;
-  if (focus && doc.activeElement !== focus) focus.focus({ preventScroll: true });
+  if (focus && doc.activeElement !== focus)
+    focusRoute(focus, "system", "a web swap gives the keys back", { preventScroll: true });
   const caret = handoff.caret;
   if (!caret || caretBack(doc, caret)) return;
   const element = find(doc, caret.path);
   if (!element) return;
   if (isTextField(element)) {
-    if (doc.activeElement !== element) element.focus({ preventScroll: true });
+    if (doc.activeElement !== element)
+      focusRoute(element, "system", "a web swap gives the caret back", { preventScroll: true });
     element.setSelectionRange(caret.start, caret.end, caret.backward ? "backward" : "forward");
     return;
   }
-  if (doc.activeElement !== element && !element.contains(doc.activeElement)) element.focus({ preventScroll: true });
+  if (doc.activeElement !== element && !element.contains(doc.activeElement))
+    focusRoute(element, "system", "a web swap gives the caret back", { preventScroll: true });
   const selection = doc.getSelection();
   if (!selection) return;
   const [startNode, startOffset] = textPoint(element, caret.start);
