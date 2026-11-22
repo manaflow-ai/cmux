@@ -95,6 +95,32 @@ struct OmnibarCutsTests {
         #expect(row.label.stringValue == "cmux")
     }
 
+    /// Two pages of one site with one title (example.com's docs and login pages, both "Example Domain") read the same as
+    /// title and host alone: those rows show their address without the scheme, so a person can tell them apart. A row
+    /// no other row reads like keeps the host alone. Seen in the fleet capture of the landed cuts (ce9fc993c306).
+    @Test func rowsThatReadTheSameShowTheirAddress() throws {
+        func page(_ address: String, _ title: String) throws -> BrowserSuggestion {
+            BrowserSuggestion(kind: .history, title: title, detail: address, url: try #require(URL(string: address)), score: 1)
+        }
+        let rows = [try page("https://example.com/docs/start?from=home", "Example Domain"),
+                    BrowserSuggestion(kind: .search, title: "example", detail: "Google Search",
+                                      url: try #require(URL(string: "https://www.google.com/search?q=example")), score: 1),
+                    try page("https://example.com/login", "Example Domain"),
+                    try page("https://example.org/", "Example Domain"),
+                    try page("https://github.com/manaflow-ai/cmux", "cmux")]
+        #expect(SuggestionRowView.shownDetails(rows) == ["example.com/docs/start?from=home", "", "example.com/login", "example.org", "github.com"])
+
+        let panel = OmniboxSuggestionPanel()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        let anchor = NSView(frame: NSRect(x: 10, y: 340, width: 600, height: 30))
+        window.contentView?.addSubview(anchor)
+        panel.show(rows, highlighted: 0, at: anchor, pane: try #require(window.contentView), in: window)
+        #expect(panel.cardView.subviews.compactMap { $0 as? SuggestionRowView }.map(\.label.stringValue)
+                == ["Example Domain – example.com/docs/start?from=home", "example", "Example Domain – example.com/login",
+                    "Example Domain – example.org", "cmux – github.com"])
+    }
+
     @Test func atMostSixRows() {
         #expect(OmniboxConfiguration().maxRows == 6)
         #expect(OmniboxSuggestionEngine().maxResults == 6)
