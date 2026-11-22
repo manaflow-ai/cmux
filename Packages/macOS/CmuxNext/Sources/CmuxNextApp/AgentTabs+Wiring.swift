@@ -145,7 +145,7 @@ extension AgentTabStore {
             let action = local ? CloudBringBack.action : onCloud ? CloudBringBack.toMachine : CloudMove.action
             return registry.perform(action, invocation: invocation)
         }
-        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
+        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }; services.launchImages.pictures = AgentLaunchPictures { [weak services, weak tabs] in if let services, let tabs { await AgentQuitFiles.saveImages(tabs) { AgentQuitFiles.isIncognito($0, in: services) } } }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.chiefFace = { [weak services, weak tabs] chief in
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
