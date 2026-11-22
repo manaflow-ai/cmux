@@ -2190,24 +2190,38 @@ class GitHub:
                     break
         return found
 
-    def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished nightly-next re-runs, every attempt from 2 on. Only a re-run whose build
-        picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one
-        the picker placed there) is found here, for its signing jobs' stalls (signing_stall(), which watch() still
-        acts on through SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either:
-        the marker listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label
-        stalls, the picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold
-        re-runs the picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never
-        watched, so such a build could wait unwatched with no limit (review P1 on #26614). Main's nightly is
-        rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
+    def nightly_runs(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of the unfinished nightly runs the sweeper watches: attempt 1 of main's push or schedule
+        run, and every attempt of nightly-next's.
+
+        Attempt 1 of either branch is where build-nightly-app waits for its reserved trusted runner (nightly_target()).
+        Until 2026-11-22 each such run woke a ci-owned-pool-rescue.yml job of its own on `requested`, which held a
+        Blacksmith runner for the whole build, up to its 150-minute watch limit, just to look every few minutes at a
+        wait that is never moved: 16 of the workflow's 31 runner-hours from 22:00Z to 00:50Z on 2026-11-21 (15
+        watches, controller timing feed). The sweeper runs anyway, so a thread of its own costs no runner.
+
+        nightly-next's re-runs are listed at every attempt from 2 on: only a re-run whose build picker chose an owned
+        Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one the picker placed there)
+        is found here, for its signing jobs' stalls (signing_stall(), which watch() still acts on through
+        SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either: the marker
+        listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label stalls, the
+        picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold re-runs the
+        picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never watched, so such a
+        build could wait unwatched with no limit (review P1 on #26614). Main's nightly is rescued on attempt 1 only:
+        a full re-run there builds the app again."""
         name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[tuple[int, int]] = []
-        for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch=nightly-next"
-                                       f"&per_page={count}")
-            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
-                      and int(run.get("run_attempt") or 0) > 1]
+        for branch in ("nightly-next", MAIN_BRANCH):
+            for status in ("queued", "in_progress"):
+                data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch={branch}"
+                                           f"&per_page={count}")
+                for run in (data or {}).get("workflow_runs") or []:
+                    if not isinstance(run, Mapping) or not run.get("id") or run.get("head_branch") != branch:
+                        continue
+                    attempt = int(run.get("run_attempt") or 0)
+                    if attempt >= 1 if branch == "nightly-next" else (
+                            attempt == 1 and run.get("event") in NIGHTLY_EVENTS):
+                        found.append((int(run["id"]), attempt))
         return found
 
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
@@ -2942,7 +2956,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             elif target.late_owned_jobs and target.attempt > SIGN_RESCUE_LAST_ATTEMPT and nightly_build_off_owned(
                     jobs, target.attempt_started_at):
                 # Nothing left to rescue on this attempt: its signing stalls are not rescued past
-                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_reruns() lists every
+                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_runs() lists every
                 # attempt).
                 return "stop", f"no job of attempt {target.attempt} can take a persistent pool"
             elif run_finished(jobs) and not (target.signs_late and read(
@@ -7397,13 +7411,14 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
-        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_reruns"):
-            # nightly-next's re-runs on Blacksmith (no marker), every SIDE_FAILURE_TICKS ticks: a signing stall
-            # takes SIGN_STALL_SECONDS to call, so a few minutes' delay costs nothing.
+        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_runs"):
+            # The unfinished nightlies (no marker; nightly_runs()), every SIDE_FAILURE_TICKS ticks: a signing stall
+            # takes SIGN_STALL_SECONDS to call, a reserved runner's wait is never moved, and a refusal is re-run once
+            # the run ends, so a few minutes' delay costs nothing.
             try:
-                reruns = [*reruns, *client.nightly_reruns(SWEEP_LISTING)]
+                reruns = [*reruns, *client.nightly_runs(SWEEP_LISTING)]
             except READ_ERRORS as error:
-                log(f"could not list nightly-next re-runs ({error}); a later tick")
+                log(f"could not list the unfinished nightlies ({error}); a later tick")
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
                 adopt(run_id, False, refusals_known=refusals_listed)
