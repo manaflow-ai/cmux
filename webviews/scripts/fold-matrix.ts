@@ -5,7 +5,8 @@
 // potentially in between, maybe steers, maybe chatter from the model in between... and then it all collapses
 // into Worked for. and the various situations in between that can come about too, those should be analyzed."
 //
-//   bun scripts/fold-matrix.ts [--looks fade,dissolve,...] [--cells base,steer,...] [--out DIR] [--ffmpeg PATH]
+//   bun scripts/fold-matrix.ts [--looks fade,dissolve,...] [--cells base,steer,...] [--runs 3] [--out DIR] [--ffmpeg PATH]
+//   (`none` in --looks is the control: the swap applied at once, no fold)
 //
 // The base turn (test/browser/fold-variants.harness.tsx `matrixTurn`): two earlier turns, then 30 calls,
 // no chatter, no steer, no subagent, the reader at the bottom, a short answer, the turn ending 1.5 s after
@@ -30,6 +31,8 @@ const value = (name: string) => {
 };
 const out = path.resolve(value("--out") ?? "/tmp/fold-matrix");
 const ffmpeg = value("--ffmpeg") ?? "ffmpeg";
+/** Runs per cell and look; each number is their median, and `runs` and `spread` (max jump's range) say how far apart they were. */
+const repeats = Number(value("--runs") ?? 3);
 
 const BASE: MatrixCell = {
   calls: 30,
@@ -60,7 +63,8 @@ export const CELLS: Cell[] = [
   cell("subagent", "a subagent inside", { subagent: true }),
   cell("scrolled-up", "the reader scrolled up", { viewport: "up" }),
   cell("streaming", "the turn ends while the answer streams", { timing: "during" }),
-  cell("recap", "a long recap fills the view", { answer: "recap" }),
+  cell("long-answer", "a long closing answer fills the view", { answer: "recap" }),
+  cell("recap-card", "the wrap-up recap card comes in under the answer", { wrapUp: true }),
   cell("split-half", "half split (360 x 640)", {}, 360, 640),
   cell("split-third", "third split (240 x 640)", {}, 240, 640),
   cell("split-quarter", "quarter split (360 x 320)", {}, 360, 320),
@@ -75,7 +79,9 @@ function sideBySide(clips: string[], target: string, width: number, height: numb
   const h = Math.round((height * scale) / 2) * 2;
   const across = Math.min(5, clips.length);
   const inputs = clips.flatMap((clip) => ["-i", clip]);
-  const scaled = clips.map((_, i) => `[${i}:v]scale=${w}:${h},tpad=stop_mode=clone:stop_duration=3[v${i}]`).join(";");
+  const scaled = clips
+    .map((_, i) => `[${i}:v]scale=${w}:-2,pad=${w}:${h}:0:0:black,tpad=stop_mode=clone:stop_duration=3[v${i}]`)
+    .join(";");
   const layout = clips.map((_, i) => `${(i % across) * w}_${Math.floor(i / across) * h}`).join("|");
   const stack =
     clips.length === 1
@@ -123,26 +129,32 @@ if (import.meta.main) {
     results[c.id] = {};
     const clips: string[] = [];
     for (const look of looks) {
-      const options = {
-        look,
-        scenario: `matrix:${encodeURIComponent(JSON.stringify(c.cell))}`,
-        width: c.width,
-        height: c.height,
-        out,
-        name: `${c.id}-${look}`,
-        ffmpeg,
-      };
-      // One more try on a page that never loaded (the dev server busy), so one miss does not end the run.
-      const { numbers, clip } = await recordLook(recorder.browser, recorder.port, options).catch((error) => {
-        console.error(`${c.id}-${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
-        return recordLook(recorder.browser, recorder.port, options).catch(() => ({
-          numbers: undefined,
-          clip: undefined,
-        }));
-      });
-      results[c.id]![look] = numbers ?? { error: "no fold played" };
-      if (clip) clips.push(clip);
-      console.log(`${c.id.padEnd(14)} ${look.padEnd(10)} ${JSON.stringify(numbers)}`);
+      const runs: Numbers[] = [];
+      let kept: string | undefined;
+      for (let attempt = 0; attempt < repeats; attempt += 1) {
+        const options = {
+          look,
+          scenario: `matrix:${encodeURIComponent(JSON.stringify(c.cell))}`,
+          width: c.width,
+          height: c.height,
+          out,
+          name: `${c.id}-${look}${attempt ? `-${attempt + 1}` : ""}`,
+          ffmpeg,
+        };
+        // One more try on a page that never loaded (the dev server busy), so one miss does not end the run.
+        const { numbers, clip } = await recordLook(recorder.browser, recorder.port, options).catch((error) => {
+          console.error(`${c.id}-${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
+          return recordLook(recorder.browser, recorder.port, options).catch(() => ({
+            numbers: undefined,
+            clip: undefined,
+          }));
+        });
+        if (numbers) runs.push(numbers);
+        if (clip && !kept) kept = clip;
+        console.log(`${c.id.padEnd(14)} ${look.padEnd(10)} ${attempt + 1} ${JSON.stringify(numbers)}`);
+      }
+      results[c.id]![look] = runs.length ? median(runs) : { error: "no fold played" };
+      if (kept) clips.push(kept);
     }
     if (clips.length) sideBySide(clips, path.join(out, `cell-${c.id}.mp4`), c.width, c.height);
     writeFileSync(path.join(out, "matrix.json"), JSON.stringify({ cells, looks, results }, null, 1));
@@ -150,6 +162,26 @@ if (import.meta.main) {
   await recorder.close();
   writeFileSync(path.join(out, "matrix.md"), table(cells, looks, results));
   console.log(path.join(out, "matrix.md"));
+}
+
+/** Each numeric field's median over the runs, with the max jump's spread. */
+function median(runs: Numbers[]): Numbers & { runs: number; spread: number } {
+  const mid = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const half = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[half]! : (sorted[half - 1]! + sorted[half]!) / 2;
+  };
+  const out: Record<string, unknown> = { ...runs[0] };
+  for (const key of Object.keys(runs[0]!)) {
+    const values = runs.map((run) => (run as Record<string, unknown>)[key]).filter((v) => typeof v === "number");
+    if (values.length === runs.length) out[key] = Math.round(mid(values as number[]) * 10) / 10;
+  }
+  const jumps = runs.map((run) => run.maxJumpPx);
+  return {
+    ...(out as Numbers),
+    runs: runs.length,
+    spread: Math.round((Math.max(...jumps) - Math.min(...jumps)) * 10) / 10,
+  };
 }
 
 /** The markdown: per metric a cells x looks table. */
@@ -172,9 +204,16 @@ export function table(cells: Cell[], looks: string[], results: Record<string, Re
       "",
     ].join("\n");
   return [
-    metric("Max jump per frame (px, visible rows)", (n) => `${n.maxJumpPx}`),
+    metric("Max jump per frame (px, visible rows; median of the runs, ± its spread)", (n) => {
+      const spread = (n as { spread?: number }).spread;
+      return spread ? `${n.maxJumpPx} ±${spread}` : `${n.maxJumpPx}`;
+    }),
     metric("Reader's anchor: drift / most in one frame (px)", (n) => `${n.anchorDriftPx} / ${n.anchorStepPx}`),
     metric("Blink (how far a kept row fades, 0 to 1)", (n) => `${n.blink}`),
+    metric(
+      "Pixels: the worst frame's share of all the change (an instant swap is near 1)",
+      (n) => `${(n as { worstFrameShare?: number }).worstFrameShare ?? "-"}`,
+    ),
     metric("Duration (ms)", (n) => `${n.durationMs}`),
     metric("Gap (px past the gap at rest)", (n) => `${n.gashPx}`),
   ].join("\n");

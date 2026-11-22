@@ -13,12 +13,18 @@ import { useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
-import { TURN_END_ATTR, TURN_END_CARD } from "../../src/agent-session/acpmux/conversation/turnEndFold";
+import {
+  TURN_END_ATTR,
+  TURN_END_CARD,
+  TURN_END_RECAP_ATTR,
+  TURN_END_SNAPSHOT_ATTR,
+  TURN_END_SUBAGENT_ATTR,
+} from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
-import { replayScenario, sim, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
+import { replayScenario, sim, type SimScenario, SIM_START } from "../../src/agent-session/acpmux/sim/script";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -37,9 +43,19 @@ const query = new URLSearchParams(location.search);
 /** The real gap between two steps, capped: the turn plays in a few seconds, its end at its own pace. */
 const STEP_MS = Number(query.get("step")) || 70;
 
-type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number; look?: string };
+type PaneState = {
+  rows: readonly AcpmuxRow[];
+  working: boolean;
+  sends: number;
+  look?: string;
+  recap?: string;
+  subagent?: string;
+};
 let show: (next: PaneState) => void = () => {};
 const expanded = new Set<string>();
+/// The sim's clock runs from SIM_START: offset to this page's, every row the chat plays happened after it
+/// opened, so live rows enter (the recap card among them) as they do in a live chat.
+const SIM_CLOCK_OFFSET = Date.now() - SIM_START;
 
 function Pane() {
   const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
@@ -47,7 +63,14 @@ function Pane() {
     show = setState;
   }, []);
   return (
-    <div className="acpmux-shell" data-turn-end-fold={state.look}>
+    <div
+      className="acpmux-shell"
+      data-turn-end-fold={state.look}
+      // The control (`none`): the swap applies at once (fold.ts `jump`), so the matrix reads what the
+      // turn's end does with no fold at all.
+      {...(state.look === "none" && { "data-fold-look": "jump" })}
+      {...{ [TURN_END_RECAP_ATTR]: state.recap, [TURN_END_SUBAGENT_ATTR]: state.subagent }}
+    >
       {/* The look's name, for the matrix's side-by-side clips; outside the thread, so never sampled. */}
       <div
         style={{
@@ -69,6 +92,7 @@ function Pane() {
           <VirtualTranscript
             rows={state.rows as AcpmuxRow[]}
             sessionId="fold-variants"
+            clockOffset={SIM_CLOCK_OFFSET}
             working={state.working}
             sends={state.sends}
             onToggleActivity={() => {}}
@@ -85,9 +109,19 @@ const ANSWER =
   "fourth one ran past the backoff cap. The loop now makes exactly `attempts` calls, the jitter stays inside the " +
   "cap, and the whole net suite passes (212 tests). I also added a case for a zero cap.";
 
+/// The turn's closing recap: acpmux's `wrap_up` call, drawn as the next-step card under the answer once
+/// the turn ends (wrapUp.ts). Leo, 2026-11-22: "that's the recap".
+const RECAP = {
+  recap: "The retry loop made one call too many; it now makes exactly `attempts` calls and the net suite passes.",
+  ask: "Should I open a PR for this?",
+  actions: ["Yes, open PR", "Not now"],
+};
+
 /// A long Claude turn: three runs of calls with notes between them, then the answer. Its end folds
-/// fifteen calls and two notes under one Worked for: the big fold.
-function bigClaudeTurn(): SimScenario {
+/// fifteen calls and two notes under one Worked for: the big fold. `recap`: the turn closes on a
+/// wrap-up call, whose card comes in under the answer as the turn ends. `subagent`: a subagent runs in
+/// the middle of the work, and its block stays out of the fold (turns.ts `staysOut`).
+function bigClaudeTurn({ recap = false, subagent = false } = {}): SimScenario {
   const b = sim("big-claude-turn", "A long Claude turn whose end folds fifteen calls and two notes.", "claude");
   for (let turn = 0; turn < 3; turn += 1) {
     b.prompt(`Earlier question ${turn + 1}: how does the retry helper back off?`);
@@ -104,6 +138,7 @@ function bigClaudeTurn(): SimScenario {
   b.tool("rg -n attempts src/net", { kind: "search" });
   b.say("The jitter case fails: the loop makes one call too many. Checking the backoff next.");
   b.tool("Read src/net/backoff.ts", { kind: "read" });
+  if (subagent) b.subagent("Scan the last 50 CI logs for the flaky retry test", { ms: 1_500, tracked: true });
   b.tool("Edit src/net/retry.ts", { kind: "edit", path: "src/net/retry.ts" });
   b.tool("bun test test/retry.test.ts");
   b.tool("bun test test/net");
@@ -114,6 +149,7 @@ function bigClaudeTurn(): SimScenario {
   b.tool("bun test test/net");
   b.tool("git diff --stat");
   b.say(ANSWER);
+  if (recap) b.tool("mcp__acpmux__wrap_up", { kind: "other", rawInput: RECAP });
   return b.turnEnd().build();
 }
 
@@ -134,10 +170,12 @@ export type MatrixCell = {
   timing: "during" | "after";
   /** `recap`: a long closing recap that fills the view (the end of a long coordinator turn). */
   answer: "short" | "recap";
+  /** The turn closes on acpmux's wrap-up call, its recap card coming in under the answer (Leo's "the recap"). */
+  wrapUp?: boolean;
 };
 
 const COMMANDS = ["bun test test/net", "rg -n attempts src", "git status --short", "bun x tsc --noEmit -p ."];
-const RECAP = Array.from(
+const LONG_ANSWER = Array.from(
   { length: 6 },
   (_, index) =>
     `${index + 1}. Lane ${index + 1} finished its part: the change is pushed, its checks passed on the fleet, and ` +
@@ -156,7 +194,11 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   const half = Math.floor(cell.calls / 2);
   for (let call = 0; call < cell.calls; call += 1) {
     if (call === half && cell.subagent)
-      b.subagent("Survey the other lanes' open PRs", { ms: 1_500, report: "Three PRs open, two green." });
+      b.subagent("Survey the other lanes' open PRs", {
+        ms: 1_500,
+        report: "Three PRs open, two green.",
+        tracked: true,
+      });
     if (call === half && cell.steer) b.steer("also check the nightly while you're at it");
     const kind = call % 4 === 0 ? "read" : call % 4 === 1 ? "search" : undefined;
     b.tool(
@@ -171,8 +213,9 @@ function matrixTurn(cell: MatrixCell): SimScenario {
       b.say(`Step ${call + 1} of ${cell.calls} done; the next part reads the lane's own tests.`, { chunks: 2 });
   }
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
-  const answer = cell.answer === "recap" ? RECAP : ANSWER;
+  const answer = cell.answer === "recap" ? LONG_ANSWER : ANSWER;
   b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
+  if (cell.wrapUp) b.tool("mcp__acpmux__wrap_up", { kind: "other", rawInput: RECAP });
   return b.turnEnd("completed", cell.timing === "during" ? 20 : 1_500).build();
 }
 
@@ -187,15 +230,25 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
   }
-  return bigClaudeTurn();
+  return bigClaudeTurn({ recap: name.includes("recap"), subagent: name.includes("subagent") });
 }
 
+/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows.
 type Sample = {
   t: number;
   folding: boolean;
-  rows: [key: string, top: number, height: number, ink: number][];
-  view?: number;
+  view: number;
+  rows: [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number][];
 };
+
+/// What an `inset()` clip hides of a box's top and bottom (px; the negative insets of an open edge hide nothing).
+function insetOf(clip: string): { top: number; bottom: number } | undefined {
+  const match = /^inset\((-?[\d.]+)px(?:\s+(-?[\d.]+)px)?(?:\s+(-?[\d.]+)px)?/.exec(clip);
+  if (!match) return undefined;
+  const top = Number(match[1]);
+  const bottom = Number(match[3] ?? match[1]);
+  return { top: Math.max(0, top), bottom: Math.max(0, bottom) };
+}
 
 const keys = new WeakMap<Element, string>();
 let ghosts = 0;
@@ -206,14 +259,22 @@ function sampleFrame(): Sample {
   const view = scroller?.getBoundingClientRect();
   const rows: Sample["rows"] = [];
   for (const element of thread?.querySelectorAll<HTMLElement>(":scope > .acpmux-row") ?? []) {
-    let key = element.dataset.rowId ?? keys.get(element);
+    const snapshotOf = element.getAttribute(TURN_END_SNAPSHOT_ATTR);
+    let key = element.dataset.rowId ?? (snapshotOf ? `snap:${snapshotOf}` : keys.get(element));
     if (!key) {
       key = element.classList.contains(TURN_FOLD_GHOST) ? `ghost-${(ghosts += 1)}` : `row-${(ghosts += 1)}`;
       keys.set(element, key);
     }
     const box = element.getBoundingClientRect();
     if (!view || box.bottom < view.top || box.top > view.bottom || box.height === 0) continue;
-    rows.push([key, box.top - view.top, box.height, Number(getComputedStyle(element).opacity)]);
+    // Ink is the opacity times the share of the box its clip leaves drawn (`wipe` and its kin replace
+    // rows by clipping, not fading).
+    const style = getComputedStyle(element);
+    const inset = style.clipPath === "none" ? undefined : insetOf(style.clipPath);
+    const shown = inset ? Math.max(0, box.height - inset.top - inset.bottom) : box.height;
+    const ink = Number(style.opacity) * (shown / box.height);
+    if (inset) rows.push([key, box.top - view.top, box.height, ink, box.top - view.top + inset.top, shown]);
+    else rows.push([key, box.top - view.top, box.height, ink]);
   }
   // `morph`'s card, as the band its clip shows.
   for (const element of thread?.querySelectorAll<HTMLElement>(`:scope > .${TURN_END_CARD}`) ?? []) {
@@ -225,7 +286,7 @@ function sampleFrame(): Sample {
     const ink = Number(style.opacity) * Number(getComputedStyle(element.firstElementChild!).opacity);
     if (view) rows.push(["fold-card", top - view.top, Math.max(0, bottom - top), ink]);
   }
-  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), rows, view: view?.height };
+  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), view: view?.height ?? 0, rows };
 }
 
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
@@ -235,12 +296,18 @@ const painted = () => new Promise((resolve) => requestAnimationFrame(() => reque
 /// Plays the chat with fold look `look`, and returns every frame's rows from its last turn's end on.
 /// `end` picks another turn's end (a step index; the chat stops there), and the steps until shortly
 /// before it play without waiting, so a long recorded chat reaches its big fold in seconds.
-async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?: number) {
+async function run(
+  look: string,
+  name = "big-claude-turn",
+  tailMs = 1_400,
+  end?: number,
+  options: { recap?: string; subagent?: string } = {},
+) {
   // A matrix cell plays its window on the steps' own clock (capped at 1.5 s a gap), so its timing is the chat's.
   const virtual = name.startsWith("matrix:");
   const whole = await scenarioNamed(name);
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
-  flushSync(() => show({ rows: [], working: false, sends: 0, look }));
+  flushSync(() => show({ rows: [], working: false, sends: 0, look, ...options }));
   await painted();
   let lastEnd = scenario.steps.length - 1;
   while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
@@ -267,7 +334,7 @@ async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?:
         sampling = true;
         requestAnimationFrame(tick);
       }
-      flushSync(() => show({ rows, working: state.working, sends, look }));
+      flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
       if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;

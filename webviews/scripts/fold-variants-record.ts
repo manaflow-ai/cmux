@@ -5,7 +5,14 @@
 // Leo, 2026-11-22: "the big fold we do for claude is not good looking enough. it looks like a gash collapsing."
 //
 //   bun scripts/fold-variants-record.ts [--looks fade,tuck,...] [--out DIR] [--ffmpeg PATH] [--scenario replay]
-//     [--fixture FILE.ndjson --end STEP --tag NAME]
+//     [--fixture FILE.ndjson --end STEP --tag NAME] [--recaps fade,rise,...] [--subagents slide,swap,...]
+//
+// `--recaps` records the turn with its closing recap (scenario big-claude-recap) once per recap entrance
+// (turnEndFold.ts `TURN_END_RECAPS`), on the first of `--looks`; `--subagents` the turn with a subagent
+// in its work (big-claude-subagent) once per subagent fold (`TURN_END_SUBAGENTS`). Besides the numbers
+// above, each run reports the anchor's drift (the row under the view's center before the fold: how far
+// it lands from where it was, and its biggest inked step), the least ink moved content has on any frame
+// (a row and its snapshot together: the "blink"), and, with a recap or a subagent, that row's own numbers.
 //
 // `--fixture` records a recorded chat from outside the repo (copied under node_modules/ for the dev server,
 // never committed) up to the turn end at step `--end`; `--tag` names its clips fold-TAG-LOOK.mp4.
@@ -24,14 +31,23 @@ const PAGE = "/test/browser/fold-variants.html";
 const WIDTH = 720;
 const HEIGHT = 640;
 
-type Row = [key: string, top: number, height: number, ink: number];
-type Sample = { t: number; folding: boolean; rows: Row[]; view?: number };
-type Run = { look: string; samples: Sample[]; startedAt: number; view?: number };
+type Row = [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number];
+type Sample = { t: number; folding: boolean; view?: number; rows: Row[] };
+type Run = {
+  look: string;
+  samples: Sample[];
+  startedAt: number;
+  view?: number;
+  marks?: { step: number; t: number; label: string }[];
+};
 
 /** The run's numbers: over the frames from the fold's start to when nothing moves any more. */
 export function measure(run: Run) {
   const { samples } = run;
-  const first = samples.findIndex((sample) => sample.folding);
+  // No fold played (the `none` control, the swap applied at once): its numbers run from the turn's end.
+  const ended = [...(run.marks ?? [])].reverse().find((mark) => mark.label.startsWith("turn_result"))?.t;
+  const folded = samples.findIndex((sample) => sample.folding);
+  const first = folded >= 0 ? folded : ended === undefined ? -1 : samples.findIndex((sample) => sample.t >= ended);
   if (first < 0) return undefined;
   // Visible: drawn with some ink on both frames.
   const seen = (ink: number) => ink > 0.05;
@@ -64,7 +80,7 @@ export function measure(run: Run) {
   const band = (sample: Sample) => {
     const boxes = sample.rows
       .filter((row) => row[3] > 0.15)
-      .map((row) => [row[1], row[1] + row[2]] as const)
+      .map((row) => [row[4] ?? row[1], (row[4] ?? row[1]) + (row[5] ?? row[2])] as const)
       .sort((a, b) => a[0] - b[0]);
     let widest = 0;
     let reach = boxes[0]?.[1] ?? 0;
@@ -81,7 +97,9 @@ export function measure(run: Run) {
   const last = samples.at(-1)!;
   const kept = new Set(last.rows.map((row) => row[0]));
   const center = (run.view ?? before.view ?? HEIGHT) / 2;
-  const candidates = before.rows.filter((row) => kept.has(row[0]) && !row[0].startsWith("ghost-"));
+  const candidates = before.rows.filter(
+    (row) => kept.has(row[0]) && !row[0].startsWith("ghost-") && !row[0].startsWith("snap:"),
+  );
   const anchor = candidates
     .map((row) => ({
       row,
@@ -107,18 +125,108 @@ export function measure(run: Run) {
     if (end) anchorDrift = end[1] - anchor[1];
   }
   // The blink: the most a row that is drawn before and after the fold fades on the way (dissolve's cost).
+  // A row and its snapshot (`snap:ID`, the replace looks) are two layers of paint: their ink together.
+  const layered = (sample: Sample, key: string) => {
+    const own = sample.rows.find((row) => row[0] === key)?.[3] ?? 0;
+    const snap = sample.rows.find((row) => row[0] === `snap:${key}`)?.[3] ?? 0;
+    return 1 - (1 - own) * (1 - snap);
+  };
   let blink = 0;
-  const steady = before.rows.filter((row) => row[3] > 0.95 && last.rows.some((r) => r[0] === row[0] && r[3] > 0.95));
+  const steady = before.rows.filter(
+    (row) => !row[0].startsWith("snap:") && row[3] > 0.95 && last.rows.some((r) => r[0] === row[0] && r[3] > 0.95),
+  );
   for (const row of steady)
-    for (let index = first; index <= lastChange; index += 1) {
-      const now = samples[index]!.rows.find((r) => r[0] === row[0]);
-      if (now) blink = Math.max(blink, 1 - now[3]);
-    }
+    for (let index = first; index <= lastChange; index += 1)
+      blink = Math.max(blink, 1 - layered(samples[index]!, row[0]));
   const rest = band(samples.at(-1)!);
   let gash = 0;
   for (let index = first; index <= lastChange; index += 1) gash = Math.max(gash, band(samples[index]!) - rest);
+  const round = (value: number) => Math.round(value * 10) / 10;
+  // The rows that moved: drawn before the fold and at rest, at another top, and drawn on the fold's first
+  // frame (a row the swap brought in under a kept id, the edits card, is new, not moved). Their ink on
+  // each frame is the row's and its snapshot's (`snap:ID`) together, as two layers of paint.
+  const atRest = new Map(samples.at(-1)!.rows.map((row) => [row[0], row]));
+  const inkOf = (sample: Sample, key: string) => {
+    const own = sample.rows.find((row) => row[0] === key)?.[3] ?? 0;
+    const snap = sample.rows.find((row) => row[0] === `snap:${key}`)?.[3] ?? 0;
+    return 1 - (1 - own) * (1 - snap);
+  };
+  const moved = before.rows.filter(
+    (row) =>
+      !row[0].startsWith("snap:") &&
+      !row[0].startsWith("ghost-") &&
+      atRest.has(row[0]) &&
+      Math.abs(atRest.get(row[0])![1] - row[1]) > 0.5 &&
+      inkOf(samples[first]!, row[0]) > 0.5,
+  );
+  let minInk = 1;
+  for (let index = first; index <= lastChange; index += 1) {
+    const rows = new Map(samples[index]!.rows.map((row) => [row[0], row]));
+    for (const row of moved) {
+      const own = rows.get(row[0]);
+      const snap = rows.get(`snap:${row[0]}`);
+      if (!own && !snap) continue;
+      const ink = 1 - (1 - (own?.[3] ?? 0)) * (1 - (snap?.[3] ?? 0));
+      minInk = Math.min(minInk, ink);
+    }
+  }
+  // One kind of row's own numbers: its biggest inked step, its least ink once drawn, and when it is
+  // first at full ink (ms from the fold's start).
+  const rowNumbers = (match: (key: string) => boolean) => {
+    const keys = new Set(samples.flatMap((sample) => sample.rows.map((row) => row[0])).filter(match));
+    if (keys.size === 0) return undefined;
+    let step = 0;
+    let fullAt: number | undefined;
+    let lowest = 1;
+    let drawn = false;
+    for (let index = first; index < samples.length; index += 1) {
+      const rows = samples[index]!.rows.filter((row) => keys.has(row[0]));
+      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      for (const row of rows) {
+        const was = prior.get(row[0]);
+        if (was && seen(was[3]) && seen(row[3])) step = Math.max(step, Math.abs(row[1] - was[1]));
+        if (seen(row[3])) drawn = true;
+        if (drawn && index <= lastChange) lowest = Math.min(lowest, row[3]);
+      }
+      if (fullAt === undefined && rows.length && rows.every((row) => row[3] >= 0.99))
+        fullAt = samples[index]!.t - samples[first]!.t;
+    }
+    return {
+      maxStepPx: round(step),
+      fullInkMs: fullAt === undefined ? undefined : Math.round(fullAt),
+      minInkOnceDrawn: round(lowest),
+    };
+  };
+  // The recap card's live arrival (before the fold): from the frame it is first in the page, how long
+  // until it is at full ink, its biggest step between frames, and the biggest step of any other inked
+  // row then (the card's arrival moving its neighbours).
+  const arrival = (() => {
+    const at = samples.findIndex((sample) => sample.rows.some((row) => row[0].startsWith("nextStep")));
+    if (at < 1) return undefined;
+    let step = 0;
+    let others = 0;
+    let fullAt: number | undefined;
+    for (let index = at; index < Math.min(samples.length, first); index += 1) {
+      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      for (const row of samples[index]!.rows) {
+        const was = prior.get(row[0]);
+        if (!was || !seen(was[3]) || !seen(row[3])) continue;
+        const moved = Math.abs(row[1] - was[1]) + Math.abs(row[2] - was[2]);
+        if (row[0].startsWith("nextStep")) step = Math.max(step, moved);
+        else others = Math.max(others, Math.abs(row[1] - was[1]));
+      }
+      const card = samples[index]!.rows.find((row) => row[0].startsWith("nextStep"));
+      if (fullAt === undefined && card && card[3] >= 0.99) fullAt = samples[index]!.t - samples[at]!.t;
+    }
+    return {
+      fullInkMs: fullAt === undefined ? undefined : Math.round(fullAt),
+      cardStepPx: round(step),
+      neighbourStepPx: round(others),
+    };
+  })();
   return {
-    maxJumpPx: Math.round(maxJump * 10) / 10,
+    recapArrival: arrival,
+    maxJumpPx: round(maxJump),
     maxJumpAnyInkPx: Math.round(maxJumpRaw * 10) / 10,
     worstFrameMs: Math.round(worstAt),
     durationMs: Math.round(samples[lastChange]!.t - samples[first]!.t),
@@ -128,6 +236,9 @@ export function measure(run: Run) {
     anchorMaxPx: Math.round(anchorMax * 10) / 10,
     blink: Math.round(blink * 100) / 100,
     frames: lastChange - first + 1,
+    minMovedInk: Math.round(minInk * 100) / 100,
+    recap: rowNumbers((key) => key.startsWith("nextStep")),
+    subagent: rowNumbers((key) => key.startsWith("subagent")),
     foldStart: samples[first]!.t,
     foldEnd: samples[lastChange]!.t,
   };
@@ -173,6 +284,9 @@ export type RecordOptions = {
   /** Names the run's files: fold-NAME.mp4, NAME.samples.json. */
   name: string;
   ffmpeg: string;
+  /** The recap entrance and subagent fold to play with (turnEndFold.ts), else the shipped ones. */
+  recap?: string;
+  subagent?: string;
 };
 
 /** Plays one look of one scenario in a fresh page, records its clip, and returns its numbers. */
@@ -197,16 +311,29 @@ export async function recordLook(browser: Browser, port: number, options: Record
   });
   await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, everyNthFrame: 1 });
   const run = (await page.evaluate(
-    ([look, scenario, end]) =>
+    ([look, scenario, end, recap, subagent]) =>
       (
         window as unknown as {
-          __fold: { run(look: string, name: string, tailMs?: number, end?: number): Promise<unknown> };
+          __fold: {
+            run(
+              look: string,
+              name: string,
+              tailMs?: number,
+              end?: number,
+              options?: { recap?: string; subagent?: string },
+            ): Promise<unknown>;
+          };
         }
-      ).__fold.run(look as string, scenario as string, undefined, end as number | undefined),
-    [look, scenario, end] as const,
+      ).__fold.run(look as string, scenario as string, undefined, end as number | undefined, {
+        ...(recap && { recap }),
+        ...(subagent && { subagent }),
+      }),
+    [look, scenario, end, options.recap, options.subagent] as const,
   )) as Run;
   await cdp.send("Page.stopScreencast");
   const numbers = measure(run);
+  // Where the view sits in the page, for the clip's crop (the samples' tops are in the view's coordinates).
+  const viewTop = await page.evaluate(() => document.querySelector(".acpmux-scroll")?.getBoundingClientRect().top ?? 0);
   writeFileSync(path.join(out, `${name}.samples.json`), JSON.stringify(run));
   let clip: string | undefined;
   if (numbers && shots.length) {
@@ -220,6 +347,28 @@ export async function recordLook(browser: Browser, port: number, options: Record
         return `file '${shot.file}'\nduration ${Math.max(1, next - shot.t) / 1000}`;
       })
       .join("\n");
+    // The event's bounds: every row that moves or changes ink between the fold's first frame and its
+    // last, padded, so the clip shows the fold and not the page around it (full width: the rows are).
+    const fromIndex = run.samples.findIndex((sample) => sample.t >= numbers.foldStart);
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (let index = Math.max(1, fromIndex); index < run.samples.length; index += 1) {
+      if (run.samples[index]!.t > numbers.foldEnd) break;
+      const prior = new Map(run.samples[index - 1]!.rows.map((row) => [row[0], row]));
+      for (const row of run.samples[index]!.rows) {
+        const was = prior.get(row[0]);
+        if (was && Math.abs(was[1] - row[1]) < 0.25 && Math.abs(was[3] - row[3]) < 0.01) continue;
+        top = Math.min(top, row[1], was?.[1] ?? Infinity);
+        bottom = Math.max(bottom, row[1] + row[2], was ? was[1] + was[2] : -Infinity);
+      }
+    }
+    const pad = 32;
+    const cropTop = Number.isFinite(top) ? Math.max(0, Math.floor(viewTop + top - pad)) : 0;
+    const cropBottom = Number.isFinite(bottom) ? Math.min(height, Math.ceil(viewTop + bottom + pad)) : height;
+    const cropHeight = Math.max(2, Math.floor((cropBottom - cropTop) / 2) * 2);
+    // The fold's first and last frames, marked: a bar along the top while it plays.
+    const markFrom = ((kept[0] ? Math.max(0, run.startedAt + numbers.foldStart - kept[0].t) : 0) / 1000).toFixed(3);
+    const markTo = (Number(markFrom) + numbers.durationMs / 1000).toFixed(3);
     const listFile = path.join(frames, "list.txt");
     writeFileSync(listFile, `${list}\nfile '${kept.at(-1)?.file}'\n`);
     clip = path.join(out, `fold-${name}.mp4`);
@@ -236,7 +385,8 @@ export async function recordLook(browser: Browser, port: number, options: Record
         "-i",
         listFile,
         "-vf",
-        "fps=60,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        `fps=60,crop=trunc(iw/2)*2:${cropHeight}:0:${cropTop},` +
+          `drawbox=x=0:y=0:w=iw:h=4:color=orange@0.9:t=fill:enable='between(t,${markFrom},${markTo})',format=yuv420p`,
         "-c:v",
         "libx264",
         "-crf",
@@ -253,7 +403,38 @@ export async function recordLook(browser: Browser, port: number, options: Record
     }
   }
   await page.close();
-  return { numbers, clip };
+  return { numbers: numbers && clip ? { ...numbers, ...pixelChange(ffmpeg, clip) } : numbers, clip };
+}
+
+/**
+ * What the clip's pixels say, apart from any row the page reports: each frame's mean luma change from the
+ * one before (0 to 255, the marker bar cropped off), summed, and the share of that sum in the worst frame.
+ * A swap applied at once puts nearly all its change in one frame (worstFrameShare near 1); a fold that
+ * spreads it puts a small share in each. It sees what row positions cannot: content replaced in place.
+ */
+function pixelChange(ffmpeg: string, clip: string): { pixelChange?: number; worstFrameShare?: number } {
+  const probe = spawnSync(
+    ffmpeg,
+    [
+      "-loglevel",
+      "error",
+      "-i",
+      clip,
+      "-vf",
+      "crop=iw:ih-6:0:6,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
+      "-f",
+      "null",
+      "-",
+    ],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  const values = [...(probe.stdout ?? "").matchAll(/lavfi\.signalstats\.YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!values.length || total <= 0) return {};
+  return {
+    pixelChange: Math.round(total * 10) / 10,
+    worstFrameShare: Math.round((Math.max(...values) / total) * 100) / 100,
+  };
 }
 
 if (import.meta.main) {
@@ -280,9 +461,32 @@ if (import.meta.main) {
   mkdirSync(out, { recursive: true });
   const recorder = await openRecorder();
   const results: Record<string, unknown> = {};
-  for (const look of looks) {
-    const name = tag ? `${tag}-${look}` : look;
-    const { numbers } = await recordLook(recorder.browser, recorder.port, { look, scenario, end, out, name, ffmpeg });
+  const recaps = value("--recaps")?.split(",");
+  const subagents = value("--subagents")?.split(",");
+  /// One recording: a look, and the recap entrance or subagent fold it plays with.
+  type Variant = { name: string; look: string; scenario: string; recap?: string; subagent?: string };
+  const variants: Variant[] = recaps
+    ? recaps.map((recap) => ({ name: `recap-${recap}`, look: looks[0]!, scenario: "big-claude-recap", recap }))
+    : subagents
+      ? subagents.map((subagent) => ({
+          name: `subagent-${subagent}`,
+          look: looks[0]!,
+          scenario: "big-claude-subagent",
+          subagent,
+        }))
+      : looks.map((look) => ({ name: look, look, scenario }));
+  for (const variant of variants) {
+    const look = variant.name;
+    const { numbers } = await recordLook(recorder.browser, recorder.port, {
+      look: variant.look,
+      scenario: variant.scenario,
+      ...(variant.recap && { recap: variant.recap }),
+      ...(variant.subagent && { subagent: variant.subagent }),
+      end,
+      out,
+      name: tag ? `${tag}-${look}` : look,
+      ffmpeg,
+    });
     results[look] = numbers ?? { error: "no fold played" };
     console.log(`${look.padEnd(10)} ${JSON.stringify(numbers)}`);
   }
