@@ -426,19 +426,27 @@ pub enum Outcome {
 impl Outcome {
     /// The MCP `tools/call` result.
     pub fn to_mcp(&self) -> Value {
-        match self {
-            Outcome::Output(out) => out.to_mcp(),
+        let mut out = match self {
+            Outcome::Output(out) => return out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
                 if reason.is_empty() {
                     "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
                 } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
+                    format!(
+                        "Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use."
+                    )
                 },
-            )
-            .to_mcp(),
-            Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),
+            ),
+            Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()),
+        };
+        // No worker answered: the bridge did. Name its build (Leo: "WHAT
+        // FUCKING VERSION OF OUR COMPUTER USE DID YOU GUYS EVEN FUCKING
+        // USE!?"), under `bridge`, never `driver`, which only a worker sets.
+        if let Some(body) = out.body.as_object_mut() {
+            body.insert("bridge".into(), cmux_computer_use::engine::driver_stamp());
         }
+        out.to_mcp()
     }
 }
 

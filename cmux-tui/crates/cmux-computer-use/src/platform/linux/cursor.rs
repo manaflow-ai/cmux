@@ -120,6 +120,10 @@ impl CursorSink for Channel {
     fn show(&self, event: CursorEvent) {
         let _ = self.0.send(event);
     }
+
+    fn overlay(&self) -> &'static str {
+        "linux"
+    }
 }
 
 /// Glides the overlay to each event's point and hides it when its session's

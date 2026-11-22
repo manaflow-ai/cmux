@@ -53,6 +53,10 @@ struct Shared {
 struct Overlay(Arc<Shared>);
 
 impl CursorSink for Overlay {
+    fn overlay(&self) -> &'static str {
+        "win32"
+    }
+
     fn show(&self, event: CursorEvent) {
         {
             let mut q = self.0.queue.lock().unwrap_or_else(|e| e.into_inner());

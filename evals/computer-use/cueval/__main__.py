@@ -23,6 +23,10 @@ def main(argv=None) -> int:
     t.add_argument("--out", default="out")
     t.add_argument("--settle", type=float, default=0.5, help="seconds to wait before reading a state that must not change")
 
+    d = sub.add_parser("duress", help="the behaviour suite under duress: CPU load and a typing person (needs a display)")
+    d.add_argument("--out", default="out/duress")
+    d.add_argument("--rounds", type=int, default=5)
+
     ls = sub.add_parser("list", help="list tasks")
     ls.add_argument("--split", default="all")
 
@@ -56,6 +60,9 @@ def main(argv=None) -> int:
             print(f"{'PASS' if r['ok'] else 'FAIL'} {r['case']:24} {r['detail'][:140]}")
         print(f"{sum(r['ok'] for r in rs)}/{len(rs)} passed; report: {report.render(a.out)}")
         return 0 if all(r["ok"] for r in rs) else 1
+    if a.cmd == "duress":
+        from . import duress
+        return duress.run(a.out, a.rounds)
     if a.cmd == "list":
         for t in load_tasks(split=a.split):
             print(f"{t['id']:28} {t['split']:8} {','.join(t['platforms']):20} {t['title']}")
