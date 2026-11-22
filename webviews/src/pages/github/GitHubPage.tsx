@@ -354,7 +354,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
           type="button"
           className="gh-button gh-button--primary"
           disabled={merge.phase === "merging"}
-          title={strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+          aria-description={strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
           onClick={() => void store.merge()}
         >
           {merge.phase === "merging"
@@ -378,7 +378,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         type="button"
         className="gh-button gh-button--primary"
         disabled={!ready}
-        title={details && !ready ? t("github.merge.notReady") : undefined}
+        aria-description={details && !ready ? t("github.merge.notReady") : undefined}
         onClick={() => void store.merge()}
       >
         {t("github.merge")}
@@ -405,7 +405,7 @@ function CheckTally({ pr, strings }: { pr: LinkedPullRequest; strings: Strings }
       {rows
         .filter(([, count]) => count > 0)
         .map(([state, count, label]) => (
-          <span key={state} className="gh-tally-item" data-check={state} title={strings.t(label)}>
+          <span key={state} className="gh-tally-item" data-check={state} aria-description={strings.t(label)}>
             <span className="gh-dot" aria-hidden="true" />
             <span className="gh-count">{count}</span>
           </span>
@@ -567,7 +567,7 @@ function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings
     <li key={check.name} className="gh-row" data-check={check.state}>
       <span className="gh-dot" aria-hidden="true" />
       {check.url ? (
-        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
+        <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>
           {check.name}
         </button>
       ) : (
@@ -676,7 +676,6 @@ function Files({
                 type="button"
                 className="gh-file-row"
                 aria-expanded={patch !== undefined}
-                title={file.path}
                 onClick={() => store.toggleFile(file.path)}
               >
                 <Chevron open={patch !== undefined} />
@@ -779,7 +778,7 @@ function Linked({
         {details.linked.map((item) => (
           <li key={item.url} className="gh-row" data-issue={item.state}>
             <span className="gh-dot" aria-hidden="true" />
-            <button type="button" className="gh-row-link" title={item.title} onClick={() => open(item.url)}>
+            <button type="button" className="gh-row-link" onClick={() => open(item.url)}>
               <span className="gh-count">#{item.number}</span> {item.title}
             </button>
           </li>
