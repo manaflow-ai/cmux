@@ -949,14 +949,14 @@ body {
 .md-frontmatter-table th {
   width: 1%;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--cmux-md-muted-color);
   background: var(--cmux-md-code-background);
 }
 
 .md-frontmatter-item {
   display: inline-block;
-  margin: 1px var(--ds-space-1) 1px 0;
+  margin: 0 var(--ds-space-1) var(--grid-half-step) 0;
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   background: var(--cmux-md-accent-background);
@@ -1698,7 +1698,7 @@ body {
 .md-outline-rail {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--ds-space-1);
   width: var(--ds-space-5);
   max-height: inherit;
   padding: var(--ds-space-2) var(--ds-space-1);
@@ -1717,10 +1717,10 @@ body {
 .md-outline-dash {
   --md-dash-inset: 0%;
   flex: 0 0 auto;
-  height: 2px;
+  height: var(--grid-half-step);
   width: calc(100% - var(--md-dash-inset));
   margin-left: var(--md-dash-inset);
-  border-radius: 1px;
+  border-radius: 999px;
   background: var(--cmux-md-faint-color);
   opacity: 0.7;
 }
@@ -1735,13 +1735,11 @@ body {
 }
 
 /* The current section: the accent color, thicker, and reaching 4px further left than its level's
-   dash, so it reads at a glance in light and dark. */
+   dash, so it reads at a glance in light and dark. The thickness scales, so the rail never moves. */
 .md-outline-dash[data-active] {
-  height: 3px;
-  margin-block: -0.5px;
+  transform: scaleY(1.5);
   width: calc(100% - var(--md-dash-inset) + 4px);
   margin-left: calc(var(--md-dash-inset) - 4px);
-  border-radius: 1.5px;
   background: var(--cmux-md-link-color);
   opacity: 1;
 }

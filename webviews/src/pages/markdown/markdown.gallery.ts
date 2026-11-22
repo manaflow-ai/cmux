@@ -85,7 +85,7 @@ ${"The new search index ships behind a flag, one region at a time. ".repeat(3)}
 
 ## Goals
 
-- Answers under 80 ms at p95.
+- Answers under 100 ms at p95.
 - No missed documents after a reindex.
 
 ## Rollout
