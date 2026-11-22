@@ -46,11 +46,13 @@ encode time added). They differ only in where the numbers go.
 
 - **R1, inline.** The toolbar's stats line leads with the rate: `Direct · 148 Mbps · 120/120 fps · 3 ms`. Codec and
   size go to the tooltip. An ultra session adds `Ultra` before the rate.
-- **R2, quality chip.** The toolbar shows one chip: `Ultra · 148 Mbps`, or `12 Mbps`. Its menu (the current
-  Quality menu) starts with a readout section: rate, fps of target, round trip, loss, encode p50, codec, size. The
-  chip's tint goes from neutral to attention when loss passes 5% or fps falls under half its target.
-- **R3, stats HUD.** A glass panel in the picture's bottom-left corner, with one number per line. You
-  turn it on from the Quality menu or with ⌥⌘I, and it stays on per device. The toolbar keeps today's short line.
+- **R2, quality chip.** The Quality button itself shows the rate: `Ultra · 148 Mbps`, or `12 Mbps`. Its menu
+  (the current Quality menu) starts with a readout section: rate, fps of target, round trip, loss, encode p50,
+  codec, size. The button's tint goes from neutral to attention when loss passes 5% or fps falls under half its
+  target.
+- **R3, stats HUD.** A glass panel in the picture's bottom-left corner, with one number per line; a straining
+  stream marks the Rate line in the attention ink. You turn it on with Show Stats in the Quality menu (no shortcut).
+  The toolbar keeps today's short line.
 
 ### Where each number comes from
 
@@ -73,8 +75,9 @@ same cmux.rd/1 `stats` line the bottleneck table reads (`Control::Stats`, sent o
 old to send the field shows the rate with no profile word; the gallery's `bar-row-oldhost` image is that case. The
 quality the viewer asked for never names the stream.
 
-The pick is made from the gallery images and written here with its reason. The other two stay as choices of the
-setting until Leo decides.
+R1 (inline) is the default: it puts the rate where the eye already reads the stats line and adds no new control.
+R2 and R3 stay as choices of the setting. The gallery images (`readout-*`) go on the PR when the display pool runs
+them, and the default changes only if they show a better pick.
 
 ## States (every look)
 
