@@ -179,13 +179,28 @@ pub fn open(
     channel: &str,
     floor: u64,
 ) -> Result<Switches, Refusal> {
+    let names: Vec<&str> = PIECES.iter().map(|(piece, _)| *piece).collect();
+    open_as(body, keys, channel, floor, PURPOSE, &names)
+}
+
+/// [`open`] for a switch file of another kind: its own `purpose` and its own piece `names`
+/// (the iPhone app's, [`phone`]). The envelope, the pinned keys, the size bound, the channel
+/// and the serial floor are the same for every kind.
+pub fn open_as(
+    body: &[u8],
+    keys: &[cmux_signed_envelope::Key],
+    channel: &str,
+    floor: u64,
+    purpose: &str,
+    names: &[&str],
+) -> Result<Switches, Refusal> {
     if body.len() > MAX_BYTES {
         return Err(Refusal::TooLarge(body.len()));
     }
     let payload = cmux_signed_envelope::open(body, keys).map_err(Refusal::Unsigned)?;
     let payload: Payload = serde_json::from_slice(&payload)
         .map_err(|e| Refusal::Malformed(format!("the payload does not parse: {e}")))?;
-    if payload.purpose != PURPOSE {
+    if payload.purpose != purpose {
         return Err(Refusal::WrongPurpose(payload.purpose));
     }
     if payload.schema != SCHEMA {
@@ -203,7 +218,7 @@ pub fn open(
     let mut pieces = BTreeMap::new();
     let mut unknown = Vec::new();
     for (name, value) in payload.pieces {
-        match (piece_of(&name), serde_json::from_value::<Switch>(value)) {
+        match (piece_in(names, &name), serde_json::from_value::<Switch>(value)) {
             // A finer id (`pages/settings`) switches its whole piece in this build; of several
             // switches on one piece the bundle wins over the last good update.
             (Some(piece), Ok(switch)) => {
@@ -236,9 +251,17 @@ pub fn open(
 /// takes as the whole piece. None for a name of no piece this build knows.
 #[must_use]
 pub fn piece_of(name: &str) -> Option<&'static str> {
-    PIECES.iter().map(|(piece, _)| *piece).find(|piece| {
-        name.strip_prefix(piece).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-    })
+    PIECES.iter().map(|(piece, _)| *piece).find(|piece| names_piece(name, piece))
+}
+
+/// [`piece_of`] among `names`, the pieces of another kind of switch file ([`open_as`]).
+#[must_use]
+pub fn piece_in<'a>(names: &[&'a str], name: &str) -> Option<&'a str> {
+    names.iter().copied().find(|piece| names_piece(name, piece))
+}
+
+fn names_piece(name: &str, piece: &str) -> bool {
+    name.strip_prefix(piece).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Where a piece is served from.
@@ -400,7 +423,7 @@ pub fn evaluate_with(input: &Value, keys: &[cmux_signed_envelope::Key]) -> Value
 }
 
 /// A verified file's switches as the JSON a host keeps between reads (`last`).
-fn switches_json(switches: &Switches) -> Value {
+pub fn switches_json(switches: &Switches) -> Value {
     let pieces: serde_json::Map<String, Value> = switches
         .pieces
         .iter()
@@ -419,7 +442,7 @@ fn switches_json(switches: &Switches) -> Value {
 
 /// The switches a host kept ([`switches_json`]). The host's own file, read back: it was
 /// verified when it was taken.
-fn switches_from_json(value: &Value) -> Option<Switches> {
+pub fn switches_from_json(value: &Value) -> Option<Switches> {
     let pieces = value
         .get("pieces")?
         .as_object()?
@@ -444,6 +467,8 @@ fn switches_from_json(value: &Value) -> Option<Switches> {
         unknown: strings("unknown"),
     })
 }
+
+pub mod phone;
 
 #[cfg(test)]
 mod tests;
