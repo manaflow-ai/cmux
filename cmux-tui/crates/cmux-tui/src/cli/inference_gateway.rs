@@ -38,7 +38,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -68,6 +68,12 @@ const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
 /// Answer frames queued for the socket at most (each at most about 256 KiB once base64'd).
 const OUT_FRAMES: usize = 32;
+/// Asked to stop (systemd's SIGTERM, Ctrl-C): the calls in flight get this long to finish, then the socket closes
+/// and the gateway exits 0. The API holds a new call up to 15 s for a gateway that is reconnecting (GATEWAY_WAIT_MS
+/// in InferenceGateway.ts), so a restart well inside that loses none of the calls that come after the close.
+const DRAIN_FOR: Duration = Duration::from_secs(10);
+/// After DRAIN_FOR, the most the close itself may take (a socket that takes no more frames) before the exit.
+const CLOSE_FOR: Duration = Duration::from_secs(3);
 /// A provider call may take minutes before its first byte (a long reasoning turn).
 const UPSTREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 /// A provider answer that sends nothing for this long is given up, and its call's slot freed.
@@ -403,12 +409,36 @@ fn run(options: Options) -> i32 {
         }
     };
     let code = runtime.block_on(async move {
-        if !options.supervised {
-            return serve(options).await;
+        // main.rs's handler takes SIGTERM, SIGINT and SIGHUP for the whole process, so the gateway must look for
+        // them itself; one that did not waited out systemd's 90 s stop timeout and lost its calls to the SIGKILL.
+        let (asked, stop) = watch::channel(false);
+        tokio::spawn(async move {
+            // An error is a process with no handler to hear one (a test): nothing can ask it to stop.
+            if crate::wait_for_shutdown_signal_async().await.is_ok() {
+                let _ = asked.send(true);
+            }
+            std::future::pending::<()>().await;
+        });
+        let supervised = options.supervised;
+        let mut bound = stop.clone();
+        let serving = async move {
+            tokio::select! {
+                code = serve(options, stop) => code,
+                () = async {
+                    stopping(&mut bound).await;
+                    tokio::time::sleep(DRAIN_FOR + CLOSE_FOR).await;
+                } => {
+                    log("stopped: the calls in flight did not end in time");
+                    0
+                }
+            }
+        };
+        if !supervised {
+            return serving.await;
         }
         // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
         tokio::select! {
-            code = serve(options) => code,
+            code = serving => code,
             () = super::inference_gateway_mac::stdin_closed() => 0,
         }
     });
@@ -544,9 +574,18 @@ enum Ended {
     Refused(u16),
     /// The socket closed or broke: dial again.
     Closed(String),
+    /// Asked to stop (SIGTERM): the calls in flight ended or ran out of time, and the socket is closed.
+    Shutdown,
 }
 
-async fn serve(options: Options) -> i32 {
+/// Resolves once the gateway is asked to stop; never when nothing can ask it.
+async fn stopping(stop: &mut watch::Receiver<bool>) {
+    if stop.wait_for(|asked| *asked).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
     let http = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
@@ -599,11 +638,21 @@ async fn serve(options: Options) -> i32 {
                 Err(error) => log(&error),
             }
         }
-        let ended = match backend_token(&options.token, options.team.as_deref()).await {
-            Ok(token) => session(&options, &token, upstream.clone()).await,
+        let token = tokio::select! {
+            token = backend_token(&options.token, options.team.as_deref()) => token,
+            () = stopping(&mut stop) => Err(String::new()),
+        };
+        let ended = match token {
+            _ if *stop.borrow() => Ended::Shutdown,
+            Ok(token) => session(&options, &token, upstream.clone(), stop.clone()).await,
             Err(error) => Ended::Closed(error),
         };
         match ended {
+            Ended::Shutdown => {
+                log("stopped: asked to stop");
+                state("stopped", "ended");
+                return 0;
+            }
             Ended::Stop(reason) => {
                 log(&format!("stopped: {reason}"));
                 state("stopped", if reason.contains("took over") { "replaced" } else { "ended" });
@@ -628,7 +677,14 @@ async fn serve(options: Options) -> i32 {
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_millis(200);
         }
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            () = tokio::time::sleep(backoff) => {}
+            () = stopping(&mut stop) => {
+                log("stopped: asked to stop");
+                state("stopped", "ended");
+                return 0;
+            }
+        }
         backoff = (backoff * 2).clamp(Duration::from_secs(1), Duration::from_secs(30));
     }
 }
@@ -641,7 +697,12 @@ struct Pending {
     body: Vec<u8>,
 }
 
-async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> Ended {
+async fn session(
+    options: &Options,
+    token: &str,
+    upstream: Arc<Provider>,
+    mut stop: watch::Receiver<bool>,
+) -> Ended {
     let path = if options.personal { PERSONAL_CONNECT_PATH } else { CONNECT_PATH };
     let url = format!("{}{path}", options.api.replacen("http", "ws", 1));
     let mut request = match url.into_client_request() {
@@ -665,7 +726,11 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
     let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
-    let stream = match tokio::time::timeout(HANDSHAKE_TIMEOUT, connect).await {
+    let connect = tokio::select! {
+        connect = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect) => connect,
+        () = stopping(&mut stop) => return Ended::Shutdown,
+    };
+    let stream = match connect {
         Err(_) => return Ended::Closed("handshake timed out".into()),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(response))) => {
             return Ended::Refused(response.status().as_u16());
@@ -697,6 +762,10 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
     let mut heard = tokio::time::Instant::now();
     let mut watch = tokio::time::interval(Duration::from_secs(10));
+    // Asked to stop: no new call starts, and the socket closes once the running ones end (or DRAIN_FOR runs out).
+    let mut draining = false;
+    let drain = tokio::time::sleep(DRAIN_FOR);
+    tokio::pin!(drain);
     let ended = loop {
         let message = tokio::select! {
             m = source.next() => m,
@@ -704,8 +773,30 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                 if let Some((_, bytes)) = running.remove(&id) {
                     held -= bytes;
                 }
+                if draining && running.is_empty() {
+                    break Ended::Shutdown;
+                }
                 continue
             }
+            () = stopping(&mut stop), if !draining => {
+                draining = true;
+                log(&format!(
+                    "stopping: {} calls in flight get up to {} s to finish",
+                    running.len(),
+                    DRAIN_FOR.as_secs()
+                ));
+                // A call still arriving would outlive the drain: the caller retries it, on the next gateway.
+                for (id, call) in pending.drain() {
+                    held -= call.body.len();
+                    send(&tx, &restarting(&id)).await;
+                }
+                if running.is_empty() {
+                    break Ended::Shutdown;
+                }
+                drain.as_mut().reset(tokio::time::Instant::now() + DRAIN_FOR);
+                continue
+            }
+            () = &mut drain, if draining => break Ended::Shutdown,
             _ = watch.tick() => {
                 if heard.elapsed() > SILENT_FOR {
                     break Ended::Closed(format!("nothing heard for {} s", SILENT_FOR.as_secs()));
@@ -754,6 +845,10 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                 }
             }
             Some("request") if !id.is_empty() => {
+                if draining {
+                    send(&tx, &restarting(&id)).await;
+                    continue;
+                }
                 if pending.len() + running.len() >= MAX_CALLS {
                     let busy = error_frame(
                         &id,
@@ -856,6 +951,12 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
 /// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
 async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
     let _ = tx.send(frame.to_string()).await;
+}
+
+/// A call the stopping gateway does not take. The machine gets it as a 502 and retries; by then the API holds it for
+/// the next gateway.
+fn restarting(id: &str) -> Value {
+    error_frame(id, "inference.gateway_restarting", "the inference gateway is restarting; retry")
 }
 
 fn error_frame(id: &str, code: &str, message: &str) -> Value {
