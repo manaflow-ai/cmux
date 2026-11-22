@@ -56,7 +56,7 @@ rm -f "$phase_stamp"
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
-  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$app/Contents/Resources/ChromiumLocales"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -159,11 +159,23 @@ mkdir -p "$frameworks"
 stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
-source_value="$cef_dir $LAYOUT"
-# Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
-# cmux's 21 app languages and their regional macOS variants, including
-# es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
-CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+# Chromium ships 228 locale catalogs (55 languages in four grammatical genders,
+# cef_chromium_locales). With a CEF that loads locale paks from outside its
+# framework, every language's base catalog is kept and all but en (en-US, the
+# fallback) leave the framework for Contents/Resources/ChromiumLocales, where
+# scripts/cmux-next/language-packs.py makes each a first-use download (CMUX-570).
+# Otherwise keep every catalog CEF resolves for cmux's 21 app languages and
+# their regional macOS variants, including es_419, pt_PT and en_GB.
+# Unsupported app languages bs and km fall back to en.
+chromium_locales_dir="$app/Contents/Resources/ChromiumLocales"
+if cef_locale_paks_outside_framework "$SCRIPT_DIR/cef-manifest.json"; then
+  locales_outside=1
+  CEF_LOCALE_ALLOWLIST="$(cef_chromium_locales)"
+else
+  locales_outside=0
+  CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+fi
+source_value="$cef_dir $LAYOUT locales-outside-$locales_outside"
 keep_cef_locale() {
   case $'\n'"$CEF_LOCALE_ALLOWLIST"$'\n' in
     *$'\n'"$1"$'\n'*) return 0 ;;
@@ -210,6 +222,17 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # first use. It is architecture- and driver-specific, so shipping it costs
   # 0.9 MiB without removing any runtime capability.
   rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
+  # Locale paks that download on first use leave the framework before it is
+  # signed (its seal covers Resources); the app's own seal covers them until
+  # language-packs.py moves them into their packs at signing.
+  rm -rf "$chromium_locales_dir"
+  if (( locales_outside )); then
+    mkdir -p "$chromium_locales_dir"
+    for locale_dir in "$fw/Versions/A/Resources"/*.lproj; do
+      [[ -d "$locale_dir" && "$(basename "$locale_dir")" != en.lproj ]] || continue
+      mv "$locale_dir" "$chromium_locales_dir/"
+    done
+  fi
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.

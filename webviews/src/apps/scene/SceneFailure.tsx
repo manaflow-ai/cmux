@@ -79,7 +79,7 @@ export function SceneFailure({
             type="button"
             className="cmux-app-scene-failure-action"
             data-action="reload"
-            title={t("apps.mount.reload.help")}
+            aria-description={t("apps.mount.reload.help")}
             onClick={() => onReload()}
           >
             {t("apps.mount.reload")}
