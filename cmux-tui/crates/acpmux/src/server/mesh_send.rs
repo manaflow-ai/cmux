@@ -15,11 +15,10 @@
 
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
+use crate::prompt_class::PromptClass;
 
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
-const CLASS_DROP_WARNING: &str =
-    "mesh relay cannot carry --class, so the class was dropped before delivery";
 
 /// The hub's idempotency key for prompt id `id`: itself when the hub takes it
 /// (`[A-Za-z0-9._:-]{8,128}`), else a digest of it.
@@ -86,12 +85,16 @@ pub(super) async fn relay(
     delivery: &crate::hub::outbox::Delivery,
 ) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
-    let (message, class_dropped) = match &delivery.relay_post {
-        Some(post) => (post.clone(), class_dropped(&delivery.request)),
+    let message = match &delivery.relay_post {
+        Some(post) => post.clone(),
         None => {
             let to = down_peer_recipient(hub, &delivery.target)?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
-            let class_dropped = carried.class_dropped;
+            // A class goes to the peer itself once it is back, where the receiver reads it as
+            // one, rather than as a line of the text now.
+            if carried.inline.is_some() {
+                return None;
+            }
             let message = OutMessage {
                 to,
                 from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
@@ -102,56 +105,47 @@ pub(super) async fn relay(
                 idempotency_key: idempotency_key(&carried.prompt_id),
             };
             hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
-            (message, class_dropped)
+            message
         }
     };
-    Some(mesh.send(&message).await.map(|receipt| {
-        // Its sender reads the hub's status of it, as a direct send's (`status`).
-        let caller = delivery.caller.as_deref();
-        let warning = class_dropped.then_some(CLASS_DROP_WARNING);
-        hub.outbox.record_mesh_origin(
-            &receipt.message_id,
-            &delivery.target,
-            caller,
-            false,
-            warning,
-        );
-        let mut accepted = json!({
-            "via": "mesh",
-            "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
-            "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
-            "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
-            "steer": message.mode == Mode::Now,
-        });
-        if let Some(warning) = warning {
-            accepted["warning"] = json!(warning);
-        }
-        accepted
-    }))
+    Some(mesh.send(&message).await.map(|receipt| relay_row(hub, delivery, &message, &receipt)))
 }
 
-fn class_dropped(request: &Value) -> bool {
-    crate::prompt_class::declared(request)
-        .ok()
-        .flatten()
-        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result)
+/// The outbox's record of a delivery the hub took for a peer that is down (`relay`).
+fn relay_row(
+    hub: &Arc<Hub>,
+    delivery: &crate::hub::outbox::Delivery,
+    message: &OutMessage,
+    receipt: &Receipt,
+) -> Value {
+    // Its sender reads the hub's status of it, as a direct send's (`status`).
+    let caller = delivery.caller.as_deref();
+    hub.outbox.record_mesh_origin(&receipt.message_id, &delivery.target, caller, false);
+    json!({
+        "via": "mesh",
+        "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
+        "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
+        "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
+        "steer": message.mode == Mode::Now,
+    })
 }
 
 /// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
 /// display name it claims and the harness it says it came from.
 struct Carried {
     body: String,
+    /// The class written into `body`'s first line, which the hub's message cannot carry.
+    inline: Option<PromptClass>,
     mode: Mode,
     prompt_id: String,
     named: Option<String>,
     claim: Option<Value>,
-    class_dropped: bool,
 }
 
 /// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment or
-/// `--supersede`. Classes are dropped because the mesh message format has no class field.
+/// `--supersede`. A class other than result goes as the text's first line.
 fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
-    let mut texts = Vec::new();
+    let mut texts: Vec<&str> = Vec::new();
     // These refusals never say "no session": `acpmux send` turns any error with those words into
     // its own not-found error (cli/run/send_async.rs), which would hide what to change.
     for block in request.get("prompt").and_then(Value::as_array).into_iter().flatten() {
@@ -176,10 +170,17 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
         ))
         .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
     }
-    let class_dropped = crate::prompt_class::declared(request)?
-        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result);
+    // Nor a class (`prompt_class.rs`): the hub's message has no field for it, so a block, a
+    // question or an FYI goes with its class as the first line of the text the receiver reads
+    // (`[question]`), and the sender's row says so (`classInline`). Before, it was refused, and
+    // 0 of 9 sends of one batch went (cmuxterm-hq#17418).
+    let inline = crate::prompt_class::declared(request)?.filter(|c| *c != PromptClass::Result);
+    if let Some(class) = inline {
+        texts.insert(0, class_line(class));
+    }
     Ok(Carried {
         body: texts.join("\n\n"),
+        inline,
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
         prompt_id: field("promptId")
             .and_then(Value::as_str)
@@ -188,8 +189,31 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
         named: field("fromAgent").and_then(Value::as_str).map(str::to_owned),
         // Sanitized, without what this daemon checked: the receiver keeps it as the sender's word.
         claim: field(crate::sender_harness::META_KEY).and_then(crate::sender_harness::sanitized),
-        class_dropped,
     })
+}
+
+/// The first line a relayed message carries its class in: `[question]`.
+fn class_line(class: PromptClass) -> &'static str {
+    match class {
+        PromptClass::Block => "[block]",
+        PromptClass::Question => "[question]",
+        PromptClass::Result => "[result]",
+        PromptClass::Fyi => "[fyi]",
+    }
+}
+
+/// What a sender's row says of a class the relay carried in the text (`carried`).
+fn class_note(row: &mut Value, inline: Option<PromptClass>) {
+    if let (Some(class), Some(row)) = (inline, row.as_object_mut()) {
+        row.insert("classInline".into(), json!(class.as_str()));
+        row.insert(
+            "note".into(),
+            json!(format!(
+                "the mesh relay carries no class field: sent with {} as the text's first line",
+                class_line(class)
+            )),
+        );
+    }
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
@@ -221,7 +245,7 @@ pub(super) async fn send(
         }
     }
     let carried = carried(request, target)?;
-    let warning = carried.class_dropped.then_some(CLASS_DROP_WARNING);
+    let inline = carried.inline;
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
@@ -238,12 +262,14 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target, warning)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
     } else {
         // Sent either way; unrecorded, its status is gated as a team message's (`status`).
-        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false, warning);
+        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
     }
-    Ok(status_of(&receipt, target, warning))
+    let mut row = status_of(&receipt, target);
+    class_note(&mut row, inline);
+    Ok(row)
 }
 
 /// `_acpmux/send_status` of a delivery the hub holds: its receipt, read once.
@@ -266,8 +292,6 @@ pub(super) async fn status(
         }
     })?;
     let origin = hub.outbox.mesh_origin(message);
-    let warning =
-        origin.as_ref().and_then(|d| d.request.get("meshWarning")).and_then(Value::as_str);
     let direct = origin.as_ref().filter(|d| !d.team_origin());
     if let Some(sent) = direct {
         // A direct `HOST/NAME` send's, which the hub stamps with `startWork` as it does every
@@ -295,21 +319,19 @@ pub(super) async fn status(
             }
         }
     }
-    let target = receipt
-        .to
-        .team_address
-        .clone()
-        .or_else(|| origin.as_ref().map(|d| d.target.clone()))
-        .unwrap_or_else(|| match (&receipt.to.host, &receipt.to.name) {
-            (Some(host), Some(name)) => format!("{host}/{name}"),
-            (_, name) => name.clone().unwrap_or_default(),
+    let target =
+        receipt.to.team_address.clone().or_else(|| origin.map(|d| d.target)).unwrap_or_else(|| {
+            match (&receipt.to.host, &receipt.to.name) {
+                (Some(host), Some(name)) => format!("{host}/{name}"),
+                (_, name) => name.clone().unwrap_or_default(),
+            }
         });
-    Ok(status_of(&receipt, &target, warning))
+    Ok(status_of(&receipt, &target))
 }
 
 /// A receipt in the outbox's status shape (`hub/outbox.rs` `Delivery::status`). Its `promptId`
 /// is the one the target runs it with: the hub's message id (`mesh_relay.rs` `deliver`).
-fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
+fn status_of(receipt: &Receipt, target: &str) -> Value {
     let status = match receipt.state.as_str() {
         "leased" => "delivering",
         "delivered" => "delivered",
@@ -328,7 +350,7 @@ fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
         .or(receipt.delivered_at)
         .or(receipt.leased_until)
         .unwrap_or(receipt.created_at);
-    let mut status = json!({
+    json!({
         "deliveryId": format!("{PREFIX}{}", receipt.message_id),
         "target": target,
         "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
@@ -341,11 +363,7 @@ fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
         "startWork": receipt.start_work,
         "createdAt": receipt.created_at,
         "updatedAt": updated.max(receipt.created_at),
-    });
-    if let Some(warning) = warning {
-        status["warning"] = json!(warning);
-    }
-    status
+    })
 }
 
 /// The hub's refusal as this daemon's own.
@@ -400,6 +418,34 @@ mod tests {
         assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
     }
 
+    /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0
+    /// of 9 ("cannot carry --class"). The class now goes as the text's first line, the sender's
+    /// row says so, and a send with no class (or result) is the text it always was.
+    #[test]
+    fn a_class_the_relay_cannot_carry_goes_as_the_first_line() {
+        let request = |class: Option<&str>| {
+            json!({"sessionId": "host-b/lane-a", "prompt": [{"type": "text", "text": "ship it?"}],
+                "_meta": {"acpmux": {"class": class, "promptId": "0190f2a4-7c1e-7d3a-9f00-0123456789ab"}}})
+        };
+        let sent = carried(&request(Some("question")), "host-b/lane-a").unwrap();
+        assert_eq!(sent.body, "[question]\n\nship it?");
+        assert_eq!(sent.inline, Some(PromptClass::Question));
+        let sent = carried(&request(Some("blocker")), "host-b/lane-a").unwrap();
+        assert!(sent.body.starts_with("[block]\n\n"), "{}", sent.body);
+        for class in [None, Some("result"), Some("action")] {
+            let sent = carried(&request(class), "host-b/lane-a").unwrap();
+            assert_eq!((sent.body.as_str(), sent.inline), ("ship it?", None), "{class:?}");
+        }
+        let mut row = json!({"status": "queued"});
+        class_note(&mut row, Some(PromptClass::Question));
+        assert_eq!(row["classInline"], "question");
+        assert!(row["note"].as_str().unwrap().contains("[question]"), "{row}");
+        // What it still cannot carry is still refused, by name.
+        let mut attach = request(None);
+        attach["prompt"] = json!([{"type": "image", "data": "x"}]);
+        assert!(carried(&attach, "host-b/lane-a").is_err());
+    }
+
     #[test]
     fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {
         let id = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";
@@ -416,25 +462,5 @@ mod tests {
         assert!(valid_team_address("@team/role"));
         assert!(valid_team_address("@member/reviewer:backend"));
         assert!(!valid_team_address("@team"));
-    }
-
-    #[test]
-    fn a_class_is_marked_for_warning_and_dropped_by_mesh_transport() {
-        let request = json!({
-            "prompt": [{"type": "text", "text": "hello"}],
-            "_meta": {"acpmux": {"class": "block"}}
-        });
-        let carried = carried(&request, "remote").unwrap();
-        assert!(carried.class_dropped);
-        assert_eq!(carried.body, "hello");
-    }
-
-    #[test]
-    fn result_class_is_native_mesh_default_without_a_warning() {
-        let request = json!({
-            "prompt": [{"type": "text", "text": "hello"}],
-            "_meta": {"acpmux": {"class": "result"}}
-        });
-        assert!(!carried(&request, "remote").unwrap().class_dropped);
     }
 }

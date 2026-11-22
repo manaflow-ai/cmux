@@ -87,6 +87,20 @@ pub enum State {
     Failed,
 }
 
+/// `_meta.acpmux.after` of a queued `session/prompt`: the delivery id this one waits behind. The
+/// outbox holds it until that delivery settles (`server/outbox.rs` `deliver`), so two messages a
+/// batch sends one session arrive in its order without the sender sending the second again.
+pub const AFTER_KEY: &str = "after";
+
+impl Delivery {
+    /// The delivery this one waits behind, while that one is in this outbox and not settled.
+    pub fn waits_behind(&self, outbox: &Outbox) -> Option<String> {
+        let after = self.request.pointer("/_meta/acpmux/after").and_then(Value::as_str)?;
+        (after != self.id && outbox.get(after).is_some_and(|d| !d.settled()))
+            .then(|| after.to_owned())
+    }
+}
+
 /// One message to deliver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -238,7 +252,7 @@ impl Delivery {
 
     /// What `_acpmux/send_status` answers.
     pub fn status(&self) -> Value {
-        let mut status = json!({
+        json!({
             "deliveryId": self.id,
             "target": self.target,
             "promptId": self.prompt_id(),
@@ -246,7 +260,6 @@ impl Delivery {
             "attempts": self.attempts,
             "error": self.error,
             "accepted": self.accepted,
-            "warning": self.accepted.as_ref().and_then(|a| a.get("warning")),
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             // Why it failed, for a program: the target's machine has no such session, or it
@@ -260,11 +273,7 @@ impl Delivery {
             // Taken by a peer whose journal has not shown it since: delivered again if its
             // machine lost it (`server/outbox.rs` `redeliver_open`).
             "openOnPeer": self.open_on_peer,
-        });
-        if let Some(warning) = self.accepted.as_ref().and_then(|a| a.get("warning")) {
-            status["warning"] = warning.clone();
-        }
-        status
+        })
     }
 
     /// It failed because the target's machine has no such session (`server/outbox.rs`).
@@ -495,9 +504,8 @@ impl Outbox {
         id: &str,
         address: &str,
         caller: Option<&str>,
-        warning: Option<&str>,
     ) -> bool {
-        self.record_mesh_origin(id, address, caller, true, warning)
+        self.record_mesh_origin(id, address, caller, true)
     }
 
     /// Who posted hub message `id` from here, and to whom: a team address (`team`), or a
@@ -509,12 +517,11 @@ impl Outbox {
         address: &str,
         caller: Option<&str>,
         team: bool,
-        warning: Option<&str>,
     ) -> bool {
         let key = format!("mesh:{id}");
         let mut book = self.book();
         let now = crate::store::now_ms();
-        let delivery = book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
+        book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
             id: key.clone(),
             target: address.to_owned(),
             request: json!({"teamOrigin": team, "_meta": {"acpmux": {"promptId": key}}}),
@@ -533,9 +540,6 @@ impl Outbox {
             created_at: now,
             updated_at: now,
         });
-        if let Some(warning) = warning {
-            delivery.request["meshWarning"] = json!(warning);
-        }
         book.dirty.insert(key);
         let change = book.changed();
         drop(book);
@@ -1068,6 +1072,29 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// cmuxterm-hq#17418: a message queued behind another to the same session waits in the
+    /// outbox until that one settles (delivered or failed), never as an error to its sender; one
+    /// naming a delivery this outbox does not hold, or itself, goes at once.
+    #[test]
+    fn a_delivery_after_another_waits_until_that_one_settles() {
+        let outbox = Outbox::default();
+        outbox.add(delivery(1)).unwrap();
+        let mut second = delivery(2);
+        second.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-1");
+        outbox.add(second).unwrap();
+        let second = outbox.get("d-2").unwrap();
+        assert_eq!(second.waits_behind(&outbox).as_deref(), Some("d-1"));
+        outbox.update("d-1", |d| d.state = State::Delivered);
+        assert_eq!(second.waits_behind(&outbox), None);
+        outbox.update("d-1", |d| d.state = State::Failed);
+        assert_eq!(second.waits_behind(&outbox), None);
+        let mut stray = delivery(3);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("mesh:elsewhere");
+        assert_eq!(stray.waits_behind(&outbox), None);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-3");
+        assert_eq!(stray.waits_behind(&outbox), None);
     }
 
     /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and

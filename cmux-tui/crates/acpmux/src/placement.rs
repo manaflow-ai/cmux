@@ -43,6 +43,8 @@
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
 
+pub(crate) mod move_targets;
+
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -427,14 +429,33 @@ fn stopped(machine: &Value) -> Option<String> {
 /// Why a peer row (`Hub::peers`, `peer.rs` `summary`) is no candidate now: its link is not up.
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
+///
+/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is never one, whatever its
+/// row says: a session is started on a peer over its link (`new --machine HOST`), and this
+/// daemon has none to it, so a pick of it fails with `no peer "HOST"` and nothing starts. That
+/// is what a lane VM at its lane cap hit on 2026-11-20 (`new --machine auto` picked
+/// gcp-codex-swarm-01, which it reached only through the hub). It is listed as passed over with
+/// why, and the pick goes to a host the work can start on.
 pub fn peer_down(row: &Value) -> Option<String> {
     if row.get("outdated").and_then(Value::as_bool) == Some(true) {
         return Some("outdated peer build (stale disk copy)".into());
+    }
+    if row.get("via").and_then(Value::as_str) == Some("hub") {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
+        return Some(hub_only(name));
     }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
     (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
+}
+
+/// Why a machine only the mesh hub reaches takes no placed work, and the two ways to start there.
+pub fn hub_only(name: &str) -> String {
+    format!(
+        "only the mesh hub reaches it, and a new session starts only over a direct link: \
+         `acpmux machine add {name}` links it, or start the session from a machine linked to it"
+    )
 }
 
 /// `verdict` with each peer `down` names (its name and `peer_down`'s why) listed in `hosts` as
