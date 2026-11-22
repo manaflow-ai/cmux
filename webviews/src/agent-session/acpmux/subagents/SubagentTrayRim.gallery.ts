@@ -51,12 +51,133 @@ const snapshot = chat([
   summary(1, { status: "completed", durationMs: 600_000, toolCount: 7 }),
 ]);
 
+// Eight running reviewers, so a drag has lines to move through both ways.
+const many = chat([
+  user("Fan eight reviews out and keep them going", 9),
+  row(SUBAGENTS, 9, {
+    subagents: [
+      "Review the fold",
+      "Read the bottom stack",
+      "Audit the linger",
+      "Check the rim's detents",
+      "Time the open motion",
+      "Read the tuck tab",
+      "Count the header kinds",
+      "Check the scroll padding",
+    ].map((task, i) => running(task, 8 - i, `Read file-${i + 1}.ts`)),
+  }),
+  assistant("Eight reviewers are running.", 1),
+  summary(1, { status: "completed", durationMs: 480_000, toolCount: 8 }),
+]);
+
 const opened = (height: number | undefined) => async (ctx: PlayContext) => {
   setHatHeight(height, false);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  // The hat remembers its fold per chat, so a frame that shares storage with an earlier play can
+  // start open; a click then would fold it. Open it only when it is folded.
+  if (!ctx.document.querySelector(".acpmux-running-tray[data-open]"))
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
+// Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor, and it's just jumpy
+// all over the place and doesn't have satisfying snap alongs. i also am not sure if clicking on the
+// resizing area itself should necessarily hide it." These drive the rim with real pointer events in
+// real layout and fail when the rim leaves the cursor, a release lands between lines, or a click moves it.
+const rimNode = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__rim")!;
+const rimTop = (ctx: PlayContext) => rimNode(ctx).getBoundingClientRect().top;
+const listBox = (ctx: PlayContext) =>
+  ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__list")?.getBoundingClientRect().height ?? 0;
+const frames = (ctx: PlayContext, n = 2) =>
+  new Promise<void>((resolve) => {
+    const view = ctx.document.defaultView!;
+    const step = (left: number) => (left === 0 ? resolve() : view.requestAnimationFrame(() => step(left - 1)));
+    step(n);
+  });
+/// Waits until the hat stops moving (its open motion ends), so a drag measures from rest.
+const settle = async (ctx: PlayContext) => {
+  let last = Number.NaN;
+  for (let still = 0, guard = 0; still < 6 && guard < 120; guard++) {
+    await frames(ctx, 1);
+    const now = rimTop(ctx) + listBox(ctx) * 1000;
+    still = now === last ? still + 1 : 0;
+    last = now;
+  }
+};
+const fire = (ctx: PlayContext, type: string, y: number) => {
+  const rim = rimNode(ctx);
+  const x = rim.getBoundingClientRect().left + 40;
+  const View = ctx.document.defaultView!;
+  // A synthetic pointer has no browser pointer to capture, and the throw would end the press
+  // handler early: it would hide what the press does after capture (on base, a forwarded click).
+  rim.setPointerCapture = () => {};
+  rim.dispatchEvent(
+    new View.PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 7,
+      button: 0,
+      buttons: 1,
+      clientX: x,
+      clientY: y,
+    }),
+  );
+};
+/// Presses the rim 4px under its top, moves through `path` (px above the press), and lets go at the
+/// last point unless `hold`. Returns the worst gap between where the rim is and where the cursor put it,
+/// away from a line's edge (where it settles on purpose) and past the last line (where it gives).
+const drag = async (ctx: PlayContext, path: number[], hold = false) => {
+  await settle(ctx);
+  const grabY = rimTop(ctx) + 4;
+  const startTop = rimTop(ctx);
+  const startList = listBox(ctx);
+  const natural = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__list")?.scrollHeight ?? 0;
+  fire(ctx, "pointerdown", grabY);
+  let worst = 0;
+  for (const grown of path) {
+    fire(ctx, "pointermove", grabY - grown);
+    await frames(ctx);
+    const list = listBox(ctx);
+    const settled = list !== Math.round(startList + grown) && Math.abs(list - (startList + grown)) <= 6;
+    if (!settled && list > 4 && startList + grown < natural - 2)
+      worst = Math.max(worst, Math.abs(startTop - grown - rimTop(ctx)));
+  }
+  if (!hold) {
+    fire(ctx, "pointerup", grabY - (path.at(-1) ?? 0));
+    await settle(ctx);
+  }
+  return worst;
+};
+const tracks = async (ctx: PlayContext) => {
+  await opened(84)(ctx);
+  const path = [1, 2, 3, 6, 11, 17, 23, 31, 38, 44, 37, 25, 12, -3, -12, -19, -27, -33];
+  const worst = await drag(ctx, path, true);
+  if (worst > 1) throw new Error(`the rim left the cursor by ${worst}px mid-drag`);
+  ctx.document.documentElement.dataset.rimWorst = String(worst);
+};
+const landsOnLines = async (ctx: PlayContext) => {
+  await opened(84)(ctx);
+  await drag(ctx, [5, -10, -25, -38]);
+  const list = listBox(ctx);
+  // Dragged from three lines to 1.6 lines: it lands on two whole lines (56px and the list's 2px).
+  if (Math.abs(list - 58) > 1) throw new Error(`released between lines: the list is ${list}px`);
+};
+const foldsAtHalf = async (ctx: PlayContext) => {
+  await opened(84)(ctx);
+  await drag(ctx, [-20, -50, -72]);
+  if (ctx.document.querySelector(".acpmux-running-tray[data-open]"))
+    throw new Error("under half a line it should fold");
+};
+const clickStays = async (ctx: PlayContext) => {
+  await opened(84)(ctx);
+  await settle(ctx);
+  const before = { top: rimTop(ctx), list: listBox(ctx) };
+  await drag(ctx, [1, -1, 2]);
+  const after = { top: rimTop(ctx), list: listBox(ctx) };
+  if (!ctx.document.querySelector(".acpmux-running-tray[data-open]"))
+    throw new Error("a click on the rim folded the hat");
+  if (before.top !== after.top || before.list !== after.list) throw new Error("a click on the rim moved the hat");
+};
+
 const rimHovered = async (ctx: PlayContext) => {
   await opened(undefined)(ctx);
   await ctx.hover({ selector: ".acpmux-running-tray__rim" });
@@ -89,6 +210,26 @@ export default agentPaneEntry({
       note: "Dragged up to 260px: every line shows, no scroll.",
       play: opened(260),
       snapshot,
+    },
+    "drag-tracks": {
+      note: "Held mid-drag between two lines: the rim stays under the cursor 1:1 from where it was grabbed, up and back down (the play fails past 1px).",
+      play: tracks,
+      snapshot: many,
+    },
+    "drag-lands": {
+      note: "Let go with 1.6 lines shown: it lands on two whole lines; a line more than half shown stays.",
+      play: landsOnLines,
+      snapshot: many,
+    },
+    "drag-folds": {
+      note: "Let go with under half of the first line shown: the hat folds (the halfway point is one line's, not five's).",
+      play: foldsAtHalf,
+      snapshot: many,
+    },
+    "click-stays": {
+      note: "A press on the rim that wobbles a pixel and lets go: nothing folds, opens or moves.",
+      play: clickStays,
+      snapshot: many,
     },
     shorter: {
       note: "Dragged down to two lines: the rest scroll in place.",

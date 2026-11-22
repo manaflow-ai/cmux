@@ -21,11 +21,15 @@ extension AgentPaneView: WebReloadCovering {
     /// How long the picture waits for the settled chat after the reloaded page drew a partial one.
     static let reloadCoverSettleWithin: Duration = .milliseconds(400)
 
+    /// Nothing to hold: a chat out of sight, one never drawn (its loading state covers it), or one in Chromium,
+    /// whose child window draws over any cover in this view.
+    public var coversNextReload: Bool {
+        reloadCover != nil || (window != nil && !isHiddenOrHasHiddenAncestor && model.hasPainted && !pageDrawsOverCovers
+            && !holdsPageAway && pageContent.frame.width >= 1 && pageContent.frame.height >= 1)
+    }
+
     public func reloadUnderCover(_ reload: @escaping @MainActor () -> Void) {
-        // Nothing to hold: a chat out of sight, one never drawn (its loading state covers it), or one in Chromium,
-        // whose child window draws over any cover in this view.
-        guard window != nil, !isHiddenOrHasHiddenAncestor, model.hasPainted, !pageDrawsOverCovers, !holdsPageAway,
-              pageContent.frame.width >= 1, pageContent.frame.height >= 1 else { return reload() }
+        guard coversNextReload else { return reload() }
         // A second update while the first one's picture is up: the picture stays, its bound starts again.
         if let cover = reloadCover {
             cover.limit.schedule(after: Self.reloadCoverLimit) { @MainActor [weak self] in self?.dropReloadCover() }

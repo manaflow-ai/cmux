@@ -13,6 +13,7 @@ struct WebSwapReloadCoverTests {
     final class Cover: WebReloadCovering {
         var reloads = 0
         var runsReload = true
+        var coversNextReload = true
         func reloadUnderCover(_ reload: @escaping @MainActor () -> Void) {
             reloads += 1
             if runsReload { reload() }
@@ -48,5 +49,19 @@ struct WebSwapReloadCoverTests {
         }
         // The host is gone (weak): the page reloads by itself, with nothing to call.
         #expect(served.reload([chat], to: nil) == 1)
+    }
+
+    /// The graceful reload lays its own picture only over a page no host holds: one cover, not two fading apart.
+    @Test func theGracefulReloadLeavesAHeldPageToItsHost() {
+        let served = WebBundleServedViews()
+        let chat = Self.page(), other = Self.page()
+        let cover = Cover()
+        served.add(chat)
+        served.add(other)
+        served.coverReloads(of: chat, with: cover)
+        #expect(served.coversReload(of: chat))
+        #expect(!served.coversReload(of: other))
+        cover.coversNextReload = false
+        #expect(!served.coversReload(of: chat), "a host that would reload bare leaves the graceful cover")
     }
 }
