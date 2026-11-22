@@ -727,6 +727,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        #[cfg(unix)]
+        Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::DaemonPrune { .. } => Err(anyhow!("daemon prune runs on macOS and Linux only")),
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();

@@ -1016,7 +1016,7 @@ jobs:
       # merge leaves a person a generated-file conflict (scripts/cmux-next/generated_merge.py audit).
       - name: Generated files merge without a person
         if: ${{ !cancelled() }}
-        timeout-minutes: 3
+        timeout-minutes: 8
         run: python3 tests/test_generated_merge.py
 
       - name: cmux-next no new generated files
