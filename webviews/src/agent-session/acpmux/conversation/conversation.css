@@ -3014,7 +3014,10 @@ body {
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
    calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them) roll
-   up and out of the line as the new roll up into it from below, both opaque, on the arrival step. The
+   up and out of the line as the new roll up into it from below, each fading as it travels, over the
+   roll (--agent-motion-roll: Claude desktop's 200 ms, 70% of the line, its curve; Leo, 2026-11-22:
+   "i think ours is too jarring/jagged compared to claude right now", on two opaque texts a few
+   pixels apart for the arrival step's two or three frames). The
    line's row clips them to its own height while a roll is on it, so the old words never draw over
    the reply above the line, and at every frame the two tile the line: never a frame with no words
    and never two texts over each other (Leo, 2026-11-11: "there's a breif moment where ther'es
@@ -3049,7 +3052,7 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-roll) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -3075,24 +3078,24 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-roll) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
     content: attr(data-tail);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
-    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--agent-motion-roll) var(--agent-ease-roll) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
-    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--agent-motion-roll) var(--agent-ease-roll) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
-    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--agent-motion-roll) var(--agent-ease-roll) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
-    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--agent-motion-roll) var(--agent-ease-roll) backwards;
   }
   /* The words handing over to a call (Leo, 2026-11-21: "the animation for the Thinking swapping to
      tool calls also probably needs to be smoothed out"). The line keeps its roll above (never a blank
@@ -3158,6 +3161,53 @@ body {
     animation: cv-swap-in-even var(--cv-exit-lead) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
   }
 }
+/* The roll's other timings, for the gallery's side by side with Claude desktop's strip
+   (TurnTransitions.gallery.tsx `arrive-tool-swap-*`): `opaque`, the roll before Leo's 2026-11-22
+   ask (both texts opaque, 100% of the line, the arrival step: two texts a few pixels apart for two or
+   three frames); `claude`, Claude desktop's values on both sides (the old words too take 200 ms, so
+   the call's name is still faintly on the line when its row lands); `brisk`, the shipped shape on the
+   entry step (120 ms). */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] {
+    --agent-roll-travel: 100%;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-roll-out,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-roll-out__tail {
+    animation: cv-roll-opaque-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-roll-opaque-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-roll-opaque-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-roll-out,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-roll-out__tail {
+    animation-duration: var(--agent-motion-roll);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="brisk"] {
+    --agent-motion-roll: var(--cmux-motion-micro, 120ms);
+  }
+}
+@keyframes cv-roll-opaque-out {
+  to {
+    translate: 0 -100%;
+  }
+}
+@keyframes cv-roll-opaque-in-odd {
+  from {
+    translate: 0 100%;
+  }
+}
+@keyframes cv-roll-opaque-in-even {
+  from {
+    translate: 0 100%;
+  }
+}
 /* The hand-over's looks (above): two names a look, swapped each change, so each change restarts it. */
 @keyframes cv-swap-out {
   from {
@@ -3213,28 +3263,39 @@ body {
     translate: 0 0;
   }
 }
+/* Claude desktop's roll (cds-pill-roll-out / cds-pill-roll-in-up): each side travels
+   --agent-roll-travel of the line and fades on its curve, so mid-change the old words are nearly
+   gone where the new are nearly whole, and neither reads over the other. The new words take the
+   roll's 200 ms; the old leave on the arrival step, so a call's name is gone from the line before
+   its row lands (thinking-tool-swap-frames.test.ts: never drawn twice). */
 @keyframes cv-roll-out {
   from {
     translate: 0 0;
+    opacity: 1;
   }
   to {
-    translate: 0 -100%;
+    translate: 0 calc(-1 * var(--agent-roll-travel));
+    opacity: 0;
   }
 }
 @keyframes cv-roll-in-odd {
   from {
-    translate: 0 100%;
+    translate: 0 var(--agent-roll-travel);
+    opacity: 0;
   }
   to {
     translate: 0 0;
+    opacity: 1;
   }
 }
 @keyframes cv-roll-in-even {
   from {
-    translate: 0 100%;
+    translate: 0 var(--agent-roll-travel);
+    opacity: 0;
   }
   to {
     translate: 0 0;
+    opacity: 1;
   }
 }
 

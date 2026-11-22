@@ -56,5 +56,16 @@ export const MOTION_SETTLE = "cubic-bezier(0.16, 1, 0.3, 1)";
 /** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
 export const MOTION_SETTLE_MS = 180;
 
+/**
+ * A line whose words change in place (ms, `--cmux-motion-roll`): a line whose words change in place (the running turn's live line: Thinking, a call, Writing, back to Thinking): the old words rise out and fade as the new rise in from below and fade up, both clipped to the line, and what follows the words moves with them on the same curve. Claude desktop's own values, read from its app bundle (cds-pill-roll-in-up / cds-pill-roll-out over --cds-dur-base 0.2s and --cds-ease-out cubic-bezier(.165, .84, .44, 1), translateY 70% with opacity; Leo 2026-11-22: "likewise the thinking and how it switches between things i think we ought to be able to get better too. the switching to and from things... i think ours is too jarring/jagged compared to claude right now"). travel is the rise as a percent of the line's height.
+ */
+export const MOTION_ROLL_MS = 200;
+
+/** The roll's curve (`--cmux-ease-roll`). */
+export const MOTION_EASE_ROLL = "cubic-bezier(0.165, 0.84, 0.44, 1)";
+
+/** How far the roll rises, in percent of the line's height (`--cmux-roll-travel`). */
+export const MOTION_ROLL_TRAVEL = 70;
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;

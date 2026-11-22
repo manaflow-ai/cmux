@@ -1,4 +1,4 @@
-import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS, MOTION_ROLL_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
@@ -106,10 +106,16 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
       "--agent-motion-send-pop",
       `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_POP_MS)}ms`,
     );
+    // The live line's roll (`--agent-motion-roll`, Claude desktop's 200 ms) on the same clock.
+    root.style.setProperty(
+      "--agent-motion-roll",
+      `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_ROLL_MS)}ms`,
+    );
   } else {
     root.style.removeProperty("--agent-motion-send");
     root.style.removeProperty("--agent-motion-send-fade");
     root.style.removeProperty("--agent-motion-send-pop");
+    root.style.removeProperty("--agent-motion-roll");
   }
   // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
   // CSS animations and transitions that represent loops or third-party surfaces stop as well as

@@ -21,6 +21,15 @@
      long"; row-arrival-settle.test.ts). */
   --agent-motion-arrive: var(--cmux-motion-quick, 80ms);
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* The live line's words changing in place (Thinking.tsx `useRoll`, conversation.css `cv-roll-*`)
+     and its counts that move with them: Claude desktop's roll, the scale's roll (Leo 2026-11-22:
+     "the switching to and from things... i think ours is too jarring/jagged compared to claude
+     right now"). At the arrival step the roll was two or three frames of two opaque texts a few
+     pixels apart; over the roll's 200 ms each side fades as it travels. The call's own row still
+     lands on the arrival step: by then the old words are four-fifths gone (the roll's curve). */
+  --agent-motion-roll: var(--cmux-motion-roll, 200ms);
+  --agent-ease-roll: var(--cmux-ease-roll, cubic-bezier(0.165, 0.84, 0.44, 1));
+  --agent-roll-travel: var(--cmux-roll-travel, 70%);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Something that has done its job leaving calmly in place, never a move: the read "New" line's
@@ -57,6 +66,7 @@
   --agent-motion-in: 0ms !important;
   --agent-motion-arrive: 0ms !important;
   --agent-motion-out: 0ms !important;
+  --agent-motion-roll: 0ms !important;
   --agent-motion-move: 0ms !important;
   --agent-motion-send: 0ms !important;
   --agent-motion-send-fade: 0ms !important;
