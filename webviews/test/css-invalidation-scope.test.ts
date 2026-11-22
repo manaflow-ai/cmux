@@ -137,3 +137,26 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", '.icon[style*="background-image"]')).toEqual([]);
   expect(findings("x.css", ".tag > .x ~ svg[data-icon]")).toEqual([]);
 });
+
+// A collapsing composer took too long after a tall send (Leo, 2026-11-22, ask-fac73c9b41: "IT'S LIKE SOME B******T I
+// THINK WHEN IT'S SUPER / MULTI / LINE / AND THEN / THE F******G COLLAPSING OF THE F*****G COMPOSER / IT TAKES TOO
+// F*****G LONG OR WHATEVER!?"). Every `X:has([data-popup-open]) .part` rule in the agent pane joined Chromium's one
+// shared `:has()` restyle list, so each row the send inserted restyled every transcript row's parts. The rows now set
+// a flag on a subject `:has()` (`X:has([data-popup-open]) { --popup-in-X: 1 }`) and the parts read it in
+// `@container style(--popup-in-X: 1)`. This count only goes down: write a new one in the flag form instead.
+const AGENT_PANE_POPUP_HAS_LIMIT = 21;
+
+test("the agent pane adds no rule restyling a part on an ancestor's :has([data-popup-open])", () => {
+  const found: string[] = [];
+  for (const full of cssFiles(path.join(src, "agent-session"))) {
+    if (full.endsWith(".gallery.css")) continue;
+    const file = path.relative(src, full);
+    for (const group of selectorTexts(fs.readFileSync(full, "utf8")))
+      for (const selector of splitTop(group, (ch) => ch === ",")) {
+        const { parts } = compounds(selector);
+        const at = parts.findIndex((part) => part.includes(":has([data-popup-open])"));
+        if (at >= 0 && at < parts.length - 1) found.push(`${file}: ${selector}`);
+      }
+  }
+  expect(found.length).toBeLessThanOrEqual(AGENT_PANE_POPUP_HAS_LIMIT);
+});
