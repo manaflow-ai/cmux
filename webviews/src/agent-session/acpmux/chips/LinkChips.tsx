@@ -16,7 +16,7 @@ import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
 import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { askSiteAgain, usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
@@ -230,10 +230,12 @@ export function UrlChip({
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onPointerEnter?.();
           enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onFocus?.();
           enter().onFocus?.(event);
         }}
