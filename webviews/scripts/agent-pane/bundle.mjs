@@ -30,6 +30,7 @@ import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
 import { writeFrameSites } from "./frameSites.mjs";
 import { classicScript } from "./classicScript.mjs";
+import { addCompileHints } from "./compileHints.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -65,6 +66,9 @@ const preloadFile = preloadIndex >= 0 ? rest[preloadIndex + 1] : undefined;
 // build makes external source maps only to read them, and deletes them after.
 const frameSitesIndex = rest.indexOf("--frame-sites");
 const frameSitesFile = frameSitesIndex >= 0 ? rest[frameSitesIndex + 1] : undefined;
+// --compile-hints puts V8's `//# allFunctionsCalledOnLoad` on the entry and the chunks it imports
+// statically (compileHints.mjs): compiled eagerly off the main thread on a code-cache miss.
+const compileHints = rest.includes("--compile-hints");
 if (frameSitesFile && !split) {
   console.error("--frame-sites needs --split");
   process.exit(2);
@@ -132,10 +136,10 @@ const result = await build({
   ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
 if (!cssInputsOnly) await refuseRawImportMetaEnv();
+const entryOut = result.metafile
+  ? Object.keys(result.metafile.outputs).find((output) => path.resolve(output) === path.resolve(outfile))
+  : undefined;
 if (classic && !cssInputsOnly) {
-  const entryOut = Object.keys(result.metafile.outputs).find(
-    (output) => path.resolve(output) === path.resolve(outfile),
-  );
   await classicScript({
     outdir: path.resolve(path.dirname(outfile)),
     outputs: result.metafile.outputs,
@@ -143,6 +147,14 @@ if (classic && !cssInputsOnly) {
     entryOut,
     maps: Boolean(frameSitesFile),
   });
+}
+// After the classic pass (it rewrites pane.js and deletes the static chunks, so with --classic the hint goes
+// on pane.js alone) and before the site table: it reads the maps, which then already carry the hint's line.
+if (compileHints && !cssInputsOnly) {
+  if (!result.metafile)
+    throw new Error("--compile-hints needs --split with --classic, --preload-list or --frame-sites");
+  const hinted = classic ? [entryOut] : [entryOut, ...staticChunks(result.metafile.outputs, entryOut)];
+  await addCompileHints(hinted.map((o) => path.resolve(o)));
 }
 if (frameSitesFile && !cssInputsOnly) {
   const outdir = path.resolve(path.dirname(outfile));
@@ -154,9 +166,6 @@ if (frameSitesFile && !cssInputsOnly) {
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
 if (preloadFile) {
   const outdir = path.resolve(path.dirname(outfile));
-  const entryOut = Object.keys(result.metafile.outputs).find(
-    (output) => path.resolve(output) === path.resolve(outfile),
-  );
   await writeFile(
     preloadFile,
     (classic ? [] : staticChunks(result.metafile.outputs, entryOut))
