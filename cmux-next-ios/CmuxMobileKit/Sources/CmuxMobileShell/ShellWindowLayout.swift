@@ -77,6 +77,7 @@ struct ListDetailSplit<List: View, Detail: View>: View {
                         .ignoresSafeArea()
                 }
                 .transition(.move(edge: .leading).combined(with: .opacity))
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("shell.listColumn")
             }
             detail()
