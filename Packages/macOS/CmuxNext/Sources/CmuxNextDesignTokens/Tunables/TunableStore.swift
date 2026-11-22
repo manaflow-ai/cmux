@@ -152,17 +152,28 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// any change made since launch), so what the caller launched with is what the store reports;
     /// a `set` that lands during the read wins, and the caller gets that value.
     public func settledOverride(_ key: String) -> TunableValue? {
-        guard active.load(ordering: .acquiring) else { return nil }
+        guard active.load(ordering: .acquiring) else {
+            // An inactive store answers no override, so this launch runs the default: record that as
+            // the launch read. Without it a bench build, which activates after launch, would have no
+            // record at all and report every launch-time key as not applied.
+            recordLaunchRead(key, nil)
+            return nil
+        }
         let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil && !state.cleared.contains(key) }
         if pending, let url = file.withLock({ $0 }) {
             // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
             // store's own read of it is still pending (DEV and NIGHTLY)
             if let value = validate(TunableFile.readRaw(url))[key] { merge([key: value]) }
         }
-        return state.withLock { state in
-            let answer = state.overrides[key]
-            if !state.launchReads.keys.contains(key) { state.launchReads[key] = .some(answer) }
-            return answer
+        let answer = state.withLock { $0.overrides[key] }
+        recordLaunchRead(key, answer)
+        return answer
+    }
+
+    /// Keeps the first answer `settledOverride` gave for `key` this launch (later reads change nothing).
+    private func recordLaunchRead(_ key: String, _ value: TunableValue?) {
+        state.withLock { state in
+            if !state.launchReads.keys.contains(key) { state.launchReads[key] = .some(value) }
         }
     }
 
