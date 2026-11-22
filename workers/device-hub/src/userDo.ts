@@ -28,10 +28,17 @@ export const ANCHOR_TTL_MS = 30 * 24 * 3600 * 1000;
 /** How long the billing answer recorded at an anchor stands for a host session's cmux relay. */
 export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 
-/** The platforms a device registers as. A Linux desktop hosts like a Mac (`cmux-rd linux-host`). */
-export type DevicePlatform = "macos" | "ios" | "linux";
+/**
+ * The platforms a device registers as. A Linux desktop hosts like a Mac (`cmux-rd linux-host`);
+ * a Windows PC registers and stays online with its device key (`cmux-rd windows-host`).
+ */
+export type DevicePlatform = "macos" | "ios" | "linux" | "windows";
+export const DEVICE_PLATFORMS: readonly DevicePlatform[] = ["macos", "ios", "linux", "windows"];
 /** The platforms that host a screen: only these are anchored for device-key renewal. */
-export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux"];
+export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux", "windows"];
+export function isDevicePlatform(value: unknown): value is DevicePlatform {
+  return (DEVICE_PLATFORMS as readonly unknown[]).includes(value);
+}
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -572,8 +579,8 @@ export class UserDO extends DurableObject<Env> {
     // Each registration says it again: the setting turned off and registered turns the default off.
     const shareOwnDefault = body.shareWithOwnDevices === true ? 1 : 0;
     const name = str(body.name, "name", 100);
-    if (body.platform !== "macos" && body.platform !== "ios" && body.platform !== "linux") {
-      throw badRequest("platform must be macos, ios or linux");
+    if (!isDevicePlatform(body.platform)) {
+      throw badRequest("platform must be macos, ios, linux or windows");
     }
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
@@ -1582,7 +1589,7 @@ export class UserDO extends DurableObject<Env> {
 
   /** The signed-in app lets its Mac renew its own host session for 30 days. */
   private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
-    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac or a Linux desktop is anchored");
+    if (!HOST_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC is anchored");
     const paid = (await relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error")) === "paid";
     const now = Date.now();
     this.sql.exec(
