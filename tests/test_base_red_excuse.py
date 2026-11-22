@@ -4000,7 +4000,17 @@ jobs:
   scope: {name: Skill test scope, runs-on: x, steps: []}
   tests-policy: {name: Skill policy tests, needs: scope, runs-on: x, steps: []}
   tests-fleet: {name: Fleet tests, needs: scope, runs-on: x, steps: []}
-  tests: {name: Skill documentation tests, needs: [scope, tests-policy, tests-fleet], if: always(), runs-on: x, steps: []}
+  tests:
+    name: Skill documentation tests
+    needs: [scope, tests-policy, tests-fleet]
+    if: always()
+    runs-on: x
+    steps:
+      - name: All parallel skill shards passed
+        env: {NEEDS_JSON: "${{ toJSON(needs) }}"}
+        run: python3 scripts/shard_summary.py
+      - name: Every shard's steps stay within 25% of the measured step table
+        run: python3 scripts/step_table.py
   other: {name: Other check, runs-on: x, steps: []}
 """
 SKILL_DOCS = "Skill documentation tests"
@@ -4059,10 +4069,34 @@ class OtherRepoRollups(unittest.TestCase):
     def test_the_summary_is_judged_by_its_failed_shards(self):
         lines = "\n".join(self.judge())
         self.assertIn("'Skill test scope'", lines)
-        self.assertNotIn(SKILL_DOCS, lines)
         self.assertIn((HQ, "main", ".github/workflows/skills-tests.yml"), self.gh.blobs)
         self.assertEqual(self.gh.source_routes, [], "no contents API read: the gh shim refuses it")
         self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+
+    def test_hq17855_a_summary_whose_failed_shards_are_all_excused_is_named_excused(self):
+        # hq#17855 at 37ac5bc7: 'Skill documentation tests' failed only in "All parallel skill shards passed" over an
+        # excused 'Skill test scope', and land-judge refused it as never named (its own rollup read had failed).
+        lines = self.judge()
+        self.assertEqual(excuse.rollups(HQ)["run"][SKILL_DOCS]["reports"], ["All parallel skill shards passed"])
+        summary = [line for line in lines if line.startswith(f"excused '{SKILL_DOCS}'")]
+        self.assertEqual(len(summary), 1, lines)
+        self.assertIn("every failed job under its needs ('Skill test scope') is excused above", summary[0])
+        self.assertIn("'All parallel skill shards passed' only reports its needs (job 3 in run 10)", summary[0])
+        self.assertLess(lines.index(next(l for l in lines if l.startswith("excused 'Skill test scope'"))),
+                        lines.index(summary[0]))
+
+    def test_a_summary_with_a_failed_step_of_its_own_is_not_excused(self):
+        self.gh.jobs[3]["steps"].append({"name": "Every shard's steps stay within 25% of the measured step table",
+                                         "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, f"'{SKILL_DOCS}' .* failed in its own step .Every shard's steps"):
+            self.judge()
+
+    def test_a_summary_whose_steps_were_not_read_is_not_excused(self):
+        # Its steps are listed with no conclusion read (an empty list is refused at setup before this).
+        self.gh.jobs[3]["steps"] = [{"name": "All parallel skill shards passed", "conclusion": None}]
+        lines = self.judge()
+        self.assertFalse([line for line in lines if line.startswith(f"excused '{SKILL_DOCS}'")], lines)
+        self.assertTrue([line for line in lines if line.startswith("excused 'Skill test scope'")], lines)
 
     def test_one_unexcused_shard_keeps_the_summary_red(self):
         # Every failed job of the run is judged: the base fails the scope shard but not the policy shard.
@@ -4092,7 +4126,7 @@ class OtherRepoRollups(unittest.TestCase):
 
     def test_unreadable_workflows_refuse_every_rollup(self):
         for workflows, said in (({}, "unreadable"),
-                                ({"skills-tests.yml": SKILLS_YML.replace("tests: {name", "summary: {name")},
+                                ({"skills-tests.yml": SKILLS_YML.replace("  tests:\n    name", "  summary:\n    name")},
                                  "no job tests")):
             with self.subTest(said), unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {}):
                 self.gh.workflows = workflows
