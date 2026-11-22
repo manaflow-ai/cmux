@@ -104,6 +104,9 @@ const fire = (ctx: PlayContext, type: string, y: number) => {
   const rim = rimNode(ctx);
   const x = rim.getBoundingClientRect().left + 40;
   const View = ctx.document.defaultView!;
+  // A synthetic pointer has no browser pointer to capture, and the throw would end the press
+  // handler early: it would hide what the press does after capture (on base, a forwarded click).
+  rim.setPointerCapture = () => {};
   rim.dispatchEvent(
     new View.PointerEvent(type, {
       bubbles: true,
