@@ -130,7 +130,7 @@ struct TerminalComposer: View {
         } label: {
             ComposerCircleLabel(systemImage: "plus")
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
     }
@@ -148,7 +148,7 @@ struct TerminalComposer: View {
                                 tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("terminal.composer.voice")
     }
@@ -174,13 +174,22 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        // Clear glass, not regular: regular glass changes its material with
-        // the shape's size, so the field turned a lighter gray once a draft
-        // passed three lines (Leo, 2026-11-21: "the composer brightening up
-        // when you have >3 lines"). Clear glass looks the same at every
-        // height, the look a one-line draft always had
-        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
-        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // The terminal theme's own background with a hairline border, not
+        // glass: glass lifted the field lighter than the pane (Leo,
+        // 2026-11-22: "dont draw unnecessary attention by making it light";
+        // the border alone marks it). A flat fill also looks the same at
+        // every height (Leo, 2026-11-21: "the composer brightening up when
+        // you have >3 lines"; TerminalComposerLookUITests: 1, 3, 4, 8 lines).
+        .background(themeBackground, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
+                .strokeBorder(ComposerChrome.border, lineWidth: 1)
+        }
+    }
+
+    /// The pane's background: the Mac's terminal theme, else the app default.
+    private var themeBackground: Color {
+        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
     }
 
     private var fieldRow: some View {
@@ -228,9 +237,9 @@ struct TerminalComposer: View {
                 .foregroundStyle(Color.cmuxMobileOnAccent)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-                .glassEffect(.regular.tint(Color.cmuxMobileAccent).interactive(), in: .circle)
+                .cmuxMobilePressBackground(Color.cmuxMobileAccent, in: Circle())
         }
-        .buttonStyle(.cmuxPressGlass)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("terminal.composer.voice")
     }
@@ -252,15 +261,17 @@ struct TerminalComposer: View {
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: glass tinted with the
-            // monochrome accent, never blue (design/ios.md); empty, plain glass.
-            // Empty (disabled): plain glass that does not react to a touch.
-            .glassEffect(failed ? .regular.tint(.red).interactive()
-                         : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
-                         : .regular, in: .circle)
+            // ↑ (send) is the primary action: a solid disc of the accent (the
+            // Mac's when Match Mac is on), as the Mac composer's send. Tinted
+            // glass washed it out to a pale disc (Leo, 2026-11-22: "the send
+            // button is themed/coloured slightly oddly"). Empty (disabled): a
+            // faint disc of the text color.
+            .cmuxMobilePressBackground(failed ? AnyShapeStyle(Color.red)
+                                       : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileAccent)
+                                       : AnyShapeStyle(ComposerChrome.idleFill), in: Circle())
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.cmuxPressGlass)
+        .buttonStyle(.cmuxPressFillInLabel)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
@@ -387,9 +398,20 @@ struct ComposerCircleLabel: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            // Off: the pane shows through, ringed like the field (no lighter
+            // glass disc, Leo 2026-11-22). On: a solid accent disc, as send.
+            .cmuxMobilePressBackground(tint ?? Color.clear, in: Circle())
+            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1) }
             .contentShape(.circle)
     }
+}
+
+/// The composer's quiet chrome on the terminal theme's background.
+enum ComposerChrome {
+    /// The field's and the + circle's hairline: it alone marks them.
+    static let border = Color.primary.opacity(0.16)
+    /// The disabled send disc.
+    static let idleFill = Color.primary.opacity(0.08)
 }
 
 extension View {
