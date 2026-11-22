@@ -172,6 +172,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-wire",
  "serde",
  "serde_json",
 ]
@@ -186,6 +187,14 @@ dependencies = [
 
 [[package]]
 name = "cmux-cloud-tasks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-wire"
 version = "0.1.0"
 dependencies = [
  "serde",
