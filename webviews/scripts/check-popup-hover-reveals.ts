@@ -77,7 +77,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ],
   // A harness update row's Update (HarnessUpdates.tsx) starts that update on the click; it opens no menu.
   [
-    "agent-session/acpmux/harnessUpdates.css|.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
+    "agent-session/acpmux/harnessUpdates.css|.acpmux-harness-update:is(:hover, :has(:focus-visible)) .acpmux-harness-update-run[data-reveal]",
     "update button",
   ],
   // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
