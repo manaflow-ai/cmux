@@ -154,7 +154,8 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
+    reads.push({ options: libraryQuery(store), revalidate: true });
   if (cards.has("customizeProgress")) {
     // The checklist's connection steps read the Accounts and Models parts the store keeps.
     reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });

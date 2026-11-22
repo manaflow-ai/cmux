@@ -4,7 +4,7 @@
 extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
-        SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
+        SidebarSection(id: "app", title: nil, categories: [generalCategory, customizeCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
@@ -33,6 +33,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.customizeChecklist"),
         ],
         lead: [.customizeProgress, .textSize], actions: [.general], aliases: [.general]
+    )
+
+    /// One click per customization (Leo 2026-11-22, ask-931361017e): only the checklist card, right after General so it is found first.
+    private static let customizeCategory = CategorySpec(
+        id: "customize", title: SettingsText.keyed("settings.category.customize", "Customize"), symbol: "switch.2",
+        groups: [],
+        lead: [.customizeChecklist]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
