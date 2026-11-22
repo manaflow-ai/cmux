@@ -356,7 +356,8 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
     };
     let roundtrip = stats(&col(|s| s.roundtrip_ms));
     let report = json!({
-        "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+        // The binaries `cargo test` built: the dev profile (opt-level 1) unless `--release`.
+        "profile": if cfg!(debug_assertions) { "dev" } else { "release" },
         "iters": iters,
         "history_kb": history_kb,
         "offload_roundtrip_p50_ms": roundtrip["p50"],
