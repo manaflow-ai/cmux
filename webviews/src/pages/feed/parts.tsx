@@ -46,6 +46,7 @@ export function PosterLine({ item, strings, now }: { item: ViewItem; strings: St
     <span className="feed-poster">
       <span className="feed-poster-label">{posterLabel(item)}</span>
       <span aria-hidden="true">·</span>
+      {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
       <time className="feed-num" title={fullDate(item.created_at, strings.language)}>
         {relativeTime(item.created_at, now, strings.language)}
       </time>
@@ -125,7 +126,6 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       data-detail={detail ? "" : undefined}
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
-      title={row.headline}
       onClick={onSelect}
       onDoubleClick={onOpen}
       onKeyDown={(event) => {
@@ -140,6 +140,7 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
         <UnreadDot visible={unread} />
         <Glyph item={item} />
         <span className="feed-row-headline">{row.headline}</span>
+        {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
         <time className="feed-row-time feed-num" title={fullDate(item.created_at, strings.language)}>
           {relativeTime(item.created_at, now, strings.language)}
         </time>
