@@ -127,10 +127,12 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             .map_err(internal)?;
         owner(conn, &run)?;
         if action == "check" {
-            return Ok(
-                json!({"running":true,"allowedTools":hub.workflow_allowed_tools(&run).await.map_err(internal)?,
-                    "upstreamNames":hub.workflow_upstream_names(&run).await.map_err(internal)?}),
-            );
+            let tools = hub.workflow_tool_snapshot(&run).await.map_err(internal)?;
+            return Ok(json!({
+                "running": true,
+                "allowedTools": tools.allowed_tools,
+                "upstreamNames": tools.upstream_names,
+            }));
         }
         if action == "suspend" {
             // A fresh-call budget stop keeps the same script and completed activities.
