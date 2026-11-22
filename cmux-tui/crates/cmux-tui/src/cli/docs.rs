@@ -279,7 +279,6 @@ pub(super) const GUIDES: &[Guide] = &[
             "primitives",
             "api",
             "sdk",
-            "surface",
             "extend",
             "extension",
             "integrate",
