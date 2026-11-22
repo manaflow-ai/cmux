@@ -4496,108 +4496,12 @@ jobs:
         env:
           # The state file records the signing channel (cmux NEXT signs as `next`).
           SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
-        run: |
-          set -euo pipefail
-          for required in \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$NIGHTLY_DMG_RELEASE.notarization.state" \
-            "$NIGHTLY_DMG_RELEASE.notarization.log" \
-            "$CHANNEL_APP_PATH"; do
-            if [ ! -e "$required" ]; then
-              echo "Missing notarization recovery input: $required" >&2
-              exit 1
-            fi
-          done
-          # A handed-off stapled-app DMG travels with the accepted first DMG
-          # (the 6 h fallback of notarize-nightly-dmg.sh).
-          if grep -Fxq stapled_app=true "$NIGHTLY_DMG_RELEASE.notarization.state" && [ ! -f "${NIGHTLY_DMG_RELEASE%.dmg}.first.dmg" ]; then
-            echo "Missing notarization recovery input: ${NIGHTLY_DMG_RELEASE%.dmg}.first.dmg" >&2
-            exit 1
-          fi
-          recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
-          ./scripts/ci/archive-recovery-app.sh "$CHANNEL_APP_PATH" "$recovery_app_archive"
-          dmg_sha256="$(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | awk '{print $1}')"
-          [[ "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]] || {
-            echo "Could not record a SHA-256 for $NIGHTLY_DMG_RELEASE" >&2
-            exit 1
-          }
-          python3 - \
-            "$NIGHTLY_DMG_RELEASE.notarization.state" \
-            "$dmg_sha256" \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$CHANNEL_APP_PATH" \
-            "$CHANNEL" \
-            "$NIGHTLY_VARIANT" \
-            "$CHANNEL_RELEASE_TAG" \
-            "$NIGHTLY_BUILD" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" \
-            "$SIGN_CHANNEL" <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha, tip_sha, behind, behind_hours, sign_channel = sys.argv[1:]
-          state = {}
-          for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
-              if not line:
-                  continue
-              key, sep, value = line.partition("=")
-              if not sep or key in state:
-                  raise SystemExit(f"invalid notarization state line: {line!r}")
-              state[key] = value
-          if state.get("dmg_sha256") != actual_sha:
-              raise SystemExit("notarization state SHA-256 does not match the signed DMG")
-          # A bounded wait that ran out exits nonzero after a successful upload.
-          if state.get("submit_exit", "0") != "0" and state.get("wait_timed_out") != "true":
-              raise SystemExit("notarization submit exited nonzero; refusing automatic continuation")
-          submission_id = state.get("submission_id", "")
-          if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
-              raise SystemExit("notarization state has no valid Apple submission id")
-          for key in ("immutable_path", "release_tag", "dmg_prefix", "variant", "channel"):
-              if not state.get(key):
-                  raise SystemExit(f"notarization state is missing {key}")
-          # The manifest keeps the release channel for check-manifest.
-          if state["channel"] != sign_channel or state["variant"] != variant or state["release_tag"] != release_tag:
-              raise SystemExit("notarization state metadata does not match the build")
-          if state.get("dmg_path", "").split("/")[-1] != pathlib.Path(dmg_path).name:
-              raise SystemExit("notarization state points at a different DMG")
-          pathlib.Path("cmux-nightly-notarization-recovery.json").write_text(
-              json.dumps({
-                  "schema": 1,
-                  "source_run_id": "${{ github.run_id }}",
-                  "source_run_attempt": "${{ github.run_attempt }}",
-                  "should_publish": True,
-                  "channel": channel,
-                  "track": "nightly-next",
-                  "variant": variant,
-                  "release_tag": release_tag,
-                  "build": build,
-                  "head_sha": head_sha,
-                  "short_sha": short_sha,
-                  # The resolved build commit and its distance from the tip,
-                  # which publication records (find-nightly-next-recovery.py).
-                  "build_sha": head_sha,
-                  "build_short_sha": short_sha,
-                  "tip_sha": tip_sha,
-                  "behind": behind,
-                  "behind_hours": behind_hours,
-                  "dmg_path": pathlib.Path(dmg_path).name,
-                  "app_path": f"cmux-nightly-notarization-recovery-app/{pathlib.Path(app_path).name}",
-                  "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
-                  "state_path": pathlib.Path(state_path).name,
-                  "log_path": f"{pathlib.Path(dmg_path).name}.notarization.log",
-                  "immutable_path": state["immutable_path"],
-                  "dmg_prefix": state["dmg_prefix"],
-                  "dmg_sha256": actual_sha,
-                  "submission_id": submission_id,
-              }, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
+          BEHIND: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}
+          BEHIND_HOURS: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}
+        run: s=scripts/ci/nightly-steps/prepare-notarization-recovery.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
 
       # A later run publishes this build from the recovery artifact alone, so
@@ -7074,76 +6978,8 @@ jobs:
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
           TRACK: ${{ needs.published-build.outputs.track }}
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-        run: |
-          set -euo pipefail
-          # The tag itself: `commits/<name>` resolves the nightly-next branch,
-          # which the promote job moves ahead during a build, and a skipped
-          # republish leaves the feed without its previous item (cx-urd.67).
-          # nightly-next: publish-nightly-next-github moves the tag later, off the feed's
-          # path; the live feed check below is the order check there.
-          if [ "${TRACK:-}" != nightly-next ]; then
-            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
-            read -r tag_type current_sha <<< "$tag_object"
-            if [ "$tag_type" = tag ]; then
-              current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
-            fi
-            # The publication moved the tag to the resolved build commit.
-            if [ "$current_sha" != "${{ needs.published-build.outputs.resolve_build_sha }}" ]; then
-              echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          if [ -n "${CHANNEL_FEED_BASE:-}" ]; then
-            live_feed="$(mktemp)"
-            curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
-            live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
-            # Above: a newer build published. Below: nightly-next-rollback.yml
-            # pulled this one, and the revised appcast would put it back.
-            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build != NIGHTLY_BUILD )); then
-              echo "Skipping stale delta result: NEXT feed serves build $live_build, not $NIGHTLY_BUILD"
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          deltas=()
-          for delta in nightly-deltas/*.delta; do
-            [ -f "$delta" ] || continue
-            deltas+=(--immutable "$delta")
-          done
-          if [ "${#deltas[@]}" -eq 0 ]; then
-            echo "No Sparkle deltas were generated; full appcasts remain current"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The revised feed lists earlier builds again, all on the new build's
-          # ring: each goes back to Nightly when its canary verdict is a pass. It
-          # keeps the live feed's newest Nightly item as publish-nightly does.
-          if [ "$TRACK" = nightly-next ]; then
-            bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml
-            for feed in nightly-deltas/appcast*.xml; do
-              [ -f "$feed" ] || continue
-              python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
-                --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_VERDICTS_BASE"
-            done
-          fi
-          feeds=()
-          for feed in nightly-deltas/appcast*.xml; do
-            [ -f "$feed" ] || continue
-            feeds+=(--feed "$feed")
-          done
-          [ "${#feeds[@]}" -gt 0 ]
-          if [ "${TRACK:-}" = nightly-next ]; then
-            # The deltas and the revised feed go to R2 in the next step, not to the release.
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The workflow commit's publisher: its rate-limit backoff, serial uploads, shared wait.
-          publisher=.publish-tooling/scripts/ci/publish-release-assets.py
-          python3 "$publisher" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            ${deltas[@]+"${deltas[@]}"} --replace-feeds ${feeds[@]+"${feeds[@]}"}
-          echo "publish=true" >> "$GITHUB_OUTPUT"
+          RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh
 
       - name: Upload revised appcasts to R2
         if: steps.republish.outputs.publish == 'true' && needs.published-build.outputs.track != 'nightly-next'
