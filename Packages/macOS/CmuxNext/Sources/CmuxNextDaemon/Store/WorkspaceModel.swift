@@ -51,9 +51,9 @@ public final class WorkspaceModel: Identifiable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status,
     /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
     public internal(set) var taskStatus: WorkspaceTaskStatus?
-    /// Who made the workspace as the daemon recorded it at the create (`extra.created_by.kind`: `person`, `agent`
-    /// or `script`); nil without a record. The sidebar folds a `script` one as an automatic session.
-    public internal(set) var createdBy: String?
+    /// Who made the workspace and why (`extra.created_by`): the person, an agent session or a
+    /// script; nil on a daemon that does not say. From the daemon's state resources.
+    public internal(set) var createdBy: WorkspaceCreator?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
