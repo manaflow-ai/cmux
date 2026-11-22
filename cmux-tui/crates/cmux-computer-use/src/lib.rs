@@ -36,6 +36,7 @@ pub mod policy;
 pub mod preview;
 pub mod session;
 pub mod stop;
+pub mod takeover;
 pub mod tools;
 pub mod wire;
 

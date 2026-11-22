@@ -12,6 +12,7 @@ mod activation;
 mod ax;
 mod capture;
 mod cgwindows;
+mod idle;
 mod input;
 mod key_focus;
 mod keymap;
@@ -31,6 +32,8 @@ use crate::desktop::*;
 use crate::keys::KeyCombo;
 use ax::{Ax, ElementCache};
 use cgwindows::CgWindow;
+
+pub use idle::person_activity;
 
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,

@@ -37,7 +37,8 @@ pub fn open() -> Result<Arc<dyn Desktop>, String> {
 }
 
 /// The person's own mouse and keyboard use, for pause-on-takeover. On macOS
-/// the Swift worker supplies it through the C ABI instead.
+/// this is the Rust worker's (the Screen Sharing helper's); cmux Remote's
+/// Swift worker supplies its own event tap through the C ABI instead.
 pub fn person_activity() -> Arc<dyn PersonActivity> {
     #[cfg(windows)]
     {
@@ -47,7 +48,11 @@ pub fn person_activity() -> Arc<dyn PersonActivity> {
     {
         linux::person_activity()
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::person_activity()
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Arc::new(crate::engine::NoTakeover)
     }

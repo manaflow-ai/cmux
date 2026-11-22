@@ -3316,3 +3316,25 @@ fn safaris_autocorrection_bubble_is_watched_dismissed_or_reported() {
     assert_eq!(autocorrection(true, false), Autocorrection::Dismissed);
     assert_eq!(autocorrection(true, true), Autocorrection::StillOffered);
 }
+
+/// The takeover watch reads the newest deliberate input: the smallest
+/// seconds-since among the types, ignoring what the window server could not
+/// answer (NaN, negative).
+#[test]
+fn hid_idle_is_the_newest_deliberate_input() {
+    assert_eq!(idle::newest_ms([3.0, 0.25, 9.0]), Some(250));
+    assert_eq!(idle::newest_ms([f64::NAN, -1.0, 2.0]), Some(2000));
+    assert_eq!(idle::newest_ms([f64::NAN]), None);
+    // Pointer movement (CGEventType 5) is not a takeover.
+    assert!(!idle::DELIBERATE.contains(&5));
+}
+
+/// The macOS worker's takeover watch is a real one, not NoTakeover: a call
+/// right after this process's own post is not paused by it.
+#[test]
+fn mac_worker_watches_the_person() {
+    idle::mark_injection();
+    let watch = crate::platform::person_activity();
+    // Whatever the HID clock says on this host, the call returns within its limit.
+    let _ = watch.wait_idle(std::time::Duration::ZERO);
+}
