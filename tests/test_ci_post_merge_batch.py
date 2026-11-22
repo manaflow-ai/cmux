@@ -48,6 +48,14 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120)[0], "skip")
         self.assertEqual(pmb.tick_decision("a" * 40, runs[:1], NOW, 120)[0], "dispatch")
 
+    def test_redispatches_a_tip_batch_with_no_verdict_once(self) -> None:
+        # Drill-8 run 44966393364: the plan lost its runner, so the tip was never tested.
+        runs = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+        runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
@@ -214,11 +222,18 @@ class BisectTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c3", "g", "", "1")
         self.assertEqual(pmb.next_step(probe, "success", ["c1", "c2", "c3"])[0], "flake")
 
-    def test_a_probe_without_verdict_retries_once(self) -> None:
+    def test_a_probe_without_verdict_retries_then_stops(self) -> None:
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
-        step, again = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
-        self.assertEqual((step, again.tries), ("retry", 1))
-        self.assertEqual(pmb.next_step(again, "cancelled", ["c1", "c2", "c3"])[0], "lost")
+        for n in range(1, pmb.MAX_PROBE_RETRIES + 1):
+            step, probe = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
+            self.assertEqual((step, probe.tries), ("retry", n))
+        self.assertEqual(pmb.next_step(probe, "", ["c1", "c2", "c3"])[0], "lost")
+
+    def test_a_probe_judge_runs_when_its_plan_died(self) -> None:
+        # Drill-8 probe run 44980687386: the plan job lost its runner and the bisect stopped with no judge.
+        judge = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]
+        self.assertIn("inputs.mode == 'probe'", judge["if"])
+        self.assertIn("!cancelled()", judge["if"])
 
     def test_first_parent_range_on_a_real_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,155 @@
+// Material: the Material Design 3 (Material You) baseline scheme, light, as Android 14 and Google's
+// apps draw it. Tonal two-tone chrome: the navigation drawer (sidebar) and the tab row on
+// surface-container, the content on surface, the selected tab and sidebar row in the content's own
+// color running into it, and no hairlines anywhere (M3 separates by tone, not lines). One accent,
+// primary #6750A4, for links, focus, Send and the circular progress indicator.
+{
+  "name": "Material",
+  "description": "Material 3 baseline, light: surface-container drawer and tabs on a surface page, primary #6750A4, no lines.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  // background = surface, foreground = on-surface, selection = secondary-container (the navigation
+  // drawer's active indicator), accent = primary.
+  "colors": { "background": "#fef7ff", "foreground": "#1d1b20", "selection": "#e8def8", "accent": "#6750a4" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a tonal chroma, each solved in OKLCH over the page (5.2:1, the bright ones
+  // 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #fef7ff",
+    "foreground = #1d1b20",
+    "cursor-color = #6750a4",
+    "cursor-text = #fef7ff",
+    "selection-background = #e8def8",
+    "selection-foreground = #1d1b20",
+    "palette = 0=#1d1b20",
+    "palette = 1=#ac4a46",
+    "palette = 2=#1f7837",
+    "palette = 3=#836504",
+    "palette = 4=#3669b4",
+    "palette = 5=#954f94",
+    "palette = 6=#06757a",
+    "palette = 7=#6a6f76",
+    "palette = 8=#83878f",
+    "palette = 9=#bc4c3a",
+    "palette = 10=#018146",
+    "palette = 11=#8b6c01",
+    "palette = 12=#446cc8",
+    "palette = 13=#a84f99",
+    "palette = 14=#027c88",
+    "palette = 15=#8f9195"
+  ],
+  // The terminal face: Roboto Mono at 13 pt, the type scale's monospaced face; without it
+  // installed, the terminal keeps its built-in face.
+  "terminal.fontFamily": "Roboto Mono",
+  "terminal.fontSize": 13,
+  // Selected text as Android draws it: primary at 40%.
+  "appearance.highlightColor": "#6750a466",
+
+  // M3 surfaces are opaque tonal fills: no wallpaper, no glass.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.glassTransparency": 0,
+  "browser.omnibar.glass": "off",
+
+  // Two tones, the flush-corner frame: the title area (tab row and sidebar) shaded apart from the
+  // content, and the selected tab a folder tab in the content's color that runs into the pane.
+  // This is the one window style the selected tab's "tail" draws on (CornerFlush.defaultFits:
+  // flat or default, tabs on top), so it is "flat" here and not the "two-tone" card style, which
+  // keeps its own shade and never runs a tab into the pane.
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "subtleTone",
+  // Gooey: the selected tab and the selected sidebar row flare into the pane through concave
+  // fillets (Leo: "the gooey material theme ish thing with the tabs having the tail"). The tail
+  // draws on the flat, flush-corner frame set above (appearance.cornerFlush, cmux#46367).
+  "appearance.cornerFlush": "flush-goo",
+  "appearance.focusIndicator": "tabs",
+  // No hairline, outline or separator: tone does the separating.
+  "appearance.borders": "none",
+  "sidebar.border": false,
+
+  // The navigation drawer and the tab row on surface-container; the content on surface.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f3edf7",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f3edf7",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#fef7ff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#fef7ff",
+  "appearance.surfaces.terminal.opacity": 1,
+  // Pages are content: surface. The browser's bar is a top app bar on surface-container; docks are
+  // side and bottom sheets on surface-container-low; a split's gutter is a surface-container band.
+  "appearance.surfaces.settings.color": "#fef7ff",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#fef7ff",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#fef7ff",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#fef7ff",
+  "appearance.surfaces.home.opacity": 1,
+  "appearance.surfaces.markdown.color": "#fef7ff",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.diff.color": "#fef7ff",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.editor.color": "#fef7ff",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f3edf7",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#f7f2fa",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#f3edf7",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  // Drawer sections as M3 headlines: plain labels, no boxes.
+  "sidebar.sectionLook": "quiet",
+
+  // Proportions: M3's large-screen components at desktop density (-4, 4 dp a step). The drawer is
+  // 360 dp at 0.83 (300), its items 56 dp at -4 (40), the top app bar 64 dp at -4 (48), the tab row
+  // 48 dp at -2 (40) with Title Small 14 labels, scrollable tabs 90 to 264 dp wide, Label Large 14
+  // for chrome text, the 12 dp gap between a drawer item's icon and label.
+  "appearance.density": "comfortable",
+  "appearance.metrics.sidebarWidth": 300,
+  "appearance.metrics.sidebarRowHeight": 40,
+  "appearance.metrics.titlebarHeight": 48,
+  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabFontSize": 14,
+  "appearance.metrics.tabMaxWidth": 264,
+  "appearance.metrics.tabMinInactiveWidth": 90,
+  "appearance.metrics.chromeFontSize": 14,
+  "appearance.metrics.columnGap": 12,
+  "appearance.metrics.dividerThickness": 4,
+
+  // Work in progress: the M3 circular progress indicator, a thick primary arc.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.thickness": 2.5,
+  "appearance.statusIndicator.color": "#6750a4",
+
+  // Motion: M3 standard speed, and color changes on the emphasized curve, cubic-bezier(0.2, 0, 0, 1),
+  // over medium2 (300 ms).
+  "ui.animationSpeed": "normal",
+  "ui.animations.feedback": true,
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.duration": 300,
+  "appearance.colorTransition.curve": "cubicBezier",
+  "appearance.colorTransition.bezierX1": 0.2,
+  "appearance.colorTransition.bezierY1": 0,
+  "appearance.colorTransition.bezierX2": 0,
+  "appearance.colorTransition.bezierY2": 1
+
+  // Pending cmux#46861 (layout and proportions): M3: 40 dp icon buttons with a full-round state layer, no header divider, 16 dp drawer padding, a 56 dp text field. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 64,
+  // "appearance.metrics.sidebarRowInset": 12,
+  // "appearance.metrics.sidebarRowPadding": 16,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 40,
+  // "appearance.metrics.toolbarButtonGap": 8,
+  // "appearance.metrics.toolbarButtonCornerRadius": 20,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.12,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 16,
+  // "appearance.metrics.composerMinHeight": 56,
+  // "appearance.metrics.spacingScale": 1,
+}

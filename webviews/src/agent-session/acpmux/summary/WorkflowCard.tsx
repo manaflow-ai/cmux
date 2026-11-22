@@ -19,6 +19,7 @@ import "./workflowDots.css";
 import { opener, sideTabOpener, listeners } from "./workflowCardModel";
 import { Clock } from "../../../ui/Typography";
 import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -137,16 +138,17 @@ export function WorkflowCard({
           </span>
         ) : (
           <>
-            <span
-              className="acpmux-workflow-card__latest"
-              title={latest ? `${latest.agent}: ${latest.line}` : undefined}
-            >
-              {latest && (
-                <>
-                  <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
-                </>
+            <WithFacts facts={[{ value: (latest ? `${latest.agent}: ${latest.line}` : undefined) ?? "" }]}>
+              {(facts) => (
+                <span {...facts} className="acpmux-workflow-card__latest">
+                  {latest && (
+                    <>
+                      <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
+                    </>
+                  )}
+                </span>
               )}
-            </span>
+            </WithFacts>
             <span
               className="acpmux-workflow-card__progress"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.

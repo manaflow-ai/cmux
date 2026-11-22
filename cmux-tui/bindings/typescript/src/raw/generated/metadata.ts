@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b7078a0bf994c64d7f40e5b6c3c5f7881c05b890301afc3442fa6b3e79074976. */
+/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b7078a0bf994c64d7f40e5b6c3c5f7881c05b890301afc3442fa6b3e79074976" as const;
+export const SDK_IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3388,6 +3388,10 @@ export const COMMAND_METADATA = {
         "since": 10,
         "capability": "daemon-handoff-force-v1"
       },
+      "if_idle": {
+        "since": 12,
+        "capability": "daemon-stop-if-idle-v1"
+      },
       "keep_layout": {
         "since": 12,
         "capability": "end-terminals-keep-layout-v1"
@@ -3405,7 +3409,8 @@ export const COMMAND_METADATA = {
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
       "The daemon exits only after the success response is queued.",
-      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
+      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop.",
+      "Clients must require daemon-stop-if-idle-v1 before sending if_idle:true: an older daemon ignores the field and stops."
     ]
   },
   "sidebar-plugin": {
@@ -29767,6 +29772,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "if_idle": {
+          "capability": "daemon-stop-if-idle-v1",
+          "constraints": [
+            "Stop only while no other client is connected and no terminal is launching, adopting or running; otherwise refuse with error_code daemon_busy, error_details {clients:[{client,name,kind}],terminals}, and keep serving. Checked under the handoff reservation, which refuses new clients, so none can start work between the check and the stop."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "keep_layout": {
