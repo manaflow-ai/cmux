@@ -41,6 +41,10 @@ public final class BackdropImageStore {
     private var warming: [Task<Void, Never>] = []
     /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
     private var desktopGeneration = 0
+    /// The cache ids of what the Desktop Wallpaper draws now (each screen's picture, movie or
+    /// frame, ``DesktopShown``): dropped with it when the desktop moves on, so a picture
+    /// overwritten in place decodes again and a rotation keeps no old pictures.
+    private var desktopIDs: Set<String> = []
     /// Ends when every Desktop Wallpaper decode the desktop moved on from has ended. A decode
     /// can't be stopped once it runs, so a new one waits for this: one desktop decode at a time,
     /// however fast the desktop changes and however many windows ask.
@@ -117,9 +121,10 @@ public final class BackdropImageStore {
     func forgetDesktopPicture(olderThan generation: Int) {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
-        images = images.filter { $0.key.id != BackdropSelection.desktopID }
-        let retired = loads.filter { $0.key.id == BackdropSelection.desktopID }.map(\.value)
-        loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
+        images = images.filter { !isDesktop($0.key.id) }
+        let retired = loads.filter { isDesktop($0.key.id) }.map(\.value)
+        loads = loads.filter { !isDesktop($0.key.id) }
+        desktopIDs = []
         guard !retired.isEmpty else { return }
         let earlier = retiredDesktopLoads
         // task-owner: the chain of retired desktop decodes; it ends when they do (never cancelled)
@@ -127,6 +132,17 @@ public final class BackdropImageStore {
             await earlier?.value
             for load in retired { _ = await load.value }
         }
+    }
+
+    /// Marks `selection` as what the Desktop Wallpaper draws (in either appearance), so it goes
+    /// when the desktop moves on (``forgetDesktopPicture(olderThan:)``).
+    func noteDesktopPicture(_ selection: BackdropSelection) {
+        desktopIDs.insert(selection.variantID(dark: false))
+        desktopIDs.insert(selection.variantID(dark: true))
+    }
+
+    private func isDesktop(_ id: String) -> Bool {
+        id == BackdropSelection.desktopID || desktopIDs.contains(id)
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
@@ -157,7 +173,7 @@ public final class BackdropImageStore {
         }
         // Every caller waits on the newest chain until none is newer (the desktop can move on
         // again while it waits); the first to resume starts the decode, the rest join it below.
-        while key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
+        while isDesktop(key.id), loads[key] == nil, let retired = retiredDesktopLoads {
             await retired.value
             guard !Task.isCancelled else { return nil }
             if let image = images[key] { return image }
@@ -179,7 +195,7 @@ public final class BackdropImageStore {
         if loads[key] == load { loads[key] = nil }
         // The desktop moved on while this decoded: its picture is stale, so load the new one,
         // unless the caller gave up (a newer apply cancelled its art load).
-        if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+        if isDesktop(key.id), generation != desktopGeneration {
             guard !Task.isCancelled else { return nil }
             return await image(selection, texture: texture, dark: dark)
         }

@@ -80,6 +80,15 @@ public final class WindowMaterialView: NSView {
     private(set) var loadedDark = false
     /// The desktop's ``DesktopWallpaperWatch/generation`` the Desktop Wallpaper art loaded for.
     private var loadedDesktopGeneration = 0
+    /// What the Desktop Wallpaper drew last (its screen's picture, movie or frame), and the
+    /// display it was read for: a window moved to another display reloads.
+    private var loadedDesktop: BackdropSelection?
+    var loadedDesktopScreen: UInt32?
+    /// The backdrop shows the Desktop Wallpaper (``BackdropSelection/desktop``).
+    private(set) var followsDesktop = false
+    /// How the art is placed: the Desktop Wallpaper's screen's Fill, Fit, Stretch or Center;
+    /// every other background fills (``applyArtFit(_:)``).
+    var artFit: BackdropArtFit = .fill
     /// The last `apply`, run again when the appearance flips under art that follows it.
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
@@ -293,16 +302,28 @@ public final class WindowMaterialView: NSView {
         let chosen = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = chosen?.followsAppearance == true && loadedDark != dark
         // Light and Dark draws its side for this view's appearance.
-        let shown = chosen?.resolved(dark: dark)
-        // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
-        let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
+        let picked = chosen?.resolved(dark: dark)
+        followsDesktop = picked == .desktop
+        // The Desktop Wallpaper draws what this window's own screen shows (until the first reading,
+        // the desktop as read now): its picture, aerial or frame of the time, placed as macOS does.
+        let desktop = followsDesktop ? wallpaper.shown(on: window?.screen) : nil
+        let shown = desktop?.selection(dark: dark) ?? picked
+        applyArtFit(desktop)
+        loadedDesktopScreen = followsDesktop ? window?.screen.flatMap(DesktopWallpaperWatch.displayID) : nil
+        if followsDesktop { wallpaper.desktopIsShown() }
+        // The desktop moved on (a new picture, a Space with its own, another display): it reloads.
+        let desktopMoved = followsDesktop && (loadedDesktopGeneration != wallpaper.generation || loadedDesktop != shown)
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
             loadedDark = dark
             loadedDesktopGeneration = wallpaper.generation
-            if shown == .desktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
+            loadedDesktop = followsDesktop ? shown : nil
+            if followsDesktop {
+                images.forgetDesktopPicture(olderThan: wallpaper.generation)
+                if let shown { images.noteDesktopPicture(shown) }
+            }
             artLoad?.cancel()
             artLoad = nil
             let texture = backdrop.texture
