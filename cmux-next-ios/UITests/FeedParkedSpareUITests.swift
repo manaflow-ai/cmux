@@ -28,8 +28,12 @@ final class FeedParkedSpareUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 40), "the Feed's table\n\(app.debugDescription)")
         let rows = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'feed.row.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 20), "the events\n\(app.debugDescription)")
-        // Still for a while: the spare is built and parked (0.5 s of stillness, one idle build).
-        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "idle")], timeout: 3)
+        // Still for a while: the spare is built and parked (0.5 s of stillness, one idle build). The
+        // list's DEBUG value is its trace ("spare made …"): the check below means nothing without it.
+        let made = NSPredicate { _, _ in (list.value as? String ?? "").contains("spare made") }
+        let built = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: made, object: nil)], timeout: 15) == .completed
+        XCTAssertTrue(built, "no spare was built while the Feed was still; list trace:\n\(list.value as? String ?? "-")")
+        if !built { return ["no spare was built"] }
         // A table's accessibility lists its rows past the screen too (at their row frames, inside
         // the list's width): a parked spare would be a second copy of a row's identifier, or an
         // element beside the list (its holder sits off the window to the left).
@@ -75,5 +79,6 @@ final class FeedParkedSpareUITests: XCTestCase {
     func testAVisibleParkedSpareIsCaught() {
         let found = problems(mutant: true)
         XCTAssertFalse(found.isEmpty, "the checks did not catch a spare parked visibly in the list")
+        XCTAssertFalse(found == ["no spare was built"], "the mutant built no spare, so it proves nothing")
     }
 }

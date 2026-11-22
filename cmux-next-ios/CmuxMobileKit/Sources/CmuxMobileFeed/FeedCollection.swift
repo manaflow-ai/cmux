@@ -592,6 +592,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         parkHolder = nil
         cell.prepareForReuse()
         sparesTaken += 1
+        trace("spare taken")
         spareGiven = cell
         return cell
     }
@@ -632,6 +633,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         spareScheduled = false
         guard let view = collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
               CACurrentMediaTime() - lastScroll >= Self.spareStillness, !jumpingToTop, !rowAnimating(in: view) else {
+            trace("spare deferred window=\(collectionView?.window != nil) still=\(Int((CACurrentMediaTime() - lastScroll) * 1000)) animating=\(collectionView.map(rowAnimating(in:)) ?? false)")
             scheduleSpare()
             return
         }
@@ -681,6 +683,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SPARE_MUTANT"] == "visible" {
             // Red for FeedParkedSpareUITests: the way parking could go wrong, the holder on screen
             // over the rows with accessibility on.
+            // In the window itself (its table's SwiftUI host may not list a plain subview), so the
+            // UI check's power is measured against the most visible place a spare could end up.
+            if let window = view.window { window.addSubview(holder) }
             holder.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
             holder.accessibilityElementsHidden = false
         }
@@ -689,6 +694,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         cell.layoutIfNeeded()
         spare = cell
         sparesMade += 1
+        trace("spare made in \(String(describing: type(of: holder.superview!)))")
         #if DEBUG
         if FeedStressRig.shared.config.isActive {
             // The build's time, and the frame intervals right after it (its first draw lands in the
