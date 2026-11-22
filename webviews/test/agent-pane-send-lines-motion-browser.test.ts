@@ -307,7 +307,16 @@ await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async (
     frames?.start();
     // Two frames of rest before Enter.
     await page.evaluate(
-      () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      () =>
+        new Promise<void>((resolve) => {
+          let painted = 0;
+          window.cmuxAfterPaint(() => {
+            painted += 1;
+            if (painted < 2) return true;
+            resolve();
+            return false;
+          });
+        }),
     );
     await page.evaluate(() => window.__transcriptMotion!.mark("send"));
     const startedAt = await page.evaluate(() => performance.now());
@@ -319,8 +328,11 @@ await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async (
     await page.evaluate(
       (until) =>
         new Promise<void>((resolve) => {
-          const tick = () => (performance.now() >= until ? resolve() : requestAnimationFrame(tick));
-          requestAnimationFrame(tick);
+          window.cmuxAfterPaint(() => {
+            if (performance.now() < until) return true;
+            resolve();
+            return false;
+          });
         }),
       startedAt + RECORD_MS,
     );
