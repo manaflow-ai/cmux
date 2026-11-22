@@ -761,6 +761,13 @@ const keptHeapMb: number[] = [];
 const keptNodes: number[] = [];
 /// MODE=reshow-kept: how long the kept page stays hidden and frozen before it shows again.
 const HIDDEN_MS = Number(process.env.HIDDEN_MS ?? 1500);
+/// FOLDS=N: before its copy is written the settled chat opens its newest N closed folds (tool cards, thoughts),
+/// and the page's own wake state (`pane.wakeState`) is kept, so reopen-spare's adopt event carries those folds
+/// as the host's does for a released page that kept them (AgentPaneWakeState.spareCarriesAll). Each spare
+/// round reports how many folds stood open when its recording ended.
+const FOLDS = Number(process.env.FOLDS ?? 0);
+let wakeFoldsKept: unknown;
+const foldsOpenAtEnd: number[] = [];
 const spareNodes: number[] = [];
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
 type ProfileNode = CpuProfile["nodes"][number];
@@ -1293,6 +1300,23 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      if (FOLDS > 0) {
+        const opened = await page.evaluate((count) => {
+          const closed = [...document.querySelectorAll<HTMLElement>('#root [aria-expanded="false"]')].slice(-count);
+          for (const button of closed) button.click();
+          return closed.length;
+        }, FOLDS);
+        await page.waitForTimeout(SETTLE_QUIET_MS);
+        const wake = (await page.evaluate(async () => {
+          const actions = (window as { cmuxAcpmuxActions?: Record<string, (args: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions;
+          return (await actions?.["pane.wakeState"]?.({})) ?? null;
+        })) as { folds?: unknown } | null;
+        wakeFoldsKept = wake?.folds;
+        console.log(
+          `FOLDS=${FOLDS}: opened ${opened}, wake folds ${JSON.stringify(wakeFoldsKept ?? null).slice(0, 200)}`,
+        );
+      }
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;
@@ -1377,17 +1401,19 @@ try {
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, calls: 0 };
       simStream.armed = true;
       const start = await page.evaluate(
-        ({ session, tail, recordMs }) => {
+        ({ session, tail, recordMs, folds }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
           const at = performance.now();
           const shift = w.__firstLoad.layoutShift;
           w.__firstLoadUntil = at + recordMs;
           window.dispatchEvent(
-            new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
+            new CustomEvent("acpmux-session-adopt", {
+              detail: { sessionId: session, tail, scrollAnchor: null, ...(folds ? { folds } : {}) },
+            }),
           );
           return { at, shift, syncMs: performance.now() - at };
         },
-        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
+        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS, folds: wakeFoldsKept ?? null },
       );
       adoptSyncMs.push(start.syncMs);
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -1420,6 +1446,10 @@ try {
                 ),
             )
           ).join("\n  ")}`,
+        );
+      if (FOLDS > 0)
+        foldsOpenAtEnd.push(
+          await page.evaluate(() => document.querySelectorAll('#root [aria-expanded="true"]').length),
         );
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
@@ -2014,6 +2044,10 @@ try {
     console.log(
       `${mode} on show: recorded page HTTP requests p50 ${p50(rounds.map((r) => r.requests ?? 0))}, daemon calls (every page) p50 ${p50(rounds.map((r) => r.daemonCalls ?? 0))}, bytes down p50 ${p50(rounds.map((r) => r.bytesDown))}`,
     );
+  if (FOLDS > 0) {
+    console.log(`reopen-spare folds open at the end of each round (FOLDS=${FOLDS}): ${foldsOpenAtEnd.join(", ")}`);
+    json.foldsOpenAtEnd = foldsOpenAtEnd;
+  }
   console.log(`HIDDEN_RESHOW_JSON ${JSON.stringify(json)}`);
   printProfile();
   if (GATE && failed) {

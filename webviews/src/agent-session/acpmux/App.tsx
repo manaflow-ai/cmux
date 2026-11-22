@@ -7574,6 +7574,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (adoption: SessionAdoption) => {
       // The chat's tail the host handed with the event: the switch draws it with no round trip.
       keepAdoptedTail(adoption);
+      // A released page's open folds (its wake state's): the chat opens with them open, as a page
+      // built for it would from its handshake.
+      const folds = readWakeFolds(adoption.folds, adoption.sessionId);
+      if (folds) setWokenFolds({ session: adoption.sessionId, folds });
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       settledReported.current = undefined;
