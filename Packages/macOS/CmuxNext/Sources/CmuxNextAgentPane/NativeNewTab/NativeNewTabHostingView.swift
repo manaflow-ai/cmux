@@ -49,3 +49,14 @@ public final class NativeNewTabHostingView: NSView {
         }
     }
 }
+
+extension NativeNewTabHostingView {
+    /// The shown native New Tab page under `view`, depth first.
+    public static func shown(in view: NSView) -> NativeNewTabHostingView? {
+        if let host = view as? NativeNewTabHostingView, !host.isHiddenOrHasHiddenAncestor { return host }
+        for subview in view.subviews {
+            if let host = shown(in: subview) { return host }
+        }
+        return nil
+    }
+}

@@ -618,6 +618,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// release's widths and ratios) are one commit, every value or none. Without it each value goes
     /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
     case layoutSizesBatch = "layout-sizes-batch-v1"
+    /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
+    /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
+    case languagePacks = "language-packs-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -668,7 +671,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks:
             return .optional
         }
     }

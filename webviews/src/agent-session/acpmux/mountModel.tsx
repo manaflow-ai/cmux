@@ -14,6 +14,7 @@ import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
+import { installAppLanguage } from "../../pages/shared/appLanguage";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
@@ -66,6 +67,8 @@ setHarnessSymbolHost((name) =>
   ),
 );
 export function mountAcpmux(initialChat?: InitialChat): void {
+  // Settings > General > Language: the host switches the pane's strings live (appLanguage.ts).
+  installAppLanguage();
   const root = document.getElementById("root")!;
   // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
   // the shared page host's popup ops, else the legacy bridge's.

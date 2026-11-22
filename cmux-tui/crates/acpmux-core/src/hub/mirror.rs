@@ -543,6 +543,7 @@ impl HubWriter {
         {
             self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
         }
+        self.hold_history(current.seq(), next.seq());
         self.publish_folder_index(next, &folder_ops);
         for record in records {
             if record.gone {
