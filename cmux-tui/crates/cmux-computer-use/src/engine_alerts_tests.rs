@@ -207,6 +207,23 @@ fn a_password_panel_is_never_pressed() {
         "apple-password",
         &[],
     );
+    // A password field on any owner's panel: nothing is pressed, though the
+    // same ask with no field is put off with Not Now.
+    for owner in ["UserNotificationCenter", "AuthKitUIService", "akd", "loginwindow"] {
+        let mut field = alert(
+            "908",
+            owner,
+            &["Enter the password for your Apple Account “a@b.c”."],
+            &["Not Now", "Cancel", "Continue"],
+        );
+        field.secure_field = true;
+        let class = alerts::classify(&field);
+        case(field.clone(), class, &[]);
+        let (d, e) = engine(on(), vec![field]);
+        let out = dismiss(&e, "908", "Not Now");
+        assert_eq!(code(&out), Some("alert_unknown"), "{owner}: {:?}", out.body);
+        assert!(presses(&d).is_empty());
+    }
 }
 
 /// popup_shot_test.py test_app_not_responding_is_put_off_with_ok.

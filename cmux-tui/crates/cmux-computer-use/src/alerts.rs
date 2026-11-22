@@ -277,8 +277,12 @@ const DENY: &[&str] = &["Don't Allow", "Deny"];
 /// nothing may be pressed on it. `class` is [`classify`]'s answer for it.
 pub fn put_off_titles(alert: &RawAlert, class: &str) -> &'static [&'static str] {
     let owner = alert.owner.as_str();
-    // A password panel is never pressed, whatever its text says; the one
-    // SecurityAgent panel with no password to give is Keychain Not Found.
+    // A password panel is never pressed, whatever its text or owner says:
+    // any alert holding a password field, and every SecurityAgent and
+    // coreautha panel but Keychain Not Found (which has no password to give).
+    if alert.secure_field {
+        return &[];
+    }
     if keychain_not_found(alert) {
         return &["Cancel"];
     }
@@ -462,7 +466,7 @@ pub fn to_json(alert: &RawAlert) -> Value {
 /// The refusal both tools answer while the setting is off.
 pub fn off_message(tool: &str) -> String {
     format!(
-        "{tool} is off: reading and putting off system alerts needs the {SETTING} setting, which is off by default and only the person (or the machine's owner) turns on. An agent cannot change it."
+        "{tool} is off: reading and putting off system alerts needs the {SETTING} setting, which is off by default and only the person (or the machine's owner) turns on. No Computer Use tool changes it."
     )
 }
 

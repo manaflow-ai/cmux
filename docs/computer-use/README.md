@@ -164,8 +164,8 @@ the agent's words.
 An unattended Mac collects system dialogs nobody is there to answer: a crash
 notice, an iCloud sign-in reminder, "Keychain Not Found", a privacy ask. Their
 owners are protected targets, so no tool could see or answer them. With
-`computerUse.alerts` on (the person's setting; an agent cannot change a
-`computerUse.*` key) two tools can, and only this far:
+`computerUse.alerts` on (the person's setting; no Computer Use tool changes a
+`computerUse.*` key, see Trust) two tools can, and only this far:
 
 - `list_alerts` (observe) reads the on-screen dialogs of the system's agents
   (SecurityAgent, CoreServicesUIAgent, UserNotificationCenter, coreautha,
@@ -174,7 +174,8 @@ owners are protected targets, so no tool could see or answer them. With
   `bundle_id`, `pid`, `layer`, `title`, `text`, `buttons`, a `class` and
   `put_off`, the buttons `dismiss_alert` would press. Text and button titles
   come from accessibility; no picture is taken, and a password field is only
-  noted (`secure_field`), never read.
+  noted (`secure_field`), never read; no button of an alert with one is
+  ever pressed.
 - `dismiss_alert` (act) presses one button of one listed alert with an
   accessibility press: no pointer, no focus change. The button must be in the
   alert's `put_off`. The alert is read again first and the press is refused if
@@ -191,7 +192,7 @@ Classes are the build fleet's (`icloud-sign-in`, `apple-password`,
 | Class | Put off with |
 | --- | --- |
 | `icloud-sign-in` | Later |
-| `apple-password` (not shown by SecurityAgent or coreautha) | Not Now, Cancel, Later |
+| `apple-password` (not shown by SecurityAgent or coreautha, no password field) | Not Now, Cancel, Later |
 | `crash-report` | Ignore, OK |
 | `cant-be-opened`, `damaged` | OK, Cancel |
 | `not-responding` | OK |

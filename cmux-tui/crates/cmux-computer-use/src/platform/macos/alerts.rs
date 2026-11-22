@@ -8,6 +8,7 @@
 //! again and found unchanged.
 
 use super::ax::{self, Ax};
+use super::roles;
 use super::sys::*;
 use super::workspace;
 use crate::alerts::{self, RawAlert};
@@ -90,12 +91,13 @@ impl Read {
         }
         self.nodes += 1;
         let role = el.string("AXRole").unwrap_or_default();
+        // Noticed, never read, never entered. AppKit's secure field is role
+        // AXTextField with subrole AXSecureTextField, so the subrole decides.
+        if roles::is_secure(&role, el.string("AXSubrole").as_deref()) {
+            self.secure_field = true;
+            return;
+        }
         match role.as_str() {
-            // Noticed, never read, never entered.
-            "AXSecureTextField" => {
-                self.secure_field = true;
-                return;
-            }
             // What a person typed is not the alert's text.
             "AXTextField" | "AXTextArea" | "AXComboBox" => return,
             "AXStaticText" => {
