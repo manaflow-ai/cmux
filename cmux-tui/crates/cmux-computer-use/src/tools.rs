@@ -347,7 +347,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "list_alerts",
         access: Access::Observe,
-        description: "System alerts on screen that list_windows hides (macOS: iCloud and crash notices, \"can't be opened\", Gatekeeper, privacy asks, keychain and password panels, the out-of-memory panel): alert_id, owner, bundle_id, pid, title, text, buttons, class, and put_off (the buttons dismiss_alert would press, preferred first; empty when a person must answer). Read through accessibility only: no pixels, never a field's value. Refused with alerts_off unless the person turned on the computerUse.alerts setting (off by default; an agent cannot change it).",
+        description: "System alerts on screen that list_windows hides (macOS: iCloud and crash notices, \"can't be opened\", Gatekeeper, privacy asks, keychain and password panels, the out-of-memory panel): alert_id, owner, bundle_id, pid, title, text, buttons, class, and put_off (the buttons dismiss_alert would press, preferred first; empty when a person must answer). Read through accessibility only: no pixels, never a field's value. Refused with alerts_off unless the person turned on the computerUse.alerts setting (off by default; no Computer Use tool changes it).",
         schema: || obj(json!({}), &[]),
     },
     Tool {
