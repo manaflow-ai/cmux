@@ -65,6 +65,13 @@ on:
       - "schemas/design-scale/design-scale.json"
       # The theme slots the slot registry imports (src/slots/registry.ts).
       - "schemas/theme/slots.json"
+      # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+      - "schemas/layout-motion/contract.json"
+      # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
+      - "schemas/transcript-look/transcript-look.json"
+      # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
+      - "examples/gallery/gallery.json"
+      - "examples/looks/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
