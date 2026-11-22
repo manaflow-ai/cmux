@@ -535,7 +535,9 @@ pub fn kills_log() -> PathBuf {
 
 fn log_kill(entry: &Value) {
     use std::io::Write as _;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(kills_log()) {
+    if let Ok(mut f) =
+        crate::home_fs::OpenOptions::new().create(true).append(true).mode(0o600).open(kills_log())
+    {
         let _ = writeln!(f, "{entry}");
     }
 }
