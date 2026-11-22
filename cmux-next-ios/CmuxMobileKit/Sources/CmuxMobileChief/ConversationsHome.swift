@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentQuestion
 import CmuxChiefList
 import CmuxConversationCore
 import CmuxMobileAgentChat
@@ -48,6 +49,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var hiddenRows = HomeHiddenConversations.shared
     /// Delete Conversation…'s question is up for this row.
     @State private var deleting: MacHomeRow?
+    /// Settings → Home Row Status (off by default): what a row says about its agent.
+    @AppStorage(CmuxMobilePreferences.Key.homeRowLook) private var homeRowLook = CmuxMobileHomeRowLook.now.rawValue
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
@@ -573,21 +576,46 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp, chiefs: HomeChiefs) -> HomeListRow.Model {
-        HomeListRow.Model(id: row.id, title: row.title, subtitle: tag(row, chiefs: chiefs), preview: row.preview,
-                          stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
-                          isUnread: row.unreadCount > 0, isMuted: row.isMuted, isTyping: row.isWorking,
-                          isPinned: row.isPinned, avatar: avatarText(row), isMacChief: isMacChief(row), route: route(row))
+        let look = CmuxMobileHomeRowLook(rawValue: homeRowLook) ?? .now
+        let rowStatus = look.says ? status(row) : nil
+        return HomeListRow.Model(id: row.id, title: row.title, subtitle: tag(row, chiefs: chiefs), preview: row.preview,
+                                 stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
+                                 isUnread: row.unreadCount > 0, isMuted: row.isMuted, isTyping: row.isWorking,
+                                 isPinned: row.isPinned, avatar: avatarText(row), isMacChief: isMacChief(row), route: route(row),
+                                 status: rowStatus,
+                                 mark: look.movesMark ? HomeRowStatus.mark(rowStatus, isUnread: row.unreadCount > 0) : nil)
+    }
+
+    /// What `row`'s agent waits for, as far as the phone knows: the Mac Chief's open question (a
+    /// permission when it carries an allow option), else what a demo seeded. The Mac's list does
+    /// not say yet, so any other waiting row reads "<Name> is waiting".
+    private func pendingAsk(_ row: MacHomeRow) -> HomeRowStatus.PendingAsk? {
+        if isMacChief(row), let question = sources.mac.openQuestion, question.isPending {
+            return HomeRowStatus.PendingAsk(kind: question.source.answerOption != nil ? .permission : .question,
+                                            text: question.summary)
+        }
+        return feed.pendingAsks[row.id]
+    }
+
+    /// The row's agent state, in Workspaces' words (nil: the row says nothing new).
+    private func status(_ row: MacHomeRow) -> HomeRowStatus? {
+        HomeRowStatus.of(chiefState: row.chiefState, ask: pendingAsk(row)?.kind, agent: row.title,
+                         isUnread: row.unreadCount > 0, preview: row.preview)
     }
 
     /// The grid's tiles: the Mac's pinned conversations in the owner's order.
     /// Each tile is its own button, so a tap opens that tile only.
     private func pinnedTiles(_ list: MacHomeList, chiefs: HomeChiefs) -> [HomeTile] {
         var tiles: [HomeTile] = []
+        let showsAsk = (CmuxMobileHomeRowLook(rawValue: homeRowLook) ?? .now).showsAsk
         for row in list.pinned {
             let macChief = isMacChief(row)
+            let preview = row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil
+            // Words, Mark and Ask: a waiting agent's tile says the ask in short form, not the cut preview.
+            let ask = showsAsk ? HomeRowStatus.tileBubble(status(row), shortAsk: pendingAsk(row)?.text) : nil
             tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row, chiefs: chiefs),
                                   unread: row.unreadCount > 0, working: row.isWorking,
-                                  bubble: row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil,
+                                  bubble: ask ?? preview,
                                   muted: row.isMuted, identifier: macChief ? "home.chief.mac" : "home.pin.\(row.id)",
                                   open: { open(route(row)) }, menu: AnyView(rowMenu(row))))
         }
@@ -878,6 +906,10 @@ struct HomeListRow: View, Equatable {
         var isMacChief: Bool
         /// Where a tap goes.
         var route: HomeConversationRoute
+        /// Settings → Home Row Status: the agent's state in words (nil: the preview, as today).
+        var status: HomeRowStatus? = nil
+        /// The leading mark when the look moves it (nil: today's gutter).
+        var mark: HomeRowStatus.Mark? = nil
     }
 
     let model: Model
@@ -892,7 +924,8 @@ struct HomeListRow: View, Equatable {
         let model = model
         Button { open(model.route) } label: {
             MessagesRow(title: model.title, subtitle: model.subtitle, preview: model.preview, stamp: model.stamp,
-                        isUnread: model.isUnread, isMuted: model.isMuted, needsYou: false, isTyping: model.isTyping) { size in
+                        isUnread: model.isUnread, isMuted: model.isMuted, needsYou: false, isTyping: model.isTyping,
+                        status: model.status, mark: model.mark) { size in
                 ChiefAvatar(text: model.avatar, size: size)
             }
         }
@@ -1171,6 +1204,11 @@ struct MessagesRow<Avatar: View>: View {
     let needsYou: Bool
     /// The Chief types or runs: the typing bubble stands in for the preview, as on the Mac.
     var isTyping = false
+    /// Settings → Home Row Status: the agent's state in words stands in for the preview
+    /// ("Chief is asking permission · …"); nil keeps the preview.
+    var status: HomeRowStatus?
+    /// The leading mark when Home Row Status moves it; nil keeps the gutter below.
+    var mark: HomeRowStatus.Mark?
     @ViewBuilder let avatar: (CGFloat) -> Avatar
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var scaledAvatar: CGFloat = 45
@@ -1199,12 +1237,18 @@ struct MessagesRow<Avatar: View>: View {
     /// "Needs you, cmux, Claude, 1:46 AM, Refactor transport layer".
     private var accessibilityText: String {
         var parts: [String] = []
-        if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
+        if mark == .needsYou {
+            parts.append(String(localized: "Needs you"))
+        } else if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
         parts.append(title)
         if let subtitle { parts.append(subtitle) } else if let agent { parts.append(agent) }
         parts.append(stamp)
-        if isTyping { parts.append(String(localized: "Typing")) }
-        if !preview.isEmpty { parts.append(preview) }
+        if let status {
+            parts.append(status.line)
+        } else {
+            if isTyping { parts.append(String(localized: "Typing")) }
+            if !preview.isEmpty { parts.append(preview) }
+        }
         if isMuted { parts.append(String(localized: "Alerts hidden")) }
         return parts.joined(separator: ", ")
     }
@@ -1212,7 +1256,22 @@ struct MessagesRow<Avatar: View>: View {
     /// Messages keeps a gutter for the unread dot. Unread wins; then the
     /// needs-you dot; then the muted bell.
     @ViewBuilder private var gutter: some View {
-        if isUnread {
+        if let mark {
+            switch mark {
+            case .needsYou:
+                Circle().fill(theme.colors.needsYou.color).frame(width: 10, height: 10)
+            case .working:
+                CmuxSpinner().controlSize(.mini)
+            case .unread:
+                Circle().fill(theme.colors.label.color).frame(width: 10, height: 10)
+            case .none:
+                if isMuted {
+                    Image(systemName: "bell.slash.fill").font(.system(size: 10)).foregroundStyle(theme.colors.label2.color)
+                } else {
+                    Color.clear
+                }
+            }
+        } else if isUnread {
             Circle().fill(theme.colors.label.color).frame(width: 10, height: 10)
                 .accessibilityLabel("Unread")
         } else if needsYou {
@@ -1254,8 +1313,26 @@ struct MessagesRow<Avatar: View>: View {
         }
     }
 
+    /// "**Chief is asking permission** · Heads up: …": the phrase in the label colour and
+    /// semibold, the preview dimmed after a middle dot; a working agent's line leads with the
+    /// spinner unless the gutter already shows it.
+    private func statusText(_ status: HomeRowStatus, lines: Int) -> some View {
+        let phrase = Text(status.phrase).fontWeight(.semibold).foregroundStyle(theme.colors.label.color)
+        let detail = status.detail.isEmpty ? Text(verbatim: "") : Text(verbatim: " \u{00B7} \(status.detail)").foregroundStyle(theme.colors.label2.color)
+        return HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if status.kind == .working, mark != .working {
+                CmuxSpinner().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
+            }
+            Text("\(phrase)\(detail)")
+                .font(.subheadline)
+                .lineLimit(lines, reservesSpace: true)
+        }
+    }
+
     @ViewBuilder private func previewText(lines: Int) -> some View {
-        if isTyping {
+        if let status {
+            statusText(status, lines: lines)
+        } else if isTyping {
             TypingBubble().scaleEffect(0.8, anchor: .leading)
         } else {
             Text(preview.isEmpty ? " " : preview)
@@ -1284,10 +1361,14 @@ struct MessagesRow<Avatar: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             dateAndChevron
             subtitleText
-            Text(preview.isEmpty ? " " : preview)
-                .font(.subheadline)
-                .foregroundStyle(theme.colors.label2.color)
-                .lineLimit(3)
+            if let status {
+                statusText(status, lines: 3)
+            } else {
+                Text(preview.isEmpty ? " " : preview)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.colors.label2.color)
+                    .lineLimit(3)
+            }
         }
     }
 }

@@ -630,6 +630,76 @@
         "ko": {"stringUnit": {"state": "translated", "value": "GitHub 오류"}},
         "ja": {"stringUnit": {"state": "translated", "value": "GitHub エラー"}}
       }
+    },
+    "mobile.home.status.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ is asking permission"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ bittet um Erlaubnis"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ demande une autorisation"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يطلب %@ الإذن"}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ está pidiendo permiso"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 正在請求權限"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 正在请求权限"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@이(가) 권한을 요청하고 있음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ が許可を求めています"}}
+      }
+    },
+    "mobile.home.status.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ has a question"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ hat eine Frage"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ a une question"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لدى %@ سؤال"}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ tiene una pregunta"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 有個問題"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 有个问题"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@에게 질문이 있음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ から質問があります"}}
+      }
+    },
+    "mobile.home.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ is waiting"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ wartet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ attend"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "%@ في الانتظار"}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ está esperando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 正在等待"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 正在等待"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@이(가) 기다리는 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ が待っています"}}
+      }
+    },
+    "mobile.home.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ is working"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ arbeitet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ travaille"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "%@ يعمل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ está trabajando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 正在工作"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 正在工作"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@이(가) 작업 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ が作業中"}}
+      }
+    },
+    "mobile.home.status.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Done"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Fertig"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Terminé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Listo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "完成"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "完成"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "완료"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了"}}
+      }
     }
   },
   "version": "1.0"

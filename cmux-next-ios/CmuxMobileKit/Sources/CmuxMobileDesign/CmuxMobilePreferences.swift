@@ -30,6 +30,8 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Home → what a row says about its agent (``CmuxMobileHomeRowLook``; `now` by default).
+        public static let homeRowLook = "cmuxMobile.settings.homeRowLook"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }
@@ -169,5 +171,37 @@ public enum CmuxMobileMenuCustomization {
     /// Every item shown again.
     public static func reset(_ defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: CmuxMobilePreferences.Key.hiddenMenuItems)
+    }
+}
+
+/// Settings → Home Row Status: whether Home's rows say where each agent is, in the words
+/// Workspaces uses ("Chief is asking permission · …"). `now` (the default) is today's row.
+/// A taste prototype: the three looks are variants for a pick, none is on unless chosen.
+public enum CmuxMobileHomeRowLook: String, CaseIterable, Sendable {
+    /// Today's row: the preview, the unread dot, the typing bubble.
+    case now
+    /// The words on the second line; the leading marks as today.
+    case words
+    /// The words, and the leading mark follows the state (needs-you dot, spinner, unread dot).
+    case wordsAndMark
+    /// The words and marks, and a pinned tile's bubble shows the ask in short form.
+    case wordsMarkAndAsk
+
+    public var says: Bool { self != .now }
+    public var movesMark: Bool { self == .wordsAndMark || self == .wordsMarkAndAsk }
+    public var showsAsk: Bool { self == .wordsMarkAndAsk }
+
+    public var title: String {
+        switch self {
+        case .now: String(localized: "mobile.settings.homeRowLook.off", defaultValue: "Off", bundle: .module)
+        case .words: String(localized: "mobile.settings.homeRowLook.words", defaultValue: "Words", bundle: .module)
+        case .wordsAndMark: String(localized: "mobile.settings.homeRowLook.wordsAndMark", defaultValue: "Words and Mark", bundle: .module)
+        case .wordsMarkAndAsk: String(localized: "mobile.settings.homeRowLook.wordsMarkAndAsk", defaultValue: "Words, Mark and Ask", bundle: .module)
+        }
+    }
+
+    /// The stored look; an unset or unknown value is `now`.
+    public static func current(_ defaults: UserDefaults = .standard) -> CmuxMobileHomeRowLook {
+        defaults.string(forKey: CmuxMobilePreferences.Key.homeRowLook).flatMap(Self.init(rawValue:)) ?? .now
     }
 }
