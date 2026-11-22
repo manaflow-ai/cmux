@@ -535,7 +535,11 @@ jobs:
     # pool writer marked 8, 16 and 32 vCPU dead and linux_16 held 2 vCPU, where these shards and
     # react-apps-base-early queued over an hour (run 44304196887 attempt 2) while 4 vCPU started them.
     # The widths and minutes below fit whatever size the pool holds.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # A post-merge batch or probe (cmux-next-post-merge.yml, a workflow_dispatch with a mode) reads the owned gate
+    # runner as a push does. It read linux_4 before: on 2026-11-22 its 12 shards ran 2 files at once on
+    # blacksmith-4vcpu for 39-71 min of tests each, about 722 runner-minutes a batch run (runs 44990794651 and
+    # 44991513044), where a pull request's shards on the owned runner take 13-15 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true' || github.event.inputs.mode == 'batch' || github.event.inputs.mode == 'probe') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one

@@ -105,6 +105,17 @@ class ShardSize(unittest.TestCase):
             owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
             self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
 
+    def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
+        """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
+        ran 39-71 min of tests each on 4 vCPU, about 722 runner-minutes a run; they read the owned gate runner now."""
+        runs_on = self.shard["runs-on"]
+        for mode in ("batch", "probe"):
+            dispatch = event("workflow_dispatch", **{"github.event.inputs.mode": mode,
+                                                    "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
+            self.assertEqual(evaluate(runs_on, dispatch), "glaeda-linux-gate", mode)
+        other = event("workflow_dispatch", **{"vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
+        self.assertEqual(evaluate(runs_on, other), "blacksmith-4vcpu-ubuntu-2404")
+
     def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
         for label, context in EVENTS.items():
             runner = evaluate(self.shard["runs-on"], context)
