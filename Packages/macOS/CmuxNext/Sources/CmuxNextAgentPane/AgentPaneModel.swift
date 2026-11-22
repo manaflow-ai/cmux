@@ -914,7 +914,7 @@ public final class AgentPaneModel {
             // credit, which any key press leaves for half a minute, so page script cannot wait for
             // unrelated typing and spend it here. A key on the mic goes through Globe-D instead.
             guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
-            return dictationHandoff.reply(composer)
+            return await dictationHandoff.reply(composer)
         case .dictationSources:
             let sources = dictationHandoff.sources()
             sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })

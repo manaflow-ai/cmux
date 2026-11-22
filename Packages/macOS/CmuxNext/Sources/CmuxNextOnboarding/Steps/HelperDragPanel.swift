@@ -19,7 +19,7 @@ import CmuxNextWakeups
 /// on screen (a few reads while System Settings opens), then docks to it as
 /// the next row of its list: the helper's row spans the list's rows and its
 /// icon stands in the list's icon column. For Screenshots its top is just
-/// under the pane's first list (``SystemSettingsList``, or a measured place
+/// under the pane's first list (when a ``SettingsListReading`` reads it, else a measured place
 /// without it), so the arrow never points into "System Audio Recording Only";
 /// for Accessibility (one list) it docks over the window's bottom. Then it follows that window
 /// (``SystemSettingsFollower``): it moves with it, hides while it is off
@@ -68,8 +68,7 @@ final class HelperDragPanel: NSPanel {
         self.pane = pane
         let grant = OnboardingStrings.computerUseName(pane)
         let pace = LiveSettingsFollowPace()
-        self.follower = follower ?? SystemSettingsFollower(reader: LiveSettingsWindowReader(), pace: pace,
-                                                           list: pane == .screenRecording ? LiveSettingsListReader() : nil)
+        self.follower = follower ?? SystemSettingsFollower(reader: LiveSettingsWindowReader(), pace: pace)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         pace.window = self
         self.follower.onEvent = { [weak self] in self?.followed($0) }

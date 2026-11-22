@@ -84,6 +84,27 @@ impl Drop for LossyCarrier<'_> {
 }
 
 impl Carrier for LossyCarrier<'_> {
+    fn drain_departures(&mut self, out: &mut Vec<crate::carrier::DatagramDeparture>) {
+        self.inner.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.inner.departure_overflows()
+    }
+
+    fn media_queue_stats(&self) -> Option<crate::carrier::MediaQueueStats> {
+        self.inner.media_queue_stats()
+    }
+
+    /// Drops the frame's media datagrams the test loss picks, then sends the rest as one frame.
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        let kept: Vec<Vec<u8>> = datagrams.into_iter().filter(|d| !self.loss.drops(d)).collect();
+        if kept.is_empty() {
+            return Ok(());
+        }
+        self.inner.send_datagram_frame(kept, droppable)
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         self.inner.fds()
     }

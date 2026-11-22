@@ -699,6 +699,15 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 2
         run: python3 scripts/cmux-next/check-menu-actions.py
+      # Leo 2026-11-22: "who's gonna walk over and click allow on a headless mac mini, or a remote
+      # macbook??? stop having that shit." Only the Screen Sharing helper asks macOS for a grant;
+      # a TCC call in the NEXT app or a bundled cmux binary fails here.
+      - name: The NEXT app asks macOS for no privacy grant (the Screen Sharing helper holds them all)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: |
+          python3 tests/test_check_app_asks_no_grant.py
+          python3 scripts/cmux-next/check-app-asks-no-grant.py
 
       - name: Setup Node
         if: ${{ !cancelled() }}

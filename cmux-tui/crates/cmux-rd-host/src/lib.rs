@@ -67,6 +67,8 @@ mod encoder;
 mod eval;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fdwait;
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+mod grant_requests;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -248,6 +250,25 @@ fn unknown_command(cmd: &str) -> String {
     format!("not in this build: cmux-rd {cmd} is not built for {}", std::env::consts::OS)
 }
 
+/// The commands that capture the screen, post input or read and ask macOS for a privacy grant.
+/// On a Mac only the Screen Sharing helper runs them (its build has `computer-use`), so macOS
+/// checks, prompts for and lists the helper; the bare `cmux` that links this crate for
+/// `cmux rd connect` refuses them, or macOS would list "cmux" (a terminal icon) itself.
+const MAC_HELPER_ONLY: &[&str] =
+    &["host", "serve", "permissions", "request-permission", "bench", "observe", "observe-cpu"];
+
+/// Why `cmd` does not run in this build, when it is a helper-only command on a Mac outside the
+/// Screen Sharing helper.
+fn mac_helper_only_refusal(cmd: &str, mac: bool, helper_build: bool) -> Option<String> {
+    (mac && !helper_build && MAC_HELPER_ONLY.contains(&cmd)).then(|| {
+        format!(
+            "cmux rd {cmd} runs only in the Screen Sharing helper on a Mac \
+             (<app> Screen Sharing.app holds the Screen Recording and Accessibility grants; \
+             plans/cmux-next/screen-sharing-helper.md)"
+        )
+    })
+}
+
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!("{USAGE}");
@@ -259,9 +280,20 @@ pub fn run_cli(args: &[String]) -> i32 {
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
     }
+    // The NEXT app's one-shot asks (a dictation key press, a Voice Room still): one JSON line.
+    #[cfg(all(target_os = "macos", feature = "computer-use"))]
+    if matches!(cmd.as_str(), grant_requests::POST_KEY | grant_requests::SCREEN_STILL) {
+        return grant_requests::run(cmd, &args[1..]);
+    }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");
         return 0;
+    }
+    if let Some(refusal) =
+        mac_helper_only_refusal(cmd, cfg!(target_os = "macos"), cfg!(feature = "computer-use"))
+    {
+        eprintln!("{refusal}");
+        return 2;
     }
     // Subcommands and positional words of its own (`share on`, `approve SESSION`).
     #[cfg(all(feature = "link", target_os = "linux"))]
@@ -359,6 +391,20 @@ mod cli_tests {
         for flag in ["-h", "--help", "help"] {
             assert_eq!(run_cli(&[flag.to_string()]), 0, "{flag}");
         }
+    }
+
+    /// On a Mac the bare `cmux` never captures, posts input or asks macOS for a grant: only the
+    /// Screen Sharing helper does, so macOS never lists cmux itself.
+    #[test]
+    fn a_mac_runs_grant_commands_only_in_the_helper() {
+        for cmd in ["host", "serve", "permissions", "request-permission"] {
+            assert!(mac_helper_only_refusal(cmd, true, false).is_some(), "{cmd}");
+            assert!(mac_helper_only_refusal(cmd, true, true).is_none(), "{cmd}");
+            // Linux and Windows hosts are this binary's own (no TCC there).
+            assert!(mac_helper_only_refusal(cmd, false, false).is_none(), "{cmd}");
+        }
+        // The viewer's bridge needs no grant.
+        assert!(mac_helper_only_refusal("connect", true, false).is_none());
     }
 
     #[test]

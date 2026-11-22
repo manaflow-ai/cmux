@@ -134,7 +134,8 @@ import PackageDescription
 //     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
 //   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
-//   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
+//   CmuxNextDictation -> Wakeups, ComputerUse (the Voice Room's screen still comes from the grant holder;
+//     on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 //   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
 //     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
@@ -633,6 +634,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextApps",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                "CmuxNextComputerUse",
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
@@ -662,6 +664,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentPane",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                "CmuxNextComputerUse",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -684,6 +687,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDictation",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextComputerUse",
                 "CmuxNextWakeups",
             ],
             swiftSettings: daemonSwiftSettings

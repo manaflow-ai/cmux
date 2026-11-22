@@ -529,13 +529,25 @@ public final class AgentPaneView: NSView {
         // Edit menu, the palette), never a posted one or a script's run.
         let person = byPerson && (event ?? NSApp.currentEvent).map { AgentPanePersonInput.isPerson($0, sources: eventSources) } == true
         let handOff = person || model.composer.dictationSource == .cmux
-        switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
-        case nil: return
-        case .ownDictation: dictation.toggle(from: event)
-        case let failure?:
-            // The composer says why, naming the app, as for the mic's click; the old host has no stream.
-            if pageEvents?.publish(.dictationHandoff(failure: AgentPaneDictationHandoff.code(failure))) != true { NSSound.beep() }
+        switch handOff ? model.dictationHandoff.plan(model.composer) : .done(.notPersons) {
+        case .done(nil): return
+        case .done(.ownDictation): dictation.toggle(from: event)
+        case let .done(failure?): handOffFailed(failure)
+        case let .post(chord):
+            // The Screen Sharing helper posts the chord (it holds the grant, never this app).
+            let handoff = model.dictationHandoff
+            // task-owner: one hand-off's chord through the helper; ends with the helper's answer (bounded at 10 s)
+            Task { [weak self] in
+                guard let failure = await handoff.send(chord) else { return }
+                self?.handOffFailed(failure)
+            }
         }
+    }
+
+    /// The composer says why a hand-off did not go, naming the app, as for the mic's click; the old
+    /// host has no stream.
+    private func handOffFailed(_ failure: AgentPaneDictationHandoff.Failure) {
+        if pageEvents?.publish(.dictationHandoff(failure: AgentPaneDictationHandoff.code(failure))) != true { NSSound.beep() }
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the

@@ -43,7 +43,7 @@ nonisolated struct SystemSettingsWindow {
     static let listGap: CGFloat = 8
     // Measured on macOS 26.6 (AX frames of the Screen & System Audio Recording pane): the list
     // starts 111.5 pt under the window's top, each row is 40 pt and its +/- buttons add 24 pt, so its
-    // length depends on how many apps it holds. With no read of it (``SystemSettingsList``), the panel
+    // length depends on how many apps it holds. With no read of it (``SettingsListReading``), the panel
     // docks at the window's bottom like the Accessibility panel: a guess would cover the list's rows.
 
     /// The frontmost System Settings window on screen, or nil when there is none.
