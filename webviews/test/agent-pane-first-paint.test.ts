@@ -17,6 +17,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
@@ -295,7 +296,9 @@ test("a cold tail draws before the full prompt index is read, then fills its lab
     expect(indexReads()).toHaveLength(0);
     await turns();
     expect(indexReads()).toHaveLength(1);
-    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Earlier"]);
+    const earlier = last().earlierPrompts;
+    expect(earlier?.length).toBe(1);
+    expect(earlier && PromptHeads.text(earlier, 0)).toBe("Earlier");
     expect(text(last())).toContain("Tail ready.");
   } finally {
     client.close();
@@ -330,7 +333,16 @@ test("a paged prompt index prepends older pages and follows the first event curs
   try {
     await turns(30);
     expect(requests).toEqual([101, 70]);
-    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Oldest 10", "Older 30", "Older 70", "Older 90"]);
+    const earlier = last().earlierPrompts;
+    expect(earlier && Array.from({ length: earlier.length }, (_, index) => PromptHeads.text(earlier, index))).toEqual([
+      "Oldest 10",
+      "Older 30",
+      "Older 70",
+      "Older 90",
+    ]);
+    expect(
+      earlier && Array.from({ length: earlier.length }, (_, index) => PromptHeads.head(earlier, index).seq),
+    ).toEqual([10, 30, 70, 90]);
     expect(last().promptCount).toBeUndefined();
   } finally {
     client.close();

@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 
 use crate::rpc::{Notification, RpcClient, RpcError};
 
+/// Longest wait for one steer withdraw (`withdraw_steer`).
+const WITHDRAW_WAIT: Duration = Duration::from_secs(5);
+
 /// A new acpmux session.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SessionSpec {
@@ -167,13 +170,37 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
             json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
         )
         .map_err(|e| format!("initialize: {e}"))
-        .and_then(|_| {
-            client
+        .and_then(|init| {
+            let mut answer = client
                 .request("_acpmux/harnesses", json!({}))
-                .map_err(|e| format!("harnesses: {e}"))
+                .map_err(|e| format!("harnesses: {e}"))?;
+            // What the daemon can do, for the brains (brain_home.rs `prepare`).
+            if let Some(map) = answer.as_object_mut() {
+                map.insert(
+                    DAEMON_FEATURES.to_owned(),
+                    json!({
+                        "builtinPresets": builtin_presets(&init),
+                        "brainPresets": has_feature(&init, BRAIN_PRESETS_FEATURE),
+                    }),
+                );
+            }
+            Ok(answer)
         });
     client.close();
     result
+}
+
+/// The key `query_harnesses` adds to its answer: `{builtinPresets, brainPresets}`.
+pub const DAEMON_FEATURES: &str = "optchatDaemonFeatures";
+
+/// acpmux's `initialize` feature for the brain turn presets (acpmux
+/// `chief_builtins::BRAIN_PRESETS_FEATURE`).
+pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
+
+fn has_feature(init: &Value, feature: &str) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == feature))
 }
 
 /// Whether the daemon's `initialize` says it defines the Chief's presets
@@ -217,6 +244,13 @@ pub enum AgentEvent {
         session_id: String,
         permission_id: String,
         request: Value,
+    },
+    /// A turn Claude Code ran on its own (acpmux `background_turn`: a
+    /// background task ended, a wakeup, a hook) in a session no turn of this
+    /// host runs now: `state` is `started` or `ended`.
+    BackgroundTurn {
+        session_id: String,
+        state: String,
     },
 }
 
@@ -277,6 +311,25 @@ pub trait AgentPort: Send + Sync {
     /// longer waits (it ran or was removed).
     fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Err("removing queued prompts is not supported".into())
+    }
+    /// Moves the session's running foreground work to the background
+    /// (`_acpmux/process/background`, Claude Code's Ctrl-B): the call runs
+    /// on, its result comes when it ends, and the agent reads a waiting
+    /// message now. True when something moved.
+    fn background_work(&self, _session: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
+    /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
+    /// dropped unread, false when the harness read it or cannot take one back.
+    /// Blocks until the harness answers.
+    fn withdraw_steer(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// Keeps `session`'s task list (`_acpmux/task_list/set`): `items` is the whole
+    /// list, `[{content, status}]`, `[]` clears it. The list's summary, null for none.
+    fn task_list_set(&self, _session: &str, _items: &Value) -> Result<Value, String> {
+        Err("task lists are not supported".into())
     }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
@@ -657,6 +710,11 @@ impl Acpmux {
         // No timeout: acpmux answers when the harness took the message,
         // however long the running tool (or the codex turn) takes.
         Ok(Box::new(move || match answer.recv() {
+            // Taken back unread (the person's X in the pane, or the Chief's
+            // own withdraw): not delivered.
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("withdrawn") => {
+                Err("steer: withdrawn before the agent read it".into())
+            }
             // Claude Code: `steered` at its echo; codex-acp: its own answer.
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),
@@ -907,6 +965,20 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
             let mut turns = turns
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if kind == "background_turn" && !turns.contains_key(session) {
+                let state = n
+                    .params
+                    .pointer("/msg/state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                drop(turns);
+                sink(AgentEvent::BackgroundTurn {
+                    session_id: session.to_owned(),
+                    state,
+                });
+                return;
+            }
             if let Some(turn) = turns.get_mut(session) {
                 // Chunks are noise but for the first one, which says the
                 // response started (the compactor's single-flight waits for it).
@@ -1480,6 +1552,30 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("cancel: {e}"))
     }
 
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        self.client()?
+            .request_within(
+                "_acpmux/process/background",
+                json!({"sessionId": session}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("backgrounded").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("background work: {e}"))
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        // Bounded: the person's message is back in the Chief's queue already,
+        // and a drop that answers later is safe (the session is then not kept).
+        self.client()?
+            .request_within(
+                "_acpmux/queue_edit",
+                json!({"sessionId": session, "promptId": prompt_id, "op": "withdraw"}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("withdraw steer: {e}"))
+    }
+
     fn kill_processes(&self, session: &str) -> Result<usize, String> {
         let client = self.client()?;
         let running = running_processes(|m, p| client.request(m, p), session)?;
@@ -1507,6 +1603,15 @@ impl AgentPort for Acpmux {
             )
             .map(|v| v["removed"].as_bool().unwrap_or(false))
             .map_err(|e| format!("queue_remove: {e}"))
+    }
+
+    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
+        self.client()?
+            .request(
+                "_acpmux/task_list/set",
+                json!({"sessionId": session, "items": items}),
+            )
+            .map_err(|e| format!("task_list/set: {e}"))
     }
 
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
