@@ -52,6 +52,10 @@ jobs:
           mode=read
           [ -f ios10-asc/plan.json ] && mode=plan
           python3 -I ios10-asc/probe.py "$mode"
+          if [ -f ios10-asc/ref-app ]; then
+            echo; echo "########## reference app $(cat ios10-asc/ref-app) (read only)"
+            ASC_APP_ID="$(tr -d '[:space:]' < ios10-asc/ref-app)" python3 -I ios10-asc/probe.py read
+          fi
           if [ -f ios10-asc/notes-mode ]; then
             nm="$(tr -d '[:space:]' < ios10-asc/notes-mode)"
             ver="$(tr -d '[:space:]' < ios10-asc/notes-version)"
