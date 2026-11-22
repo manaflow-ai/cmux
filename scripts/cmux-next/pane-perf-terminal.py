@@ -486,18 +486,33 @@ def perform(name):
 
 def moving_frames(samples):
     """Display frames the layout moved: per frame a screen steps, its `layout.travel` sample (the points its pane and
-    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left). New
+    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left), and the
+    `layout.commit` sample of its commit motion (the animations on the pane layers in flight: a split, a close, a zoom
+    and an unzoom are one commit whose panes move on the render server, PaneCommitMotion, with no spring). New
     Column moves only the camera (a new column never resizes the columns there, column-scroll.md R3b), so a count of
-    `layout.travel` alone read 0 for every New Column. A build without `layout.camera` counts the springs alone."""
+    `layout.travel` alone read 0 for every New Column; a count of the springs and the camera read 0 for every split,
+    close, zoom and unzoom. A tick samples the screen first, then its commit motion (LayoutRootView: `step`, then
+    `zoomDim.step`), so a commit sample right after a counted frame's samples is that frame. A build without
+    `layout.camera` counts the springs alone; one without `layout.commit`, the springs and the camera."""
     samples = samples if isinstance(samples, list) else []
     count = 0
+    counted = -2  # index of the last sample of the last frame counted
     for index, sample in enumerate(samples):
-        if not isinstance(sample, dict) or sample.get("name") != "layout.travel":
+        if not isinstance(sample, dict):
+            continue
+        if sample.get("name") == "layout.commit":
+            if (sample.get("v") or 0) > 0 and counted != index - 1:
+                count += 1
+                counted = index
+            continue
+        if sample.get("name") != "layout.travel":
             continue
         after = samples[index + 1] if index + 1 < len(samples) else None
-        camera = after.get("v") if isinstance(after, dict) and after.get("name") == "layout.camera" else 0
+        paired = isinstance(after, dict) and after.get("name") == "layout.camera"
+        camera = after.get("v") if paired else 0
         if (sample.get("v") or 0) > 0 or (camera or 0) > 0:
             count += 1
+            counted = index + 1 if paired else index
     return count
 
 
@@ -930,7 +945,7 @@ def main():
                     UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
                 if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
+                    row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit's render-server move)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),

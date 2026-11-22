@@ -306,10 +306,14 @@ struct NewTabKeySessionWalkTests {
     /// A print names each workspace that the title change mapped by its id, whose it is (the changed tab's, the keys'
     /// pane's, another), its maps, and whether its kept rows differ from before the change, and the signs of a frame's
     /// work in the same drain (the pane's shown content, the pages with a view). The print is no condition.
+    ///
+    /// The row needs 3 pages with a view each, and a key's tab takes the view of the untouched New Tab tab that its pane
+    /// leaves (`AgentTabStore.idlePage`): each page counts as used before each key (`NewTabOpenFramesTests.useEachNewTabPage`).
     @Test func aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt() async throws {
         try await Self.withPane { start in
             let tabs = start.services.agentTabs
             for _ in 0..<3 {
+                NewTabOpenFramesTests.useEachNewTabPage(start.services)
                 let opened = Self.newTab(start)
                 try #require(opened.ran && opened.made == 1,
                              "setup: a New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
@@ -321,6 +325,7 @@ struct NewTabKeySessionWalkTests {
             try #require(withViews.count == 3, "setup: \(withViews.count) of 3 New Tab pages have a view")
 
             // One more New Tab key: what the main actor maps after its call.
+            NewTabOpenFramesTests.useEachNewTabPage(start.services) // the 3 pages keep their views: the key's tab takes none of them
             _ = start.visits.takeByWorkspace()
             let key = Self.newTab(start)
             try #require(key.ran && key.made == 1,
