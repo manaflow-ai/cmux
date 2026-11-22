@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 652,
+  "count": 653,
   "sections": [
     {
       "id": "general",
@@ -106,6 +106,14 @@
             "never",
             "always"
           ]
+        },
+        {
+          "key": "agentPane.links.openCitationsInEditor",
+          "title": "Open File Citations in Text Editor",
+          "help": "Open local chat links that name a line in your chosen text editor.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.links.outsideRoots",

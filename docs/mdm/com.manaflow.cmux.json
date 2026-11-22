@@ -395,6 +395,12 @@
       "title" : "Web Images in Replies",
       "type" : "string"
     },
+    "agentPane.links.openCitationsInEditor" : {
+      "default" : false,
+      "description" : "Open local chat links that name a line in your chosen text editor.",
+      "title" : "Open File Citations in Text Editor",
+      "type" : "boolean"
+    },
     "agentPane.links.outsideRoots" : {
       "default" : "open",
       "description" : "What a link to a file outside the chat's folders does. Keys and .env files never open.",
