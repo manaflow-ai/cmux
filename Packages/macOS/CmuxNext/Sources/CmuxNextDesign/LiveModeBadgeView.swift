@@ -9,13 +9,13 @@ public final class LiveModeBadgeView: NSView, TitlebarPressDeciding {
     private let label = ChromeLabel(labelWithString: LiveModeBadgeView.title)
 
     public static var title: String {
-        String(localized: "liveMode.badge", defaultValue: "Live mode", bundle: .module)
+        String(localized: "liveMode.badge", defaultValue: "Live mode", bundle: .localizedModule)
     }
 
     public static var help: String {
         String(localized: "liveMode.badgeHelp",
                defaultValue: "Live code build: slower and bigger than normal.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     override public init(frame frameRect: NSRect) {

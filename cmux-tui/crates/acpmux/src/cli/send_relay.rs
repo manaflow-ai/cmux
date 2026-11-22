@@ -85,7 +85,7 @@ pub(crate) fn relay_program(
 }
 
 /// [`relay_program`] with this process's PATH, the login PATH and `$HOME`.
-fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
+pub(crate) fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
     let paths: Vec<std::ffi::OsString> =
         std::env::var_os("PATH").into_iter().chain(crate::login_env::path()).collect();
     relay_program(program, &paths, dirs::home_dir().as_deref())
@@ -223,8 +223,14 @@ pub(crate) const LS_MAX_ROWS: usize = 5000;
 /// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless
 /// `quiet`.
 pub(crate) async fn relay_rows(quiet: bool) -> Vec<Value> {
+    relay_rows_with_deadline(quiet, None).await
+}
+
+/// [`relay_rows`] with the caller's absolute deadline, so a listing's relay fallback cannot
+/// outlive the listing that requested it.
+pub(crate) async fn relay_rows_with_deadline(quiet: bool, deadline: Option<Instant>) -> Vec<Value> {
     let Some(relay) = configured().filter(|r| r.ls_argv.is_some()) else { return Vec::new() };
-    match tokio::task::spawn_blocking(move || relay_ls(&relay, None)).await {
+    match tokio::task::spawn_blocking(move || relay_ls(&relay, deadline)).await {
         Ok(Ok(Some(rows))) => rows,
         Ok(Ok(None)) => Vec::new(),
         Ok(Err(e)) => {

@@ -190,29 +190,40 @@ impl Hub {
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
         let mut found = Vec::new();
-        let mut take =
-            |host: &str, name: &str, id: &str, handle: Option<&str>, route: &str, closed: bool| {
-                let legacy_exact = name == rest || id.starts_with(rest);
-                let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
-                    Some((false, Step::Exact))
-                } else {
-                    crate::name_match::step(name, rest)
-                        .map(|at| (false, at))
-                        .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
-                };
-                if let Some(at) = at {
-                    found.push((
-                        at,
-                        legacy_exact,
-                        Candidate {
-                            host: host.to_owned(),
-                            name: name.to_owned(),
-                            route: route.to_owned(),
-                            closed,
-                        },
-                    ));
-                }
+        let mut take = |host: &str,
+                        name: &str,
+                        alias: Option<&str>,
+                        id: &str,
+                        handle: Option<&str>,
+                        route: &str,
+                        closed: bool| {
+            let legacy_exact = name == rest || alias == Some(rest) || id.starts_with(rest);
+            let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
+                Some((false, Step::Exact))
+            } else {
+                [
+                    crate::name_match::step(name, rest),
+                    alias.and_then(|alias| crate::name_match::step(alias, rest)),
+                ]
+                .into_iter()
+                .flatten()
+                .min()
+                .map(|at| (false, at))
+                .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
+            if let Some(at) = at {
+                found.push((
+                    at,
+                    legacy_exact,
+                    Candidate {
+                        host: host.to_owned(),
+                        name: name.to_owned(),
+                        route: route.to_owned(),
+                        closed,
+                    },
+                ));
+            }
+        };
         match machine {
             Machine::Here(own) => {
                 for s in
@@ -222,6 +233,7 @@ impl Hub {
                     take(
                         own,
                         &meta.name,
+                        meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
                         &s.id,
                         meta.handle.as_deref(),
                         &s.id,
@@ -236,7 +248,15 @@ impl Hub {
                     let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
                     let closed = r.summary.closed();
-                    take(peer, bare, &r.receipt.mux_session_id, r.summary.handle(), route, closed);
+                    take(
+                        peer,
+                        bare,
+                        r.summary.alias(),
+                        &r.receipt.mux_session_id,
+                        r.summary.handle(),
+                        route,
+                        closed,
+                    );
                 }
             }
         }
@@ -267,31 +287,46 @@ impl Hub {
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
         let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, handle: Option<&str>, here: bool| {
-            if name == key || id.starts_with(key) || crate::session_handle::matches(handle, id, key)
-            {
-                return Some(0);
-            }
-            let at = crate::name_match::step(name, key);
-            if at == Some(Step::Case) {
-                Some(1)
-            } else if here && at == Some(Step::Prefix) {
-                Some(2)
-            } else if crate::session_name::ends_with_segments(name, key) {
-                Some(3)
-            } else {
-                match (at, crate::name_match::short_step(name, key)) {
-                    (_, Some(Step::Exact | Step::Case)) => Some(4),
-                    (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
-                    _ => None,
+        let tier_of =
+            |name: &str, alias: Option<&str>, id: &str, handle: Option<&str>, here: bool| {
+                if name == key
+                    || alias == Some(key)
+                    || id.starts_with(key)
+                    || crate::session_handle::matches(handle, id, key)
+                {
+                    return Some(0);
                 }
-            }
-        };
+                let at = [
+                    crate::name_match::step(name, key),
+                    alias.and_then(|alias| crate::name_match::step(alias, key)),
+                ]
+                .into_iter()
+                .flatten()
+                .min();
+                if at == Some(Step::Case) {
+                    Some(1)
+                } else if here && at == Some(Step::Prefix) {
+                    Some(2)
+                } else if crate::session_name::ends_with_segments(name, key) {
+                    Some(3)
+                } else {
+                    match (at, crate::name_match::short_step(name, key)) {
+                        (_, Some(Step::Exact | Step::Case)) => Some(4),
+                        (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
+                        _ => None,
+                    }
+                }
+            };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(tier) = tier_of(&meta.name, &s.id, meta.handle.as_deref(), true)
-                .and_then(|t| tiers.get_mut(t))
-            else {
+            let Some(tier) = tier_of(
+                &meta.name,
+                meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
+                &s.id,
+                meta.handle.as_deref(),
+                true,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -304,9 +339,14 @@ impl Hub {
         for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            let Some(tier) = tier_of(bare, &r.receipt.mux_session_id, r.summary.handle(), false)
-                .and_then(|t| tiers.get_mut(t))
-            else {
+            let Some(tier) = tier_of(
+                bare,
+                r.summary.alias(),
+                &r.receipt.mux_session_id,
+                r.summary.handle(),
+                false,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -402,10 +442,25 @@ mod tests {
 
     /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
     pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
+        list_with_alias(hub, peer, id, name, status, None);
+    }
+
+    pub(super) fn list_with_alias(
+        hub: &Hub,
+        peer: &str,
+        id: &str,
+        name: &str,
+        status: &str,
+        alias: Option<&str>,
+    ) {
+        let mut summary =
+            json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status});
+        if let Some(alias) = alias {
+            summary["tags"] = json!({"session.alias": alias});
+        }
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
-                .into(),
+            summary: summary.into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
