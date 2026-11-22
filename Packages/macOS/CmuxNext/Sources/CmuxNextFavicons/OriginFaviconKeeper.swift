@@ -80,9 +80,13 @@ public final class OriginFaviconKeeper {
     }
 
     private func file(for key: Key) -> URL? {
-        guard let directory else { return nil }
-        let name = SHA256.hash(data: Data(key.origin.utf8)).map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent(key.profile.rawValue.uuidString, isDirectory: true).appendingPathComponent(name + ".png")
+        directory.map { Self.file(in: $0, profile: key.profile, origin: key.origin) }
+    }
+
+    private nonisolated static func file(in directory: URL, profile: BrowserProfileID, origin: String) -> URL {
+        let name = SHA256.hash(data: Data(origin.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appending(path: profile.rawValue.uuidString, directoryHint: .isDirectory)
+            .appending(path: name + ".png", directoryHint: .notDirectory)
     }
 
     private nonisolated static func write(_ image: CGImage, to file: URL) {
@@ -93,6 +97,7 @@ public final class OriginFaviconKeeper {
         else { return }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return }
+        // blocking-allow: runs in a detached utility task, never on the main actor.
         try? (data as Data).write(to: file, options: .atomic)
     }
 
