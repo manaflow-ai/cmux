@@ -14,7 +14,8 @@ import Foundation
 /// as before this type existed. An app inside it offers them as soon as the
 /// server sells to it (`APPLE_IAP_BUNDLE_IDS`) and StoreKit loads its
 /// products, with no app change.
-public enum BillingPurchaseAvailability {
+public struct BillingPurchaseAvailability {
+    public init() {}
     /// Bundle ids of App Store app records with no subscriptions.
     /// `dev.cmux.app.internal`: App Store Connect app "cmux INTERNAL"
     /// (6791408425), built by the TestFlight configuration.
