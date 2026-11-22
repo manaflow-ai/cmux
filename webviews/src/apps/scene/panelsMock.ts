@@ -85,6 +85,7 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
  * dispatch, and unmount through the production controller instead of injecting rendered rows. */
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
+  toolbarButtons: readonly unknown[] = [];
   composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
   composerMentions: readonly { prefix: string; id: string; label: string; detail?: string; insert: string }[] =
     MOCK_COMPOSER_MENTIONS;
@@ -113,6 +114,7 @@ export class MockAppPanelsClient implements PageClient {
             extension: "Team flow",
             prefix,
           })),
+          toolbarButtons: this.toolbarButtons,
         };
         break;
       case "cmux.apps.panels.mentions": {

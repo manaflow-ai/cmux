@@ -3,7 +3,7 @@ import Foundation
 /// The picker's text (Localizable.xcstrings, keys `picker.*`).
 nonisolated enum PickerStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var useThisFolder: String { text("picker.useThisFolder", "Use This Folder") }
