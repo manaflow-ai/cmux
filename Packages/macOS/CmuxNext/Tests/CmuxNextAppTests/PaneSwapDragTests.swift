@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
@@ -129,7 +130,7 @@ struct PaneSwapDragTests {
         window.orderFrontRegardless()
         defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
-        let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { () -> LayoutRootView? in nil }, swap: { _, _ in })
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { nil }, swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
         let cell = try #require(strip.cells[TabID("b")])
         let point = strip.convert(strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip), to: nil)
