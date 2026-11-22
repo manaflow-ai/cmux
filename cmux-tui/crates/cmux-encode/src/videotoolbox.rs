@@ -187,7 +187,7 @@ crate::framework! {
 // Ultra's QP floor, bound apart for the same reason (MinAllowedFrameQP is a newer key): without
 // it an ultra session keeps its frame budget and has no floor.
 crate::framework! {
-    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+    mod vt_min_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
         static kVTCompressionPropertyKey_MinAllowedFrameQP: CFStringRef;
     }
 }
@@ -755,7 +755,7 @@ impl VideoToolbox {
     /// Sets the session's QP floor. Optional like the speed keys: an OS without the key, or an
     /// encoder that refuses it, keeps the frame budget alone.
     fn apply_min_qp(&mut self, qp: i32) -> bool {
-        if vt_qp_sys::available().is_err() {
+        if vt_min_qp_sys::available().is_err() {
             return false;
         }
         let value = number_i32(qp);
@@ -763,7 +763,7 @@ impl VideoToolbox {
         let status = unsafe {
             let s = VTSessionSetProperty(
                 self.session,
-                vt_qp_sys::kVTCompressionPropertyKey_MinAllowedFrameQP(),
+                vt_min_qp_sys::kVTCompressionPropertyKey_MinAllowedFrameQP(),
                 value,
             );
             CFRelease(value);
