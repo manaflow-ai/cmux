@@ -4755,9 +4755,9 @@ function TranscriptView({
   // one element. Its whole pixels go in the thread's `top`; the fraction a payment leaves joins the
   // scroll origin in the thread's margin (scrollCoordinates.ts `holdRoomFraction`), as the rows split
   // theirs (RowFrame), since WebKit drops fractional bits of large offsets.
-  const heldRoom = layout.origin ?? 0;
-  const threadRoom = Math.floor(heldRoom);
-  const threadRoomFraction = heldRoom - threadRoom;
+  const olderRoomAbove = layout.origin ?? 0;
+  const threadRoom = Math.floor(olderRoomAbove);
+  const threadRoomFraction = olderRoomAbove - threadRoom;
   // Declared before the placement and flow passes' layout effects, so they read the thread where it
   // draws (a stale margin is up to a pixel off in what they measure).
   useLayoutEffect(() => {
@@ -7634,7 +7634,7 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
-    roomAbove: heldRoom,
+    roomAbove: olderRoomAbove,
     frameKey,
     registry,
     setSizeRef,
