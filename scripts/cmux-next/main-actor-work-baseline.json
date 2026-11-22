@@ -228,7 +228,6 @@
   "synchronous file write or file-system change": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudFrontedChats.swift": {
-  "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveAsks.swift": {
