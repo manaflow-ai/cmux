@@ -1,3 +1,4 @@
+import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
@@ -1272,6 +1273,7 @@ export type AcpmuxSnapshot = {
   /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
   subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
+  browserWorkspaces?: BrowserWorkspaces;
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
   /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the
@@ -1297,6 +1299,9 @@ export type AcpmuxSnapshot = {
   peerLoads?: Record<string, MachineLoad>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
+  /// row for it (SurgeHoldRow.tsx).
+  surge?: SurgeHold;
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -4204,6 +4209,7 @@ import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";
+import type { SurgeHold } from "./conversation/surgeHold";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
