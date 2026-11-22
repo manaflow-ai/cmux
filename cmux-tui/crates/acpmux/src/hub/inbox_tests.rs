@@ -1267,7 +1267,7 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
     }
 }
 
-// The page rule (`inbox_page_rule.rs`, RFD 0039 slice 1): in a chat on the coordinator list only
+// The page rule (`inbox_page_rule.rs`, RFD 0041 slice 1): in a chat on the coordinator list only
 // a page starts a turn.
 
 fn page_msg<'a>(
