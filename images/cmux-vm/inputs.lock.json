@@ -5,9 +5,9 @@
     "snapshot": "freestyle/ubuntu-sm",
     "fingerprint": {
       "kernelRelease": "6.1.102",
-      "dpkgListSha256": "815053cdba81366878fda45596bf3ce5f4d095c334848513be2517d817857b22",
+      "dpkgListSha256": "7f7f87283969d8d2c24c5874c25b942e4ce407a74f3cd51466260351bd3d8838",
       "dpkgPackageCount": 419,
-      "recordedAt": "2026-10-31T10:51:59Z"
+      "recordedAt": "2026-11-22T14:45:00Z"
     },
     "runtimes": {
       "node": "v26.13.0",
