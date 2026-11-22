@@ -39,6 +39,9 @@ public final class ThemeStore {
     /// as last applied: what the iPhone's terminals load. Unlike ``configInput`` it carries every
     /// key the terminals draw with (all 256 palette entries, cursor and selection, contrast).
     public private(set) var terminalConfigLines: [String] = []
+    /// The Ghostty config's `background-image` as the terminals draw it (`GhosttyRuntime.backgroundImage`),
+    /// as last applied; nil without one. The iPhone shows it when no cmux background is chosen.
+    public private(set) var terminalBackgroundImage: TerminalBackgroundImage?
     /// The app theme's colors while `appearance.appTheme` names one.
     @ObservationIgnored private var appInput: ThemeInput?
     /// Bumps on every applied change (tests, diagnostics).
@@ -115,6 +118,11 @@ public final class ThemeStore {
     /// observation.
     public func applyTerminalConfigLines(_ lines: [String]) {
         if terminalConfigLines != lines { terminalConfigLines = lines }
+    }
+
+    /// Applies the Ghostty config's `background-image` (nil: none). No change, no observation.
+    public func applyTerminalBackgroundImage(_ image: TerminalBackgroundImage?) {
+        if terminalBackgroundImage != image { terminalBackgroundImage = image }
     }
 
     /// Derives the chrome from the app theme's colors, else the config's. `firstConfig`: the

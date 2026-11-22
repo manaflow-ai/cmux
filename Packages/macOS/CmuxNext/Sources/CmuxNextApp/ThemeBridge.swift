@@ -46,6 +46,7 @@ enum ThemeBridge {
         guard let colors = runtime.themeColors else { return }
         store.apply(input(colors, background: GhosttyRuntime.backgroundOverride, accent: GhosttyRuntime.themeName.flatMap(accent)))
         store.applyTerminalConfigLines(runtime.phoneTerminalThemeLines)
+        store.applyTerminalBackgroundImage(runtime.backgroundImage)
     }
 
     /// The pane dim for the config's `unfocused-split-opacity` and `unfocused-split-fill`.

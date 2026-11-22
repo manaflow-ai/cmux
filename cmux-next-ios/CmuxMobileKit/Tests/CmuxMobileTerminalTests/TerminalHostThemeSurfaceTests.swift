@@ -58,6 +58,33 @@ import UIKit
             return UIImage(cgImage: cg).pngData()
         }
 
+        /// Whether the corner pixel's alpha meets `test` within two seconds (each try feeds a
+        /// carriage return so the surface draws a frame after the config change).
+        func alphaBecomes(_ test: (Int) -> Bool) async -> Bool {
+            let deadline = ContinuousClock.now + .seconds(2)
+            while ContinuousClock.now < deadline {
+                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                    surface.feed(Data("\r".utf8), completion: { done.resume() })
+                }
+                try? await Task.sleep(for: .milliseconds(40))
+                if let alpha = cornerAlpha(), test(alpha) { return true }
+            }
+            return false
+        }
+
+        /// The bottom-right pixel's alpha of the frame on screen (BGRA or RGBA: the fourth byte).
+        func cornerAlpha() -> Int? {
+            guard let contents = surface.layer.sublayers?.first?.contents else { return nil }
+            let frame = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
+            guard CFGetTypeID(frame) == IOSurfaceGetTypeID(), IOSurfaceGetBytesPerElement(frame) == 4 else { return nil }
+            let width = IOSurfaceGetWidth(frame), height = IOSurfaceGetHeight(frame)
+            guard width > 4, height > 4 else { return nil }
+            IOSurfaceLock(frame, .readOnly, nil)
+            defer { IOSurfaceUnlock(frame, .readOnly, nil) }
+            let row = IOSurfaceGetBaseAddress(frame) + (height - 3) * IOSurfaceGetBytesPerRow(frame)
+            return Int((row + (width - 3) * 4).assumingMemoryBound(to: UInt8.self)[3])
+        }
+
         /// The bottom-right pixel of the frame on screen, as 8-bit RGB (BGRA or RGBA surfaces).
         func cornerPixel() -> (Int, Int, Int)? {
             guard let contents = surface.layer.sublayers?.first?.contents else { return nil }
@@ -129,6 +156,47 @@ import UIKit
         #expect(await rig.shows(background))
         let png = try #require(rig.framePNG())
         Attachment.record(png, named: "terminal-\(name).png")
+    }
+
+    /// Over its Mac's wallpaper the terminal is see-through, as the Mac's terminals are over its
+    /// window's picture: Ghostty draws the default background transparent (the page's ground,
+    /// the picture under the theme's tint, shows), and the view under it paints nothing.
+    @Test func overTheMacsWallpaperTheTerminalIsSeeThrough() async throws {
+        let macID = "mac-\(UUID().uuidString)"
+        CmuxMobileTerminalThemes.shared.apply(Self.appearance(["background = #1e1e2e", "foreground = #cdd6f4"]), macID: macID)
+        let rig = Rig(macID: macID)
+        try #require(rig.surface.surface != nil)
+        #expect(await rig.shows("#1e1e2e"))
+        #expect(rig.surface.isOpaque)
+        #expect(rig.cornerAlpha() == 255)
+
+        rig.surface.seeThrough = true
+        #expect(!rig.surface.isOpaque)
+        #expect(rig.surface.backgroundColor == .clear)
+        #expect(await rig.alphaBecomes { $0 <= 8 })
+
+        // The Mac's next theme keeps it see-through; turning it off is opaque again.
+        CmuxMobileTerminalThemes.shared.apply(Self.appearance(["background = #fdf6e3", "foreground = #586e75"]), macID: macID)
+        #expect(rig.surface.backgroundColor == .clear)
+        #expect(await rig.alphaBecomes { $0 <= 8 })
+        rig.surface.seeThrough = false
+        #expect(rig.surface.isOpaque)
+        #expect(await rig.shows("#fdf6e3"))
+    }
+
+    /// The see-through config: the Mac's theme with a transparent default background.
+    @Test func theSeeThroughConfigHasATransparentBackground() throws {
+        _ = try CmuxMobileGhosttyApp.shared() // ghostty_init
+        let base = try #require(ghostty_config_new())
+        defer { ghostty_config_free(base) }
+        ghostty_config_finalize(base)
+        let theme = try #require(CmuxMobileTerminalTheme(lines: ["background = #1e1e2e", "foreground = #cdd6f4"]))
+        let plain = try #require(CmuxMobileGhosttyApp.themedConfig(theme, fontSize: 11, base: base))
+        defer { ghostty_config_free(plain) }
+        let clear = try #require(CmuxMobileGhosttyApp.themedConfig(theme, fontSize: 11, seeThrough: true, base: base))
+        defer { ghostty_config_free(clear) }
+        #expect(double(plain, "background-opacity") == 1)
+        #expect(double(clear, "background-opacity") == 0)
     }
 
     /// Another Mac's theme change leaves this terminal as it is.
