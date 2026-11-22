@@ -1388,8 +1388,9 @@ export function playTurnEnd(
       // `TurnEndCut`) starts as tall as it drew and opens to its full height on the fold's clock. Grown
       // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
       // began, a second motion (cmux#50299).
+      // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
       if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
-        clip = Math.max(clip, height - before.height);
+        clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
       if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
