@@ -28,11 +28,7 @@ fn world() -> World {
     }
 }
 
-fn ctx<'a>(
-    world: &'a World,
-    home: &Path,
-    race: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-) -> Ctx<'a> {
+fn ctx<'a>(world: &'a World, home: &Path, race: Option<RaceHook>) -> Ctx<'a> {
     Ctx {
         home: home.to_path_buf(),
         user: None,
@@ -102,7 +98,7 @@ fn a_paused_machine_resuming_after_revocation_deletes_carried_files_first() {
     let out = pull(&ctx(&w, &w.home, None)).unwrap();
     assert_eq!(out.deleted, vec![NOTE.to_string()]);
     assert_eq!(read(&w.home, NOTE), None);
-    let record = RecordStore { root: w.record.clone() }.load().unwrap();
+    let record = RecordStore { root: w.record }.load().unwrap();
     assert!(record.carried.is_empty() && record.base.is_empty());
     assert_eq!(record.generation, 2);
 }
@@ -287,7 +283,7 @@ fn a_link_planted_while_keeping_an_original_is_not_followed() {
     publish(&w, 1, 1, &[(".claude/CLAUDE.md", "carried\n")]);
     let home = w.home.clone();
     let secret = w.outside.join("secret");
-    let race: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |at: &str| {
+    let race: RaceHook = Arc::new(move |at: &str| {
         if at == ".claude/CLAUDE.md" {
             let path = home.join(".claude/CLAUDE.md");
             if !path.is_symlink() {
@@ -317,6 +313,6 @@ fn a_link_planted_before_a_restore_is_not_followed() {
     assert!(pull(&ctx(&w, &w.home, Some(race))).is_err(), "the restore stops at the link");
     assert!(empty(&w.outside), "the original was not written through the link");
     // The record still lists the carried file, so the next start tries again.
-    let record = RecordStore { root: w.record.clone() }.load().unwrap();
+    let record = RecordStore { root: w.record }.load().unwrap();
     assert!(record.carried.contains_key(".claude/CLAUDE.md"));
 }

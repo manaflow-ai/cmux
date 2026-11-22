@@ -190,7 +190,7 @@ impl Head for DirHead {
         let folder = self.root.join("proposals");
         std::fs::create_dir_all(&folder)?;
         let bytes = serde_json::to_vec(proposal)?;
-        let id = sha256_hex(&bytes)[..16].to_string();
+        let id: String = sha256_hex(&bytes).chars().take(16).collect();
         Self::write_json(&folder.join(format!("{id}.json")), proposal)?;
         Ok(id)
     }
@@ -469,8 +469,12 @@ pub(super) struct Ctx<'a> {
     pub machine: bool,
     /// Tests: runs before each home access with its path, to race it.
     #[cfg(test)]
-    pub race: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub race: Option<RaceHook>,
 }
+
+/// Tests: the hook `Ctx::race` runs.
+#[cfg(test)]
+pub(crate) type RaceHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Ctx<'_> {
     /// Runs `f` on the home as the agent user, in a thread of its own whose
@@ -891,7 +895,7 @@ fn hostname() -> String {
         return "unknown".to_string();
     }
     let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
-    String::from_utf8_lossy(&buffer[..end]).into_owned()
+    String::from_utf8_lossy(buffer.get(..end).unwrap_or_default()).into_owned()
 }
 
 /// `cmux link memory ...`: one JSON line on stdout; exit 2 on a usage error,
@@ -923,7 +927,7 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
         bail!("{USAGE}");
     }
     let mut flags: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut rest = args[1..].iter();
+    let mut rest = args.iter().skip(1);
     while let Some(flag) = rest.next() {
         let name = flag.as_str();
         if !matches!(name, "--head" | "--home" | "--record" | "--user" | "--device") {
@@ -979,8 +983,10 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
         _ => push(&ctx)?,
     };
     let mut value = serde_json::to_value(outcome)?;
-    value["ok"] = json!(true);
-    value["verb"] = json!(verb);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("ok".into(), json!(true));
+        object.insert("verb".into(), json!(verb));
+    }
     Ok(value)
 }
 
