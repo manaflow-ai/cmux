@@ -1380,8 +1380,9 @@
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--layer-backdrop);
   border-radius: inherit;
+  /* chat-surface-allow: the default-off Home card glow experiment (#47524), a per-chat tint, not a level */
   background: radial-gradient(
     circle at 0% 0%,
     color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-mix), transparent),

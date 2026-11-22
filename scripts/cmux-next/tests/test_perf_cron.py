@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
-network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
+network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
+since lifted)."""
 import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
@@ -23,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "daemon-restart"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -732,6 +733,49 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_power_part_owns_its_rows_and_judges_them_against_their_budgets(self):
+        """Leo, 2026-11-19: "having those measurements in so that we're aware of things". power-cron.py stores the
+        app's mW idle with a terminal (budget: standalone Ghostty idle in the same run), with one page and scrolling
+        (budgets: the best other browser in the xbench baseline); the Ghostty number and the ratio are shown only."""
+        self.assertIn("power", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["power"]
+        self.assertIn("--suite=power", part["args"])
+        self.assertIn("--config=bench", part["args"], "the optimized app, the build throughput and memory use")
+        for name in ("power.idle.terminal.total_mw", "power.idle.tab1.total_mw", "power.active.scroll.total_mw",
+                     "power.idle.terminal.ghostty_mw"):
+            self.assertEqual(cron.part_for_row(name + "@cmux20-bench"), "power")
+        spec2 = importlib.util.spec_from_file_location("power_cron", os.path.join(HERE, "..", "power-cron.py"))
+        power = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(power)
+        bench = {"results": [{"label": "terminal", "total": {"mw": 3.21}}, {"label": "tab1", "total": {"mw": 5.0}},
+                             {"label": "scroll", "total": {"mw": 1.5}}]}
+        report = {"rows": power.rows_from(bench, 0.5)}
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        terminal = rows["power.idle.terminal.total_mw"]
+        self.assertEqual((terminal["p95"], terminal["unit"], terminal["budget"]), (3.21, "mW", 0.5),
+                         "the terminal row's budget is Ghostty's idle mW from the same run")
+        self.assertEqual(rows["power.idle.tab1.total_mw"]["budget"], 0.4)
+        self.assertEqual(rows["power.active.scroll.total_mw"]["budget"], 7.7)
+        self.assertEqual(rows["power.idle.terminal.vs_ghostty"]["p95"], 6.42)
+        for name, row_ in rows.items():
+            if not cron.REPORT_ONLY_ROW_RE.match(name):
+                self.assertIsNotNone(cron.target_of(name, row_, 8.33), f"{name} is judged against a real budget")
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.ghostty_mw"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.vs_ghostty"))
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.total_mw"))
+        # Over its budget with no reference: listed, not a silent pass.
+        found = cron.find_regressions({"power.idle.tab1.total_mw@cmux20-bench": rows["power.idle.tab1.total_mw"]}, {},
+                                      8.33, 8.33, budgets_mod)
+        self.assertEqual([(r["name"], r["target"], r["why"]) for r in found],
+                         [("power.idle.tab1.total_mw@cmux20-bench", 0.4, cron.NO_REFERENCE)])
+        # A run with no Ghostty keeps the app's row, judged against the fallback.
+        no_ghostty = {r["name"]: r for r in power.rows_from(bench, None)}
+        self.assertEqual(no_ghostty["power.idle.terminal.total_mw"]["budget"], power.GHOSTTY_FALLBACK_MW)
+        self.assertNotIn("power.idle.terminal.ghostty_mw", no_ghostty)
+        self.assertEqual(power.missing_scenarios(power.rows_from(bench, None)), [])
+        partial = power.rows_from({"results": [{"label": "terminal", "total": {"mw": 1.0}}]}, 0.5)
+        self.assertEqual(power.missing_scenarios(partial), ["tab1: no power sample", "scroll: no power sample"])
+
     @staticmethod
     def relaunch_wake():
         spec2 = importlib.util.spec_from_file_location("relaunch_wake", os.path.join(HERE, "..", "relaunch-wake-cron.py"))
@@ -934,6 +978,28 @@ class WebUiTests(unittest.TestCase):
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
 
+    def test_the_terminal_scroll_rows_keep_their_names_and_are_judged_against_zero(self):
+        self.assertTrue(cron.is_linux_part("terminal-scroll"))
+        self.assertEqual(cron.part_for_row("terminal.scroll.local.mirror.jumps@linux"), "terminal-scroll")
+        self.assertEqual(cron.part_for_row("terminal.scroll.ssh.bad@linux"), "terminal-scroll")
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio"), "throughput")
+        runs = cron.linux_bench_runs("/r", "terminal-scroll")
+        self.assertEqual(list(runs), ["build", "suite"])
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/terminal-scroll-stress-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/terminal-scroll-stress-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["terminal-scroll"], {"rows": [
+            {"name": "terminal.scroll.local.mirror.blank_rows", "p50": 0, "p95": 0, "unit": "rows", "target": 0,
+             "floor": 0.5},
+            {"name": "terminal.scroll.local.daemon.jumps", "p50": 1, "p95": 2, "unit": "rows", "target": 0,
+             "floor": 0.5}]}, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["terminal.scroll.local.daemon.jumps", "terminal.scroll.local.mirror.blank_rows"])
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("terminal.scroll.local.daemon.jumps"))
+        name = "terminal.scroll.local.daemon.jumps"
+        self.assertEqual(cron.target_of(name, rows[name], None), 0)
+        self.assertTrue(cron.over_target(name, rows[name], None))
+        clean = "terminal.scroll.local.mirror.blank_rows"
+        self.assertFalse(cron.over_target(clean, rows[clean], None))
+
     def test_the_daemon_restart_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("daemon-restart"))
         self.assertEqual(cron.part_for_row("webui.daemon_restart.god_home.chat_attach_ms@linux"), "daemon-restart")
@@ -950,6 +1016,34 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(rows["webui.daemon_restart.god_home.chat_attach_ms"]["floor"], 40.0)
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
+
+    def test_the_coord_sim_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("coord-sim"))
+        self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")
+        self.assertEqual(cron.part_for_row("webui.coord_sim.daemon.rss_slope_mb_per_min@linux"), "coord-sim")
+        runs = cron.linux_bench_runs("/r", "coord-sim")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "coordinators=3", "rate=10",
+                                            "seconds=300", "fanin=50,200", "fanin_window=60"])
+        self.assertEqual(cron.part_for_row("webui.coord_sim.fanin.n200.controller_rss_mb_per_session@linux"), "coord-sim")
+        # The report's last line, as `coord-sim report RUN_DIR --rows` prints it.
+        rows = cron.rows_of_part(cron.PART_BY_NAME["coord-sim"], {"rows": [
+            {"name": "coord_sim.delivery_ms", "p50": 4.1, "p95": 18.5, "unit": "ms", "target": 100, "version": 1},
+            {"name": "coord_sim.events.lost", "p50": 0, "p95": 0, "unit": "events", "target": 0, "floor": 0.5, "version": 1},
+            {"name": "coord_sim.daemon.rss_slope_mb_per_min", "p50": 2.5, "p95": 2.5, "unit": "MB/min", "floor": 1.0,
+             "version": 1}]}, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["p95"], 18.5)
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["budget"], 100)
+        self.assertEqual(rows["webui.coord_sim.events.lost"]["floor"], 0.5)
+        self.assertEqual(rows["webui.coord_sim.daemon.rss_slope_mb_per_min"]["unit"], "MB/min")
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("webui.coord_sim.delivery_ms"))
+
+    def test_coord_sim_runs_only_once_its_driver_is_built(self):
+        self.assertFalse(cron.coord_sim_ready(False, "pub fn run() {}"))
+        self.assertFalse(cron.coord_sim_ready(True, None))
+        self.assertFalse(cron.coord_sim_ready(True, 'pub fn run(_a: &[String]) -> Result<(), String> { Err("not built yet".into()) }'))
+        self.assertTrue(cron.coord_sim_ready(True, "pub fn run(args: &[String]) -> Result<(), String> { drive(args) }"))
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
