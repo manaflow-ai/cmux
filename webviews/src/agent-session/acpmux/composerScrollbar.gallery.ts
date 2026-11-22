@@ -3,16 +3,20 @@
 // the chat/window (these should be one and hte same) be more cohesive? well idk but the
 // chatgpt(codex) has it on the outside while claude indeed has it on the inside"). The same long draft
 // in Claude's look with the thumb:
-//   - `edge`, shipped: down the box's own right edge, stopping above Send, as Claude desktop draws it
+//   - `edge`, shipped: down the box's own right edge, ending a block inset above the button row
 //     and as the chat's runs down the pane's (composerLocation.css);
 //   - `edge-full`: down the box's right edge for its full height, beside the mic and Send;
 //   - `lane`: in a lane between the draft and the mic and Send (the placement before);
 //   - `outside`: just outside the box's right edge, in the column's gutter, as Codex desktop.
-// The alternates are gallery-only CSS over the shipped rules.
+// The alternates are gallery-only CSS over the shipped rules. The thumb shows only while the draft
+// scrolls (Leo 2026-11-22: "the thumb only appears when it's fucking relevant"), so each variant
+// draws it as it scrolls: the field carries the scrolling mark (scrollers.ts SCROLLING_ATTRIBUTE)
+// until a real scroll's timer clears it.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { COMPOSER_MD_FIELD } from "./composerSelectors";
+import { SCROLLING_ATTRIBUTE } from "../../scrollers";
 
 const BOX = ".acpmux-composer-box[data-composer-grid]";
 const FIELD = `${BOX} > .acpmux-composer-field-menu > .acpmux-md-field`;
@@ -41,6 +45,7 @@ const placement =
       const field = ctx.document.querySelector<HTMLElement>(COMPOSER_MD_FIELD);
       return field !== null && field.scrollHeight > field.clientHeight + 1;
     });
+    ctx.document.querySelector(COMPOSER_MD_FIELD)!.setAttribute(SCROLLING_ATTRIBUTE, "");
   };
 
 const draft = Array.from(
