@@ -116,7 +116,8 @@ def boot(udid: str) -> None:
     # "Unable to boot device in current state: Booted" is fine; bootstatus decides.
     subprocess.run(["xcrun", "simctl", "boot", udid], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.check_call(["xcrun", "simctl", "bootstatus", udid, "-b"])
+    # bootstatus prints its progress on stdout, which the workflow appends to $GITHUB_ENV: send it to stderr.
+    subprocess.check_call(["xcrun", "simctl", "bootstatus", udid, "-b"], stdout=sys.stderr)
 
 
 def slot_device(slot: str, type_id: str, type_name: str, runtime_id: str):
