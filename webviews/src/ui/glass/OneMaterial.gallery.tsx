@@ -11,6 +11,9 @@
 // - hover-preview: a title tooltip on the composer's own control, and a hover card (ui/Tooltip.tsx
 //   AnchoredCard, the card every hover preview takes) beside the folder chip.
 // - toast: a toast (ui/NoticeStack, the page's stack) and the chat's Delete dialog (DeleteChatDialog).
+// - link-hover-card: a chat whose reply names owner/repo#N, hovered: the real link hover card
+//   (chips/LinkHoverCard.tsx) with its title, the Open and chevron split button and its lines.
+//   The tab row's hover preview is native (CmuxNextDesign HoverCardPanel), so it has no web stage here.
 //
 // The candidate materials are arms of webviews/scripts/gallery/one-material.capture.json (CSS injected
 // over this stage), not code here. Over a picture the gallery paints the window's art and tint behind
@@ -19,7 +22,8 @@
 import type { ReactNode } from "react";
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
-import { CWD, manySessions, noChat } from "../../gallery/fixtures/acpmux";
+import { assistant, chat, CWD, manySessions, noChat, summary, user } from "../../gallery/fixtures/acpmux";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 
 const newTab = () => ({
   newTab: {
@@ -105,8 +109,8 @@ const toast: Play = async (ctx) => {
   await mountBeside(
     ctx,
     <>
-      {/* The stack stands on the line above the composer, as the pane's toast layer draws it. */}
-      <div style={{ position: "fixed", insetInline: 0, top: 0, height: "38%", pointerEvents: "none" }}>
+      {/* The stack stands at the foot of the pane, clear of the dialog, as the pane's toast layer draws it. */}
+      <div style={{ position: "fixed", insetInline: 0, bottom: 0, height: "34%", pointerEvents: "none" }}>
         <NoticeStack queue={queue} layout="list" dismissLabel="Dismiss" label="Notifications" />
       </div>
       <DeleteChatDialog
@@ -125,6 +129,41 @@ const toast: Play = async (ctx) => {
   );
 };
 
+const PULL_REQUEST = "https://github.com/acme/widgets/pull/9";
+const pullRequests = {
+  [PULL_REQUEST]: {
+    pullRequest: {
+      url: PULL_REQUEST,
+      number: 9,
+      title: "Retry: an aborted request ends the loop at once",
+      state: "merged",
+      review: "approved",
+      mergeable: "",
+      author: "example-dev",
+      updatedAt: new Date(minutesAgo(42)).toISOString(),
+      baseRef: "main",
+      headRef: "fix/abort-retry",
+      labels: ["bug"],
+      additions: 48,
+      deletions: 12,
+      changedFiles: 3,
+      files: [],
+      checks: { state: "passing", passed: 24, total: 24 },
+      checkList: [],
+    },
+    fetchedAt: GALLERY_NOW / 1000 - 30,
+  },
+};
+
+const linkHoverCard: Play = async (ctx) => {
+  const chip = `a.cv-chip.is-ref[href="${PULL_REQUEST}"]`;
+  await ctx.waitFor(() => ctx.document.querySelector(chip), { capMs: 10_000 });
+  await ctx.hover({ selector: chip });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview.acpmux-pr-card .cv-link-preview__split"), {
+    capMs: 10_000,
+  });
+};
+
 export default agentPaneEntry({
   id: "ui.one-material",
   title: "One material: composer, popups, tooltips, toasts",
@@ -132,7 +171,7 @@ export default agentPaneEntry({
   height: 620,
   widths: { narrow: 720, normal: 1000, wide: 1200 },
   covers: ["ui/glass/glass.css", "ui/popupSurface.css"],
-  keywords: ["glass", "material", "background", "wallpaper", "popover", "tooltip", "toast", "dialog"],
+  keywords: ["glass", "material", "background", "wallpaper", "popover", "tooltip", "toast", "dialog", "link", "hover card"],
   variants: {
     "folder-picker": {
       note: "The new chat's composer with the folder chip's popover open (Search folders or type a path).",
@@ -161,6 +200,17 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3), { listedSessions: true }),
       native: signedIn,
       play: toast,
+    },
+    "link-hover-card": {
+      note: "A reply that names acme/widgets#9, its chip hovered: the link hover card with its title, Open and its chevron, and the pull request's lines.",
+      snapshot: chat([
+        user("Did the abort fix land?", 6),
+        assistant("Yes: acme/widgets#9 merged this morning, and its checks passed.", 5.6),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
+      native: signedIn,
+      chipHost: { pullRequests },
+      play: linkHoverCard,
     },
   },
 });
