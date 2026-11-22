@@ -8,7 +8,7 @@
 // person's steers (mid-stream, mid-tool, mid-fold), how the turn ends (mid-stream, mid-fold, after a recap,
 // or settled), the recap and its length, the reader at the bottom or scrolled up, and the split size.
 // The same seed always gives the same chat (test/fold-fuzz-scenario.test.ts), so a failing seed replays.
-import { sim, type SimScenario, type SimStep } from "../../src/agent-session/acpmux/sim/script";
+import { sim, type SimScenario, type SimStep, type ReaderAction } from "../../src/agent-session/acpmux/sim/script";
 
 /// mulberry32: a small, fast, seedable PRNG; the generator draws every choice from it in a fixed order.
 export function rng(seed: number) {
@@ -197,8 +197,8 @@ export function fuzzSpec(seed: number): FuzzSpec {
 }
 
 /** The seed's chat. */
-export function fuzzScenario(seed: number): FuzzScenario {
-  const spec = fuzzSpec(seed);
+export function fuzzScenario(seed: number, override: Partial<FuzzSpec> = {}): FuzzScenario {
+  const spec = { ...fuzzSpec(seed), ...override };
   // A second stream for the timing, so a spec field added later does not shift every seed's timings.
   const r = rng(seed ^ 0x5bd1e995);
   const b = sim(`fuzz-${seed}`, `Fold fuzz seed ${seed}.`, "claude");
@@ -389,4 +389,35 @@ function tally(values: number[]) {
 function lastIndex(steps: readonly SimStep[], match: (step: SimStep) => boolean) {
   for (let index = steps.length - 1; index >= 0; index -= 1) if (match(steps[index]!)) return index;
   return -1;
+}
+
+/// The stray-motion chat of a seed (scripts/fold-fuzz.ts `--sweep`; the judge is transcriptMotion.ts
+/// `strayStarts`): the seed's turn, its end reached scrolled up on every odd seed, then the reader's sweep:
+/// down to the bottom, up through the chat to its top a wheel's worth at a time, and down again. A quarter
+/// of the seeds start the sweep while the fold still plays. Its own random stream, so the seed's turn is
+/// the fuzz seed's. Leo, 2026-11-22: "your chat folds or whatever, i scroll down, some bullshit ABOVE
+/// folds...? and plays an animation!? ... edge cases at teh top area of teh screeen and a long turn/tool
+/// call/sterring situation that has a wide-ass aggressive fold".
+export function strayScenario(seed: number): FuzzScenario & { sweepFrom: number } {
+  const up = seed % 2 === 1 || fuzzSpec(seed).viewport === "up";
+  const base = fuzzScenario(seed, up ? { viewport: "up" } : {});
+  const r = rng(seed ^ 0x51ed270b);
+  const steps = [...base.scenario.steps];
+  let at = steps.at(-1)!.at;
+  const reader = (action: ReaderAction, after: number) => {
+    at += after;
+    const label = "scroll" in action ? `reader scroll ${action.scroll}` : `reader scrollBy ${action.scrollBy}`;
+    steps.push({ type: "reader", at, label, reader: action });
+  };
+  const sweepFrom = steps.length;
+  reader({ scrollBy: r.int(80, 240) }, r.chance(0.25) ? r.int(16, 200) : r.int(700, 1_500));
+  for (let step = r.int(0, 2); step > 0; step -= 1) reader({ scrollBy: r.int(120, 400) }, r.int(40, 220));
+  reader({ scroll: "bottom" }, r.int(40, 220));
+  const ups = r.int(4, 12);
+  for (let step = 0; step < ups; step += 1)
+    reader({ scrollBy: -r.int(120, 480) }, r.chance(0.2) ? r.int(400, 900) : r.int(30, 180));
+  reader({ scroll: "top" }, r.int(40, 400));
+  for (let step = r.int(2, 6); step > 0; step -= 1) reader({ scrollBy: r.int(160, 520) }, r.int(30, 260));
+  reader({ scroll: "bottom" }, r.int(200, 700));
+  return { ...base, scenario: { ...base.scenario, steps }, sweepFrom };
 }

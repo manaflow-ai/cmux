@@ -2,10 +2,18 @@
 // the same one every time, so a seed the fuzzer flags replays exactly; and the seeds cover what Leo named
 // (2026-11-22: "steers coming in at various times and tool calls at various times and turn ends at various").
 import { describe, expect, test } from "bun:test";
-import { fuzzScenario, fuzzSpec, rng, SPLITS } from "./browser/fold-fuzz.scenario";
+import { fuzzScenario, fuzzSpec, rng, SPLITS, strayScenario } from "./browser/fold-fuzz.scenario";
 import { analyze, driftThreshold, type FuzzRun } from "../scripts/fold-fuzz";
 import { MOTION_MS, MOTION_SETTLE } from "../src/motion/scale.generated";
-import { onHouseCurve, stepClass, transcriptMoves, type Box, type MotionRecord } from "./support/transcriptMotion";
+import {
+  onHouseCurve,
+  stepClass,
+  transcriptMoves,
+  type Box,
+  type MotionRecord,
+  strayStarts,
+  type AnimationStart,
+} from "./support/transcriptMotion";
 
 describe("fold fuzz generator", () => {
   test("a seed always draws the same chat", () => {
@@ -264,5 +272,82 @@ describe("fold fuzz flags", () => {
 
   test("the drift threshold sits in the widest gap of the data", () => {
     expect(driftThreshold([0, 0.3, 1, 1.5, 2, 2, 40, 60, 300])).toBeCloseTo(Math.round(Math.sqrt(2 * 40) * 10) / 10);
+  });
+});
+
+// docs/design/transcript-animation-rules.md. Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...?
+// and plays an animation!?"
+describe("stray animation starts", () => {
+  const frame = (t: number, scrollTop: number): MotionRecord["frames"][number] => ({
+    t,
+    scrollTop,
+    scrollHeight: 4000,
+    clientHeight: 600,
+    els: {},
+    touched: [],
+    animated: [],
+    marks: [],
+  });
+  const start = (t: number, top: number, extra: Partial<AnimationStart> = {}): AnimationStart => ({
+    target: "row:a",
+    type: "waapi",
+    what: "opacity",
+    top,
+    bottom: top + 40,
+    view: 600,
+    frame: Math.round(t / 16),
+    t,
+    ...extra,
+  });
+  const still = Array.from({ length: 40 }, (_, i) => frame(i * 16, 1000));
+  const scrolled = Array.from({ length: 40 }, (_, i) => frame(i * 16, 1000 + i * 30));
+
+  test("a start above or below the view is offscreen, whatever caused it", () => {
+    const record: MotionRecord = {
+      frames: still,
+      animations: [],
+      inputs: [],
+      starts: [start(100, -300), start(120, 700, { target: "row:b" }), start(140, 100, { target: "row:c" })],
+    };
+    expect(strayStarts(record).map((f) => [f.kind, f.key])).toEqual([
+      ["offscreen-start", "row:a"],
+      ["offscreen-start", "row:b"],
+    ]);
+  });
+
+  test("a start in view while the reader scrolls is a stray unless he aimed at the row or its data is new", () => {
+    const record: MotionRecord = {
+      frames: scrolled,
+      animations: [],
+      inputs: [80, 160, 240, 320],
+      starts: [
+        start(200, 100, { remount: true }),
+        start(210, 100, { target: "row:b" }),
+        start(220, 100, { target: "row:c" }),
+      ],
+      aimed: [[150, "row:b"]],
+      arrived: { "row:c": 100 },
+    };
+    expect(strayStarts(record).map((f) => [f.kind, f.key])).toEqual([["scroll-start", "row:a"]]);
+    expect(strayStarts(record)[0]!.detail).toContain("remount");
+  });
+
+  test("a start in view with the view still is the change the reader is looking at", () => {
+    const record: MotionRecord = { frames: still, animations: [], inputs: [80], starts: [start(500, 100)] };
+    expect(strayStarts(record)).toEqual([]);
+  });
+
+  test("a stray seed is the fuzz seed's turn with a sweep after it, and odd seeds end scrolled up", () => {
+    for (const seed of [1, 2, 7, 40]) {
+      const stray = strayScenario(seed);
+      const plain = fuzzScenario(seed, stray.spec.viewport === "up" ? { viewport: "up" } : {});
+      expect(stray.scenario.steps.slice(0, stray.sweepFrom)).toEqual(plain.scenario.steps);
+      const sweep = stray.scenario.steps.slice(stray.sweepFrom);
+      expect(sweep.every((step) => step.type === "reader")).toBe(true);
+      expect(sweep.some((step) => step.label === "reader scroll top")).toBe(true);
+      if (seed % 2 === 1) expect(stray.spec.viewport).toBe("up");
+    }
+    // The fuzz seed itself is unchanged by the stray corpus.
+    expect(fuzzScenario(3)).toEqual(fuzzScenario(3, {}));
   });
 });

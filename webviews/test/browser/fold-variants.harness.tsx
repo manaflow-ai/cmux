@@ -22,7 +22,7 @@ import {
 } from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { fuzzScenario } from "./fold-fuzz.scenario";
+import { fuzzScenario, strayScenario } from "./fold-fuzz.scenario";
 import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
@@ -236,6 +236,7 @@ function matrixTurn(cell: MatrixCell): SimScenario {
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name.startsWith("fuzz:")) return fuzzScenario(Number(name.slice(5))).scenario;
+  if (name.startsWith("stray:")) return strayScenario(Number(name.slice(6))).scenario;
   if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
@@ -332,6 +333,23 @@ function sampleFrame(): Sample {
   };
 }
 
+/// A reader step as a person's wheel: a `wheel` event on the transcript each frame (what the pane reads as
+/// the reader's hand, userScroll.ts) and the offset moved by a share of the step, over `WHEEL_FRAMES` frames.
+const WHEEL_FRAMES = 6;
+async function wheelScroll(reader: { scroll: "top" | "bottom" } | { scrollBy: number }) {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return;
+  const target =
+    "scrollBy" in reader ? scroller.scrollTop + reader.scrollBy : reader.scroll === "top" ? 0 : scroller.scrollHeight;
+  for (let frame = 1; frame <= WHEEL_FRAMES; frame += 1) {
+    const goal = "scroll" in reader && reader.scroll === "bottom" ? scroller.scrollHeight : target;
+    const step = (goal - scroller.scrollTop) / (WHEEL_FRAMES - frame + 1);
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: step, bubbles: true, cancelable: true }));
+    scroller.scrollTop += step;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+}
+
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const painted = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -350,7 +368,14 @@ async function run(
   const virtual = name.startsWith("matrix:");
   // A fuzz seed (scripts/fold-fuzz.ts) names its own fold turn end and window, and plays the window on
   // the steps' own clock (gaps capped at `FUZZ_GAP_CAP_MS`), so when each record lands is the seed's.
-  const fuzz = name.startsWith("fuzz:") ? fuzzScenario(Number(name.slice(5))) : undefined;
+  // A stray seed (`stray:N`, fold-fuzz.ts `--sweep`) is the fuzz seed's chat with the reader's sweep after
+  // it; its reader steps are a wheel's frames, as a person scrolls (`wheelScroll`).
+  const stray = name.startsWith("stray:");
+  const fuzz = name.startsWith("fuzz:")
+    ? fuzzScenario(Number(name.slice(5)))
+    : stray
+      ? strayScenario(Number(name.slice(6)))
+      : undefined;
   const whole = fuzz?.scenario ?? (await scenarioNamed(name));
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look, ...options }));
@@ -384,7 +409,11 @@ async function run(
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (step.type === "reader") {
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
+      if (step.type === "reader" && stray) {
+        if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
+        await wheelScroll(step.reader);
+      } else if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;
         // An `open` reader action (opening a "Worked for") does not scroll.
@@ -399,7 +428,8 @@ async function run(
       if (sampling) {
         marks.push({ step: index, t: performance.now(), label: step.label });
         // The reader's scroll is input: the detector takes it out of the rows' moves.
-        window.__transcriptMotion!.mark(step.type === "reader" ? `input:${step.label}` : step.label);
+        if (!(stray && step.type === "reader"))
+          window.__transcriptMotion!.mark(step.type === "reader" ? `input:${step.label}` : step.label);
       }
       if (index < fastUntil) {
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.

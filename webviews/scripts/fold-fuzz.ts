@@ -65,11 +65,24 @@ export function motionVerdict(record: MotionRecord | undefined) {
     const id = `${flag.kind}:${flag.key}`;
     if ((worst.get(id)?.px ?? -1) < flag.px) worst.set(id, flag);
   }
+  // The stray starts by what started (docs/design/transcript-animation-rules.md), with one stack each.
+  const strays: Record<string, { n: number; stack?: string }> = {};
+  for (const flag of flags) {
+    if (flag.kind !== "offscreen-start" && flag.kind !== "scroll-start") continue;
+    const [what = "", stack] = (flag.detail ?? "").split(" @ ");
+    const id = `${flag.kind} ${what.replace(/ at -?[\d.]+\.\.-?[\d.]+ of [\d.]+/, "")}`;
+    strays[id] = { n: (strays[id]?.n ?? 0) + 1, stack: strays[id]?.stack ?? stack };
+  }
   return {
     ...countFlags(flags),
     frames: record.frames.length,
+    starts: record.starts?.length ?? 0,
+    strays,
     byStep,
-    first: [...worst.values()].sort((a, b) => b.px - a.px).slice(0, 6),
+    first: [...worst.values()]
+      .filter((flag) => flag.kind !== "offscreen-start" && flag.kind !== "scroll-start")
+      .sort((a, b) => b.px - a.px)
+      .slice(0, 6),
   };
 }
 export type MotionVerdict = NonNullable<ReturnType<typeof motionVerdict>>;
@@ -334,6 +347,10 @@ async function openPage(browser: Browser, port: number) {
   return page;
 }
 
+/** `--sweep`: play each seed's stray-motion chat (fold-fuzz.scenario.ts `strayScenario`): its end reached
+ *  scrolled up on odd seeds, then the reader's sweep down and up through the top. */
+export const fuzzMode = { sweep: false };
+
 /** Plays one seed with one look on `page` at the seed's split size, and returns its frames. */
 async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun> {
   const spec = fuzzSpec(seed);
@@ -348,7 +365,7 @@ async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun
       fold.size(width, height);
       return fold.run(look, name);
     },
-    [look, `fuzz:${seed}`, width, height] as const,
+    [look, `${fuzzMode.sweep ? "stray" : "fuzz"}:${seed}`, width, height] as const,
   )) as FuzzRun;
 }
 
@@ -479,6 +496,49 @@ export function detectorTable(results: Result[], looks: string[]) {
       ).join(" | ")} |`,
     );
   }
+  lines.push("", ...strayTable(results, looks));
+  return lines;
+}
+
+/** The stray-motion table: per look, every animation start that broke the rule, grouped by what started. */
+export function strayTable(results: Result[], looks: string[]) {
+  const lines = [
+    "### Stray animation starts (docs/design/transcript-animation-rules.md)",
+    "",
+    "`offscreen-start`: an animation started on a row outside the view. `scroll-start`: one started while the reader scrolled, on a row he gave no input to and whose data was not new.",
+    "",
+    "| look | seeds | starts seen | seeds with a stray | offscreen-start | scroll-start |",
+    "|---|---|---|---|---|---|",
+  ];
+  const groups = new Map<string, { n: number; seeds: Set<number>; stack?: string }>();
+  for (const look of looks) {
+    const runs = results.filter((r) => r.look === look && ok(r.numbers) && (r.numbers as Ok).motion);
+    const verdicts = runs.map((r) => (r.numbers as Ok).motion!);
+    const sum = (pick: (v: MotionVerdict) => number) => verdicts.reduce((total, v) => total + pick(v), 0);
+    lines.push(
+      `| ${look} | ${verdicts.length} | ${sum((v) => v.starts)} | ${
+        verdicts.filter((v) => v["offscreen-start"] + v["scroll-start"] > 0).length
+      } | ${sum((v) => v["offscreen-start"])} | ${sum((v) => v["scroll-start"])} |`,
+    );
+    for (const r of runs)
+      for (const [id, { n, stack }] of Object.entries((r.numbers as Ok).motion!.strays ?? {})) {
+        const group = groups.get(`${look} ${id}`) ?? { n: 0, seeds: new Set<number>(), stack };
+        group.n += n;
+        group.seeds.add(r.seed);
+        groups.set(`${look} ${id}`, group);
+      }
+  }
+  if (groups.size) {
+    lines.push(
+      "",
+      "| look, rule and what started | starts | seeds | e.g. seeds | where (stack) |",
+      "|---|---|---|---|---|",
+    );
+    for (const [id, group] of [...groups].sort((a, b) => b[1].n - a[1].n).slice(0, 30))
+      lines.push(
+        `| ${id.replace(/\|/g, "/")} | ${group.n} | ${group.seeds.size} | ${[...group.seeds].slice(0, 5).join(", ")} | ${(group.stack ?? "").replace(/\|/g, "/").slice(0, 220)} |`,
+      );
+  }
   return lines;
 }
 
@@ -608,6 +668,7 @@ if (import.meta.main) {
     const at = args.indexOf(name);
     return at >= 0 ? args[at + 1] : undefined;
   };
+  fuzzMode.sweep = args.includes("--sweep");
   const count = Number(value("--seeds") ?? 500);
   const first = Number(value("--from") ?? 1);
   const seeds = value("--only")?.split(",").map(Number) ?? Array.from({ length: count }, (_, i) => first + i);
