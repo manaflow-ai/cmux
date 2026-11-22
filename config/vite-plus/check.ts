@@ -29,7 +29,9 @@ export function cmuxCheckConfig({
       options: { denyWarnings: !allowWarnings, typeAware: true, typeCheck: true },
       rules: {
         ...(effectCleanupPlugin ? { "cmux-lifecycle/effect-interval-cleanup": "error" as const } : {}),
-        ...(perfPlugin ? { "cmux-perf/layout-thrash-in-loop": "error" as const } : {}),
+        ...(perfPlugin
+          ? { "cmux-perf/layout-thrash-in-loop": "error" as const, "cmux-perf/no-intl-construct": "error" as const }
+          : {}),
         "typescript/await-thenable": "off" as const,
         "typescript/no-base-to-string": "off" as const,
         "typescript/no-redundant-type-constituents": "off" as const,
@@ -40,7 +42,7 @@ export function cmuxCheckConfig({
         ? [
             {
               files: ["test/**", "bench/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx"],
-              rules: { "cmux-perf/layout-thrash-in-loop": "off" as const },
+              rules: { "cmux-perf/layout-thrash-in-loop": "off" as const, "cmux-perf/no-intl-construct": "off" as const },
             },
           ]
         : [],
