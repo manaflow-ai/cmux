@@ -13,6 +13,7 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -412,8 +413,8 @@ test("Machines…: every machine, This Mac first, numbered ⌥⌘1–9, defaulti
     "build-cloud",
     "cloud-1",
   ]);
-  // This Mac's own name is its row's tooltip.
-  expect(shown[0]!.querySelector(".acpmux-env-row")!.getAttribute("title")).toBe("cosmic-gray");
+  // This Mac's row says "This Mac"; this Mac's own name shows on the row's hover card.
+  expect(await factsCardText(shown[0]!.querySelector(".acpmux-env-row")!)).toBe("cosmic-gray");
   // The machine that is not connected takes no shortcut.
   expect(shown.map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual([
     "⌥⌘1",
@@ -442,7 +443,7 @@ test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's nam
   for (const [host, localMachineName, tooltip] of [
     ["current", "cosmic-gray", "cosmic-gray"],
     // A host that predates `localMachineName` sends the chat's machine as `machineName`.
-    ["older", undefined, null],
+    ["older", undefined, ""],
   ] as const) {
     act(() => root?.unmount());
     await mount(true, {
@@ -456,7 +457,7 @@ test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's nam
       local.map((row) => row.querySelector(".acpmux-menu-label")?.textContent),
       host,
     ).toEqual([t("composer.thisMac")]);
-    expect(local[0]!.querySelector(".acpmux-env-row")!.getAttribute("title"), host).toBe(tooltip);
+    expect(await factsCardText(local[0]!.querySelector(".acpmux-env-row")!), host).toBe(tooltip);
     // The Cloud machine is one of the other machines, after This Mac and Cloud, and the chat's pick.
     const sandpiper = machineRows().find((row) => rowText(row).startsWith("kind-aqua-sandpiper"))!;
     expect(sandpiper.querySelector(".acpmux-env-row")!.getAttribute("data-kind"), host).toBe("cloud");
@@ -479,7 +480,10 @@ test("This Mac's name is the host's own name, never the machine a seeded chat ru
   expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
-test("Cloud opens the host's New Cloud Machine flow", async () => {
+// cmux#47677 (#47734): picking Cloud only names where a new chat runs, so with no new chat to point there
+// (no `runMode`) the list has no Cloud row and nothing in it opens New Cloud Machine (that stays on the
+// right-click menu).
+test("with no new chat, the list has no Cloud row and opens no New Cloud Machine flow", async () => {
   const calls = await mount(true, {
     sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
     peers: ["gpu-box"],
@@ -487,11 +491,10 @@ test("Cloud opens the host's New Cloud Machine flow", async () => {
   });
   await openPicker();
   expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
-  const cloud = newRows()[0]!;
-  expect(cloud.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.cloud"));
-  await act(async () => cloud.click());
-  expect(calls).toEqual([["connect", "cloud"]]);
-  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(labels()).not.toContain(t("composer.cloud"));
+  expect(labels()).not.toContain(t("composer.newCloudMachine"));
+  for (const row of newRows()) await act(async () => row.click());
+  expect(calls.filter((call) => call[0] === "connect" && call[1] === "cloud")).toEqual([]);
 });
 
 /// Six SSH machines besides the ones `mount` lists: a list long enough for its search field.
@@ -613,7 +616,8 @@ test("a move the app would refuse is greyed with its reason and a pick runs noth
   expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(reason);
   const drawn = row.querySelector(".acpmux-env-row") ?? row;
   expect(drawn.getAttribute("aria-disabled")).toBe("true");
-  expect(drawn.getAttribute("title")).toBe(reason);
+  // The reason shows under the row, so the row has no tooltip.
+  expect(drawn.getAttribute("title")).toBeNull();
   await act(async () => row.click());
   expect(calls).toEqual([]);
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
@@ -1443,7 +1447,10 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
 const labels = () => rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
 
-const shipped = { stripLayout: "where-machine" };
+// The shipped strip heads a new chat, which always has Run as (`runMode`): its Cloud row is where the chat
+// runs (cmux#47677: with no new chat there is no Cloud row at all).
+const shipped = { stripLayout: "where-machine", runMode: { mode: "persistent", onMode: () => undefined } };
+const noNewChat = { stripLayout: "where-machine" };
 const chipButton = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
     (button.getAttribute("aria-label") ?? "").startsWith(name + ":"),
@@ -1505,11 +1512,12 @@ test("Leo's menu: Cloud picks a new machine for the new chat, never one of the l
   expect(modes).toEqual([["mode", "cloud"]]);
   expect(calls).toEqual([]);
   act(() => root?.unmount());
-  // Without Run as: Cloud opens the host's New Cloud Machine flow, which makes a new machine.
-  const connects = await mount(true, shipped);
+  // Without Run as there is no new chat to point at Cloud: no Cloud row, and nothing makes a machine
+  // (cmux#47677; New Cloud Machine… stays on the right-click menu).
+  const connects = await mount(true, noNewChat);
   await openPicker();
-  await act(async () => newRows()[0]!.click());
-  expect(connects).toEqual([["connect", "cloud"]]);
+  expect(rows().some((row) => row.querySelector('.acpmux-env-row[data-mode="cloud"]'))).toBe(false);
+  expect(connects).toEqual([]);
 });
 
 test("Leo's menu: Other devices counts and opens the person's machines in place; a pick there is the machine chip's", async () => {
