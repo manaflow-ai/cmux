@@ -336,18 +336,36 @@ async function labelPng(text, width, height, file, align = "left") {
   await page.setContent(
     `<body style="margin:0;background:#1d1d1f;color:#f5f5f7;font:600 ${Math.round(height * 0.62)}px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:${align === "left" ? "flex-start" : "center"};padding:0 ${GAP}px;height:${height}px;white-space:nowrap;overflow:hidden">${text.replace(/</g, "&lt;")}</body>`,
   );
+  // Shrink the words until they fit the band (a narrow clip keeps its whole title).
+  await page.evaluate(() => {
+    const body = document.body;
+    let size = parseFloat(getComputedStyle(body).fontSize);
+    while (body.scrollWidth > innerWidth && size > 8) body.style.fontSize = `${(size -= 1)}px`;
+  });
   await page.screenshot({ path: file });
+  await context.close();
+}
+
+/** A state's name as a small pill drawn over its first cell's corner, so names take no band of the frame. */
+async function pillPng(text, file) {
+  const context = await browser.newContext({ viewport: { width: W, height: LABEL_H * 2 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  await page.setContent(
+    `<body style="margin:0;background:transparent"><span id="p" style="display:inline-block;background:rgba(29,29,31,.78);color:#f5f5f7;font:600 ${Math.round(LABEL_H * 0.5)}px -apple-system,system-ui,sans-serif;padding:${GAP / 2}px ${GAP * 1.5}px;border-bottom-right-radius:${GAP * 1.5}px;white-space:nowrap">${text.replace(/</g, "&lt;")}</span></body>`,
+  );
+  await page.locator("#p").screenshot({ path: file, omitBackground: true });
   await context.close();
 }
 
 const W = SCHEMES.length * PW + (SCHEMES.length - 1) * GAP;
 const rows = [...cells.keys()];
-const H = LABEL_H + rows.length * (LABEL_H + PH) + rows.length * GAP;
+const H = LABEL_H + rows.length * (PH + GAP);
 
 async function segment(rate, seconds, file, tag) {
   const header = path.join(work, `header-${tag}.png`);
   const headerText =
-    SCHEMES.map((s) => s).join("   ·   ") + (animated ? `   —   ${rate === 1 ? "1x" : `${rate}x slowed`}` : "");
+    `${entryIds.join(", ")}   ·   ${SCHEMES.join(" | ")}` +
+    (animated ? `   ·   ${rate === 1 ? "1x" : `${rate}x slowed`}` : "");
   await labelPng(headerText, W, LABEL_H, header, "center");
   const inputs = ["-loop", "1", "-framerate", String(FPS), "-i", header];
   const filters = [];
@@ -356,10 +374,10 @@ async function segment(rate, seconds, file, tag) {
   let y = LABEL_H + GAP;
   for (const key of rows) {
     const label = path.join(work, `label-${n}.png`);
-    await labelPng(key, W, LABEL_H, label);
+    // The entry is in the clip's title; a row is named by its variant.
+    await pillPng(rows.length > 1 || !key.endsWith("/") ? key.split("/").pop() || key : key, label);
+    const labelInput = n++;
     inputs.push("-loop", "1", "-framerate", String(FPS), "-i", label);
-    layout.push({ input: n++, x: 0, y });
-    y += LABEL_H;
     SCHEMES.forEach((scheme, s) => {
       const c = cells.get(key)[scheme];
       if (c.frames > 1) {
@@ -372,6 +390,7 @@ async function segment(rate, seconds, file, tag) {
       );
       layout.push({ input: n++, x: s * (PW + GAP), y, cell: true });
     });
+    layout.push({ input: labelInput, x: 0, y });
     y += PH + GAP;
   }
   // A plain canvas, then every piece overlaid at its place.
