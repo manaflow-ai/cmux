@@ -200,6 +200,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -1200,6 +1201,9 @@ pub struct Hub {
     pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
     /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
     pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Whether surge admission holds messages, set by tests; `None` reads Settings >
+    /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
+    pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1634,6 +1638,7 @@ impl Hub {
             coach_rewriter: StdMutex::new(None),
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
+            surge_inbox: StdMutex::new(None),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2837,6 +2842,7 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let started = std::time::Instant::now();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -2870,6 +2876,7 @@ impl Hub {
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
         let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
+        let appending = std::time::Instant::now();
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2878,6 +2885,7 @@ impl Hub {
             ),
             _ => self.store.append(&session.id, &record),
         };
+        let store_time = appending.elapsed();
         let stored = match appended {
             Ok(()) => true,
             Err(e) => {
@@ -3027,6 +3035,7 @@ impl Hub {
                 self.events.send_row(session, event)
             };
         }
+        crate::gauges::record_writes().note(store_time, started.elapsed());
         (record, stored)
     }
 
