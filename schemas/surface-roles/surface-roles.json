@@ -70,6 +70,19 @@
       "reduceTransparency": "the opaque popup surface, no rim"
     },
     {
+      "name": "prompt",
+      "for": "prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through",
+      "tone": "neutral",
+      "style": "prompt",
+      "cornerDepth": 0,
+      "webRadius": 14,
+      "veil": { "dark": 0.74, "light": 0.8 },
+      "veilTint": "theme",
+      "rim": { "dark": [0.3, 0.06], "light": [0.85, 0.1] },
+      "castsShadow": true,
+      "reduceTransparency": "the opaque popup surface, no rim"
+    },
+    {
       "name": "tooltip",
       "for": "tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur",
       "tone": "theme",
