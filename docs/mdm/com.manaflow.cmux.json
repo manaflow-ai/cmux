@@ -3069,7 +3069,7 @@
       "type" : "boolean"
     },
     "computerUse.settle" : {
-      "default" : "adaptive",
+      "default" : "openai",
       "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
       "enum" : [
         "adaptive",
