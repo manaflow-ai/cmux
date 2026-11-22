@@ -269,7 +269,12 @@ class Scenario:
             if stray:
                 self.cli("tab", stray[0][1]["id"], "move", "--workspace", self.workspace, "--screen", self.screen,
                          "--pane", first, "--index", "0", json_out=False)
-        # The terminals go; each pane shows its page.
+        # The terminals go; each pane shows its page. A pane whose page did not come keeps its terminal: closing its only
+        # tab would close the pane and move every rect measured above.
+        settled = STRESS.wait(lambda: [t for t in self.pane_tabs(first) if t.get("kind") != "terminal"] or None, 10, step=0.25)
+        if not settled:
+            log(f"GSW-FLEET the first pane has no Settings tab; its tabs: {self.pane_tabs(first)}")
+            terminals.pop(first, None)
         for pane, ids in terminals.items():
             for tab in ids:
                 st.action("closeTab", target=f"tab:{tab}", focus=False)
@@ -294,7 +299,12 @@ class Scenario:
         self.results["setup"].update(chats=self.chats, chip=chip)
         time.sleep(3)  # the pages settle with their drafts
         self.make_regions(fracs)
-        self.probe_src = next(iter(sorted((self.home / "Library/Application Support").glob("*/diagnostics/agent-page-flicker.ndjson"))), None)
+
+    def probe_file(self):
+        """The in-page probe's journal (webviews swapProbe.ts), once the app has written one."""
+        if not self.probe_src:
+            self.probe_src = next(iter(sorted((self.home / "Library/Application Support").glob("*/diagnostics/agent-page-flicker.ndjson"))), None)
+        return self.probe_src
 
     def acpmux_call(self, method, params):
         with socket.socket(socket.AF_UNIX) as c:
@@ -370,7 +380,7 @@ class Scenario:
             self.regions = self.scaled(self.scale)
             log(f"GSW-FLEET movie {width}x{height}, scale {self.scale}, regions (movie pixels) {self.regions}")
         probe = None
-        if self.probe_src and self.probe_src.exists():
+        if self.probe_file() and self.probe_src.exists():
             probe = run / "probe.ndjson"
             kept = []
             for line in self.probe_src.read_text(errors="replace").splitlines():
@@ -524,6 +534,7 @@ class Scenario:
                                trigger_for=lambda on: f'"$CMUX" --app-socket "$CMUX_APP_SOCKET" tab {c} show',
                                after=lambda on: self.cli("tab", b, "show", json_out=False))
             self.summary("hidden", "hidden", "unfocused", ["sidebar", "settings", "focused"], runs, sample="settled_ms")
+            self.st.focus_pane(self.panes[1])
         if "settings" in wanted:
             runs = self.series("settings", self.opts.runs, edit="settings")
             self.summary("settings", "unfocused", "settings", ["sidebar", "focused", "unfocused"], runs)
