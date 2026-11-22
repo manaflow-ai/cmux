@@ -75,6 +75,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `client-api.linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `cmux-staging.vercel.app` | connects | classic cmux Cloud's staging sign-in, only when staging is chosen |
+| `api.*.wdev.cmux.dev` | connects | the iPhone app's Debug override of its Cloud backend, only when a developer points it at their own Cloud stack |
+| `*.*.wdev.cmux.dev` | connects | the iPhone app's Debug override of its Cloud backend, only when a developer points it at their own Cloud stack |
 | `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
 | `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
@@ -341,6 +343,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `api.datadoghq.com` | example | a sample value in the Debug-only Environment Secrets Playground |
+| `http-intake.logs.datadoghq.com` | example | a sample value in the Debug-only Environment Secrets Playground |
+| `hooks.stripe.com` | example | a sample value in the Debug-only Environment Secrets Playground |
+| `maps.googleapis.com` | example | a sample value in the Debug-only Environment Secrets Playground |
 
 ### Text that looks like a host name
 
