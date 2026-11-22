@@ -104,14 +104,23 @@ and 0 for the first new tab, the match can be wrong.
 The id names a page VIEW, not a tab: the app can give the page view of a New Tab tab that nobody used to the New
 Tab tab that a pane shows next (AgentTabs+OptimisticWorkspace.swift `idlePage`), and the id goes with the view.
 So the counts and the engine word of a case are of the view that the first new tab has AFTER the tool's select.
+The tool has NO fact that proves that this view is the one that the tab had at the time of the letter: a run
+gives no engine sentence on a late letter.
 The record's `page_is_the_windows_page_before_the_keys` is True when the id is the one that the same window had
 at the case's read before the keys (the tool keeps that id in memory, for that case only), False when it is
 another one or the window had none then, and None with no id or with no read before the keys. With True the
 counts and the engine word are of ONE view that an older tab had before the keys (the app gave that view to the
 first new tab, or the window still named the older tab's page: the tool cannot part the 2), so they do not say
-what the first new tab had at the time of the letter. False does not say that no other tab had the view: the
-window has the id of ONE page only, the page with the page focus. An opening's `idle` (an app that has that
-word) says that the tab of a New Tab key took a view that was there.
+what the first new tab had at the time of the letter. By a read of the app's code (not by a run), True is the
+NORMAL value in three-key, two-key and reselect: there the pane shows a New Tab tab that nobody used before the
+keys, and the first new tab takes that tab's view at the first New Tab key (NewTabPage+Open.swift); True with a
+first opening's `idle` True says that. In from-chat and close-move the normal value is False (the chat, or the
+other pane, had the page focus), and the view can be an older tab's there too. False does not say that no other
+tab had the view: the window has the id of ONE page only, the page with the page focus. An opening's `idle` (an
+app that has that word) is the app's `spare == nil && showedSpare` (NewTabPage+Open.swift): True says that the
+open took no page of the app's store of spare pages and that the tab's content was alive and shown in the key's
+own turn; False with `spare` True is a page of that store; False with `spare` False is not known (a page made
+later, or a view that was not shown in that turn). `idle` says nothing of a take after the key.
 
 THE KEYBOARD'S VIEW. The record's `keyboard` says, from the `debug.focus` replies that the case reads before the
 keys (`before`), after them (`after`, the read of the hold's log) and after its select (`after_select`, the read
@@ -124,25 +133,30 @@ window has the keys then; another page's window can be the key window). The read
 comes before the key call makes the page window the key window. These words change no verdict.
 
 AFTER THE SELECT. The entries before the select do not say what the app did at the select. So a case reads the
-journal ONE more time, as its LAST call: after the select, after the verdict's read of the field and after each
-read of the places. The record's `journal_after_select` has the same counts as `journal`, of the entries after
-the journal's last number at the last read before the select, to the case's end: the last read of the park, the
-focus of the pane, the select, and the tool's selects of the case's other tabs are in that time, so `after the
-select` names the read and not each entry. `engine_after_select` is the last engine word of the first new tab in
-those entries (None: the tool had the page's id and no such entry names it, or no read; the word `not readable
-for a cmux page in Chromium`: see THE PAGE'S ID). TO READ IT: `first_new_tab.chromium_given` of 1 or more says
-that the app gave the page focus to the Chromium page of that view (THE PAGE'S ID) in that time; a count of 0
-with `shown_page_has_chromium_focus` True is a real state: the app can record a page as the one with the page
-focus with no give (its entry then has the word `chromium-key`). The last engine word alone
-does not say it: an entry that takes the focus has the word `chromium` too, and the app writes an entry with a
-`-key` word by the place of a window that became key, which can be the window of another tab's page. The app
-writes an entry only at a change: a page that had the page focus before the read before the select gets no new
-give, and `journal` has its give then. A read only: it changes no verdict. With no read the record has
+journal ONE more time: after the select and the verdict's read of the field, directly after the read of the
+window (THE PAGE'S ID), and BEFORE the reads of the places. Those reads select the case's other tabs, and by a
+read of the app's code (not by a run) a pane that then shows a New Tab tab with no page view can take the view
+of the first new tab when nobody used that view (the first new tab's field is empty): the entries of that view
+would then be counted as the first new tab's. The record's `journal_after_select` has the same counts as
+`journal`, of the entries after the journal's last number at the last read before the select, to this read: the
+last read of the park, the focus of the pane, the select, the verdict's read of the field and the read of the
+window are in that time, so `after the select` names the read and not each entry. `engine_after_select` is the
+last engine word of the first new tab in those entries (None: the tool had the page's id and no such entry
+names it, or no read; the word `not readable for a cmux page in Chromium`: see THE PAGE'S ID). TO READ IT:
+`first_new_tab.chromium_given` of 1 or more says that the app gave the page focus to the Chromium page of that
+view (THE PAGE'S ID) in that time; a count of 0 with `shown_page_has_chromium_focus` True is a real state: the
+app can record a page as the one with the page focus with no give (its entry then has the word
+`chromium-key`). The last engine word alone does not say it: an entry that takes the focus has the word
+`chromium` too, and the app writes an entry with a `-key` word by the place of a window that became key, which
+can be the window of another tab's page. The app writes an entry only at a change: a page that had the page
+focus before the read before the select gets no new give, and `journal` has its give then. A read only: it
+changes no verdict. With no read the record has
 `journal_after_select.not_read` with the why (`no read before the select`: the last read of the journal before
 the select gave no last number, also when an older read of the case gave one, and the tool then reads no
 entries), and the case goes on. A case that is `not_run` before the read after its select (before the select, at
 the select, or at the verdict's read of the field) has none of the keys `journal_after_select`,
-`engine_after_select` and `shown_page_has_chromium_focus`, and no `keyboard.after_select`.
+`engine_after_select`, `shown_page_has_chromium_focus` and `page_is_the_windows_page_before_the_keys`, and no
+`keyboard.after_select`.
 
 THE 3 KEYS: a New Tab key, the letter x 30 ms later, a second New Tab key 30 ms after the letter. The second New Tab
 key is a key with Command while the hold has the letter: the hold ends with no field ready (`release: chord`).
@@ -590,10 +604,10 @@ class Letters:
 
     def after_select(self, tab):
         """The record's `journal_after_select` and `engine_after_select` for the first new tab `tab` (AFTER THE
-        SELECT): ONE read of the journal, the case's last call. `noted` of the entries after the journal's last
-        number at the last read before the select, with the id of the tab's page when `shown_page` got one; with
-        no such number no call, and `not_read` says so. No exception leaves it: the case has its verdict and its
-        places, and this read changes none of them."""
+        SELECT): ONE read of the journal, directly after `shown_page` and before the reads of the places (they
+        select other tabs). `noted` of the entries after the journal's last number at the last read before the
+        select, with the id of the tab's page when `shown_page` got one; with no such number no call, and
+        `not_read` says so. No exception leaves it: the case has its verdict, and this read does not change it."""
         try:
             found, engine, _, _ = self.entries_after(self.noted_to, UNMARKED, tab, self.page)
         except Exception as error:  # noqa: BLE001  a read only: it must not make a case that ran `not_run`
@@ -870,9 +884,11 @@ class Letters:
             # does and as the app does before it types one (TypingPark.swift `prune`, `take`): the counts at the
             # case's end are the same with this read and with no such read.
             record.update(self.shown_page(record, target, made[0]))
-            self.located(record, workspace, target, made, text)
-            # The case's last call: a read only, after each read of the verdict and of the places (AFTER THE SELECT).
+            # The journal's read after the select (AFTER THE SELECT): a read only, directly after the read of the id
+            # and BEFORE the reads of the places. Those select the case's other tabs, and the app can then give the
+            # first new tab's page view to a tab that the pane shows: that view's entries are not the first new tab's.
             record.update(self.after_select(made[0]))
+            self.located(record, workspace, target, made, text)
         except NotRun as error:
             record["not_run"] = str(error)
         except Exception as error:  # noqa: BLE001  one case that stopped must not lose the other cases

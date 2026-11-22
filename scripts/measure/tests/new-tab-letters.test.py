@@ -22,10 +22,12 @@ text in the park before its keys is `not_run` and sends no key; the journal's re
 the park; a record has the journal's counts of the readiness notes, of the first new tab's focus and of the page
 entries of each tab, the app's engine word of that tab, and the count of the open New Tab key holds, with no other
 text of an entry and no id, and a journal with no read (at the first read or only at the second), with an odd last
-number or with an entry whose number is no number changes no verdict; the journal's read after the select is a
-case's last call, after the reads of the places: the record has the first new tab's engine word and the counts of
+number or with an entry whose number is no number changes no verdict; the journal's read after the select comes
+directly after the read of the window and before the reads of the places (they select other tabs, and the app can
+then give the first new tab's page view to another tab: an entry of that view after such a select is not in the
+counts): the record has the first new tab's engine word and the counts of
 the entries after the last read of the journal before the select (not of an entry before that read), the whole
-record but these 2 keys, each call and act before the read and the form's line are those of a tool with no such
+record but these 2 keys, each other call and act and the form's line are those of a tool with no such
 read (in each of the 7 forms), a failed read gives no engine word and the why and ends no case and no run, with
 no read before the select the tool reads no entries after it (also when only the second of 2 reads before the
 select failed), and a case that is `not_run` before the read after its select has no such key; the journal names a
@@ -390,13 +392,15 @@ class App:
     them). `views`: the first responder's word for a shown tab, as it is (None: the JSON null of a window with
     none). `aims`: the focus model's tab for a shown tab, when it is not that tab (None: the JSON null). `dead`:
     the numbers of the reads of `debug.focus` after a case's first read of a field that raise (1: the tool's read
-    after its select)."""
+    after its select). `moved`: the kinds of the entries that the journal gets at the first call after the pane
+    with the keyboard shows another tab than at that first read of a field (a tool's select of another tab for
+    the reads of the places: the app gives the first new tab's page view to that tab, and that view the focus)."""
 
     def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False, focus=False, lands=None, park=None, park_end=None, active=True,
                  had=None, counts=True, query=(), journal=(), turns=None, blind=(), fails=(), holds=None, slow=None, after=(), pages=None, lost=(), dead=(),
-                 views=None, aims=None):
+                 views=None, aims=None, moved=()):
         self.slow, self.after, self.wrote, self.pages, self.lost, self.dead, self.later = slow or {}, after, True, pages, lost, dead, None
-        self.views, self.aims = views or {}, aims or {}
+        self.views, self.aims, self.moved, self.first_shown = views or {}, aims or {}, moved, None
         self.builder, self.notes, self.texts, self.refuse, self.log, self.sequences = builder, notes, texts, refuse, ["old +0ms"], []
         self.motion, self.deaf, self.calls, self.focus, self.active = motion, deaf, [], focus, active
         self.lands, self.park, self.park_end, self.counts = lands or {}, park or {}, park_end or {}, {**dict.fromkeys(M.PARK, 0), **(had or {})}
@@ -415,6 +419,9 @@ class App:
     def __call__(self, method, params=None):
         params = params or {}
         self.calls.append((method, params.get("action")))
+        if self.first_shown not in (None, self.builder.selected):  # the pane shows another tab than at the verdict's read
+            self.write(self.moved)
+            self.first_shown = None
         if method == "debug.key":
             if self.refuse:
                 return {"error": self.refuse}
@@ -464,7 +471,7 @@ class App:
             self.fielded = self.keyed
             if not self.wrote:
                 self.write(self.after)
-                self.wrote, self.later = True, 0
+                self.wrote, self.later, self.first_shown = True, 0, self.builder.selected
             return {"text": None if chat else self.texts.get(self.builder.selected, ""), "focused": True, "open_tabs": ["a title"]}
         if method == "debug.agent_pane" and params.get("action") == "query" and chat and self.query:
             return self.query.pop(0)
@@ -648,8 +655,10 @@ class Case(unittest.TestCase):
         self.assertEqual([target for name, target in builder.actions if name == "tab.focus"], ["tab:t2", "tab:t3", "tab:t1"])
         self.assertEqual((record["second_new_tab_field"], record["tabs_before"], record.get("places_not_read")),
                          ("", [{"field_before": "", "field": "", "got_the_letter": False}], None))
-        # The park's counts of the end are the last read of the places; the journal's read after the select is the case's last call.
-        self.assertEqual(app.calls[-2:], [("debug.focus", None), ("debug.journal", None)])
+        # The journal's read after the select comes directly after the read of the window and before the reads of the
+        # places (the fields of the 2 other tabs); the park's counts of the end are the last read, the case's last call.
+        last = len(app.calls) - 1 - app.calls[::-1].index(("debug.journal", None))
+        self.assertEqual((app.calls[last - 1], app.calls[last + 1:]), (("debug.focus", None), [("debug.new_tab", "field")] * 2 + [("debug.focus", None)]))
         # The app refuses the selects of the second new tab and of the tab before: the verdict stays, the record says why.
         record = self.letters(CHORD, {"t2": "x"}, builder=Builder(refuse="no", only=("t1", "t3")))[0].case("three-key", 0)
         self.assertEqual((record["pass"], record["letter_is"], record["second_new_tab_field"], record["tabs_before"][0]["field"]), (True, "new tab's field", None, None))
@@ -1057,8 +1066,9 @@ class BeforeSelect(unittest.TestCase):
 
 class AfterSelect(unittest.TestCase):
     """`engine` None before the select does not say which engine has the first new tab's page (the app writes an
-    entry only at a change of a page's focus). So a case reads the journal ONE more time, as its last call, and the
-    record has the engine word of the entries after the last read before the select. A read only."""
+    entry only at a change of a page's focus). So a case reads the journal ONE more time, directly after its read
+    of the window and before its selects of other tabs, and the record has the engine word of the entries after
+    the last read before the select. A read only."""
 
     letters, journal = Case.letters, BeforeSelect.journal
 
@@ -1114,10 +1124,11 @@ class AfterSelect(unittest.TestCase):
         record = letters.case(form, 0)
         return record, order, M.verdict(form, [record])
 
-    def test_the_read_after_the_select_is_the_cases_last_call_and_changes_no_other_key_of_the_record(self):
+    def test_the_read_after_the_select_comes_directly_after_the_read_of_the_window_and_changes_no_other_key_of_the_record(self):
         # The same case 2 times: with the tool's read after the select, and with a tool that has no such read. The
-        # whole record but the 2 new keys, each call and act before the read, and the form's line are the same: the
-        # read comes after each read of the verdict and of the places, and directly before the close of the workspace.
+        # whole record but the 2 new keys, each other call and act in their order, and the form's line are the
+        # same: the read is ONE call directly after the read of the window (which comes directly after the
+        # verdict's read of the field), before the tool's selects of the other tabs for the reads of the places.
         late = {"park": {"parked": 1}, "park_end": {"typed": 1}}
         for form, notes, texts, model in (("three-key", CHORD, {"t2": "x"}, {}), ("three-key", CHORD, {"t2": "x"}, late), ("three-key", DROP, {}, {}),
                                           ("three-key", CHORD, {}, {"park": {"parked": 1}, "park_end": {"dropped_old": 1}}),
@@ -1129,7 +1140,9 @@ class AfterSelect(unittest.TestCase):
             plain, before, line_before = self.whole(form, notes, texts, read=False, **model)
             self.assertEqual(sorted(set(record) - set(plain)), ["engine_after_select", "journal_after_select"], form)
             self.assertEqual({key: value for key, value in record.items() if key in plain}, plain, form)
-            self.assertEqual((before[-1], order), ("closeWorkspace", before[:-1] + ["debug.journal", "closeWorkspace"]), form)
+            at = next(index for index, call in enumerate(order) if before[index] != call)
+            self.assertEqual((order[at - 2:at + 1], order[:at] + order[at + 1:]), (["debug.new_tab", "debug.focus", "debug.journal"], before), form)
+            self.assertEqual(("tab.focus" in order[at:], order[-1]), (True, "closeWorkspace"), form)  # each read of the places comes after it
             self.assertEqual((line, "pass" in plain, record["engine_after_select"]), (line_before, True, "chromium"), form)
 
     def test_the_entries_after_the_select_are_counted_from_the_last_read_of_the_journal_before_it(self):
@@ -1439,8 +1452,26 @@ class PageId(unittest.TestCase):
             self.assertEqual((record["keyboard"], record["shown_page_has_chromium_focus"]), ({**plain["keyboard"], "after_select": self.CHROMIUM}, True), form)
             self.assertEqual((plain["engine"], plain["engine_after_select"], record["engine"], record["engine_after_select"]), (M.UNREADABLE, M.UNREADABLE, "chromium", "chromium-key"), form)
             at = next(index for index, call in enumerate(order) if before[index] != call)
-            self.assertEqual((order[at - 1], order[at], before[at], order[:at] + order[at + 1:]), ("debug.new_tab", "debug.focus", "tab.focus", before), form)
+            self.assertEqual((order[at - 1], order[at], before[at], order[:at] + order[at + 1:]), ("debug.new_tab", "debug.focus", "debug.journal", before), form)
+            self.assertEqual(before[at + 1], "tab.focus", form)  # the journal's read after the select, then the first select of another tab
             self.assertEqual((line, "pass" in plain, "park" in plain), (line_before, True, True), form)
+
+    def test_an_entry_of_the_first_new_tabs_view_after_a_select_of_another_tab_is_not_in_the_counts_after_the_select(self):
+        # The id names a page VIEW. The reads of the places select the case's other tabs. A pane that then shows a
+        # New Tab tab with no view can take the first new tab's view when nobody used it (its field is empty), and
+        # the app gives that view the page focus: entries with the SAME id, of the view while another tab has it.
+        # The read after the select comes before those selects: its counts have the entry of the select only.
+        after, moved = [page(PAGE, True, "chromium-key")], [page(PAGE, False, "chromium"), page(PAGE, True, "chromium")]
+        for form, notes in (("three-key", CHORD), ("two-key", READY)):
+            letters, builder, app = self.letters(notes, {}, after=after, moved=moved, pages=self.MOVED)
+            record = letters.case(form, 0)
+            found = record["journal_after_select"]
+            self.assertEqual((found["entries"], found["first_new_tab"], record["engine_after_select"]),
+                             (1, {"focus_given": 1, "focus_taken": 0, "chromium_given": 0, "engines": ["chromium-key"]}, "chromium-key"), form)
+            # The model wrote the 2 entries of the moved view after that read: the journal has them at the case's end.
+            self.assertEqual(([entry["kind"] for entry in app.entries[-2:]], app.seq), (moved, 43), form)
+            self.assertEqual((record.get("not_run"), record.get("places_not_read"), record["shown_page_has_chromium_focus"], record["field"]), (None, None, True, ""), form)
+            self.assertIn(("tab.focus", "tab:t1"), builder.actions, form)  # the tool's select of the tab before
 
     def test_an_entry_between_the_apps_2_reads_of_a_reply_is_counted_one_time(self):
         # The app reads the journal's last number and its entries one after the other: an entry that came between
