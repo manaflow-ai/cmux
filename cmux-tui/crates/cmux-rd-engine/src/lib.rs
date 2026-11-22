@@ -384,6 +384,8 @@ impl StreamState {
             probes: 0,
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
+            refine_due_us: None,
+            refine_pending: false,
             ladder: None,
         }
     }
@@ -394,8 +396,6 @@ impl StreamState {
         self.gate.set_max_fps(after.fps);
         if (after.width, after.height) != (before.width, before.height) {
             self.force_idr.get_or_insert(IdrReason::Resize);
-            refine_due_us: None,
-            refine_pending: false,
         }
     }
 
