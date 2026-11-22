@@ -46,6 +46,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sparkles",
         surfaces: PALETTE,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-meet-chief",
         focuses: true,
         ..Action::DEFAULT
     },
