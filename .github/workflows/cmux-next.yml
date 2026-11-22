@@ -4086,6 +4086,32 @@ jobs:
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
+      # MEASUREMENT ONLY (removed before landing): the next job on this runner, simulated in this one.
+      - name: Measure warm rebuilds on this runner (temporary)
+        if: ${{ !cancelled() && steps.warm.outputs.linked == 'true' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
+          measure() {
+            # A fresh checkout: every file and directory but .git dated now.
+            find "$GITHUB_WORKSPACE" -path "$GITHUB_WORKSPACE/.git" -prune -o -exec touch {} + 2>/dev/null
+            bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo
+            start=$(date +%s.%N)
+            (cd cmux-tui && cargo test --locked --no-run -v -p cmux-tui-core -p cmux-layout-reducer) > "$RUNNER_TEMP/m.log" 2>&1
+            rc=$?
+            end=$(date +%s.%N)
+            echo "MEASURE $1: rc=$rc seconds=$(python3 -c "print(round($end-$start,1))") compiled=$(grep -cE '^ +Compiling ' "$RUNNER_TEMP/m.log") fresh=$(grep -cE '^ +Fresh ' "$RUNNER_TEMP/m.log")"
+            grep -E '^ +Compiling ' "$RUNNER_TEMP/m.log" | sed "s/^/MEASURE $1 /" | head -20
+            bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
+          }
+          measure unchanged
+          echo '// measurement: a leaf edit' >> cmux-tui/crates/cmux-tui-core/src/lib.rs
+          measure leaf-cmux-tui-core
+          echo '// measurement: a dependency edit' >> cmux-tui/crates/cmux-layout-reducer/src/lib.rs
+          measure dep-cmux-layout-reducer
+          git checkout -- cmux-tui/crates/cmux-tui-core/src/lib.rs cmux-tui/crates/cmux-layout-reducer/src/lib.rs
+
       # After every cargo step, pass or fail, never on cancel: the source manifest the next job on this
       # runner restores mtimes from. A job that ends before it leaves none (restore consumed it).
       - name: Record this runner's warm cargo target
