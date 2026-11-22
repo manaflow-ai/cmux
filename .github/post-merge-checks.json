@@ -38,6 +38,10 @@
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
     },
+    "cloud-surge-proof.yml": {
+      "kind": "publish",
+      "why": "a proof run of Cloud Surge on live development machines, not of the change"
+    },
     "cloud-vm-image-roll.yml": {
       "kind": "publish",
       "why": "rolls the Cloud VM image after its inputs land"
