@@ -135,7 +135,7 @@ lm_main() {
   return "$rc"
 }
 
-plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null; }
+plist() { [[ -f "$1/Contents/Info.plist" ]] || return 0; /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null; }
 
 # profile_kind APP: chromium (a Chromium browser or an Electron app), home (cmux NEXT), else none.
 profile_kind() {
