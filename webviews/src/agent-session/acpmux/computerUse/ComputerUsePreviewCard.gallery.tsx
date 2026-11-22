@@ -6,7 +6,12 @@ import { SessionInfoPanel } from "../session-info/SessionInfo";
 import { FLOAT_MARGIN, type SessionInfoPlacement } from "../session-info/sessionInfoModel";
 import { useUnderSessionInfo } from "../session-info/underSessionInfo";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
-import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";
+import {
+  computerUsePreviewDocked,
+  useComputerUsePreviewMoves,
+  useComputerUsePreviewRoom,
+  type ComputerUsePreview,
+} from "./computerUsePreview";
 
 /// A drawn stand-in for the helper's thumbnail of a calculator window (320 px wide, as the helper's are).
 const frame = `data:image/svg+xml,${encodeURIComponent(
@@ -96,6 +101,9 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo, dropTarget }: P
   // to echo it).
   const room = useComputerUsePreviewRoom();
   const shown = room ? preview : null;
+  // Moved, larger or hidden, the card no longer sits beside the column: the column takes its room back.
+  const moved = useComputerUsePreviewMoves(shown);
+  const beside = moved !== null && computerUsePreviewDocked(moved) && !sessionInfo;
   // As Session Info does (SessionInfo.tsx SessionInfoPresence): it publishes where the card under it goes.
   useUnderSessionInfo(shell, sessionInfo !== undefined, sessionInfo === "push", FLOAT_MARGIN, UNDER_HEADER);
   return (
@@ -109,7 +117,7 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo, dropTarget }: P
       style={{ position: "relative", height: "100vh" }}
     >
       {/* With Session Info open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
-      <div className="acpmux-main" data-cu-preview={shown && !sessionInfo ? "" : undefined}>
+      <div className="acpmux-main" data-cu-preview={beside ? "" : undefined}>
         <div className="acpmux-stage" style={{ height: "100%" }}>
           <ComputerUsePreviewCard preview={shown} onClose={() => {}} />
           {chat && (
@@ -272,7 +280,7 @@ export default componentEntry<Props>({
       play: expand("Calculator, done"),
     },
     close: {
-      note: "A close: the card gives way to a small Show Preview chip where it sat (Leo, 2026-11-22: \"THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT\"). Before, the card was gone with no way back.",
+      note: 'A close: the card gives way to a small Show Preview chip where it sat (Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"). Before, the card was gone with no way back.',
       props: { preview: as("cua_gallery_close") },
       play: close,
     },
@@ -303,7 +311,7 @@ export default componentEntry<Props>({
       play: drag("Calculator, live"),
     },
     "full-size": {
-      note: "Full Size: the frame fills the pane, letterboxed, over the chat; Exit Full Size (or a click on the frame) shrinks it back. Leo, 2026-10-29: \"why can't I full screen this picture?\"",
+      note: 'Full Size: the frame fills the pane, letterboxed, over the chat; Exit Full Size (or a click on the frame) shrinks it back. Leo, 2026-10-29: "why can\'t I full screen this picture?"',
       props: { preview: { ...as("cua_gallery_full"), place: { x: 1, y: 0, size: "full" } }, chat: true },
     },
     "full-size-play": {
