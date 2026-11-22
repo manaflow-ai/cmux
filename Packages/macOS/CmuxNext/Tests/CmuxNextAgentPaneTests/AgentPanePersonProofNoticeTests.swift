@@ -38,8 +38,10 @@ struct AgentPanePersonProofNoticeTests {
         var lookups = 0
     }
 
+    /// The `_acpmux/person_prove` frames the stand-in got (JSONSerialization writes the method's
+    /// slash as `\/`, so the frame is matched on the method's last part).
     static func proofs(_ server: AcpmuxStandInServer) -> Int {
-        server.peers.reduce(0) { $0 + $1.frames.filter { $0.contains("_acpmux/person_prove") }.count }
+        server.peers.reduce(0) { $0 + $1.frames.filter { $0.contains("person_prove") }.count }
     }
 
     @Test func aRefusedProofRecoversWithoutAWordToThePerson() async throws {
