@@ -1217,6 +1217,64 @@ img.onb-make-tile-image {
 .onb-make-chip:active {
   background: var(--ds-color-pressed);
 }
+/* Text Size's Default: puts the density's size back. */
+.onb-make-reset {
+  flex: none;
+  height: 22px;
+  padding-inline: var(--ds-space-2);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-control);
+  background: var(--onb-card-fill);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.onb-make-reset:hover {
+  background: var(--ds-color-hover);
+}
+.onb-make-reset:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+/* An accent chip's dot: the color the accent gives the window's theme. */
+.onb-make-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-inline-end: var(--grid-half-step);
+  border-radius: 50%;
+  background: var(--page-text-3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
+}
+/* A theme tile: its light side and its dark side, each its background, a text line and its six hues. */
+.onb-make-theme-swatch {
+  display: flex;
+  overflow: hidden;
+}
+.onb-make-theme-side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding-inline: 6px;
+}
+.onb-make-theme-text {
+  width: 60%;
+  height: 3px;
+  border-radius: 2px;
+}
+.onb-make-theme-hues {
+  display: flex;
+  gap: 2px;
+}
+.onb-make-theme-hues > span {
+  flex: 1;
+  height: 6px;
+  border-radius: 1px;
+}
 .onb-make-chip[data-checked] {
   border-color: var(--ds-color-accent);
   box-shadow: inset 0 0 0 1px var(--ds-color-accent);

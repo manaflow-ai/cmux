@@ -34,6 +34,24 @@ public struct FirstRunBackground: Sendable, Equatable, Identifiable {
     }
 }
 
+/// One terminal theme the step offers (`appearance.theme`): `id` is the setting's value (a Ghostty
+/// theme name, or a `light:<theme>,dark:<theme>` pair that follows macOS's appearance). `light` and
+/// `dark` are its swatch strips (`#RRGGBB`: background, the six ANSI hues, foreground); a theme with one
+/// side has the same strip on both; empty until the theme files are read.
+public struct FirstRunTheme: Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var light: [String]
+    public var dark: [String]
+
+    public init(id: String, name: String, light: [String] = [], dark: [String] = []) {
+        self.id = id
+        self.name = name
+        self.light = light
+        self.dark = dark
+    }
+}
+
 /// The window's material under a background (`appearance.backgroundBlur`), as Settings offers it.
 public enum FirstRunMaterial: String, CaseIterable, Sendable {
     case none, frosted, glass
@@ -51,19 +69,41 @@ public struct FirstRunChoices: Sendable, Equatable {
     public var opacity: Double?
     /// `appearance.backgroundBlur`; nil: unset (the theme's).
     public var material: FirstRunMaterial?
+    /// `appearance.metrics.chromeFontSize` in points; nil: unset (the density's).
+    public var textSize: Double?
+    /// `appearance.theme`; nil: unset (the Ghostty config's).
+    public var theme: String?
+    /// `appearance.accent`; nil: unset (Neutral).
+    public var accent: String?
+    /// `appearance.chromeStyle`; nil: unset (Flat).
+    public var windowStyle: String?
 
     /// GUI-first, Default density, no background, the theme's opacity and material: what a person
     /// gets who skips on a new Mac.
     public static let recommended = FirstRunChoices(workStyle: .gui, density: defaultDensity, background: nil)
     /// Settings' Default density.
     public static let defaultDensity = "cozy"
+    /// What an unset Accent and Window Style are (AccentSetting and ChromeStyleSetting's fallbacks).
+    public static let defaultAccent = "neutral"
+    public static let defaultWindowStyle = "flat"
+    /// Every Accent Settings offers, in its order: ThemeAccent's cases, then Art Color.
+    public static let accents = ["neutral", "theme", "red", "green", "yellow", "blue", "magenta", "cyan", "art"]
+    /// Every Window Style Settings offers, in its order (ChromeStyle's cases).
+    public static let windowStyles = ["default", "card", "card-outlined", "flat", "flat-sidebar-line", "bare", "panes", "two-tone", "floating", "blocks"]
+    /// Text Size's range in points (InterfaceSizeSetting.range).
+    public static let textSizes: ClosedRange<Double> = 10...20
 
-    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil) {
+    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil,
+                textSize: Double? = nil, theme: String? = nil, accent: String? = nil, windowStyle: String? = nil) {
         self.workStyle = workStyle
         self.density = density
         self.background = background
         self.opacity = opacity.map { min(max($0, 0), 1) }
         self.material = material
+        self.textSize = textSize.map { min(max($0, Self.textSizes.lowerBound), Self.textSizes.upperBound) }
+        self.theme = theme
+        self.accent = accent
+        self.windowStyle = windowStyle
     }
 }
 
@@ -80,17 +120,27 @@ public protocol FirstRunChoicesSource: AnyObject {
     /// reading: over a picture, the tint the window lays over it). Read while the page's state is
     /// built, so an observable reading re-sends the state when it changes.
     func shownOpacity() -> Double?
+    /// The terminal themes offered, in order (the step adds the Ghostty config's, unset, first). Read
+    /// while the page's state is built, so the swatches show once the theme files are read.
+    func themes() -> [FirstRunTheme]
+    /// The text size in points `density` (a preset id) draws with when Text Size is unset.
+    func textSize(density: String) -> Double?
+    /// The color `accent` gives the window's theme (`#RRGGBB`), read while the page's state is built; nil: none to show.
+    func accentSwatch(_ accent: String) -> String?
     /// Writes what changed from `old` to `new` now, so the app behind the window shows it at once.
     func apply(_ new: FirstRunChoices, from old: FirstRunChoices)
 }
 
 public extension FirstRunChoicesSource {
     func shownOpacity() -> Double? { nil }
+    func themes() -> [FirstRunTheme] { [] }
+    func textSize(density: String) -> Double? { nil }
+    func accentSwatch(_ accent: String) -> String? { nil }
 }
 
-/// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
-/// background with its opacity and material. No theme row: windows follow macOS's light or dark mode,
-/// and cmux has no setting of its own for it. Every row is already on the recommended answer, so
+/// The first run's one setup screen (cmux#48416, cmux#49636): how the person wants to work, then the
+/// look Settings > Appearance has: the density and text size, the terminal theme and the accent, the
+/// window style, and a background with its opacity and material. Every row is already on the recommended answer, so
 /// Continue alone is a good setup. Every pick is written at once (the window behind shows it);
 /// Continue keeps them, Skip puts back what was set when the window opened (cmux#49636).
 @MainActor
@@ -141,6 +191,18 @@ public final class MakeItYoursStepModel {
     /// The Opacity slider's value: the one set, else what the window shows.
     public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
 
+    /// The Text Size slider's value: the one set, else the density's.
+    public var shownTextSize: Double? { choices.textSize ?? source?.textSize(density: choices.density) }
+
+    /// The terminal themes offered (their swatches as read now).
+    public var themes: [FirstRunTheme] { source?.themes() ?? [] }
+
+    /// Each Accent's color on the window's theme now (an accent with none is left out).
+    public var accentSwatches: [String: String] {
+        guard let source else { return [:] }
+        return FirstRunChoices.accents.reduce(into: [:]) { swatches, accent in swatches[accent] = source.accentSwatch(accent) }
+    }
+
     public func setWorkStyle(_ value: WorkStyle) { update { $0.workStyle = value } }
 
     /// An id the step does not offer is refused.
@@ -170,6 +232,41 @@ public final class MakeItYoursStepModel {
     }
 
     public func setMaterial(_ value: FirstRunMaterial) { update { $0.material = value } }
+
+    /// Text Size in points, within ``FirstRunChoices/textSizes`` (rounded to a half point); nil puts
+    /// back the density's. Outside the range is refused.
+    @discardableResult
+    public func setTextSize(_ value: Double?) -> Bool {
+        if let value {
+            guard value.isFinite, FirstRunChoices.textSizes.contains(value) else { return false }
+            update { $0.textSize = (value * 2).rounded() / 2 }
+        } else {
+            update { $0.textSize = nil }
+        }
+        return true
+    }
+
+    /// `id` nil: the Ghostty config's theme. A theme the step does not offer is refused.
+    @discardableResult
+    public func setTheme(_ id: String?) -> Bool {
+        guard id == nil || themes.contains(where: { $0.id == id }) else { return false }
+        update { $0.theme = id }
+        return true
+    }
+
+    @discardableResult
+    public func setAccent(_ id: String) -> Bool {
+        guard FirstRunChoices.accents.contains(id) else { return false }
+        update { $0.accent = id }
+        return true
+    }
+
+    @discardableResult
+    public func setWindowStyle(_ id: String) -> Bool {
+        guard FirstRunChoices.windowStyles.contains(id) else { return false }
+        update { $0.windowStyle = id }
+        return true
+    }
 
     /// Skip: writes back what was set when the step opened, so the person keeps their settings.
     public func revert() {

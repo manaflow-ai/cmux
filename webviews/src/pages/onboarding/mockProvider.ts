@@ -3,7 +3,14 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentToolsState, agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type ImportDataKind, type MakeItYoursMaterial, type OnboardingState, type WorkStyle } from "./ops";
+import {
+  OPS,
+  type ImportDataKind,
+  type MakeItYoursMaterial,
+  type MakeItYoursState,
+  type OnboardingState,
+  type WorkStyle,
+} from "./ops";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
@@ -33,7 +40,7 @@ export class MockOnboardingProvider implements PageClient {
       kind?: ImportDataKind;
       target?: string | null;
       pane?: string;
-      value?: string | number;
+      value?: string | number | null;
     };
     const state = this.state;
     switch (op) {
@@ -109,19 +116,25 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.density:
       case OPS.background:
       case OPS.opacity:
-      case OPS.material: {
+      case OPS.material:
+      case OPS.textSize:
+      case OPS.theme:
+      case OPS.accent:
+      case OPS.windowStyle: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
-        const next =
-          op === OPS.workStyle
-            ? { ...choices, workStyle: input.value as WorkStyle }
-            : op === OPS.density
-              ? { ...choices, density: String(input.value) }
-              : op === OPS.opacity
-                ? { ...choices, opacity: Number(input.value), opacitySet: true }
-                : op === OPS.material
-                  ? { ...choices, material: input.value as MakeItYoursMaterial }
-                  : { ...choices, background: input.id ?? null };
+        const value = input.value;
+        const next: MakeItYoursState = { ...choices };
+        if (op === OPS.workStyle) next.workStyle = value as WorkStyle;
+        else if (op === OPS.density) next.density = String(value);
+        else if (op === OPS.opacity) Object.assign(next, { opacity: Number(value), opacitySet: true });
+        else if (op === OPS.material) next.material = value as MakeItYoursMaterial;
+        else if (op === OPS.textSize)
+          Object.assign(next, { textSize: value == null ? 14 : Number(value), textSizeSet: value != null });
+        else if (op === OPS.theme) next.theme = input.id ?? null;
+        else if (op === OPS.accent) next.accent = String(value);
+        else if (op === OPS.windowStyle) next.windowStyle = String(value);
+        else next.background = input.id ?? null;
         this.change({ ...state, makeItYours: next });
         return {} as R;
       }

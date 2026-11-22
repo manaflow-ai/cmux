@@ -12,6 +12,7 @@ import type {
   MakeItYoursBackground,
   MakeItYoursDensity,
   MakeItYoursState,
+  MakeItYoursTheme,
   OnboardingFooter,
   OnboardingState,
 } from "./ops";
@@ -489,6 +490,40 @@ const DENSITIES: MakeItYoursDensity[] = [
   { id: "spacious", name: "Spacious" },
 ];
 
+/** A few terminal themes with swatch strips (background, six hues, foreground). */
+const THEMES: MakeItYoursTheme[] = [
+  {
+    id: "light:Catppuccin Latte,dark:Catppuccin Mocha",
+    name: "Catppuccin",
+    light: ["#EFF1F5", "#D20F39", "#40A02B", "#DF8E1D", "#1E66F5", "#EA76CB", "#179299", "#4C4F69"], // colour-allow: fixture theme swatch
+    dark: ["#1E1E2E", "#F38BA8", "#A6E3A1", "#F9E2AF", "#89B4FA", "#F5C2E7", "#94E2D5", "#CDD6F4"], // colour-allow: fixture theme swatch
+  },
+  {
+    id: "light:Nord Light,dark:Nord",
+    name: "Nord",
+    light: ["#E5E9F0", "#BF616A", "#A3BE8C", "#EBCB8B", "#81A1C1", "#B48EAD", "#88C0D0", "#414858"], // colour-allow: fixture theme swatch
+    dark: ["#2E3440", "#BF616A", "#A3BE8C", "#EBCB8B", "#81A1C1", "#B48EAD", "#88C0D0", "#D8DEE9"], // colour-allow: fixture theme swatch
+  },
+  {
+    id: "Dracula",
+    name: "Dracula",
+    light: ["#282A36", "#FF5555", "#50FA7B", "#F1FA8C", "#BD93F9", "#FF79C6", "#8BE9FD", "#F8F8F2"], // colour-allow: fixture theme swatch
+    dark: ["#282A36", "#FF5555", "#50FA7B", "#F1FA8C", "#BD93F9", "#FF79C6", "#8BE9FD", "#F8F8F2"], // colour-allow: fixture theme swatch
+  },
+];
+
+/** Each accent's color on a dark theme. */
+const ACCENT_SWATCHES: Record<string, string> = {
+  neutral: "#C8C8C8", // colour-allow: fixture accent swatch
+  theme: "#C678DD", // colour-allow: fixture accent swatch
+  red: "#E06C75", // colour-allow: fixture accent swatch
+  green: "#98C379", // colour-allow: fixture accent swatch
+  yellow: "#E5C07B", // colour-allow: fixture accent swatch
+  blue: "#61AFEF", // colour-allow: fixture accent swatch
+  magenta: "#C678DD", // colour-allow: fixture accent swatch
+  cyan: "#56B6C2", // colour-allow: fixture accent swatch
+};
+
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
  * Terminal First, and after a person picked Compact and a painting. */
 export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
@@ -502,6 +537,28 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     opacitySet: kind === "picked",
     material: kind === "picked" ? "frosted" : null,
     materials: ["none", "frosted", "glass", "glass-clear"],
+    textSize: kind === "picked" ? 15 : 14,
+    textSizeSet: kind === "picked",
+    textSizeMin: 10,
+    textSizeMax: 20,
+    theme: kind === "picked" ? "light:Nord Light,dark:Nord" : null,
+    themes: THEMES,
+    accent: kind === "picked" ? "blue" : "neutral",
+    accents: ["neutral", "theme", "red", "green", "yellow", "blue", "magenta", "cyan", "art"],
+    accentSwatches: ACCENT_SWATCHES,
+    windowStyle: kind === "picked" ? "card" : "flat",
+    windowStyles: [
+      "default",
+      "card",
+      "card-outlined",
+      "flat",
+      "flat-sidebar-line",
+      "bare",
+      "panes",
+      "two-tone",
+      "floating",
+      "blocks",
+    ],
     loaded: kind !== "loading",
   };
   return {

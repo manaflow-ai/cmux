@@ -15,6 +15,7 @@ import CmuxNextHomeModel
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
+import CmuxTheme
 import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
@@ -66,13 +67,12 @@ final class OnboardingService {
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
-    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
+    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
-    /// Make cmux Yours' choices over the settings owner; density goes through its action (it applies the tokens); unset Opacity reads the window's.
+    /// Make cmux Yours' choices over the settings owner; density goes through its action (it applies the tokens); unset Opacity reads the window's; each Accent's swatch is the window's theme with it.
     private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
         _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
-    }, windowOpacity: { [weak services] in (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity })
+    }, windowOpacity: { [weak services] in (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity }, themeSwatch: { [weak services] in services?.themes.catalog.swatches(for: $0).map { String($0.description.prefix(7)) } ?? [] }, accentSwatch: { [weak services] accent in ThemeAccent(rawValue: accent).map { [input = (services?.windows.active?.themeScope ?? ThemeScope.app).input] in String(AppTheme.derive(background: input.background, foreground: input.foreground, palette: input.palette, accent: $0)[.accent].description.prefix(7)) } })
     /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -163,7 +163,7 @@ final class OnboardingService {
     /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
     /// (``OnboardingWindowPresenter/historyShownKey``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, devBuild: AppEnvironment.isDebugCompile, agentTools: agentTools) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
         // The cmux Tools question comes at launch whatever owns the first run, for an existing

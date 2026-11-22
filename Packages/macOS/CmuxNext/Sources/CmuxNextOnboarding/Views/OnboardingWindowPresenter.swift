@@ -131,13 +131,14 @@ public final class OnboardingWindowPresenter {
     /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
     /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``), then only the cmux Tools question
     /// (``askAgentToolsOnce(source:defaults:)``); or, with onboarding on, the first run, for which this
-    /// returns true (the first run asks the question among its steps).
-    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, agentTools: (any AgentToolsSource)?,
+    /// returns true (the first run asks the question among its steps). `devBuild` (a Debug compile: every
+    /// tagged dev build) leaves Make cmux Yours out of the default launch (cmux#49636); `--onboarding` asks for it.
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, devBuild: Bool = false, agentTools: (any AgentToolsSource)?,
                                 defaults: UserDefaults = .standard) async -> Bool {
         switch steps {
         case .none: return false
         case .agentToolsOnly:
-            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, devBuild: devBuild, defaults: defaults)
             await untilClosed()
             await askAgentToolsOnce(source: agentTools, defaults: defaults)
             return false
@@ -161,12 +162,22 @@ public final class OnboardingWindowPresenter {
 
     /// Make cmux Yours' once flag.
     public static let makeItYoursShownKey = "home.firstRun.makeItYoursShown"
+    /// A dev build's one-time pass for Make cmux Yours: set in that build's own defaults, its next launch
+    /// shows the step once (first run or not) and clears it, so a person can see the step in a dev build.
+    public static let makeItYoursPreviewKey = "home.firstRun.makeItYoursPreview"
 
     /// A new person's one setup screen (cmux#48416): how they work (GUI-first, recommended, or
-    /// terminal-first), the density and a background, once per app channel (`defaults`) and only on a
-    /// first run: an existing installation (`isFirstRun` false) keeps its settings and never sees it.
-    public func showMakeItYoursAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) async {
+    /// terminal-first) and the look, once per app channel (`defaults`) and only on a first run: an
+    /// existing installation (`isFirstRun` false) keeps its settings and never sees it. A dev build
+    /// (`devBuild`) never shows it, unless ``makeItYoursPreviewKey`` lets one launch show it (cmux#49636).
+    public func showMakeItYoursAtFirstRun(isFirstRun: Bool, devBuild: Bool = false, defaults: UserDefaults = .standard) async {
         let key = Self.makeItYoursShownKey
+        if devBuild {
+            guard defaults.bool(forKey: Self.makeItYoursPreviewKey), controller == nil else { return }
+            defaults.removeObject(forKey: Self.makeItYoursPreviewKey)
+            show(step: .makeItYours)
+            return defaults.set(true, forKey: key)
+        }
         guard !defaults.bool(forKey: key) else { return }
         // An upgrade is no first run; a first run marks it only once the step showed.
         guard isFirstRun else { return defaults.set(true, forKey: key) }

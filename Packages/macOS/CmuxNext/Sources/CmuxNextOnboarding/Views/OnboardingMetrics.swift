@@ -13,7 +13,7 @@ extension OnboardingModel.Step {
     var windowSize: NSSize {
         switch self {
         case .computerUse: NSSize(width: 520, height: 480)
-        case .makeItYours: NSSize(width: 640, height: 660)
+        case .makeItYours: NSSize(width: 680, height: 760)
         default: NSSize(width: 640, height: 520)
         }
     }

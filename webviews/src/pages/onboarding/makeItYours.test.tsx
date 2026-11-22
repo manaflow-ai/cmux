@@ -1,4 +1,4 @@
-// Make cmux Yours (cmux#48416): the first run's one setup screen. Drawn as a person reads it, and
+// Make cmux Yours (cmux#48416, cmux#49636): the first run's one setup screen. Drawn as a person reads it, and
 // each pick sent to the host as the op it owns.
 import { afterAll, describe, expect, test } from "bun:test";
 import { act } from "react";
@@ -41,7 +41,7 @@ async function checked(state: OnboardingState): Promise<Record<string, string>> 
 }
 
 describe("make cmux yours", () => {
-  test("a fresh person sees the three choices on the recommended answers, and Skip / Continue", async () => {
+  test("a fresh person sees every choice on the recommended answers, and Skip / Continue", async () => {
     const html = render(makeItYoursState("fresh"));
     const words = text(html);
     for (const key of [
@@ -66,16 +66,45 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.material.glass-clear",
     ])
       expect(words).toContain(strings.t(key));
+    // Settings > Appearance's look rows (cmux#49636): Text Size, Theme with Default first, every accent
+    // and every window style, by Settings' names.
+    for (const key of [
+      "onboarding.makeItYours.textSize",
+      "onboarding.makeItYours.theme",
+      "onboarding.makeItYours.theme.default",
+      "onboarding.makeItYours.accent",
+      "onboarding.makeItYours.accent.neutral",
+      "onboarding.makeItYours.accent.theme",
+      "onboarding.makeItYours.accent.art",
+      "onboarding.makeItYours.windowStyle",
+      "onboarding.makeItYours.windowStyle.flat",
+      "onboarding.makeItYours.windowStyle.floating",
+      "onboarding.makeItYours.windowStyle.two-tone",
+    ])
+      expect(words).toContain(strings.t(key));
+    for (const name of ["Catppuccin", "Nord", "Dracula", "14 pt"]) expect(words).toContain(name);
+    // No reset while Text Size is the density's.
+    expect(html).not.toContain("onb-make-reset");
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
-    // One checked radio per group: GUI-first, Default, no background; no material set.
-    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "cozy", background: "" });
+    // One checked radio per group: GUI-first, Default, the config's theme, Neutral, Flat, no background; no material set.
+    expect(await checked(makeItYoursState("fresh"))).toEqual({
+      workStyle: "gui",
+      density: "cozy",
+      theme: "",
+      accent: "neutral",
+      windowStyle: "flat",
+      background: "",
+    });
   });
 
   test("the settings a person already has are what is checked", async () => {
     expect(await checked(makeItYoursState("picked"))).toEqual({
       workStyle: "gui",
       density: "compact",
+      theme: "light:Nord Light,dark:Nord",
+      accent: "blue",
+      windowStyle: "card",
       background: "dahl-dresden-moonlight",
       material: "frosted",
     });
@@ -85,8 +114,9 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh"), "cards");
     const rows = render(makeItYoursState("fresh"), "rows");
-    // Two ways to work, five densities, None and eleven backgrounds, four materials.
-    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 12 + 4);
+    // Two ways to work, five densities, Default and three themes, nine accents, ten window styles, None
+    // and eleven backgrounds, four materials.
+    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 4 + 9 + 10 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
@@ -119,6 +149,11 @@ describe("make cmux yours", () => {
     await act(async () => radio("background", "").click());
     await act(async () => radio("background", "hokusai-great-wave").click());
     await act(async () => radio("material", "glass-clear").click());
+    await act(async () => radio("theme", "Dracula").click());
+    await act(async () => radio("theme", "").click());
+    await act(async () => radio("accent", "magenta").click());
+    await act(async () => radio("windowStyle", "floating").click());
+    await act(async () => root.querySelector<HTMLButtonElement>(".onb-make-reset")!.click());
     expect(calls).toEqual([
       { op: OPS.workStyle, params: { value: "terminal" } },
       { op: OPS.density, params: { value: "comfortable" } },
@@ -127,10 +162,15 @@ describe("make cmux yours", () => {
       { op: OPS.background, params: { id: null } },
       { op: OPS.background, params: { id: "hokusai-great-wave" } },
       { op: OPS.material, params: { value: "glass-clear" } },
+      { op: OPS.theme, params: { id: "Dracula" } },
+      { op: OPS.theme, params: { id: null } },
+      { op: OPS.accent, params: { value: "magenta" } },
+      { op: OPS.windowStyle, params: { value: "floating" } },
+      { op: OPS.textSize, params: { value: null } },
     ]);
   });
 
-  test("Opacity: a key step is written at once; a drag is written once, on release", async () => {
+  test("Opacity and Text Size: a key step is written at once; a drag is written once, on release", async () => {
     const calls: { op: string; params: unknown }[] = [];
     const client = {
       call: async (op: string, params: unknown) => {
@@ -145,7 +185,7 @@ describe("make cmux yours", () => {
     document.body.append(root);
     await act(async () => createRoot(root).render(<OnboardingPage store={store} strings={strings} />));
     calls.length = 0;
-    const slider = root.querySelector<HTMLInputElement>('input[type="range"]')!;
+    const slider = root.querySelector<HTMLInputElement>('input[data-slider="opacity"]')!;
     expect(slider.value).toBe("0.6");
     expect(root.textContent).toContain("60%");
     const setValue = (value: string) => {
@@ -164,5 +204,36 @@ describe("make cmux yours", () => {
     expect(root.textContent).toContain("20%");
     await act(async () => slider.dispatchEvent(new Event("pointerup", { bubbles: true })));
     expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.2 } }]);
+    calls.length = 0;
+    const size = root.querySelector<HTMLInputElement>('input[data-slider="textSize"]')!;
+    expect(size.value).toBe("15");
+    expect(root.textContent).toContain("15 pt");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(size, "16");
+      size.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(calls).toEqual([{ op: OPS.textSize, params: { value: 16 } }]);
+  });
+
+  test("a theme tile shows its light and dark swatches; an accent's dot is its color on the window's theme", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    await act(async () =>
+      createRoot(root).render(
+        <OnboardingPage store={new OnboardingStore(null, makeItYoursState("fresh"))} strings={strings} />,
+      ),
+    );
+    const nord = root.querySelector('input[name="theme"][value="light:Nord Light,dark:Nord"]')!.closest("label")!;
+    const sides = [...nord.querySelectorAll<HTMLElement>(".onb-make-theme-side")];
+    expect(sides[0].style.background).toMatch(/rgb\(229, 233, 240\)|#e5e9f0/i);
+    expect(sides[1].style.background).toMatch(/rgb\(46, 52, 64\)|#2e3440/i);
+    expect(sides[1].querySelectorAll(".onb-make-theme-hues > span").length).toBe(6);
+    const dot = (accent: string) =>
+      root
+        .querySelector(`input[name="accent"][value="${accent}"]`)!
+        .closest("label")!
+        .querySelector<HTMLElement>(".onb-make-dot")!;
+    expect(dot("red").style.background).toMatch(/rgb\(224, 108, 117\)|#e06c75/i);
+    expect(dot("art").style.background).toContain("conic-gradient");
   });
 });
