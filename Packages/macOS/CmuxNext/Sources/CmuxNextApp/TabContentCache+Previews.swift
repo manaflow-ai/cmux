@@ -26,7 +26,8 @@ extension TabContentCache {
            let image = await capturePage(entry, key: key, accepts: { [weak self] in self?.browsers[key] === entry }) {
             return await PreviewImageCache.fit(image, maxPixelSize)
         }
-        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) {
+        // A browser tab not shown since the relaunch: its last picture from the run before (`BrowserPageFrames`, on disk).
+        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) ?? pageFrames?.peek(key) {
             // Leave pictures and hibernation pictures decode from their JPEG when drawn: the card gets a bitmap made
             // off the main thread, never a decode in its commit.
             return await PreviewImageCache.decoded(image, maxPixelSize)
@@ -126,15 +127,28 @@ extension TabContentCache {
     /// The stand-in page of restored Chromium tab `tab` while its page is made; nil for a tab opened here.
     func restoringStandIn(_ tab: TabModel, url: URL?) -> DeferredBrowserTab? {
         guard !browserTabs.wasOpenedHere(tab), browsers[tab.id] == nil else { return nil }
+        let picture = pageFrames?.take(tab.id)
+        if let picture { keepRestoredPreview(picture, for: tab.id) }
         let page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
-                                      title: tab.titleText.isEmpty ? nil : tab.titleText, picture: pageFrames?.take(tab.id), restoresPage: true)
+                                      title: tab.titleText.isEmpty ? nil : tab.titleText, picture: picture, restoresPage: true)
         install(page, for: tab.id)
         return page
+    }
+
+    /// The last run's picture is handed out once (to the stand-in): the hover card keeps it, fitted and compressed as a
+    /// leave picture, until the page's own leave picture replaces it.
+    func keepRestoredPreview(_ picture: CGImage, for key: String) {
+        Task { [weak self] in
+            let fitted = await PreviewImageCache.fit(picture, PreviewImageCache.pagePixelSize)
+            guard let self, self.browsers[key] != nil, self.pageThumbnails.image(for: key) == nil else { return }
+            self.pageThumbnails.insertCompressingLater(fitted, for: key)
+        }
     }
 
     /// A restored tab's page made now (WebKit): its last picture covers it until it paints.
     func coverRestored(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         if !browserTabs.wasOpenedHere(tab), let picture = pageFrames?.take(tab.id) {
+            keepRestoredPreview(picture, for: tab.id)
             (entry.tab as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: Self.relaunchStandInCap, clock: ContinuousClock())
         }
         return entry

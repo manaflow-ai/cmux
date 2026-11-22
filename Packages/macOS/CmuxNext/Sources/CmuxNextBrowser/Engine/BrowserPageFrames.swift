@@ -83,6 +83,14 @@ package final class BrowserPageFrames {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// `key`'s picture from the last run, left in place for its first show (``take(_:)``): what a tab's hover card
+    /// shows before its page was made since the relaunch (Leo 2026-11-22: "if the previews dont show up, what's the
+    /// point?"). Decoded when first drawn; nil when it has none or the launch read has not ended.
+    package func peek(_ key: String) -> CGImage? {
+        guard let data = saved?[key], !data.isEmpty, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
     /// Writes `image` as `key`'s picture (off the main thread), replacing its last one and keeping the folder in its
     /// budget. A picture of this run replaces the last run's in memory too: it is no longer handed out.
     package func save(_ image: CGImage, for key: String, scale: Int = 2) {
