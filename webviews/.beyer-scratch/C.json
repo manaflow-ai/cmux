@@ -1,0 +1,185 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "settings-default",
+      "entry": "pages.settings",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-general-text-size",
+      "entry": "pages.settings",
+      "variant": "general-text-size",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-appearance-density",
+      "entry": "pages.settings",
+      "variant": "appearance-density",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-sidebar-more",
+      "entry": "pages.settings",
+      "variant": "sidebar-more",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-search-results",
+      "entry": "pages.settings",
+      "variant": "search-results",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-search-empty",
+      "entry": "pages.settings",
+      "variant": "search-empty",
+      "width": 1000,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "settings-narrow",
+      "entry": "pages.settings",
+      "width": 480,
+      "height": 760,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "onb-make-it-yours-cards",
+      "entry": "pages.onboarding",
+      "variant": "make-it-yours-cards",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "onb-agents-list",
+      "entry": "pages.onboarding",
+      "variant": "agents-list",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "onb-import-ready",
+      "entry": "pages.onboarding",
+      "variant": "import-ready",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "onb-computer-use-fresh",
+      "entry": "pages.onboarding",
+      "variant": "computer-use-fresh",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "onb-agent-tools-found",
+      "entry": "pages.onboarding",
+      "variant": "agent-tools-found",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "setupcard-installing",
+      "entry": "home.setup-card",
+      "variant": "next-installing",
+      "width": 640,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "setupcard-tools",
+      "entry": "home.setup-card",
+      "variant": "rows-tools",
+      "width": 640,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "featuretip",
+      "entry": "ui.feature-tip",
+      "variant": "live",
+      "width": 640,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "changelog-sheet",
+      "entry": "pages.changelog",
+      "variant": "sheet",
+      "width": 1000,
+      "height": 640,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "sidechats-few",
+      "entry": "pages.sidebar-chats",
+      "variant": "few-rows",
+      "width": 260,
+      "height": 420,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "sidechats-hover",
+      "entry": "pages.sidebar-chats",
+      "variant": "hover",
+      "width": 260,
+      "height": 420,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "sidechats-long",
+      "entry": "pages.sidebar-chats",
+      "variant": "long-title",
+      "width": 260,
+      "height": 420,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "firstrun-card",
+      "entry": "agent-pane.first-run",
+      "variant": "project-card",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "firstrun-starters",
+      "entry": "agent-pane.first-run",
+      "variant": "starters-card",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "sidebar-badges",
+      "entry": "sidebar.agent-badges",
+      "width": 260,
+      "height": 420,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "session-hover",
+      "entry": "agent-pane.session-hover",
+      "width": 500,
+      "height": 420,
+      "deviceScaleFactor": 1
+    }
+  ]
+}

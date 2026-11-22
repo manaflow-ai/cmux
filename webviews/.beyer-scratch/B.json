@@ -1,0 +1,341 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "empty-state-closed",
+      "entry": "agent-pane.empty-state",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "closed"
+    },
+    {
+      "name": "empty-state-open",
+      "entry": "agent-pane.empty-state",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "open"
+    },
+    {
+      "name": "empty-state-no-project",
+      "entry": "agent-pane.empty-state",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "no-project"
+    },
+    {
+      "name": "empty-state-tour-offer",
+      "entry": "agent-pane.empty-state",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "tour-offer"
+    },
+    {
+      "name": "empty-state-search",
+      "entry": "agent-pane.empty-state",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "search"
+    },
+    { "name": "new-tab-page", "entry": "agent-pane.new-tab-page", "width": 760, "height": 520, "deviceScaleFactor": 2 },
+    {
+      "name": "subagent-empty",
+      "entry": "agent-pane.subagent-empty",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "ui.illustrated-empty",
+      "entry": "ui.illustrated-empty",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    { "name": "ui.app-health", "entry": "ui.app-health", "width": 640, "height": 420, "deviceScaleFactor": 2 },
+    {
+      "name": "missing-chat-this-mac",
+      "entry": "agent-pane.missing-chat",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "this-mac"
+    },
+    {
+      "name": "missing-chat-no-machine",
+      "entry": "agent-pane.missing-chat",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "no-machine"
+    },
+    {
+      "name": "newtab-start-failure-not-installed",
+      "entry": "agent-pane.newtab-start-failure",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "not-installed"
+    },
+    {
+      "name": "newtab-start-failure-unreachable",
+      "entry": "agent-pane.newtab-start-failure",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "unreachable"
+    },
+    {
+      "name": "newtab-start-failure-open-refused",
+      "entry": "agent-pane.newtab-start-failure",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "open-refused"
+    },
+    {
+      "name": "auth-health-signed-out",
+      "entry": "agent-pane.auth-health",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "signed-out"
+    },
+    {
+      "name": "auth-health-expired",
+      "entry": "agent-pane.auth-health",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "expired"
+    },
+    {
+      "name": "host-error-reconnecting",
+      "entry": "agent-pane.host-error",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "reconnecting"
+    },
+    {
+      "name": "host-error-outage-named",
+      "entry": "agent-pane.host-error",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "outage-named"
+    },
+    {
+      "name": "host-error-retry",
+      "entry": "agent-pane.host-error",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "retry"
+    },
+    {
+      "name": "host-error-long",
+      "entry": "agent-pane.host-error",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "long"
+    },
+    {
+      "name": "host-error-restart",
+      "entry": "agent-pane.host-error",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "restart"
+    },
+    {
+      "name": "harness-health-notice-signed-out",
+      "entry": "agent-pane.harness-health-notice",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "signed-out"
+    },
+    {
+      "name": "harness-health-notice-outdated",
+      "entry": "agent-pane.harness-health-notice",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "outdated"
+    },
+    {
+      "name": "harness-health-notice-update-failed",
+      "entry": "agent-pane.harness-health-notice",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "update-failed"
+    },
+    {
+      "name": "turn-error-card-cloud-missing",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "cloud-missing"
+    },
+    {
+      "name": "turn-error-card-trust-untrusted",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "trust-untrusted"
+    },
+    {
+      "name": "turn-error-card-agent-closed",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "agent-closed"
+    },
+    {
+      "name": "turn-error-card-disk-full",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "disk-full"
+    },
+    {
+      "name": "turn-error-card-codex-config",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "codex-config"
+    },
+    {
+      "name": "turn-error-card-tailscale",
+      "entry": "agent-pane.turn-error-card",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "tailscale"
+    },
+    {
+      "name": "tool-errors-claude-code",
+      "entry": "agent-pane.tool-errors",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "claude-code"
+    },
+    {
+      "name": "tool-errors-mcp",
+      "entry": "agent-pane.tool-errors",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "mcp"
+    },
+    {
+      "name": "tool-errors-failed-step",
+      "entry": "agent-pane.tool-errors",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "failed-step"
+    },
+    {
+      "name": "tool-errors-long-label",
+      "entry": "agent-pane.tool-errors",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "long-label"
+    },
+    {
+      "name": "slash-menu-overflowing",
+      "entry": "agent-pane.slash-menu",
+      "width": 640,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "variant": "overflowing"
+    },
+    { "name": "composer", "entry": "agent-pane.composer", "width": 700, "height": 320, "deviceScaleFactor": 2 },
+    { "name": "model-picker", "entry": "agent-pane.model-picker", "width": 700, "height": 520, "deviceScaleFactor": 2 },
+    {
+      "name": "composer-footer-controls",
+      "entry": "agent-pane.composer-footer-controls",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "harness-status",
+      "entry": "agent-pane.harness-status",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-hat-idle",
+      "entry": "agent-pane.composer-hat",
+      "width": 700,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "variant": "idle"
+    },
+    {
+      "name": "composer-hat-count",
+      "entry": "agent-pane.composer-hat",
+      "width": 700,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "variant": "count"
+    },
+    {
+      "name": "composer-hat-waiting",
+      "entry": "agent-pane.composer-hat",
+      "width": 700,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "variant": "waiting"
+    },
+    {
+      "name": "claude-code-tool-rows",
+      "entry": "agent-pane.claude-code-tool-rows",
+      "width": 700,
+      "height": 520,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "turn-fold-replies",
+      "entry": "agent-pane.turn-fold-replies",
+      "width": 700,
+      "height": 520,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "worked-over-background",
+      "entry": "agent-pane.worked-over-background",
+      "width": 700,
+      "height": 520,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "no-stuck-guess-signed-out-codex",
+      "entry": "agent-pane.no-stuck-guess",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "variant": "signed-out-codex"
+    }
+  ]
+}

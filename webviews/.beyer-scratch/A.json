@@ -1,0 +1,21 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    { "name": "new-tab", "entry": "app.window", "variant": "new-tab", "width": 1100, "height": 760 },
+    { "name": "palette", "entry": "agent-pane.composer-plus-menu", "variant": "keyboard", "width": 700, "height": 520 },
+    { "name": "toasts-stacked", "entry": "agent-pane.toasts", "variant": "stacked", "width": 760, "height": 420 },
+    { "name": "toasts-single", "entry": "agent-pane.toasts", "variant": "single", "width": 760, "height": 420 },
+    { "name": "notice-card", "entry": "ui.notice", "variant": "card", "width": 760, "height": 520 },
+    {
+      "name": "cookie-toast",
+      "entry": "browser-chrome.cookie-import",
+      "variant": "toast",
+      "width": 760,
+      "height": 420
+    },
+    { "name": "tabs-pill", "entry": "ui.tabs", "variant": "pill", "width": 600, "height": 240 }
+  ]
+}
