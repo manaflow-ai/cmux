@@ -1596,7 +1596,14 @@ function ThreadMinimapView({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const fades = railEdgeFades(turns.length, height, listTop, { top: chatFadeTop, bottom: chatFadeBottom }, rowPitch);
+  const fades = railEdgeFades(
+    onScreen,
+    turns.length,
+    height,
+    listTop,
+    { top: chatFadeTop, bottom: chatFadeBottom },
+    rowPitch,
+  );
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
     return y >= 0 && y < turns.length * rowPitch;
@@ -1719,8 +1726,8 @@ function ThreadMinimapView({
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
             // The edge fades: 2.5rem, a quarter of a short rail, at each end with more past it, rows or
-            // chat, and a hard edge at an end the chat and the list are both at (railEdgeFades). A list
-            // that fits draws every prompt, so it has nothing past either end and no fades.
+            // chat, a hard edge at an end the chat and the list are both at, and never over the band
+            // (railEdgeFades). A list that fits draws every prompt, so it has nothing past either end.
             data-fade-top={(overflow && fades.top) || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
             // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).

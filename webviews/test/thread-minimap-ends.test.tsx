@@ -157,18 +157,23 @@ test("each end of a long chat's rail fades while the chat has more past it, hard
     expect(ends()).toMatchObject({ top: true, bottom: false, topReach: 1 });
     await scrollTo(0);
     expect(ends()).toMatchObject({ top: false, bottom: true, bottomReach: 1 });
-    // A few px from the top: the head's fade starts, shallow, and deepens with the scroll.
+    // A few px from the top, the first prompt still lit at the rail's head: it keeps full ink.
     await scrollTo(24);
+    expect(ends()).toMatchObject({ top: false, bottom: true });
+    // Further down, prompts above the band: the head fades over them, the foot too.
+    await scrollTo(600);
     const near = ends();
     expect(near.top).toBe(true);
     expect(near.topReach).toBeGreaterThan(0);
-    expect(near.topReach).toBeLessThan(1);
     await scrollTo(Math.round(end / 2));
-    expect(ends()).toMatchObject({ top: true, bottom: true, topReach: 1, bottomReach: 1 });
+    expect(ends()).toMatchObject({ top: true, bottom: true });
     // Scrolled up from the bottom with the last prompts still on screen: the foot fades as the head
     // does (the rail's list is at its end, so only the chat says there is more below).
-    await scrollTo(end - 300);
-    expect(ends()).toMatchObject({ top: true, bottom: true, bottomReach: 1 });
+    await scrollTo(end - 400);
+    const above = ends();
+    expect(above.top).toBe(true);
+    expect(above.bottom).toBe(true);
+    expect(above.bottomReach).toBeGreaterThan(0);
     await scrollTo(end);
     expect(ends()).toMatchObject({ top: true, bottom: false });
     // Back at the top after the bottom: hard again.

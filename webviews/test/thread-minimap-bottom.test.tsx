@@ -120,6 +120,13 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 
 /// The 2.5rem fade the list draws at an edge with more rows past it (threadMinimap.css).
 const FADE = 40;
+/// How deep the list's fade at `edge` draws: the fade times its reach (threadMinimap.css), none
+/// without its attribute.
+const fadeDepth = (node: HTMLElement, edge: "top" | "bottom") =>
+  node.hasAttribute(`data-fade-${edge}`)
+    ? (Number.parseFloat(node.style.getPropertyValue("--acpmux-minimap-fade")) || FADE) *
+      Number(node.style.getPropertyValue(`--acpmux-minimap-fade-${edge}-reach`))
+    : 0;
 
 test("the band shows whole while the reader scrolls down, and reaches the rail's end at the bottom", async () => {
   const document = dom.window.document;
@@ -152,8 +159,8 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
         Number(tick.dataset.tick),
       );
       expect(current.length).toBeGreaterThan(0);
-      const top = node.hasAttribute("data-fade-top") ? FADE : 0;
-      const end = height - (node.hasAttribute("data-fade-bottom") ? FADE : 0);
+      const top = fadeDepth(node, "top");
+      const end = height - fadeDepth(node, "bottom");
       for (const index of current) {
         const y = index * railPitch() - node.scrollTop;
         if (y < top || y + railPitch() > end)
@@ -232,9 +239,8 @@ for (const how of ["hover", "focus"] as const)
       for (let top = 0; top <= bottom; top += 120) {
         await scrollTo(top);
         const node = list();
-        const fade = Number.parseFloat(node.style.getPropertyValue("--acpmux-minimap-fade")) || FADE;
-        const from = node.hasAttribute("data-fade-top") ? fade : 0;
-        const to = height - (node.hasAttribute("data-fade-bottom") ? fade : 0);
+        const from = fadeDepth(node, "top");
+        const to = height - fadeDepth(node, "bottom");
         for (const lit of node.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
           const y = Number(lit.dataset.tick) * railPitch() - node.scrollTop;
           if (y < from || y + railPitch() > to)
