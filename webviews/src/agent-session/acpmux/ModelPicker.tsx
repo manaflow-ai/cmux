@@ -18,7 +18,7 @@ import { agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
-import { PICKER_LABELS } from "./composerPickerModel";
+import { PICKER_LABELS, nearestLevel } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
 import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
@@ -62,6 +62,7 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { intl } from "../../ui/intl";
 type ModelChoice = {
   id: string;
   name: string;
@@ -608,10 +609,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(refreshDate))
+    ? intl
+        .DateTimeFormat(currentLanguage(), {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+        .format(new Date(refreshDate))
     : undefined;
   const refreshTitle = (() => {
     const label =
@@ -785,15 +788,21 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [close, open]);
   useEffect(
     () =>
-      registerPicker(modelText, () =>
-        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
-      ),
+      registerPicker(modelText, () => {
+        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+        if (root.current?.closest("[inert]")) return;
+        if (quick === undefined) showRef.current();
+        else if (open) close();
+        else setQuickOpen(true);
+      }),
     [modelText, quick, open, close],
   );
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
+        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
+        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
@@ -813,12 +822,29 @@ export function ModelPicker(props: ModelPickerProps) {
     if (active >= rowCount) setActive(Math.max(rowCount - 1, 0));
   }, [active, rowCount]);
 
+  /// The chat's level as `model` takes it: the same level, else the nearest one it lists; none for a
+  /// model whose levels are unknown or a chat with no level (the model then starts on its own).
+  const carriedEffort = (model: ModelChoice) => {
+    const now = props.effort;
+    if (!now || isDefaultChoice({ id: now }) || !model.efforts?.length) return undefined;
+    return nearestLevel(
+      now,
+      model.efforts.map((id) => ({ id, name: id, ...(id === model.defaultEffort ? { recommended: true } : {}) })),
+    );
+  };
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || model.defaultChoice || !owner?.pickable) return;
-    // A typed effort or fast mode, or a model of another harness, lands as one combo.
-    const effort = searching ? modelEffort(model, parsed.effort) : undefined;
-    const fast = searching ? parsed.fast : undefined;
+    // A typed effort or fast mode, or a model of another harness, lands as one combo. A plain pick of
+    // another model keeps the chat's level (the nearest one the model has) and its Fast where the model
+    // runs it (#48444: model, reasoning and Fast are independent; Codex resets its level on a switch).
+    const carries = !searching && !(model.id === props.model && owner.ids.includes(harness ?? ""));
+    const effort = searching ? modelEffort(model, parsed.effort) : carries ? carriedEffort(model) : undefined;
+    const fast = searching
+      ? parsed.fast
+      : carries && model.fast && fastMode !== undefined && fastModeIsOn(fastMode)
+        ? true
+        : undefined;
     if (needsSetup(owner)) {
       if (setUpPick(owner, model.id, effort, fast)) close();
       return;

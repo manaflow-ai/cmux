@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -88,6 +89,7 @@
         "sidebar.stepping",
         "sidebar.steppingWraps",
         "sidebar.side",
+        "sidebar.look",
         "sidebar.style",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -257,7 +259,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {
@@ -286,10 +289,12 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -457,6 +462,21 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.",
+      "keys": [
+        "labs.liveTree"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
+      "keys": [
+        "experiments.glassToolbarGroups",
+        "experiments.composerV2"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
@@ -473,8 +493,9 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
+      "why": "Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
+        "home.chiefDock.sidePanel",
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"
@@ -738,6 +759,9 @@
         "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
+        "agentPane.display.font.uiFamily",
+        "agentPane.display.font.proseFamily",
+        "agentPane.display.font.faces",
         "agentPane.display.font.size",
         "agentPane.display.font.lineHeight",
         "agentPane.display.code.family",
@@ -971,6 +995,13 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {
@@ -1261,7 +1292,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
       ]

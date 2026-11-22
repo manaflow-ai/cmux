@@ -681,9 +681,10 @@ extern "C" fn shareable_content_done(
     }
 }
 
-/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
-/// Empty, or an error, when Screen Recording is not allowed.
-fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+/// What ScreenCaptureKit can capture now, as a retained SCShareableContent the caller releases
+/// (also the Computer Use screenshots, `super::cu_host`). An error when Screen Recording is not
+/// allowed.
+pub(super) fn shareable_content() -> Res<Id> {
     sys::load()?;
     let _pool = AutoreleasePool::new();
     let (tx, rx) = sync_channel::<ContentAnswer>(1);
@@ -701,6 +702,14 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
         .recv_timeout(ANSWER_TIMEOUT)
         .map_err(|_| "screen capture did not answer (is Screen Recording allowed?)")?
         .map_err(|e| format!("screen capture is not allowed or failed: {e}"))?;
+    Ok(content)
+}
+
+/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
+/// Empty, or an error, when Screen Recording is not allowed.
+fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+    let content = shareable_content()?;
+    let _pool = AutoreleasePool::new();
     let list = sys::send_id(content, c"displays");
     // SAFETY: -[NSArray count] and -objectAtIndex: on the displays array.
     let count = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count")) };
@@ -961,6 +970,8 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 }
 
 impl Capture {
+    /// A capture that draws the cursor, for the bench's observer (`observe.rs`, its one caller).
+    #[cfg(feature = "bench")]
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
         Self::start_with_marker(which, fps, max_width, true, None)
     }

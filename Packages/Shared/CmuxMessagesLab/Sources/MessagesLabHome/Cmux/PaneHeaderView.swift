@@ -6,7 +6,8 @@ import AppKit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
 /// near HeaderBar's measured places: the avatar (36 pt from 4 pt, clear of the
 /// pill) at the top, and the glass capsule name pill centered 58 pt
-/// from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). No
+/// from the top (`HeaderBar.pillWidth`, or the button's own width when that is more, bold
+/// 13 pt, the dim chevron). No
 /// band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
@@ -135,7 +136,7 @@ final class PaneHeaderView: NSView {
         super.layout()
         let s = PaneHeaderView.avatarSize
         avatar.frame = CGRect(x: (bounds.width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s)
-        let w = HeaderBar.pillWidth(title)
+        let w = pillWidth
         let h = PaneHeaderView.pillHeight
         pill.frame = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
         pillBacking.frame = pill.frame
@@ -145,6 +146,13 @@ final class PaneHeaderView: NSView {
         pillGlass?.cornerRadius = h / 2
         layoutTrailingAccessory()
         layoutFaces()
+    }
+
+    /// Messages' measured width, or wider when the button needs more: this pill is a plain `NSButton`
+    /// that draws its own title, chevron and glass padding, which take about 8 pt more than
+    /// Messages' measure, so a long name such as "workspace-1005" was cut (a1285, 2026-11-20).
+    private var pillWidth: CGFloat {
+        max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
     }
 
     /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
@@ -184,7 +192,7 @@ final class PaneHeaderView: NSView {
         pill.isHidden = bare || title.isEmpty
         avatar.isHidden = pill.isHidden
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
-        pill.toolTip = pill.accessibilityLabel()
+        pill.setHomeToolTip(pill.accessibilityLabel())
         avatar.setAccessibilityLabel(title)
         needsLayout = true
     }
