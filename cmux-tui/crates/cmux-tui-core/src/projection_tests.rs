@@ -213,6 +213,9 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
+                .env_remove("GIT_CONFIG_GLOBAL")
+                .env_remove("XDG_CONFIG_HOME")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .arg("-C")
                 .arg(repo)

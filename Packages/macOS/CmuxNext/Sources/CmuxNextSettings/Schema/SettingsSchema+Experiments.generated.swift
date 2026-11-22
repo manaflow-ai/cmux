@@ -20,6 +20,12 @@ extension CmuxConfigSnapshot {
     /// `experiments.menuRowStates`: Menu Row States: a menu row that is unavailable says why, and a row that starts work shows its progress inline (webviews experiment menu-row-states, arm on; the native popup reads DesignSettings.shared.experiment("menuRowStates")). Off by default.
     public nonisolated static let menuRowStatesPath = ["experiments", "menuRowStates"]
     public nonisolated static let menuRowStatesDefault = false
+    /// `experiments.toastsV2`: Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch("toastsV2")). Off by default; off keeps today's toasts.
+    public nonisolated static let toastsV2Path = ["experiments", "toastsV2"]
+    public nonisolated static let toastsV2Default = false
+    /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
+    public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
+    public nonisolated static let chatWidgetsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +93,26 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.menuRowStatesDefault),
                 keywords: ["experiment", "experimental", "menu", "menus", "unavailable", "disabled", "progress", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.toastsV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.toastsV2", "Toasts v2"),
+                help: SettingsText.keyed("settings.experiments.toastsV2.help", "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.toastsV2Default),
+                keywords: ["labs", "experiments", "experimental", "toasts", "toast", "undo", "spinner"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.chatWidgetsPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.chatWidgets", "Extension Chat Widgets"),
+                help: SettingsText.keyed("settings.experiments.chatWidgets.help", "Installed extensions can show a card under a finished tool call in agent chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
+                keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
             ),
         ]
     }
