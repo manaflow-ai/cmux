@@ -31,6 +31,8 @@ on:
       - "scripts/ci/affected_jobs_replay.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
+      - ".github/actions/rust-compile-cache/**"
+      - "scripts/ci/rust_compile_cache.py"
       - ".github/actions/cache-restore/**"
       - ".github/actions/cache-save/**"
       - "tests/test_ci_tree_result.py"
@@ -221,7 +223,7 @@ jobs:
         run: |
           changed=true
           if [[ "$EVENT_NAME" == pull_request ]] && files=$(git diff --no-renames --name-only HEAD^1 HEAD 2>/dev/null); then
-            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs)\.py$|scripts/ci/affected-jobs\.json$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
+            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs|rust_compile_cache)\.py$|\.github/actions/rust-compile-cache/|scripts/ci/affected-jobs\.json$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
               changed=false
             fi
           fi
@@ -379,6 +381,15 @@ jobs:
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
           add-rust-environment-hash-key: false
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux protocol IR
+
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
       - name: "cargo test -p acpmux --lib -- protocol::"
@@ -397,6 +408,13 @@ jobs:
             echo "::error title=acpmux protocol tests::the protocol:: filter matched no test; fix this step's filter"
             exit 1
           fi
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux protocol IR
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
@@ -522,6 +540,15 @@ jobs:
           # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
           add-rust-environment-hash-key: false
+
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux tests
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -675,6 +702,13 @@ jobs:
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ github.sha }}
 
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux tests
+
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
       - name: Record this green result for its input tree
@@ -734,6 +768,15 @@ jobs:
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
           add-rust-environment-hash-key: false
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux simulation
+
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
@@ -754,6 +797,13 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- --cap-lints warn
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux simulation
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
@@ -830,6 +880,15 @@ jobs:
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
           add-rust-environment-hash-key: false
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: carrier simulation
+
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
@@ -841,6 +900,13 @@ jobs:
           set -o pipefail
           cargo test --locked -p cmux-remote --test carrier_sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: carrier simulation
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}

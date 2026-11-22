@@ -39,12 +39,14 @@
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
             "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            ".github/actions/rust-compile-cache/",
+            "scripts/ci/rust_compile_cache.py"
           ]
         },
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
-          "crates": ["cmux-tui/crates/acpmux"],
+          "crates": ["cmux-tui/crates/acpmux"], "inputs": [".github/actions/rust-compile-cache/", "scripts/ci/rust_compile_cache.py"],
           "features": ["sim"]
         },
         "carrier-sim": {
@@ -52,13 +54,15 @@
           "crates": ["cmux-tui/crates/cmux-remote", "cmux-tui/crates/cmux-link", "cmux-tui/crates/cmux-relay"],
           "inputs": [
             "cmux-tui/crates/cmux-tui/src/carrier/", "ghostty-next", "scripts/install-zig-ci.sh",
-            "scripts/ci/init-submodule.sh"
+            "scripts/ci/init-submodule.sh",
+            ".github/actions/rust-compile-cache/",
+            "scripts/ci/rust_compile_cache.py"
           ]
         },
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
-          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+          "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/rust-compile-cache/", "scripts/ci/rust_compile_cache.py"]
         }
       }
     },
