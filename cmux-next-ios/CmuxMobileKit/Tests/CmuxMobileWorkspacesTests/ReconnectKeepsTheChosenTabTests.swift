@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxMobileWorkspaces
 
 #if os(iOS)
-/// Leo, 2026-11-21: "i lost connection with cosmic gray or some shit refreshed or the connection fucking
+/// Leo, 2026-11-21: "i lost connection with cosmic gray or some s*** refreshed or the connection f***ing
 /// lagged and then it brought me out of the terminal tab and into a browser tab". The live screen's hold
 /// (StickyTabSelectionTests) covers a screen that stays up; these cover one rebuilt while the Mac's list
 /// still lacks the tab, and a Mac close of another tab meanwhile.
