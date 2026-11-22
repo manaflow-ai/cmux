@@ -50,12 +50,23 @@ async function loadWorkspace() {
   }
 }
 
-let following = false
+// Every mount subscribes for itself: cmux.live, events.on and timer.every end with the mount that
+// made them, so a section that remounts (a second window, a re-render) keeps updating. The newest
+// mounted live feeds the view; stored choices load once.
+const lives = []
+let stored = false
 function follow() {
-  if (following) return
-  following = true
-  setSource(cmux.live("chat.list", { include_archived: true }))
-  cmux.storage.get("sidebar.prefs").then((saved) => saved && setPrefs({ ...prefs(), ...saved })).catch(() => {})
+  const live = cmux.live("chat.list", { include_archived: true })
+  lives.push(live)
+  setSource(() => live) // a function: passing the live itself would run it as an updater
+  onCleanup(() => {
+    lives.splice(lives.indexOf(live), 1)
+    if (source.peek() === live) setSource(() => lives[lives.length - 1] || null)
+  })
+  if (!stored) {
+    stored = true
+    cmux.storage.get("sidebar.prefs").then((saved) => saved && setPrefs({ ...prefs(), ...saved })).catch(() => {})
+  }
   loadWorkspace()
   cmux.events.on("workspace.changed", loadWorkspace)
   cmux.timer.every(30_000, () => setNow(Date.now()))
@@ -67,7 +78,7 @@ const num = (v) => Number(v) || 0
 
 const updatedAt = (c) => Math.max(num(c.updated_ms), num(c.since_ms), num(c.created_ms))
 const stamp = (c) => (prefs().sort === "created" ? num(c.created_ms) : updatedAt(c))
-const isOpen = (c) => c.workspace != null && c.workspace === openWorkspace()
+const isOpen = (c) => !c.machine && c.workspace != null && c.workspace === openWorkspace()
 const isPinned = (c) => Boolean(c.pinned)
 const isArchived = (c) => Boolean(c.archived)
 
@@ -95,7 +106,8 @@ const projects = computed(() => {
 })
 
 function show(chat) {
-  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
+  // A peer chat's workspace id is that machine's, not ours: open it as a tab instead.
+  if (chat.workspace && !chat.machine) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
   else run("agent.openSessionTab", session(chat))
 }
 
@@ -234,7 +246,8 @@ function renderChats() {
               ])
             )
           ]),
-    () => (visible().length ? null : Text("No chats").font(TEXT).color(cmux.theme.text.secondary).paddingHorizontal(ROW_PAD).frame({ height: ROW_HEIGHT }))
+    () => (source() && source().error() ? Text(source().error().message).font(TEXT).color(cmux.theme.warning).paddingHorizontal(ROW_PAD) : null),
+    () => (visible().length || (source() && source().error()) ? null : Text("No chats").font(TEXT).color(cmux.theme.text.secondary).paddingHorizontal(ROW_PAD).frame({ height: ROW_HEIGHT }))
   ]).paddingHorizontal(ROW_INSET)
 }
 

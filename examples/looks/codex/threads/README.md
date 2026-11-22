@@ -28,7 +28,7 @@ cmux setup remove manaflow-ai/codex-threads
 
 Archive needs a build with the chat archive operation (`chat.archive`, with `archived` rows from
 `chat.list`), as [Session Recents](../../claude-code/session-recents) does. On a build without it,
-Archive shows a warning toast and nothing is hidden. Pin and mark read work on today's builds.
+Archive shows a warning toast and nothing is hidden. Mark read works on today's builds.
 
 ## Gaps
 

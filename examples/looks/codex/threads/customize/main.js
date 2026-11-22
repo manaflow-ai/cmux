@@ -80,12 +80,23 @@ async function loadWorkspace() {
   }
 }
 
-let following = false
+// Every mount subscribes for itself: cmux.live, events.on and timer.every end with the mount that
+// made them, so a section that remounts (a second window, a re-render) keeps updating. The newest
+// mounted live feeds the view; stored choices load once.
+const lives = []
+let stored = false
 function follow() {
-  if (following) return
-  following = true
-  setSource(cmux.live("chat.list", { include_archived: true }))
-  cmux.storage.get("threads.marks").then((saved) => saved && saved.cleared && setCleared(saved.cleared)).catch(() => {})
+  const live = cmux.live("chat.list", { include_archived: true })
+  lives.push(live)
+  setSource(() => live) // a function: passing the live itself would run it as an updater
+  onCleanup(() => {
+    lives.splice(lives.indexOf(live), 1)
+    if (source.peek() === live) setSource(() => lives[lives.length - 1] || null)
+  })
+  if (!stored) {
+    stored = true
+    cmux.storage.get("threads.marks").then((saved) => saved && saved.cleared && setCleared(saved.cleared)).catch(() => {})
+  }
   loadWorkspace()
   cmux.events.on("workspace.changed", loadWorkspace)
   cmux.timer.every(30_000, () => setNow(Date.now()))
@@ -100,7 +111,7 @@ const hasFailed = (c) => c.state === "failed" || c.state === "lost"
 const isUnread = (c) => Boolean(c.unread)
 const isRead = (c) => !needsYou(c) && c.state !== "working" && !isUnread(c)
 const title = (c) => (c.title && c.title.trim()) || "Untitled chat"
-const isOpen = (c) => c.workspace != null && c.workspace === openWorkspace()
+const isOpen = (c) => !c.machine && c.workspace != null && c.workspace === openWorkspace()
 
 function age(ms) {
   if (!ms) return ""
@@ -155,7 +166,8 @@ const session = (c) => ({ session: c.id, ...(c.machine ? { host: c.machine } : {
 
 function show(chat) {
   if (isUnread(chat)) markRead([chat])
-  if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
+  // A peer chat's workspace id is that machine's, not ours: open it as a tab instead.
+  if (chat.workspace && !chat.machine) cmux.workspace.focus({ workspace: chat.workspace }).then(loadWorkspace, refused("Change workspaces"))
   else run("agent.openSessionTab", session(chat))
 }
 
