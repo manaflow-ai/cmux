@@ -528,6 +528,8 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 
