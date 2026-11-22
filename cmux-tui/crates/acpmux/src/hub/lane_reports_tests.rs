@@ -13,6 +13,7 @@ fn report(turn: u64, prs: &[&str]) -> Report {
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     }
 }
 
@@ -371,6 +372,7 @@ fn queued_report(lane: &str) -> Report {
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     }
 }
 
@@ -579,6 +581,7 @@ async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_
         subagent_ended: false,
         interim: false,
         quiet_turns: 0,
+        released: false,
     };
     hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
     // The report is taken; the lane closes (its link retired) before it is handed over.
@@ -749,7 +752,8 @@ fn a_still_waiting_report_is_held_and_folded_into_the_next() {
     assert!(due_report(&mut l, 1).is_none(), "a reported pull request made it news");
     // A still-waiting turn naming a pull request the queued news does not replaces it as
     // news, under its own turn (F2); one naming none leaves the news queued.
-    let kept = replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
+    let kept =
+        replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
     assert_eq!(
         (kept.turn, kept.interim, kept.prs.as_slice()),
         (7, false, [pr.to_owned()].as_slice())

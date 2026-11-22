@@ -40,7 +40,8 @@
     "cmux-tui/crates/acpmux/src/run_elsewhere.rs": {"count": 2, "reason": "safe: pkill and killall are names in the list of commands a run elsewhere refuses to send and keeps on this machine; nothing is signalled"},
     "cmux-tui/vendor/smoltcp/README.md": {"count": 1, "reason": "safe: vendored upstream smoltcp README; its TAP setup example for a person's own machine runs nowhere here"},
     ".github/workflows/cmux-next-frame-pacing.yml": {"count": 1, "reason": "safe: the pattern is this job's own RUNNER_TEMP/frame-pacing path"},
-    "scripts/measure/launch-ready.sh": {"count": 1, "reason": "safe: the end-of-run sweep kills only processes whose command line is under this run's own copies ($out/, the checkout's .build/launch-ready), the daemons its launches left; the ps listing filters on that path, never a name"},
+    "scripts/measure/launch-ready.sh": {"count": 1, "reason": "safe: the PIDs are processes whose command line is under this run's own output folder ($out/, the app copies it made), so it cannot match another run's or person's process"},
+    "scripts/measure/firstexec-study.sh": {"count": 4, "reason": "safe: the PIDs are processes whose command line is under this run's own output folder ($out/, and each arm's app copy $OUT/copy-TAG/ that it made), so it cannot match another run's or person's process"},
     ".github/workflows/ios-e2e.yml": {"count": 1, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
     "Native/OptChat/chief-kernel/src/prompt.rs": {"count": 6, "reason": "safe: prompt text telling the agent never to use pkill or killall (moved from optchat-chief/src/prompt.rs)"},
     "Native/OptChat/chief-kernel/tests/golden/cli-everything.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
@@ -105,6 +106,7 @@
     "scripts/measure/cef-embedder.sh": {"count": 1, "reason": "safe: the pattern is this run's own tagged app, scratch dir or binary path, so it cannot match another run's or person's process"},
     "scripts/measure/launch-fresh-install.sh": {"count": 2, "reason": "safe: after each launch it kills only processes whose command line is under that launch's own copy (the copy it made, or where that copy ran translocated) and the fs_usage it started, by PID; the ps listing filters on those paths, never a name"},
     "scripts/measure/launch-premain.sh": {"count": 2, "reason": "safe: the end-of-run sweep kills only processes whose command line is under this run's own copy ($out/, the checkout's .build/launch-premain), the daemons its launches left; the ps listing filters on that path, never a name"},
+    "scripts/measure/launch-ready.sh": {"count": 1, "reason": "safe: the end-of-run sweep kills only processes whose command line is under this run's own copies ($out/, the checkout's .build/launch-ready), the daemons its launches left; the ps listing filters on that path, never a name"},
     "scripts/mobile-stability-soak.sh": {"count": 4, "reason": "debt: kills processes found in a ps/pgrep listing by the soak's tag, which defaults to a fixed name (swmob), so another soak with the default tag matches; record the PIDs it launches"},
     "scripts/reload.sh": {"count": 3, "reason": "debt: kills every pgrep match of the app path but the newest, which can include another run's copy of that path; the other matches are comments"},
     "scripts/reloadp.sh": {"count": 1, "reason": "safe: the exact Release bundle path this script built (APP_PATH), after refuse_if_stable_running"},
@@ -147,9 +149,12 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTests.swift": {"count": 25, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTextEveryThemeTests.swift": {"count": 1, "reason": "safe: a sample machine name in a test fixture, hashed to a colour; nothing connects to it"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/MachineColorsSettingTests.swift": {"count": 4, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/agent_link.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
+    "cmux-tui/crates/acpmux/src/agent_link.rs": {"count": 6, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/attach.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
+    "cmux-tui/crates/acpmux/src/cli/peer_status.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
+    "cmux-tui/crates/acpmux/src/hub/admission.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/hosts_tests.rs": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
+    "cmux-tui/crates/acpmux/src/hub/locate.rs": {"count": 20, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/server/requests.rs": {"count": 2, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/store.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/tests/hub_integration/prompt_provenance.rs": {"count": 5, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
@@ -172,10 +177,6 @@
     "webviews/test/chief-views-page.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Native/OptChat/optchat-chief/src/chief_settings.rs": {"count": 1, "reason": "safe: sample agent id in an inline unit test of the trust check; nothing depends on the host"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/GroupJoinHoldTests.swift": {"count": 4, "reason": "safe: sample machine id and name in a unit test's sidebar fixture; nothing depends on the host"},
-    "cmux-tui/crates/acpmux/src/agent_link_tests.rs": {"count": 5, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/cli/peer_status_tests.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/hub/admission_tests.rs": {"count": 4, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/hub/locate_tests.rs": {"count": 20, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
-    "cmux-tui/crates/acpmux/src/opaque_agent_id_tests.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"}
+    "cmux-tui/crates/acpmux/src/opaque_agent_id.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"}
   }
 }

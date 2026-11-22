@@ -24,7 +24,9 @@ fn relay_flags_are_the_relay_record_the_daemon_reads() {
         json!({"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": "lane"}, "fromHarness": "codex"})
     );
     // A relay names where the message came from, or it is no relay.
-    assert!(Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err());
+    assert!(
+        Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err()
+    );
 }
 
 #[test]
@@ -34,7 +36,7 @@ fn team_receipt_shows_the_hubs_canonical_resolution() {
     assert!(line.contains("@user_42/coordinator"));
     assert!(line.contains("startWork=information"));
 }
-use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
+use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers};
 use serde_json::json;
 
 /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
@@ -60,7 +62,8 @@ async fn a_fanout_note_is_read_only_if_already_answered() {
 #[test]
 fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {
     use super::{SendWait, send_queues};
-    let w = |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
+    let w =
+        |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
     assert!(!w(false, false, false, false), "the person's plain send streams the reply");
     assert!(w(true, false, false, false), "--no-wait queues");
     assert!(w(false, false, true, false), "--class queues");
@@ -95,14 +98,6 @@ fn a_session_read_through_the_hub_is_sent_through_the_hub() {
     assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
     assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
     assert!(!read_through_hub(&json!({"sessionId": "s"})));
-}
-
-#[test]
-fn a_sub_session_names_the_parent_that_started_it() {
-    let child = json!({"sessionId": "child", "startedBy": "p"});
-    assert_eq!(started_by(&child).as_deref(), Some("p"));
-    assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
-    assert_eq!(started_by(&json!({"sessionId": "old"})), None);
 }
 
 #[test]

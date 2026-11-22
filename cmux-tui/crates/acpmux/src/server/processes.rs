@@ -50,13 +50,21 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     if m == method::MUX_PROCESS_LIST {
         let paging = process_page_params(params)?;
         let recent = recent_param(params)?;
+        let within = byte_param(params, "endedWithin")?;
+        let calls = calls_param(params)?;
         if recent.is_some() && paging.is_some() {
             return Err(RpcError::invalid_params("recent does not take limit or cursor"));
         }
+        if within.is_some() && recent.is_none() {
+            return Err(RpcError::invalid_params("endedWithin requires recent"));
+        }
+        if calls.is_some() && (recent.is_some() || paging.is_some()) {
+            return Err(RpcError::invalid_params("calls takes no recent, limit or cursor"));
+        }
         return match params.get("sessionId").filter(|v| !v.is_null()) {
-            None if recent.is_some() => {
-                Err(RpcError::invalid_params("a recent process list requires a sessionId"))
-            }
+            None if recent.is_some() || calls.is_some() => Err(RpcError::invalid_params(
+                "a recent process list or one by calls requires a sessionId",
+            )),
             None if paging.is_some() => {
                 Err(RpcError::invalid_params("paged process lists require a sessionId"))
             }
@@ -67,7 +75,10 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
                 if let Some(recent) = recent {
-                    return hub.list_recent_processes(&session, recent);
+                    return hub.list_recent_processes(&session, recent, within);
+                }
+                if let Some(calls) = calls {
+                    return Ok(hub.list_call_processes(&session, &calls));
                 }
                 match paging {
                     Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),
@@ -141,6 +152,21 @@ fn recent_param(params: &Value) -> Result<Option<usize>, RpcError> {
     Ok(Some(usize::try_from(recent).unwrap_or(usize::MAX).min(1_000)))
 }
 
+/// `calls`: the tool calls whose processes to read (`Hub::list_call_processes`), 1 to 1,000
+/// nonempty strings.
+fn calls_param(params: &Value) -> Result<Option<Vec<String>>, RpcError> {
+    let Some(value) = params.get("calls").filter(|v| !v.is_null()) else { return Ok(None) };
+    let bad = || RpcError::invalid_params("calls must be 1 to 1,000 tool call ids");
+    let list =
+        value.as_array().filter(|list| !list.is_empty() && list.len() <= 1_000).ok_or_else(bad)?;
+    list.iter()
+        .map(|call| {
+            call.as_str().filter(|call| !call.is_empty()).map(str::to_owned).ok_or_else(bad)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
 /// A byte count or offset: absent, null or a non-negative integer.
 fn byte_param(params: &Value, key: &str) -> Result<Option<u64>, RpcError> {
     match params.get(key).filter(|v| !v.is_null()) {
@@ -171,5 +197,46 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
 }
 
 #[cfg(test)]
-#[path = "processes_process_page_params_tests.rs"]
-mod process_page_params_tests;
+mod process_page_params_tests {
+    use super::*;
+
+    #[test]
+    fn a_cursor_requires_a_positive_limited_session_page() {
+        assert_eq!(process_page_params(&json!({})).unwrap(), None);
+        assert_eq!(process_page_params(&json!({"limit": 1})).unwrap(), Some((1, None)));
+        assert_eq!(
+            process_page_params(&json!({"limit": 3_000, "cursor": "s/task"})).unwrap(),
+            Some((1_000, Some("s/task")))
+        );
+        for bad in [
+            json!({"cursor": "s/task"}),
+            json!({"limit": 0}),
+            json!({"limit": -1}),
+            json!({"limit": "3"}),
+            json!({"limit": true}),
+            json!({"limit": 1, "cursor": ""}),
+            json!({"limit": 1, "cursor": 13}),
+        ] {
+            assert!(process_page_params(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn calls_are_one_to_a_thousand_tool_call_ids() {
+        assert_eq!(calls_param(&json!({})).unwrap(), None);
+        assert_eq!(
+            calls_param(&json!({"calls": ["a", "b"]})).unwrap(),
+            Some(vec!["a".into(), "b".into()])
+        );
+        let many: Vec<String> = (0..1_001).map(|n| format!("call-{n}")).collect();
+        for bad in [
+            json!({"calls": []}),
+            json!({"calls": [""]}),
+            json!({"calls": [3]}),
+            json!({"calls": "a"}),
+            json!({"calls": many}),
+        ] {
+            assert!(calls_param(&bad).is_err(), "{bad}");
+        }
+    }
+}

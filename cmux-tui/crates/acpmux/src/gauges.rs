@@ -95,6 +95,41 @@ impl Gauges {
             "startup": phases,
             "memory": memory(),
             "peerLists": peer_lists().status(),
+            "recordWrites": record_writes().status(),
+        })
+    }
+}
+
+/// The time chats' records take to be written (`Hub::write_record_locked`): the store's append
+/// alone, and the whole write from its sequence number to its event on the hub's channel. Totals
+/// only, so a reader takes the difference across a window (the turn bench,
+/// `benches/turn_overhead.rs`, reads it around each turn).
+pub fn record_writes() -> &'static RecordWrites {
+    static WRITES: OnceLock<RecordWrites> = OnceLock::new();
+    WRITES.get_or_init(RecordWrites::default)
+}
+
+#[derive(Default)]
+pub struct RecordWrites {
+    records: AtomicU64,
+    store_ns: AtomicU64,
+    write_ns: AtomicU64,
+}
+
+impl RecordWrites {
+    /// One record written: `store` in the store's append, `write` in all.
+    pub fn note(&self, store: Duration, write: Duration) {
+        let nanos = |d: Duration| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+        self.records.fetch_add(1, Ordering::Relaxed);
+        self.store_ns.fetch_add(nanos(store), Ordering::Relaxed);
+        self.write_ns.fetch_add(nanos(write), Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "records": self.records.load(Ordering::Relaxed),
+            "storeNs": self.store_ns.load(Ordering::Relaxed),
+            "writeNs": self.write_ns.load(Ordering::Relaxed),
             "attach": attach_latency().status(),
             "fanout": fanout_status(),
         })

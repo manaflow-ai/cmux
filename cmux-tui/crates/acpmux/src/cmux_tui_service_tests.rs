@@ -5,6 +5,21 @@ fn consent(required: bool, control: &str) -> Value {
 }
 
 #[test]
+fn a_machine_the_hub_lists_is_named_by_its_host() {
+    let machines = vec![
+        ("a".repeat(44), "gcp-lane-2".to_owned()),
+        ("b".repeat(44), "air".to_owned()),
+        ("c".repeat(44), "twice".to_owned()),
+        ("d".repeat(44), "Twice".to_owned()),
+    ];
+    assert_eq!(book_key(&machines, "gcp-lane-2"), Some("a".repeat(44)));
+    assert_eq!(book_key(&machines, "AIR"), Some("b".repeat(44)));
+    // Two machines listed under one name: neither is picked.
+    assert_eq!(book_key(&machines, "twice"), None);
+    assert_eq!(book_key(&machines, "nowhere"), None);
+}
+
+#[test]
 fn no_configured_daemon_admits_nothing() {
     let refused = admit(None, &consent(false, "none"), 7781).unwrap_err();
     assert_eq!(refused.reason, "service.off");
