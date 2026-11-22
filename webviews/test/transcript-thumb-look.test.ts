@@ -191,7 +191,21 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           // The screencast can make the move outlast the linger; a step of scroll back down (the view is at the top by now) with the pointer
           // on the bar shows the thumb again, and the pointer there holds it.
           await page.mouse.wheel(0, 60);
-          await settled(true);
+          // A move on the bar while the scroll shows reads the pointer against the shown thumb.
+          await page.mouse.move(view.x + view.width - 4, middle.y + 1, { steps: 2 });
+          await settled(true).catch(async (error) => {
+            const state = await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              return {
+                attributes: scroller.getAttributeNames().filter((name) => name.startsWith("data-cmux")),
+                top: scroller.scrollTop,
+                height: scroller.scrollHeight,
+                client: scroller.clientHeight,
+                ink: scroller.style.getPropertyValue("--cmux-shown-scroller-ink"),
+              };
+            });
+            throw new Error(`round ${round} never settled near: ${JSON.stringify(state)}`, { cause: error });
+          });
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });
           await settled(false);
