@@ -245,6 +245,8 @@ For a push or loop retry, `pick-nightly-next-signer` reads the runner census and
 
 Main’s rolling rule defaults to one slot. Enable `NIGHTLY_NEXT_SLOTS=2` only after both changes land and existing legacy-group builds drain; likewise drain the per-host groups when switching back to one. The Macs share a publication lease: under that lease the publisher rechecks the live feed, and the conditional feed write compares build number and source ancestry before replacing it. Finishing late cannot roll the authoritative appcast back. The release mirror has its own lease and can lag the feed; the two are not an atomic write.
 
+The pick accepts a census up to 50 min old (CENSUS_MAX_AGE_SECONDS), not the pool's 5 min: vars are read when the run starts and the pick runs after resolve (~13 min), so on 2026-11-22 runs 44990363506, 44992267457 and 44993740115 read censuses 30, 36 and 23 min old, every pick fell back to the label alone in nightly-next-one-push-cmux15, and the second build waited for the first (run 44992267457 waited 6 min at the slot, left it, and its retry fed 8ff8e496 56 min after landing). Who holds each host still comes from the live jobs listing.
+
 ## note-34
 
 Above `run-name: >-` in `.github/workflows/nightly.yml`.
