@@ -380,7 +380,7 @@
      --acpmux-minimap-rim. Reduce Transparency turns the fill into the solid popup surface (below)
      and the blur off (pages/shared/desktop.css). */
   padding: var(--ds-space-2);
-  border-radius: var(--tooltip-radius);
+  border-radius: var(--tooltip-radius); /* concentric-allow: a hover card takes the one hover material's radius, like every tooltip and hover card */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));

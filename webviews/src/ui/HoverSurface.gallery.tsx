@@ -42,7 +42,7 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
           <p key={row}>{row}</p>
         ))}
         <p className="hover-surface-gallery-subagent">
-          Subagent disconnected: <span className="hover-surface-gallery-chip">Fix glaeda#1968 BLOCK and land</span>
+          Subagent disconnected: <span className="hover-surface-gallery-chip">Fix the scroll anchor and land</span>
           <span className="hover-surface-gallery-muted"> · 0s</span>
         </p>
         <p className="hover-surface-gallery-composer">Type / for commands</p>
@@ -57,7 +57,7 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
         role="tooltip"
         data-gallery-hover=""
       >
-        <strong>Fix glaeda#1968 BLOCK and land</strong>
+        <strong>Fix the scroll anchor and land</strong>
         <span className="ui-tooltip-detail">Disconnected · 0s</span>
       </div>
       <div
