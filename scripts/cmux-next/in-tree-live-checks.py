@@ -23,6 +23,15 @@ terminal beside a Chromium page and checks:
              reaches the app (debug.cef file_dialogs.received grows), Escape delivers 'cancel' to the page, and a
              second chooser does the same (other-Mac run on 6e420b7b: every later chooser of that app cancelled at once)
 
+  guards     every retired child-window path's counter (debug.focus in_tree.in_tree_guards) stays 0 for the whole run,
+             and debug.layers retired_page_windows (page child windows that showed over a cmux window) stays empty;
+             RAW guards_<label> has the counters after each step, so a nonzero one names the step that moved it
+  parked     every page view in no shown pane (debug.layers page_views, pane null) is parked: true with a known parking
+             (offscreen_parking, reserved_workspace, parked_workspace, hidden), never "unplaced"
+  churn      opens and closes --churn Chromium tabs one at a time; afterwards the page views, the parked page views, the
+             CefNSWindow count (debug.window_list) and in-tree attaches minus live views come back to where they were
+             before, and the app's footprint grows less than --churn-mb (INFO row with the numbers too)
+
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
 """
@@ -35,7 +44,9 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages,parked,churn,guards")
+parser.add_argument("--churn", type=int, default=50, help="churn: how many tabs to open and close")
+parser.add_argument("--churn-mb", dest="churn_mb", type=float, default=150.0, help="churn: allowed footprint growth (MB)")
 parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
                     help="file_after_popup: the popup closes itself (window.close() from its opener) or its window closes")
 opts = parser.parse_args()
@@ -193,6 +204,73 @@ def census(label):
     out["cef_widget_drawing"] = cef.get("widget_drawing") if isinstance(cef, dict) else None
     RAW[f"census_{label}"] = {"layers": ws, "cef": cef}
     return out
+
+
+def guards(label):
+    """The retired paths' counters and the page windows that showed, after step `label` (RAW guards_<label>)."""
+    counts = ((rpc("debug.focus") or {}).get("in_tree") or {}).get("in_tree_guards") or {}
+    seen = [s for w in windows() for s in w.get("retired_page_windows") or []]
+    RAW[f"guards_{label}"] = {"counts": counts, "retired_page_windows": seen}
+    return counts, seen
+
+
+PARKINGS = ("offscreen_parking", "reserved_workspace", "parked_workspace", "hidden")
+
+
+def page_view_census():
+    views = [v for w in windows() for v in w.get("page_views") or []]
+    parked = [v for v in views if v.get("pane") is None]
+    bad = [v for v in parked if v.get("parked") is not True or not str(v.get("parking") or "").startswith(PARKINGS)]
+    return views, parked, bad
+
+
+def cef_windows():
+    listed = (rpc("debug.window_list") or {}).get("windows") or []
+    return sum(1 for w in listed if "CefNSWindow" in str(w.get("class")))
+
+
+def footprint():
+    value = (rpc("debug.cef") or {}).get("footprint_mb")
+    return value if isinstance(value, (int, float)) else None
+
+
+def churn_snapshot():
+    views, parked, _ = page_view_census()
+    tracker = (rpc("debug.cef") or {}).get("tracker") or {}
+    return {"page_views": len(views), "parked": len(parked), "cef_windows": cef_windows(), "footprint_mb": footprint(),
+            "tabs": tab_count(), "in_tree_attaches": tracker.get("in_tree_attaches")}
+
+
+def churn():
+    """Opens and closes --churn Chromium tabs one at a time, then compares the census with the one before."""
+    time.sleep(1.0)  # test harness: earlier steps' pages settle
+    before = churn_snapshot()
+    opened, closed, missed = 0, 0, []
+    for n in range(opts.churn):
+        reply = action("openBrowser.chromium", {"url": URL + f"?churn={n}"})
+        found = wait(lambda: (lambda r: r if r.get("value") is True else None)(
+            page_eval(f"location.search === '?churn={n}' && document.readyState === 'complete'")), 30, 0.25)
+        tab = found.get("tab") if found else None
+        if not tab:
+            missed.append({"n": n, "open": str(reply)[:200]})
+            continue
+        opened += 1
+        reply = action("closeTab", target=f"tab:{tab}")
+        if isinstance(reply, dict) and not reply.get("error"):
+            closed += 1
+        else:
+            missed.append({"n": n, "close": str(reply)[:200]})
+    time.sleep(3.0)  # test harness: closed browsers finish closing (OnBeforeClose)
+    after = churn_snapshot()
+    RAW["churn"] = {"before": before, "after": after, "opened": opened, "closed": closed, "missed": missed}
+    grew = (after["footprint_mb"] - before["footprint_mb"]) if before["footprint_mb"] and after["footprint_mb"] else None
+    row("INFO", "churn.numbers", {"before": before, "after": after, "opened": opened, "closed": closed,
+                                  "footprint_growth_mb": grew, "missed": missed[:5]})
+    row(opened == opts.churn and closed == opts.churn, "churn.ran", {"opened": opened, "closed": closed})
+    row(after["page_views"] == before["page_views"] and after["parked"] == before["parked"]
+        and after["cef_windows"] == before["cef_windows"], "churn.no_leak",
+        {k: [before[k], after[k]] for k in ("page_views", "parked", "cef_windows", "tabs")})
+    row(grew is not None and grew < opts.churn_mb, "churn.footprint", {"growth_mb": grew, "limit_mb": opts.churn_mb})
 
 
 def daemon_socket():
@@ -414,6 +492,7 @@ try:
         row(False, "launch", str(error)[:300])
         raise SystemExit
     time.sleep(2)  # test harness: the first terminal attaches
+    guards("launch")
     terminal_tab = (rpc("debug.focus") or {})
     RAW["focus_at_launch"] = terminal_tab
     opened = action("openBrowser.chromium", {"url": URL})
@@ -424,9 +503,11 @@ try:
     if not page_tab:
         row(False, "page", {"open": opened, "cef": rpc("debug.cef")})
         raise SystemExit
+    guards("page_open")
     # Terminal on the left, page on the right: split the page's pane and put a terminal in the new pane.
     RAW["split"] = action("splitRight")
     time.sleep(1.5)  # test harness: the new pane's terminal attaches
+    guards("split")
     focus_after_split = rpc("debug.focus")
     RAW["focus_after_split"] = focus_after_split
 
@@ -619,6 +700,19 @@ try:
                 typed[label] = {"click": click, "value": page_eval("document.getElementById('field').value", tab).get("value")}
             row(typed["A"]["value"] == "left" and typed["B"]["value"] == "right", "two_pages.input", typed)
             rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "two-pages-typed.png")})
+    if "parked" in CHECKS:
+        views, parked, bad = page_view_census()
+        row(not bad, "parked", {"page_views": len(views), "parked": [{k: v.get(k) for k in ("parking", "frame_in_window")}
+                                                                      for v in parked], "unlabelled": bad})
+    guards("before_churn")
+    if "churn" in CHECKS and opts.in_tree == "on":
+        churn()
+        guards("after_churn")
+    if "guards" in CHECKS and opts.in_tree == "on":
+        counts, seen = guards("end")
+        steps = {k[len("guards_"):]: v["counts"] for k, v in RAW.items() if k.startswith("guards_")}
+        row(bool(counts) and all(v == 0 for v in counts.values()) and not seen, "guards",
+            {"counts": counts, "retired_page_windows": seen[:6], "by_step": steps})
     RAW["snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "window.png")})
 except SystemExit:
     pass

@@ -514,6 +514,15 @@ def check_in_tree():
     FACTS["in_tree_guards"] = ((rpc("debug.focus") or {}).get("in_tree") or {}).get("in_tree_guards")
     row("in_tree", bool(found), {"pages": FACTS["in_tree_pages"], "page_views": len(FACTS["page_views"]),
                                  "guards": FACTS["in_tree_guards"]})
+    # Every retired child-window path stays at 0, no page child window showed (retired_page_windows), and every page view
+    # in no shown pane is labelled parked with where it waits.
+    retired = [s for w in windows for s in w.get("retired_page_windows") or []]
+    unlabelled = [v for v in FACTS["page_views"] if v.get("pane") is None
+                  and (v.get("parked") is not True or str(v.get("parking") or "unplaced") == "unplaced")]
+    guards = FACTS["in_tree_guards"] or {}
+    row("in_tree.guards", bool(guards) and all(v == 0 for v in guards.values()) and not retired and not unlabelled,
+        {"guards": guards, "retired_page_windows": retired[:6], "unlabelled_page_views": unlabelled,
+         "parked": [v.get("parking") for v in FACTS["page_views"] if v.get("pane") is None]})
 
 
 def check_fork_hosted():
