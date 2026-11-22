@@ -27,6 +27,7 @@ import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
 import { useHeaderFold } from "./headerOverflow";
+import { HeaderItem } from "./HeaderSlotsRow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
@@ -564,10 +565,14 @@ function ChatHeaderToolsView({
         onPointerEnter={onPointerEnter}
       >
         {!native && worktree && (
-          <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+          <HeaderItem id="worktree">
+            <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+          </HeaderItem>
         )}
         {!native && pullRequest && pullRequestChip !== false && (
-          <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
+          <HeaderItem id="pullRequest">
+            <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
+          </HeaderItem>
         )}
         {!native && sessionInfo}
         {typeof summary === "function" ? summary(native) : !native && summary}
@@ -599,9 +604,15 @@ function ChatHeaderToolsView({
   if (trio)
     return (
       <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
-        {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+        {worktree && (
+          <HeaderItem id="worktree">
+            <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+          </HeaderItem>
+        )}
         {pullRequest && pullRequestChip !== false && (
-          <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+          <HeaderItem id="pullRequest">
+            <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+          </HeaderItem>
         )}
         {/* Needs You only with open asks: an alert, not a fourth control. */}
         {inboxRelevant && inbox}
@@ -623,10 +634,14 @@ function ChatHeaderToolsView({
     >
       {preview && <HeaderToolPreview target={preview} />}
       {!native && worktree && (
-        <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+        <HeaderItem id="worktree">
+          <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+        </HeaderItem>
       )}
       {!native && pullRequest && pullRequestChip !== false && (
-        <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        <HeaderItem id="pullRequest">
+          <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        </HeaderItem>
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}

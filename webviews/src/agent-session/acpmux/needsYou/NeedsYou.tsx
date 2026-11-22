@@ -10,6 +10,7 @@
 // WORKSPACE... OR OPEN ON RIGHT"): the one-line card; expanded, with the whole ask, every option
 // and a typed answer for a question, and the ways to open its chat (on the right, the default; the
 // workspace that shows it; a new workspace); and its context, the last turns before the ask.
+import { headerItemProps } from "../header/headerSlots";
 import {
   createContext,
   memo,
@@ -132,7 +133,9 @@ export function NeedsYouButton({
       >
         <HeaderIcon name="inbox" size={HEADER_GLYPH} />
         {count > 0 && (
-          <span className="acpmux-needs-you-count">
+          // In the chat header the count is an accessory (header/headerSlots.ts `needsYouCount`): short of room it
+          // gives way, last of them, and the button keeps its dot, so the tools never move for it.
+          <span className="acpmux-needs-you-count" {...headerItemProps("needsYouCount")}>
             <span className="acpmux-needs-you-dot" aria-hidden="true" />
             {count > 99 ? "99+" : count}
           </span>

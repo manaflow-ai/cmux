@@ -562,6 +562,7 @@ import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ChatSummaryLine } from "./header/ChatSummaryLine";
+import { HeaderItem, HeaderSlots } from "./header/HeaderSlotsRow";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
@@ -1127,7 +1128,7 @@ const answerHeld = (promptId: string, approve: boolean, revision?: number): Prom
   );
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
-// `need`: the width less the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY), what decides whether the pane offers the row.
+// `need`: the width less the row's accessories (the accessory slot, header/headerSlots.ts), what decides whether the pane offers the row.
 const reportTabRowTools = (width: number, need: number) =>
   void callNative("pane.tabRowTools", { width, need }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
@@ -14329,51 +14330,63 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                 inert={parkedVisible || undefined}
               >
-                {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
-                    (ui/titleTooltips.ts `data-tooltip-covered`). */}
-                <header
-                  className="acpmux-header"
-                  data-tab-row={inTabRow ? "" : undefined}
-                  data-tooltip-covered={inTabRow ? "" : undefined}
-                >
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
-                      </span>
-                    )}
-                  </ChatHeaderStatus>
-                  <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {liveTreeEnabled && snapshot.sessionId && (
-                      <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
-                    )}
-                    <LivePresenceStack
-                      sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                      fallback={snapshot.presence}
-                    />
-                    {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
+                {/* The header's named slots (header/headerSlots.ts): the title, the accessories (each registered with
+                    its overflow rule) and the trailing tools, which no accessory moves. */}
+                <HeaderSlots
+                  inTabRow={inTabRow}
+                  toolsRef={tabRowTools}
+                  title={
+                    <ChatHeaderStatus status={header.status} detail={header.detail}>
+                      {!inTabRow && !showNewTab && snapshot.sessionId && (
+                        <span className="acpmux-header-status-content">
+                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                          {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
+                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
+                        </span>
+                      )}
+                    </ChatHeaderStatus>
+                  }
+                  accessory={
+                    <>
+                      {liveTreeEnabled && snapshot.sessionId && (
+                        <HeaderItem id="liveTree">
+                          <LiveTreePill
+                            key={snapshot.sessionId}
+                            cwd={snapshot.summary?.cwd}
+                            readStatus={readLiveTree}
+                          />
+                        </HeaderItem>
+                      )}
+                      <HeaderItem id="presence">
+                        <LivePresenceStack
+                          sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                          fallback={snapshot.presence}
+                        />
+                      </HeaderItem>
+                      {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
                         defeat the minimalism? ... you'd want to put it in the dot dot dot area").
                         This only hosts its dialog; the faces before it draw only when someone else
                         is here. */}
-                    {snapshot.sessionId && !showNewTab && hasNativeHost() && (
-                      <ShareDialogHost
-                        key={snapshot.sessionId}
-                        sessionId={snapshot.sessionId}
-                        chat={chatName}
-                        open={shareOpen}
-                        onOpenChange={setShareOpen}
-                      />
-                    )}
-                    {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                      {snapshot.sessionId && !showNewTab && hasNativeHost() && (
+                        <ShareDialogHost
+                          key={snapshot.sessionId}
+                          sessionId={snapshot.sessionId}
+                          chat={chatName}
+                          open={shareOpen}
+                          onOpenChange={setShareOpen}
+                        />
+                      )}
+                      {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
+                      {inTabRow && (
+                        <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                          {!showNewTab && snapshot.sessionId ? (
+                            <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
+                          ) : undefined}
+                        </ChatHeaderInlineStatus>
+                      )}
+                    </>
+                  }
+                  trailing={
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -14501,8 +14514,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />
-                  </div>
-                </header>
+                  }
+                />
                 {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
                 {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
                 {!sessionInfo.on && !summaryCard.column && summaryPanel}

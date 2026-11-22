@@ -9,7 +9,7 @@
 // whether a pane offers its tab row at all (PaneTabRowSharing.fitsTabRow: need <= half the row). A chat with a summary,
 // split from a wide pane to half, a third or a quarter, needed more than half the row: the pane stopped offering it and
 // the tools dropped to a second row under the tabs; in the row, tools wider than the half the strip gives up slid under
-// the last tab and the + button. Now the summary is an accessory of the row (header/tabRow.ts TAB_ROW_ACCESSORY): in
+// the last tab and the + button. Now the summary is an accessory of the row (the accessory slot, header/headerSlots.ts): in
 // the width, never in the need, and only as wide as the room the tools leave.
 //
 // The App's side is modeled here as Swift does it (PaneContentView.layout, AgentPaneTabRow): the need is the last

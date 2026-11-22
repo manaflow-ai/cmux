@@ -87,6 +87,13 @@
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The header's slots (headerSlots.ts, HeaderSlotsRow.tsx). An accessory takes the width useHeaderSlots gives it: none
+   (hidden), narrower (a `truncate` item's child narrows, its text ellipsized), or its own. A registered item's box
+   adds no layout of its own, and an empty one takes no place and no gap. */
+.acpmux-header [data-header-hidden]{display:none !important}
+.acpmux-header-item{display:flex;align-items:center;min-width:0}
+.acpmux-header-item:empty{display:none}
+.acpmux-header-item[data-header-overflow=truncate]>*{flex:0 1 auto;min-width:0}
 /* The Needs you inbox and the header tools share one pitch. */
 .acpmux-header .acpmux-handoff-header-tools{flex:none;gap:2px}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
@@ -508,18 +515,14 @@
   cursor: default;
   user-select: none;
 }
-/* In the tab row it is an accessory of the row (tabRow.ts TAB_ROW_ACCESSORY): one width while it shows, the room
-   useTabRowTools leaves it (never more than the half of the row the tabs give up, less the tools), so a new summary
-   moves nothing; its text keeps to the tools' side. No room: it hides whole, the tools stay where they are. */
+/* In the tab row it is in the header's accessory slot (headerSlots.ts `inlineSummary`): one width while it shows, the
+   room useHeaderSlots leaves it (never more than the half of the row the tabs give up, less the tools), so a new
+   summary moves nothing; its text keeps to the tools' side. No room: it hides whole, the tools stay where they are. */
 .acpmux-chat-summary--inline {
   flex: none;
   justify-content: flex-end;
   box-sizing: border-box;
-  width: min(300px, var(--acpmux-tab-row-accessory-room, 0px));
   max-width: none;
-}
-[data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
-  display: none;
 }
 .acpmux-chat-summary__text {
   flex: 0 1 auto;

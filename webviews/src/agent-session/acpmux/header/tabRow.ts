@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
 import { setPopupInsetTop } from "../../../ui/popupInset";
+import { accessoryWidth, TAB_ROW_GAP } from "./headerSlots";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow; Leo
 /// 2026-10-14, "why is there even a top bar"). The App offers it with the `tabRow` event only while
@@ -17,8 +18,7 @@ export interface TabRow {
   readonly soloTab?: boolean;
 }
 
-/// Space between the last tab and the tools, in the width the page reports: the tools' own pitch, not a gutter.
-export const TAB_ROW_GAP = 4;
+export { TAB_ROW_GAP };
 
 const NONE: TabRow = { height: 0, trailingInset: 0 };
 let current: TabRow = NONE;
@@ -100,36 +100,21 @@ export function useTabRowRoot(shell: HTMLElement | null, inTabRow: boolean): voi
   }, [shell, inTabRow]);
 }
 
-/// A tools child that takes only the row's leftover room (the chat's rolling summary, ChatSummaryLine.tsx): it is in
-/// the width the tools report while it shows, so the tabs give it up, but never in their need, which decides whether
-/// the pane offers the row at all (PaneTabRowSharing.fitsTabRow). Before, the summary was in the need: a pane split
-/// narrower than the width it was measured at stopped offering the row, and the chat's tools dropped to a second row
-/// under the tabs, in a narrow pane the tools slid under the last tab (Leo, 2026-11-22: "the icons on the top right
-/// have gotten displaced due to putting things on a line").
-export const TAB_ROW_ACCESSORY = "data-tab-row-accessory";
-/// Narrower than this an accessory says nothing worth its place, and the row hides it whole rather than cut it to a
-/// few letters.
-export const TAB_ROW_ACCESSORY_MIN = 160;
-
-/// What the tools take of a row: `width` all of it, `need` without accessories, `room` the most the accessories may
-/// take (the half of the row the strip gives up, less the need), 0 when that is under ``TAB_ROW_ACCESSORY_MIN``.
-export function tabRowToolsFit(
-  box: number,
-  accessories: number,
-  rowWidth: number,
-): { width: number; need: number; room: number } {
+/// What the tools take of a row: `width` all of it, `need` without the accessory slot (headerSlots.ts), which decides
+/// whether the pane offers the row at all (PaneTabRowSharing.fitsTabRow). Before, the rolling summary was in the need: a
+/// pane split narrower than the width it was measured at stopped offering the row, and the chat's tools dropped to a
+/// second row under the tabs (Leo, 2026-11-22: "the icons on the top right have gotten displaced due to putting things
+/// on a line"). The accessories get only the room the tools leave in the half the strip gives up (useHeaderSlots).
+export function tabRowToolsFit(box: number, accessories: number): { width: number; need: number } {
   const width = box > 0 ? box + TAB_ROW_GAP : 0;
   const need = width > 0 ? Math.max(0, width - accessories) : 0;
-  const room = Math.max(0, Math.floor(rowWidth / 2 - need));
-  return { width, need, room: room >= TAB_ROW_ACCESSORY_MIN ? room : 0 };
+  return { width, need };
 }
 
 /// While in an offered `row`, reports the width of the tools the returned ref names (plus ``TAB_ROW_GAP``) and their
-/// need (that width less ``TAB_ROW_ACCESSORY`` children) each time either changes or the row is offered again, so the
-/// App narrows the tabs by the width and offers the row by the need; reports 0 once it ends or the tools leave (a New
-/// Tab page, a replay). It also gives the accessories their room, `--acpmux-tab-row-accessory-room` on the tools and
-/// `data-tab-row-accessories="hidden"` when there is none, so the tools never take more than the half of the row the
-/// strip gives up: the row is the tools' parent, less its padding (the pane's own "…").
+/// need (that width less the accessory slot, headerSlots.ts) each time either changes or the row is offered again, so
+/// the App narrows the tabs by the width and offers the row by the need; reports 0 once it ends or the tools leave (a
+/// New Tab page, a replay). The accessories' room is useHeaderSlots'.
 /// A row offered anew (another inset: a tab opened, closed or selected changed the
 /// pane's toolbar) reports the width again with no 0 between: the 0 had the App lay the chat under its tabs for a moment,
 /// its tools in a second row (Leo 2026-11-07: "the top right button area is somehow, like, shifting its layout").
@@ -149,10 +134,6 @@ export function useTabRowTools(
     stop.current?.();
     stop.current = undefined;
     const element = tools.current;
-    if (element) {
-      element.style.removeProperty("--acpmux-tab-row-accessory-room");
-      element.removeAttribute("data-tab-row-accessories");
-    }
     if (!row || !element || typeof ResizeObserver === "undefined") {
       reportedRow.current = undefined;
       if (reported.current > 0) {
@@ -162,30 +143,11 @@ export function useTabRowTools(
       }
       return;
     }
-    const rowElement = element.parentElement;
     // Each offered row is a new one: its first measure reports even an unchanged width (the App may have forgotten it),
     // once per row however often the element is followed.
     const measure = () => {
       const box = Math.round(element.getBoundingClientRect().width);
-      const styleOf = (node: Element) => node.ownerDocument.defaultView?.getComputedStyle(node);
-      let accessories = 0;
-      const gap = parseFloat(styleOf(element)?.columnGap ?? "") || 0;
-      for (const child of element.querySelectorAll<HTMLElement>(`[${TAB_ROW_ACCESSORY}]`)) {
-        const width = child.getBoundingClientRect().width;
-        if (width > 0) accessories += width + gap;
-      }
-      let rowWidth = 0;
-      if (rowElement) {
-        const style = styleOf(rowElement);
-        rowWidth =
-          rowElement.clientWidth -
-          (parseFloat(style?.paddingLeft ?? "") || 0) -
-          (parseFloat(style?.paddingRight ?? "") || 0);
-      }
-      const fit = tabRowToolsFit(box, Math.round(accessories), rowWidth);
-      element.style.setProperty("--acpmux-tab-row-accessory-room", `${fit.room}px`);
-      if (fit.room > 0) element.removeAttribute("data-tab-row-accessories");
-      else element.setAttribute("data-tab-row-accessories", "hidden");
+      const fit = tabRowToolsFit(box, Math.round(accessoryWidth(element)));
       if (fit.width === reported.current && fit.need === reportedNeed.current && reportedRow.current === row) return;
       reportedRow.current = row;
       reported.current = fit.width;
@@ -194,7 +156,6 @@ export function useTabRowTools(
     };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
-    if (rowElement) observer.observe(rowElement);
     measure();
     stop.current = () => observer.disconnect();
   }, [row, report]);
