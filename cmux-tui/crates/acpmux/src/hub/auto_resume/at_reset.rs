@@ -265,7 +265,8 @@ impl Hub {
     /// reset (and after any hold the account still has) sends once.
     fn wait_for_reset(self: &Arc<Self>, session: &Arc<Session>, id: u64) {
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        // One per armed chat; it ends with the arming, the chat, or the hub.
+        self.scope.spawn_until_cancelled("resume-at-reset", async move {
             let mut closed = session.closed.subscribe();
             loop {
                 let (turn_id, resets_at) = {
