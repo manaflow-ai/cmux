@@ -14,6 +14,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.agentBadgesBeam`: Taste build 5's variant: with Agent Badges on, a running sidebar row's edge carries a thin light that laps it (Core Animation, Motion.indicators; still under Reduce Motion), removed when the row stops running or leaves the screen. No effect while Agent Badges is off.
     public nonisolated static let agentBadgesBeamPath = ["experiments", "agentBadgesBeam"]
     public nonisolated static let agentBadgesBeamDefault = false
+    /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
+    public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
+    public nonisolated static let chatWidgetsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -61,6 +64,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentBadgesBeamDefault),
                 keywords: ["experiments", "experimental", "prototype", "agent", "badges", "beam", "light", "running", "border", "edge"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.chatWidgetsPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.chatWidgets", "Extension Chat Widgets"),
+                help: SettingsText.keyed("settings.experiments.chatWidgets.help", "Installed extensions can show a card under a finished tool call in agent chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
+                keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
             ),
         ]
     }

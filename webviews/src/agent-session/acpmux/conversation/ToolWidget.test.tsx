@@ -2,13 +2,15 @@
 // An agent's tool result renders an extension's chat widget (cmux.chat.widget/1) under the call: the
 // page asks the daemon which extension answers (`cmux.apps.panels.route`), mounts that answer on the
 // chatWidget surface and draws its scene with the sections' renderer. No answer draws nothing.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
+import { setExperimentSwitches } from "../../../experiments/switches";
 import { ChatWidgetClientContext, widgetTool } from "./ToolWidget";
+import { ChatWidgetMount } from "../../../apps/scene/chatWidgetClient";
 import { ToolRow } from "./ToolRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
@@ -28,7 +30,11 @@ const GLOBALS = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+// Settings > Advanced > Experiments > Extension Chat Widgets; each test but the off one turns it on.
+beforeEach(() => setExperimentSwitches({ chatWidgets: true }));
+
 afterEach(async () => {
+  setExperimentSwitches({});
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
@@ -130,4 +136,48 @@ test("without a page host (an older host or a plain browser) a call looks as it 
   );
   await settle();
   expect(container.querySelector(".cv-tool-widget")).toBeNull();
+});
+
+test("with Extension Chat Widgets off (the default) a finished call is not routed and draws no card", async () => {
+  setExperimentSwitches({});
+  const client = new MockAppPanelsClient();
+  const container = await render(
+    <ChatWidgetClientContext.Provider value={client}>
+      <ToolRow item={PR_CALL} />
+    </ChatWidgetClientContext.Provider>,
+  );
+  await settle();
+  expect(client.routes).toEqual([]);
+  expect(container.querySelector(".cv-tool-widget")).toBeNull();
+  expect(container.querySelector(".cv-tool__text")).not.toBeNull();
+
+  // Turned on, the same call is routed once and its card draws; turned off again, the card goes.
+  await act(async () => setExperimentSwitches({ chatWidgets: true }));
+  await settle();
+  expect(client.routes.length).toBe(1);
+  expect(container.querySelector(".cv-tool-widget")).not.toBeNull();
+  await act(async () => setExperimentSwitches({}));
+  await settle();
+  expect(container.querySelector(".cv-tool-widget")).toBeNull();
+  expect(client.routes.length).toBe(1);
+});
+
+test("a stop and a new start while the route is pending leave one mount, not two", async () => {
+  const client = new MockAppPanelsClient();
+  const ops: string[] = [];
+  const call = client.call.bind(client);
+  client.call = ((op: string, input: unknown) => {
+    ops.push(op);
+    return call(op, input);
+  }) as typeof client.call;
+  const owner = new ChatWidgetMount(client, { key: "tool:toolu_42", tool: widgetTool(PR_CALL.tool!) });
+  owner.start();
+  owner.stop();
+  owner.start();
+  for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(ops.filter((op) => op === "cmux.apps.panels.route").length).toBe(2);
+  expect(ops.filter((op) => op === "cmux.apps.panels.mount").length).toBe(1);
+  expect(owner.getSnapshot()?.panel.app).toBe("local/pr-card");
+  owner.stop();
+  expect(owner.getSnapshot()).toBeUndefined();
 });

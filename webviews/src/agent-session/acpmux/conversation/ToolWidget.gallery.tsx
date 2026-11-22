@@ -10,6 +10,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
+import { setExperimentSwitches } from "../../../experiments/switches";
 import type { AcpmuxActivity } from "../model";
 import { ToolRow } from "./ToolRow";
 import { ChatWidgetClientContext } from "./ToolWidget";
@@ -60,7 +61,12 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "apps/scene/chatWidgetClient.ts",
   ],
-  load: async () => Stage,
+  // Widgets are off by default (Settings > Advanced > Experiments > Extension Chat Widgets); the stage
+  // shows them with the switch on.
+  load: async () => {
+    setExperimentSwitches({ chatWidgets: true });
+    return Stage;
+  },
   styles: () =>
     Promise.all([
       import("../styles.css"),

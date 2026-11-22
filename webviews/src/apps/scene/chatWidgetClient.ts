@@ -35,6 +35,9 @@ export class ChatWidgetMount {
   private snapshot: MountedPanel | undefined;
   private readonly listeners = new Set<() => void>();
   private active = false;
+  /** Bumped by every start and stop, so a run that a stop and a new start overtook while it awaited
+   * gives up instead of mounting next to the new run. */
+  private runId = 0;
   private mountId?: string;
   private assetBase?: string;
   private height?: number;
@@ -58,11 +61,12 @@ export class ChatWidgetMount {
   start(): void {
     if (this.active || !this.client) return;
     this.active = true;
-    void this.run();
+    void this.run(++this.runId);
   }
 
   stop(): void {
     this.active = false;
+    this.runId++;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     if (this.mountId) {
@@ -76,15 +80,16 @@ export class ChatWidgetMount {
     }
   }
 
-  private async run(): Promise<void> {
+  private async run(runId: number): Promise<void> {
     const client = this.client!;
+    const live = () => this.active && this.runId === runId;
     let answer: RouteAnswer | undefined;
     try {
       answer = readAnswer(await client.call("cmux.apps.panels.route", this.ask));
     } catch {
       return; // An older host routes no widgets: the call looks as it always did.
     }
-    if (!answer || !this.active) return;
+    if (!answer || !live()) return;
     try {
       const result = await client.call<{ mount_id?: unknown; asset_base?: unknown }>("cmux.apps.panels.mount", {
         surface: "chatWidget" satisfies MountSurface,
@@ -92,21 +97,25 @@ export class ChatWidgetMount {
         context: answer.context,
       });
       if (typeof result?.mount_id !== "string" || !result.mount_id) return;
-      this.mountId = result.mount_id;
-      if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) this.assetBase = result.asset_base;
-      if (!this.active) return this.stop();
       const mountId = result.mount_id;
+      if (!live()) {
+        // Stopped (or restarted) while mounting: this run's mount is nobody's, so it goes.
+        void client.call("cmux.apps.panels.unmount", { mount_id: mountId }).catch(() => undefined);
+        return;
+      }
+      this.mountId = mountId;
+      if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) this.assetBase = result.asset_base;
       const stop = await client.subscribe<SceneEvent>(
         "cmux.apps.panels.scene",
         (event) => {
-          if (!this.active || event?.mount_id !== mountId) return;
+          if (!live() || event?.mount_id !== mountId) return;
           if ("status" in event) this.store.setStatus(event.status, event.reason);
           else if (Array.isArray(event.ops)) this.store.apply(event.ops, event.reset === true);
         },
         { mount_id: mountId },
       );
-      if (!this.active) {
-        stop();
+      if (!live()) {
+        stop(); // stop() already unmounted this run's mount.
         return;
       }
       this.unsubscribe = stop;
@@ -146,7 +155,7 @@ export class ChatWidgetMount {
       this.sendLayout();
     } catch {
       // A refused mount (the extension went away between route and mount) shows nothing.
-      this.stop();
+      if (live()) this.stop();
     }
   }
 

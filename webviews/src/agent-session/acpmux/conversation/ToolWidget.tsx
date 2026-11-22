@@ -2,11 +2,14 @@
 // the same scene renderer as sidebar and Session Info sections. The daemon picks the extension and
 // builds the context (`apps.chat_widgets.route`); this row only names the call it is under and draws
 // the scene it gets. cmux ships no widgets of its own, so with no extension installed nothing shows.
+// Off by default: Settings > Advanced > Experiments > Extension Chat Widgets (`experiments.chatWidgets`);
+// while it is off no call is routed and no card is drawn.
 import { createContext, memo, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { ChatWidgetMount, type ChatWidgetTool } from "../../../apps/scene/chatWidgetClient";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import { SceneMount } from "../../../apps/scene/panels";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { pageHostClient } from "../pageHost";
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
@@ -45,9 +48,10 @@ export function widgetTool(tool: Tool): ChatWidgetTool {
 
 /// The widget an installed extension draws under a finished call, or nothing.
 export const ToolWidget = memo(function ToolWidget({ tool }: { tool: Tool }) {
+  const on = useExperimentSwitch("chatWidgets");
   const injected = useContext(ChatWidgetClientContext);
   const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
-  const key = tool.status === "completed" ? `tool:${tool.id}` : undefined;
+  const key = on && tool.status === "completed" ? `tool:${tool.id}` : undefined;
   // One route per finished call: the mount made when the call ended is kept for that call and
   // client, so a re-render, or another call streaming, never asks again.
   const [held, setHeld] = useState<{ key: string; client: PageClient; owner: ChatWidgetMount }>();
