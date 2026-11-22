@@ -1,6 +1,4 @@
-use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
-use tokio::io::AsyncWriteExt as _;
 
 use super::*;
 
@@ -194,7 +192,7 @@ pub(crate) mod fake {
 
 #[cfg(unix)]
 mod relay_tests {
-    use tokio::io::{AsyncBufReadExt as _, BufReader};
+    use tokio::io::BufReader;
 
     use super::fake::start;
     use super::*;
