@@ -205,13 +205,7 @@ extension ScreenContentView {
     /// zoom's covered panes at the unzoom) show, at their places. Returns whether any did.
     func showSnapReturning() -> Bool {
         guard !frameInput.snapReturning.isEmpty else { return false }
-        var shown = false
-        for pane in frameInput.snapReturning {
-            guard paneFrames[pane] != nil, let host = context.hosts[pane], host.superview === self, host.isHidden else { continue }
-            host.isHidden = false
-            shown = true
-        }
-        frameInput.snapReturning = []
-        return shown
+        defer { frameInput.snapReturning = [] }
+        return context.showReturning(frameInput.snapReturning.filter { paneFrames[$0] != nil }, on: self)
     }
 }

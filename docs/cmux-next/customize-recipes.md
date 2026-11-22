@@ -1,6 +1,6 @@
 # Customize recipes
 
-Ten ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
+Ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
 once, as a preview. Nothing is kept until you apply it.
 
 - Keep it: `cmux customize apply`
@@ -45,6 +45,8 @@ cmux customize use ~/.local/state/cmux/customize/recipes/glass.json
 ```
 
 Or ask: "make the window see-through glass"
+
+To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
 ## Layout
 
@@ -129,6 +131,23 @@ cmux customize use ~/.local/state/cmux/customize/recipes/pane-keys.json
 ```
 
 Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
+
+## App looks
+
+### Like the Claude desktop app
+
+The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
+a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
+nested under the session that started them, title-only rows, a one-line #303030 composer with a
+1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+(`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
+change either.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-app.json
+```
+
+Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 
 ## For agents and scripts
 

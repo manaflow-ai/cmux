@@ -214,8 +214,11 @@ const optionRows = () =>
   );
 const rowLabel = (option: HTMLElement) => option.querySelector(".acpmux-menu-label")?.textContent ?? "";
 
+// A new chat's list: Cloud is where it may run (`runMode`).
+const NEW_CHAT = { runMode: { mode: "persistent" as RunMode, onMode: () => undefined } };
+
 test("Other devices follows Cloud with the count of the person's machines a chat can start on", async () => {
-  const { container } = await renderDevices(DEVICES);
+  const { container } = await renderDevices(DEVICES, NEW_CHAT);
   await open(container);
   expect(optionRows().map(rowLabel)).toEqual([
     translate("composer.thisMac"),
@@ -264,7 +267,7 @@ test("Other devices opens the person's own machines, ready first, with how each 
 });
 
 test("a device picked stays checked in the main list", async () => {
-  const picked = await renderDevices(DEVICES, { current: "studio" });
+  const picked = await renderDevices(DEVICES, { current: "studio", ...NEW_CHAT });
   await open(picked.container);
   expect(optionRows().map(rowLabel)).toEqual([
     translate("composer.thisMac"),
@@ -279,4 +282,26 @@ test("without otherDevices (a started chat, the machine list) the main list has 
   const { container } = await renderDevices(DEVICES, { otherDevices: false });
   await open(container);
   expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).toBeNull();
+});
+
+// cmux#47677: the Where menu's Cloud row with no run-mode rows (before the host's check answered, a
+// chat Cloud isn't offered to) ran New Cloud Machine, which made a machine and a workspace on the
+// click. Picking Cloud now makes nothing: no connect, no machine pick.
+test("Cloud with no run mode makes nothing: no New Cloud Machine, no machine pick", async () => {
+  // A page on its Cloud machine: the row is where the chat runs, and picking it makes nothing.
+  const { container, connects, picks } = await renderDevices(DEVICES, { current: "vm-1" });
+  await open(container);
+  await choose('[data-kind="cloud"]');
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(connects).toEqual([]);
+  expect(picks).toEqual([]);
+});
+
+test("with no run mode and the chat not on Cloud, the list offers no Cloud row that would do nothing", async () => {
+  const { container, connects } = await renderDevices(DEVICES);
+  await open(container);
+  expect(
+    document.querySelector('.acpmux-env-popover [data-action="cloud"], .acpmux-env-popover [data-kind="cloud"]'),
+  ).toBeNull();
+  expect(connects).toEqual([]);
 });

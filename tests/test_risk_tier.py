@@ -70,29 +70,17 @@ class ClassifyTests(unittest.TestCase):
             "cmux-tui/crates/cmux-link/src/caller.rs",
             "cmux-tui/crates/cmux-link/src/caller_macos.rs",
             "cmux-tui/crates/cmux-link/src/app_caller.rs",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
-            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
             NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
             NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
             NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
             NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperSocketServer.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
             NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
-            "scripts/cmux-cua-helper-trust.sh",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
             NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+            "cmux-tui/crates/cmux-computer-use/src/server.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
@@ -103,8 +91,8 @@ class ClassifyTests(unittest.TestCase):
             ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
             ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
             ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
-            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
-            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # The Computer Use engine's other files; only the worker socket's admission is high.
+            ("cmux-tui/crates/cmux-computer-use/src/engine.rs", "normal"),
             # Where the daemon lives and its environment: the executable choice is in +Resolve.
             (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
         ):
@@ -821,7 +809,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.unowned_takebacks("", []), [])
 
     def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
-        """cmux#41154, a revert of #41113: merge_hold quoted only the check's error annotation, which said "the job
+        """cmux#41154, a revert of #41113: land-judge quoted only the check's error annotation, which said "the job
         summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
         line itself, its PR number filled in."""
         self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
@@ -1167,33 +1155,35 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIsNone(self.state(line, association="NONE")[0])
         self.assertIsNone(self.state(line, kind="Bot")[0])
 
+    def grade_end_to_end(self, body, comments=()):
+        """pr_mode with the API stubbed: (GITHUB_OUTPUT text, summary). `comments=None` makes the comments read fail."""
+        pull = dict(self.pr(body), base={"sha": "b" * 40})
+        answers = {
+            "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+            "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+            "repos/o/r/pulls/7/reviews?per_page=100": [],
+            "repos/o/r/issues/7/events?per_page=100": [],
+        }
+        saved = risk.gh_items, risk.gh_json
+
+        def items(endpoint):
+            if answers[endpoint] is None:
+                raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+            return answers[endpoint]
+        risk.gh_items = items
+        risk.gh_json = lambda *args: pull
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                           "--summary", str(summary)])
+                return out.read_text(), summary.read_text()
+        finally:
+            risk.gh_items, risk.gh_json = saved
+
     def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
         """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
-        def grade(body, comments=()):
-            pull = dict(self.pr(body), base={"sha": "b" * 40})
-            answers = {
-                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
-                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
-                "repos/o/r/pulls/7/reviews?per_page=100": [],
-                "repos/o/r/issues/7/events?per_page=100": [],
-            }
-            saved = risk.gh_items, risk.gh_json
-
-            def items(endpoint):
-                if answers[endpoint] is None:
-                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
-                return answers[endpoint]
-            risk.gh_items = items
-            risk.gh_json = lambda *args: pull
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
-                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
-                               "--summary", str(summary)])
-                    return out.read_text(), summary.read_text()
-            finally:
-                risk.gh_items, risk.gh_json = saved
-
+        grade = self.grade_end_to_end
         out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
@@ -1210,6 +1200,20 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+    def test_only_a_refused_sign_off_read_asks_for_a_second_grade(self):
+        """risk-tier.yml grades on the glaeda-route App's read and grades again on GITHUB_TOKEN only when this says
+        the sign-off read was refused. It used to grade every held pull request twice: a FIX on the head, read
+        fine, spent about ten more GITHUB_TOKEN calls (files, comments, reviews, label events) on the
+        self-hosted runners' token hour, the one the production promote gates read (2026-11-21)."""
+        out, _ = self.grade_end_to_end(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end(f"Review (codex, started by lead): SHIP at {HEAD}")
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=true", out.splitlines())
 
 
 class StandaloneCheckoutTests(unittest.TestCase):
