@@ -10,7 +10,7 @@ window.__hss={T:T,S:S};var N=window.WebSocket;if(!N)return;
 window.WebSocket=class extends N{constructor(u,p){super(u,p);if(!([].concat(p||[])).includes("vite-hmr"))return;
 this.addEventListener("message",function(e){var t=T();try{var m=JSON.parse(e.data);if(m.type==="update"||m.type==="full-reload")S({ev:"ws",t:t,type:m.type,ts:m.updates&&m.updates[0]&&m.updates[0].timestamp,paths:(m.updates||[]).map(function(u){return u.path})})}catch(x){}});}};
 var armed=0;new MutationObserver(function(){if(!armed)return;armed=0;var t=T();S({ev:"mut",t:t});requestAnimationFrame(function(){var a=T();requestAnimationFrame(function(){S({ev:"raf",t1:a,t2:T()})})})}).observe(document,{subtree:true,childList:true,characterData:true});
-window.__hssArm=function(){armed=1};})();`;
+window.__hssArm=function(){armed=1};document.addEventListener("visibilitychange",function(){S({ev:"vis",t:T()})});window.addEventListener("focus",function(){S({ev:"focus",t:T()})});window.addEventListener("blur",function(){S({ev:"blur",t:T()})});})();`;
 const late = `import { createHotContext } from "/@vite/client";
 const hot = createHotContext("/__hss_probe");
 hot.on("vite:beforeUpdate", (p) => { window.__hssArm && window.__hssArm(); window.__hss.S({ ev: "before", t: window.__hss.T(), n: p.updates.length }); });
