@@ -10,7 +10,8 @@ public import Foundation
 /// A side instance (`scripts/cmux-next/side-instance.sh`: `cmux app try`, try-pr, hot-verify) never looks in
 /// one: its browser import and screenshot detection skip those paths. Every other build reads them as before.
 /// The daemon's browser import refuses them in every build (cmux-browser-import `ops::PROTECTED`).
-public nonisolated enum OtherAppContainers {
+public nonisolated struct OtherAppContainers {
+    public nonisolated init() {}
     /// Whether `url` is inside `~/Library/Containers` or `~/Library/Group Containers` (any home).
     public static func contains(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.path
