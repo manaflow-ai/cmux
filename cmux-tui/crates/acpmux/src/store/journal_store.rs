@@ -1060,6 +1060,9 @@ impl Store for JournalStore {
     fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
         self.inner.fenced(|| Store::offload_cold(&self.inner.local, id))
     }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Store::register_cloud_root(&self.inner.local)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
     }

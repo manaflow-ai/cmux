@@ -85,7 +85,11 @@ fn main() {
             "fs".into(),
         ),
     };
-    Cloud::set(Some(Arc::new(Cloud { store: blob_store, key: Key::generate().expect("key") })));
+    Cloud::set(Some(Arc::new(Cloud {
+        store: blob_store,
+        key: Key::generate().expect("key"),
+        root_prefix: std::env::var("CMUX_SESSION_CLOUD_ROOT_PREFIX").unwrap_or_default(),
+    })));
 
     let mut ids: Vec<String> =
         Store::list(&store).expect("list").into_iter().map(|m| m.id).collect();
@@ -115,6 +119,10 @@ fn main() {
         }
     }
     let offload_ms = started.elapsed().as_millis() as u64;
+    // One GC root for the batch, as the daemon's pass will register it.
+    let started = Instant::now();
+    let rooted = Store::register_cloud_root(&store).expect("register the GC root");
+    let root_ms = started.elapsed().as_millis() as u64;
     let bytes_offloaded = disk_bytes(&sessions);
     let fetched = open_all(&store, &offloaded);
     Cloud::set(None);
@@ -134,7 +142,7 @@ fn main() {
                 "freed_vs_archived_gib": gib(bytes_archived.saturating_sub(bytes_offloaded)),
                 "blob_store_gib": gib(disk_bytes(&blobs)),
             },
-            "archive_ms": archive_ms, "offload_ms": offload_ms,
+            "archive_ms": archive_ms, "offload_ms": offload_ms, "root_ms": root_ms, "rooted": rooted,
             "open": {"local": stats(local), "archived_thaw": stats(thawed), "cloud_fetch": stats(fetched)},
         })
     );

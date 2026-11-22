@@ -26,6 +26,9 @@ use std::sync::{Arc, Mutex};
 pub struct Cloud {
     pub store: Box<dyn store::BlobStore>,
     pub key: seal::Key,
+    /// Put before the GC root's pair id: empty for a person token; a Cloud machine's token may
+    /// only register roots under its own prefix (config `rootPrefix`).
+    pub root_prefix: String,
 }
 
 static OVERRIDE: Mutex<Option<Arc<Cloud>>> = Mutex::new(None);
@@ -38,7 +41,19 @@ impl Cloud {
             return Ok(Some(cloud));
         }
         let Some(config) = config::Config::load_in(state)? else { return Ok(None) };
-        Ok(Some(Arc::new(Cloud { store: config.open_store()?, key: config.key()? })))
+        Ok(Some(Arc::new(Cloud {
+            store: config.open_store()?,
+            key: config.key()?,
+            root_prefix: config.root_prefix.clone().unwrap_or_default(),
+        })))
+    }
+
+    /// The GC root this machine's history registers under (`POST /v1/sync/roots`): stable for the
+    /// key, opaque (a hash, never a path or host name), and distinct per machine since each key is.
+    pub fn root_pair(&self) -> String {
+        let id =
+            sha256_hex(&[b"cmux-session-cloud root\0".as_slice(), self.key.id_material()].concat());
+        format!("{}csh.{}", self.root_prefix, &id[..32])
     }
 
     /// Makes `cloud` the one [`Cloud::get`] answers, for this process.

@@ -27,6 +27,11 @@ impl Key {
         Self(bytes)
     }
 
+    /// Bytes to derive a public, stable id from (hashed with a label first, never sent as is).
+    pub(crate) fn id_material(&self) -> &[u8] {
+        &self.0
+    }
+
     pub fn generate() -> anyhow::Result<Self> {
         let mut bytes = [0u8; 32];
         getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness: {e}"))?;

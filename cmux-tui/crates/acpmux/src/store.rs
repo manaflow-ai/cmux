@@ -1598,6 +1598,13 @@ pub trait Store: Send + Sync {
     fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
         Ok(None)
     }
+    /// Registers this machine's cloud history GC root: one tree naming the blob of every chat
+    /// offloaded here, so the store keeps them (roots expire unless registered again within 90
+    /// days). Call it after a batch of offloads, not per chat. The blobs named, or None when cloud
+    /// history is off.
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -2656,6 +2663,10 @@ impl Store for LocalStore {
     fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
         let _open = self.writable()?;
         LocalStore::offload_cold(self, id)
+    }
+
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        LocalStore::register_cloud_root(self)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {

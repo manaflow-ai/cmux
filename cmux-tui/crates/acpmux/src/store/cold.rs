@@ -322,6 +322,37 @@ impl LocalStore {
         Ok(freed)
     }
 
+    /// See [`Store::register_cloud_root`]. Reads every chat folder's stub (one small file each),
+    /// so it runs once per batch. A stub that cannot be read is left out, and logged.
+    pub(super) fn register_cloud_root(&self) -> Result<Option<usize>> {
+        let Some(cloud) = self.cloud()? else { return Ok(None) };
+        let mut blobs = Vec::new();
+        let entries = match crate::home_fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                return Err(anyhow::Error::from(error).context("list the chats for the cloud root"));
+            }
+        };
+        for entry in entries {
+            let Some(id) = entry.name.to_str() else { continue };
+            let stub = self.cloud_stub_path(id);
+            if !crate::home_fs::try_exists_nofollow(&stub)? {
+                continue;
+            }
+            match cmux_session_cloud::stub::read(&stub) {
+                Ok(record) => blobs.push(record.blob),
+                Err(error) => {
+                    tracing::warn!(session = %id, "cloud history stub unreadable: {error:#}")
+                }
+            }
+        }
+        blobs.sort();
+        blobs.dedup();
+        cloud.store.set_root(&cloud.root_pair(), &blobs)?;
+        Ok(Some(blobs.len()))
+    }
+
     /// Brings an offloaded chat's archive back into `cold.zst` from the cloud history store. A
     /// failure is an error, never "not archived": an append would otherwise start a new log in
     /// front of the one in the cloud.

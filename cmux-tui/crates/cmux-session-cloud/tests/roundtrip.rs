@@ -5,6 +5,7 @@ fn cloud(dir: &std::path::Path) -> Cloud {
     Cloud {
         store: Box::new(FsStore::new(dir.join("store")).unwrap()),
         key: Key::generate().unwrap(),
+        root_prefix: String::new(),
     }
 }
 
@@ -57,6 +58,7 @@ fn a_blob_from_another_key_or_a_tampered_store_does_not_open() {
     let other = Cloud {
         store: Box::new(FsStore::new(dir.path().join("store")).unwrap()),
         key: Key::generate().unwrap(),
+        root_prefix: String::new(),
     };
     assert!(fetch::fetch_file(&stub::stub_path(&file), &other).is_err());
     assert!(!file.exists(), "a failed fetch writes nothing");

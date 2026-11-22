@@ -685,12 +685,14 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
     chat(&store, "off", 3);
     archive(&store, "off");
     assert_eq!(Store::offload_cold(&store, "off").unwrap(), None);
+    assert_eq!(Store::register_cloud_root(&store).unwrap(), None);
     assert!(store.cold_path("off").exists());
 
     let blobs = home.0.join("cloud-store");
     Cloud::set(Some(std::sync::Arc::new(Cloud {
         store: Box::new(FsStore::new(&blobs).unwrap()),
         key: Key::generate().unwrap(),
+        root_prefix: String::new(),
     })));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         closed(&store, "c");
@@ -707,6 +709,17 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert!(store.is_cold("c"));
         assert_eq!(Store::list(&store).unwrap().iter().filter(|m| m.id == "c").count(), 1);
         assert!(Store::load_startup(&store, "c").unwrap().is_some());
+
+        // The GC root names exactly the offloaded chat's blob, under a stable opaque pair id.
+        assert_eq!(Store::register_cloud_root(&store).unwrap(), Some(1));
+        let blob = cmux_session_cloud::stub::read(&dir.join(CLOUD_STUB)).unwrap().blob;
+        let roots: Vec<_> = std::fs::read_dir(blobs.join("roots")).unwrap().flatten().collect();
+        assert_eq!(roots.len(), 1);
+        let pair = roots[0].file_name().into_string().unwrap();
+        assert!(pair.starts_with("csh.") && pair.len() == 36, "{pair}");
+        let tree = std::fs::read_to_string(roots[0].path()).unwrap();
+        let tree = std::fs::read_to_string(blobs.join(&tree[..2]).join(&tree)).unwrap();
+        assert_eq!(tree, format!("cmux-sync-tree 1\n{blob}\n"));
 
         // Search skips an offloaded chat: no fetch, no hits, still offloaded.
         let query =
@@ -728,6 +741,8 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert!(!dir.join(COLD_FILE).exists());
         assert!(!dir.join(CLOUD_STUB).exists());
         assert!(!store.is_cold("c"));
+        // Fetched back, it leaves the root: the store may collect its blob.
+        assert_eq!(Store::register_cloud_root(&store).unwrap(), Some(0));
 
         // Offloaded again, a store that lost the blob fails the read and keeps the stub.
         archive(&store, "c");
