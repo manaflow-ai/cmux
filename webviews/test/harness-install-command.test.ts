@@ -6,7 +6,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
+import { INSTALL_COMMANDS, installRoute } from "../src/agent-session/acpmux/harnesses/harnessRows";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -114,4 +114,32 @@ test("without npm, a download the network dropped waits for the network, then in
     expect(result.log.filter((line) => line === "probe").length).toBeGreaterThanOrEqual(3);
     expect(result.log.at(-1)).toMatch(/^(bash|sh) <echo installer>/);
   }
+});
+
+// acpmux decides the route on the target machine (install_route.rs); the page only runs it.
+test("Install runs the route acpmux chose, with the page's network retry", () => {
+  const { install } = installRoute(
+    { route: "native", command: "curl -fsSL https://claude.ai/install.sh | bash", probeUrl: "https://claude.ai" },
+    "claude",
+  );
+  expect(install).toContain("curl -fsSL https://claude.ai/install.sh | bash");
+  expect(install).not.toContain("npm install");
+  const ran = run(install!, true);
+  expect(ran.code).toBe(0);
+  expect(ran.log.some((line) => line.startsWith("bash <"))).toBe(true);
+  expect(ran.log.some((line) => line.startsWith("npm "))).toBe(false);
+});
+
+test("a blocked plan shows its fix and runs nothing; an existing CLI is never installed over", () => {
+  expect(
+    installRoute({ blocked: { phase: "prerequisites", cause: "prerequisite", action: "Install curl" } }, "claude"),
+  ).toEqual({ detail: "Install curl" });
+  expect(installRoute({ existing: { channel: "native", path: "/h/.local/bin/claude" } }, "claude")).toEqual({
+    detail: "/h/.local/bin/claude",
+  });
+});
+
+test("an acpmux without plans keeps the page's own command", () => {
+  expect(installRoute(undefined, "codex")).toEqual({ install: INSTALL_COMMANDS.codex });
+  expect(installRoute(undefined, "aider")).toEqual({});
 });
