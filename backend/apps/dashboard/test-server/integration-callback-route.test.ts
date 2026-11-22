@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { accessTokenSubject, apiUserId, integrationAppHandoffResponse, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
 
 /**
  * The development Worker's Connect comes back to the staging console, which finishes development states on the
@@ -144,4 +144,27 @@ test("a 401 from the development API is not a signed-out console", () => {
   expect(developmentRefusal(401)?.code).toBe("auth.development_refused")
   expect(developmentRefusal(200)).toBeUndefined()
   expect(developmentRefusal(403)).toBeUndefined()
+})
+
+test("an app's connect goes back to the app with a plain 302, not the router's redirect (#46018)", () => {
+  const state = token({ ret: "cmux-dev-gh-connect-46018://integration/complete", team: "team_0123456789abcdef0123" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42&setup_action=install`)
+  expect(answer?.status).toBe(302)
+  const location = new URL(answer!.headers.get("Location")!)
+  expect(location.protocol).toBe("cmux-dev-gh-connect-46018:")
+  expect(`${location.host}${location.pathname}`).toBe("integration/complete")
+  expect(Object.fromEntries(location.searchParams)).toEqual({ state, code: "abc", installation_id: "42", setup_action: "install" })
+  expect(answer!.headers.get("Cache-Control")).toBe("no-store")
+  expect(answer!.headers.get("Referrer-Policy")).toBe("no-referrer")
+  // A cancel on GitHub still goes back, so the app stops waiting.
+  const cancel = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&error=access_denied`)
+  expect(new URL(cancel!.headers.get("Location")!).searchParams.get("error")).toBe("access_denied")
+})
+
+test("any other callback renders the page", () => {
+  const base = "https://console.cmux.dev/integrations/callback"
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "cmux://workspace/ws_" + "0".repeat(32) })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "https://evil.example/integration/complete" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?code=abc`)).toBeUndefined()
 })
