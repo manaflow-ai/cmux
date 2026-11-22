@@ -1086,6 +1086,8 @@ def main(argv: list[str] | None = None, runner=None) -> int:
         for upload in uploads:
             print(f"plan {upload.kind:>5}  {remote_path(args.pr, upload.name)}"
                   + (f"  (from {upload.local.name})" if upload.source_name else ""))
+        for flag in proof_clip_flags([upload.local for upload in uploads if not upload.source_name]):
+            print(f"note: {flag}", file=sys.stderr)
         if args.dry_run:
             # Nothing here reaches the network, so a dry run stays usable
             # without a token; it still measures what it was handed.
@@ -1154,6 +1156,28 @@ def main(argv: list[str] | None = None, runner=None) -> int:
         report(warnings)
         return 1
     return 0
+
+
+PROOF_CHECK = Path(__file__).resolve().parent / "media" / "proof_clip_check.py"
+PROOF_SUFFIXES = (".mp4", ".mov", ".gif", ".webm")
+
+
+def proof_clip_flags(paths: list[Path]) -> list[str]:
+    """scripts/media/proof_clip_check.py's flags for the clips about to go up: over 15 s, or the changed element
+    under ~30% of the frame. Advice only: it never stops an upload, and a missing or failing check says nothing."""
+    clips = [path for path in paths if path.suffix.lower() in PROOF_SUFFIXES]
+    if not clips or not PROOF_CHECK.is_file():
+        return []
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_proof_clip_check", PROOF_CHECK)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        sys.modules[spec.name] = module  # its dataclasses look their module up there
+        spec.loader.exec_module(module)
+        results = [module.check(path) for path in clips]
+        return [f"proof clip {module.line(result)}" for result in results if not result.ok]
+    except Exception as error:  # noqa: BLE001 - a broken advisory check must never block an upload
+        return [f"proof clip check did not run: {error}"]
 
 
 def report(warnings: list[str]) -> None:

@@ -454,6 +454,8 @@ jobs:
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
+            scripts/media/media_polish.py
+            scripts/media/proof_clip_check.py
             scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits in this job's gh calls
@@ -508,6 +510,14 @@ jobs:
           [[ "$URL" == https://* ]] || { echo "::error::the look's out.tar link is not https"; exit 1; }
           mkdir -p "$RUNNER_TEMP/artifact"
           curl -fsS --retry 3 --max-time 600 --max-filesize 629145600 "$URL" -o "$RUNNER_TEMP/artifact/out.tar"
+      # Before staging: stage leans the video (scripts/media/media_polish.py lean) and pr-media makes its gif.
+      - name: Install ffmpeg
+        if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
       - name: Unpack and stage
         id: stage
         if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'true' }}
@@ -537,13 +547,6 @@ jobs:
           set -uo pipefail
           count="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gallery-advisory.yml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=1" --jq .total_count 2>/dev/null || echo 0)"
           [[ "$count" =~ ^[0-9]+$ && "$count" -gt 0 ]] && echo "gallery=true" >> "$GITHUB_OUTPUT" || echo "gallery=false" >> "$GITHUB_OUTPUT"
-      - name: Install ffmpeg
-        if: ${{ steps.stage.outputs.needs_build == 'false' }}
-        timeout-minutes: 4
-        continue-on-error: true
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
       - name: Check, upload and comment
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         uses: ./.github/actions/pr-media-publish

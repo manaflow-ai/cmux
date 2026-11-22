@@ -262,13 +262,46 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     staged = []
     for rel in keep:
         name = media_name(head, rel)
-        shutil.copyfile(out / rel, staging / name)
-        staged.append({"rel": rel, "name": name})
+        item = {"rel": rel, "name": name}
+        if rel.endswith(".mp4"):
+            item["lean"] = lean_clip(out / rel, staging / name)
+        else:
+            shutil.copyfile(out / rel, staging / name)
+        staged.append(item)
     text_path.parent.mkdir(parents=True, exist_ok=True)
     text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     plan = {"needs_build": False, "staged": staged, "withheld": withheld}
     (staging.parent / "stage.json").write_text(json.dumps(plan, indent=2) + "\n")
     return plan
+
+
+MEDIA_POLISH = Path(__file__).resolve().parents[1] / "media" / "media_polish.py"
+
+
+def lean_clip(source: Path, dest: Path) -> dict:
+    """DEST is SOURCE leaned (scripts/media/media_polish.py lean: cropped to what changes, idle frames dropped, 3x,
+    at most 15 s), so the PR shows the change and not a 20 s whole-window walkthrough. The raw recording is not
+    posted beside it (pr-media would make and OCR a second gif). When lean cannot run, DEST is SOURCE as it is."""
+    try:
+        spec = importlib.util.spec_from_file_location("media_polish", MEDIA_POLISH)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        with open(os.devnull, "w") as quiet:
+            code = module.main(["lean", str(source), "--out", str(dest)], out=quiet)
+        if code == 0:
+            side = Path(str(dest) + ".media.json")
+            record = json.loads(side.read_text()) if side.is_file() else {}
+            side.unlink(missing_ok=True)  # a sidecar in STAGING would be uploaded as a file of its own
+            lean = record.get("lean") if isinstance(record.get("lean"), dict) else {}
+            return {"ok": True, "duration_s": record.get("duration_s"), "source_duration_s":
+                    lean.get("source_duration_s"), "cropped": lean.get("cropped"), "speed": lean.get("speed")}
+        error = "media_polish lean failed"
+    except Exception as failure:  # noqa: BLE001 - the raw clip is still worth posting
+        error = f"{type(failure).__name__}: {failure}"
+    shutil.copyfile(source, dest)
+    return {"ok": False, "error": error[:200]}
 
 
 # ---------------------------------------------------------------- the comment
