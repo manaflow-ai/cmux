@@ -441,6 +441,20 @@ fn session_inbox_reads_threads_or_drains_the_queue() {
     ));
     let all = parse(&["acpmux", "session", "inbox", "c"]);
     assert!(matches!(all, Ok(Command::SessionInboxCmd(SessionInboxTarget { thread: None, .. }))));
+    let subscribe = parse(&["acpmux", "session", "inbox", "c", "--subscribe", "pr:1"]);
+    assert!(matches!(
+        subscribe,
+        Ok(Command::SessionInboxCmd(SessionInboxTarget { ref subscribe, .. }))
+            if subscribe.as_deref() == Some("pr:1")
+    ));
+    let subscriptions = parse(&["acpmux", "session", "inbox", "c", "--subscriptions"]);
+    assert!(matches!(
+        subscriptions,
+        Ok(Command::SessionInboxCmd(SessionInboxTarget { subscriptions: true, .. }))
+    ));
+    assert!(
+        parse(&["acpmux", "session", "inbox", "c", "--subscribe", "t", "--thread", "u"]).is_err()
+    );
     let digest = parse(&["acpmux", "session", "inbox", "c", "--digest"]);
     assert!(matches!(digest, Ok(Command::InboxDigest { dry_run: false, .. })));
     let dry = parse(&["acpmux", "session", "inbox", "c", "--dry-run"]);

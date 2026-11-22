@@ -228,7 +228,7 @@ async fn sender_projection_repairs_without_resending_after_a_transient_failure()
     // invoking prompt delivery.
     hub.message_projection_failures.lock().unwrap().insert(sender.id.clone());
     let mut events = hub.subscribe();
-    record_message_context(&hub, &receiver_id, &message);
+    record_message_context(&hub, &receiver_id, &message, &Value::Null);
     assert_eq!(message_count(&hub, &receiver_id), 1);
     assert_eq!(message_count(&hub, &sender_id), 0);
     tokio::time::timeout(std::time::Duration::from_secs(4), async {

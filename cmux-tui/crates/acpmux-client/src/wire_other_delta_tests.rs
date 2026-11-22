@@ -71,6 +71,16 @@ fn chat_ops_round_trip_in_their_own_delta() {
             count: 1,
             head: Some(QueueHead { entries: vec![item], count: 1 }),
         },
+        ChatOp::Presence {
+            participants: vec![PresencePerson {
+                id: "person".into(),
+                name: "Person".into(),
+                devices: 1,
+                viewing: true,
+                typing: false,
+            }],
+            trimmed: 2,
+        },
     ];
     let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };
     let frame = Frame::json(FrameKind::Delta, &delta).unwrap();

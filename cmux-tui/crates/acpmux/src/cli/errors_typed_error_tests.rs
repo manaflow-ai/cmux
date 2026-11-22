@@ -117,6 +117,28 @@ fn a_no_session_refusal_names_the_close_matches() {
     assert!(crate::cli::send_relay::no_such_session(&app.into()));
 }
 
+/// A send to a Claude Code chat by its id prints how to reach it (`hub/no_session.rs`
+/// `unregistered_chat`) in place of close names, and keeps it in `--json`.
+#[test]
+fn a_send_refusal_for_a_chat_id_names_the_register_step() {
+    let chat = json!({"state": "unknown", "register": "claude-code-6e0bad7d",
+        "text": "if 6e0bad7d is a Claude Code chat acpmux did not start, it has no acpmux address until it registers"});
+    let refused = daemon(RpcError::invalid_params("no session: h/6e0bad7d").with_data(json!({
+        "reason": "no_session", "host": "h", "name": "6e0bad7d",
+        "candidates": ["lane"], "unregisteredChat": chat})));
+    let app = AppError::no_session_from("h/6e0bad7d", &refused);
+    assert_eq!(app.code, Code::NoSession);
+    assert!(
+        app.message.starts_with("no session 6e0bad7d on h; if 6e0bad7d is a Claude Code chat"),
+        "{}",
+        app.message
+    );
+    assert_eq!(
+        app.envelope()["error"]["data"]["unregisteredChat"]["register"],
+        "claude-code-6e0bad7d"
+    );
+}
+
 /// A send's refusal names the machine and the closest names there (`hub/no_session.rs`).
 #[test]
 fn a_send_refusal_names_the_host_and_the_closest_names() {
