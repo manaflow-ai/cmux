@@ -102,9 +102,100 @@ fn denied_apps_are_refused_and_redacted() {
     let shot = e.call(&ctx(None), "screenshot", &json!({}));
     assert_eq!(shot.body["redacted_windows"], 1);
     let windows = e.call(&ctx(None), "list_windows", &json!({}));
-    let pw = &windows.body["windows"][0];
-    assert_eq!(pw["denied"], true);
-    assert_eq!(pw["title"], "");
+    // A denied app's windows are one entry with a count: no id, title or frame.
+    assert_eq!(
+        windows.body["denied"],
+        json!([{"app_name": "1Password", "app_id": "com.1password.1password", "windows": 1, "reason": "app_denied"}])
+    );
+    assert_eq!(windows.body["windows"].as_array().unwrap().len(), 1, "{}", windows.body);
+    assert_eq!(windows.body["windows"][0]["window_id"], "1");
+}
+
+/// list_windows leaves out what an entry would only repeat: a usual
+/// `focused`, `minimized` or `on_screen`, a `.0` on whole points, and each
+/// denied window (one entry per app with a count). Measured on the window
+/// list of a real eval run (2026-11-22, calculator-product): 4624 bytes before.
+#[test]
+fn list_windows_is_short() {
+    // window_id|app_id|app name|pid|title|x y width height|focused
+    let rows = "\
+        3754|com.apple.Safari|Safari|492|CU Eval Form|176 30 1324 940|
+        3747|com.cmuxterm.app.debug.gsbase.side-gsbase-b4671f|cmux gsbase|60323|x|410 95 1100 720|f
+        3464|com.cmuxterm.app.nightly.side-gsrelaunch-b4671f|cmux gsrelaunch|7997|x|640 259 640 520|
+        3460|com.cmuxterm.app.nightly.side-gsrelaunch-b4671f|cmux gsrelaunch|7997|x|640 259 640 520|
+        3455|com.cmuxterm.app.nightly.side-gsrelaunch-b4671f|cmux gsrelaunch|7997|x|410 95 1100 720|
+        1363|com.t3tools.t3code|T3 Code (Beta)|84702|T3 Code (Beta)|410 86 1100 780|
+        1362|com.superlogical.rex|Rex|84700|Rex|357 127 1206 777|
+        1306|com.openai.codex|ChatGPT|10370|ChatGPT|0 30 1280 820|
+        3246|com.cmuxterm.app.nightly.side-launch-demo-b4671f|cmux|31473|x|410 94 1100 720|
+        1261|com.apple.finder|Finder|500|Applications|515 65 920 436|
+        2024|com.apple.ProblemReporter|Problem Reporter|73242|Problem Report for SiriProbe|729 44 1000 800|
+        1118|com.anthropic.claudefordesktop|Claude|4464|Claude|360 76 1200 800|
+        85|com.trycua.driver|Cua Driver|964||0 0 1920 1080|
+        77|com.apple.accessibility.universalAccessAuthWarn|universalAccessAuthWarn|827|Device Control and Data Access|729 228 461 181|
+        1252|com.apple.ProblemReporter|Problem Reporter|73242|Problem Report for macOS|700 201 1000 800|
+        48|com.apple.calculator|Calculator|494|Calculator|510 856 230 408|
+        47|com.apple.ScreenSharing|Screen Sharing|491|All Connections|602 149 715 487|
+        3755|com.apple.calculator|Calculator|61011|Calculator|510 500 230 408|
+        3745|com.cmuxterm.app.debug.gsbase.side-gsbase-b4671f|cmux gsbase|60323|x|410 95 1100 720|";
+    let rows: Vec<Vec<&str>> = rows.lines().map(|l| l.trim().split('|').collect()).collect();
+    let mut d = FakeDesktop::standard();
+    d.apps = rows
+        .iter()
+        .map(|r| crate::desktop::App {
+            id: r[1].into(),
+            name: r[2].into(),
+            pid: r[3].parse().unwrap(),
+            frontmost: false,
+            hidden: false,
+        })
+        .collect();
+    d.windows = rows
+        .iter()
+        .map(|r| {
+            let f: Vec<f64> = r[5].split(' ').map(|n| n.parse().unwrap()).collect();
+            Window {
+                id: r[0].into(),
+                app_id: r[1].into(),
+                pid: r[3].parse().unwrap(),
+                title: r[4].into(),
+                frame: Rect { x: f[0], y: f[1], width: f[2], height: f[3] },
+                on_screen: true,
+                focused: r[6] == "f",
+                minimized: false,
+            }
+        })
+        .collect();
+    let deny = [
+        "com.cmuxterm.app.debug.gsbase.side-gsbase-b4671f",
+        "com.cmuxterm.app.nightly.side-gsrelaunch-b4671f",
+        "com.cmuxterm.app.nightly.side-launch-demo-b4671f",
+    ];
+    let config = PolicyConfig {
+        denied_apps: deny.iter().map(|s| (*s).to_string()).collect(),
+        ..PolicyConfig::default()
+    };
+    let e = engine(Arc::new(d), config);
+    let out = e.call(&ctx(None), "list_windows", &json!({}));
+    assert!(!out.is_error, "{}", out.body);
+    let bytes = out.body.to_string().len();
+    eprintln!("list_windows: 4624 bytes before, {bytes} after");
+    assert_eq!(out.body["windows"].as_array().unwrap().len(), 13);
+    assert_eq!(
+        out.body["denied"],
+        json!([
+            {"app_name": "cmux gsbase", "app_id": deny[0], "windows": 2, "reason": "app_denied"},
+            {"app_name": "cmux gsrelaunch", "app_id": deny[1], "windows": 3, "reason": "app_denied"},
+            {"app_name": "cmux", "app_id": deny[2], "windows": 1, "reason": "app_denied"},
+        ])
+    );
+    let calc = &out.body["windows"][12];
+    assert_eq!(
+        *calc,
+        json!({"window_id": "3755", "app_id": "com.apple.calculator", "app_name": "Calculator",
+               "title": "Calculator", "frame": {"x": 510, "y": 500, "width": 230, "height": 408}, "pid": 61011})
+    );
+    assert!(bytes <= 2600, "{bytes}: {}", out.body);
 }
 
 #[test]
@@ -367,8 +458,9 @@ fn a_signal_or_a_copy_outside_the_pixels_is_not_no_effect() {
         if copy {
             assert!(reason.contains("pasteboard"), "{reason}");
         } else {
-            assert!(reason.contains("AXValueChanged"), "{reason}");
+            assert!(reason.contains("app signals outside the window"), "{reason}");
             assert_eq!(out.body["signals"]["elsewhere"], 1);
+            assert_eq!(out.body["signals"]["kinds"]["AXValueChanged"], 1);
         }
     }
 }
@@ -386,6 +478,8 @@ fn a_read_back_is_confirmed() {
     );
     assert!(!out.is_error, "{}", out.body);
     assert_eq!(out.body["outcome"], "confirmed", "{}", out.body);
+    // The outcome says it: no reason repeats it.
+    assert!(out.body.get("outcome_reason").is_none(), "{}", out.body);
 }
 
 /// Typed keys land after they are posted: the route's read-back, done
@@ -920,7 +1014,7 @@ fn never_apps_are_painted_out_and_marked_in_listings() {
         1
     );
     let windows = e.call(&ctx(None), "list_windows", &json!({}));
-    assert_eq!(windows.body["windows"][0]["denied"], true);
+    assert_eq!(windows.body["denied"][0]["reason"], "app_never_allowed", "{}", windows.body);
     let apps = e.call(&ctx(None), "list_apps", &json!({}));
     assert_eq!(apps.body["apps"][1]["denied_reason"], "app_never_allowed");
 }

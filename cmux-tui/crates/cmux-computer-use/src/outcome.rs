@@ -87,50 +87,41 @@ fn count(changes: &Value, key: &str) -> u64 {
     }
 }
 
-fn kinds(s: &Signals) -> String {
-    s.kinds.iter().map(|(k, n)| format!("{k} x{n}")).collect::<Vec<_>>().join(", ")
-}
-
-/// Everything the engine saw change, in words: in and over the window, and
-/// outside it (the app elsewhere, other processes, the pasteboard).
+/// Everything the engine saw change, in a few words each: in and over the
+/// window, and outside it (the app elsewhere, other processes, the
+/// pasteboard). Signal kinds are not repeated: the result's `signals` has them.
 fn seen(f: &Facts) -> (Vec<String>, Vec<String>) {
     let mut seen = Vec::new();
     let mut side = Vec::new();
     if let Some(c) = &f.changes {
         if c.get("pixels").and_then(Value::as_str) == Some("changed") {
-            seen.push("the window's pixels changed".to_string());
+            seen.push("pixels".to_string());
         }
         let elements = count(c, "added") + count(c, "changed") + count(c, "removed");
         if elements > 0 {
-            seen.push(format!("{elements} of its elements changed"));
+            seen.push(format!("{elements} elements"));
         }
         if count(c, "focus_moved") > 0 {
-            seen.push("its keyboard focus moved".into());
+            seen.push("focus".into());
         }
         let windows = count(c, "windows_opened") + count(c, "windows_closed");
         if windows > 0 {
-            seen.push(format!("{windows} window(s) over it opened or closed"));
+            seen.push(format!("{windows} windows over it (opened or closed)"));
         }
     }
     if let Some(s) = &f.signals {
         if s.in_window > 0 {
-            seen.push(format!("the app reported {} change(s) in the window", s.in_window));
+            seen.push("app signals".into());
         }
         if s.elsewhere > 0 {
-            side.push(format!(
-                "the app reported {} change(s) outside the window (a menu, a popover, another window)",
-                s.elsewhere
-            ));
-        }
-        if s.total() > 0 {
-            seen.push(format!("signals: {}", kinds(s)));
+            side.push("app signals outside the window (a menu, popover or other window)".into());
         }
     }
     if let Some(outside) = &f.outside {
         side.extend(outside.iter().cloned());
     }
     if f.menu {
-        seen.push("a menu opened, was picked from or closed".into());
+        seen.push("a menu (opened, picked from or closed)".into());
     }
     (seen, side)
 }
@@ -139,38 +130,36 @@ fn seen(f: &Facts) -> (Vec<String>, Vec<String>) {
 fn unknowns(f: &Facts) -> Vec<&'static str> {
     let mut unknown = Vec::new();
     if f.shows.is_none() {
-        unknown.push(
-            "this action's effect may not show anywhere the engine can look (a button, a menu item, a key chord or a click on drawn content can act invisibly)",
-        );
+        unknown.push("its effect may not show");
     }
     if f.settled_ms.is_none() {
-        unknown.push("the window was not watched through a settle wait");
+        unknown.push("no settle wait");
     }
     match &f.changes {
-        None => unknown.push("the window's elements and pixels were not compared"),
+        None => unknown.push("elements and pixels not compared"),
         Some(c) => {
             if c.get("pixels").and_then(Value::as_str) != Some("same") {
-                unknown.push("its pixels were not compared with a screenshot from before");
+                unknown.push("pixels not compared");
             }
             if c.get("elements_read").and_then(Value::as_str) != Some("all") {
-                unknown.push("not every element of the window was read");
+                unknown.push("not every element read");
             }
             // A first look has nothing to compare its elements with.
             if c.get("first_look") == Some(&Value::Bool(true))
                 || ["added", "changed", "removed"].iter().any(|k| c.get(*k).is_none())
             {
-                unknown.push("there was no earlier look at the window's elements to compare with");
+                unknown.push("no earlier look to compare elements with");
             }
         }
     }
     if f.signals.is_none() {
-        unknown.push("the app's accessibility signals could not be watched");
+        unknown.push("app signals not watched");
     }
     if f.outside.is_none() {
-        unknown.push("windows of other processes and the pasteboard could not be read");
+        unknown.push("other windows and the pasteboard not read");
     }
     if f.responsive != Some(true) {
-        unknown.push("the app did not answer an accessibility request after the settle");
+        unknown.push("the app did not answer after the settle");
     }
     unknown
 }
@@ -178,27 +167,29 @@ fn unknowns(f: &Facts) -> Vec<&'static str> {
 pub fn decide(f: &Facts) -> Verdict {
     let (mut seen, side) = seen(f);
     if f.evidence == "confirmed" {
-        let mut reason = "the target reads back the intended effect".to_string();
-        // Side effects: what changed outside the window.
-        if !side.is_empty() {
-            reason.push_str("; also changed outside the window: ");
-            reason.push_str(&side.join("; "));
-        }
+        // `outcome` says it; the reason only names side effects (what
+        // changed outside the window), else it is empty and left out.
+        let reason = if side.is_empty() {
+            String::new()
+        } else {
+            format!("also changed outside the window: {}", side.join(", "))
+        };
         return Verdict { outcome: Outcome::Confirmed, reason };
     }
     seen.extend(side);
     if f.already {
         return Verdict {
             outcome: Outcome::Uncertain,
-            reason: "the state already matched before the action, so nothing had to change and nothing shows it was done".into(),
+            reason: "already in that state before the action; nothing shows this action did it"
+                .into(),
         };
     }
     if !seen.is_empty() {
         return Verdict {
             outcome: Outcome::Uncertain,
             reason: format!(
-                "something changed ({}), but nothing reads back that it is the intended effect: check the state before relying on it",
-                seen.join("; ")
+                "changed: {}; nothing reads back the intended effect: check before relying on it",
+                seen.join(", ")
             ),
         };
     }
@@ -207,23 +198,31 @@ pub fn decide(f: &Facts) -> Verdict {
         let ms = f.settled_ms.unwrap_or(0);
         return Verdict {
             outcome: Outcome::NoEffect,
-            reason: format!(
-                "nothing changed within {ms} ms: the window's pixels and elements stayed the same, no window opened or closed, the pasteboard and the front app stayed, and the app reported no change"
-            ),
+            reason: format!("nothing changed anywhere watched within {ms} ms"),
         };
     }
     Verdict {
         outcome: Outcome::Uncertain,
-        reason: format!("nothing visible changed, but {}", unknown.join("; ")),
+        reason: format!(
+            "nothing visible changed, but {}: check the state before relying on it",
+            unknown.join("; ")
+        ),
     }
 }
 
 /// Writes the verdict into an acting call's result body: `outcome`,
-/// `outcome_reason`, the signals seen (`signals`, when any), and for
+/// `outcome_reason` (left out when empty: a confirmed with no side effects),
+/// the signals seen (`signals`, when any), and for
 /// `no_effect` the older `evidence: no_visible_change` with its note.
 pub fn attach(body: &mut Value, f: &Facts, verdict: &Verdict, note: impl FnOnce(u64) -> String) {
     body["outcome"] = json!(verdict.outcome.as_str());
-    body["outcome_reason"] = json!(verdict.reason);
+    if verdict.reason.is_empty() {
+        if let Some(o) = body.as_object_mut() {
+            o.remove("outcome_reason");
+        }
+    } else {
+        body["outcome_reason"] = json!(verdict.reason);
+    }
     if let Some(s) = f.signals.as_ref().filter(|s| s.total() > 0) {
         body["signals"] = serde_json::to_value(s).unwrap_or(Value::Null);
     }
@@ -271,16 +270,14 @@ mod tests {
     fn a_read_back_is_confirmed_and_names_side_effects() {
         let mut f = quiet();
         f.evidence = "confirmed".into();
-        assert_eq!(decide(&f).outcome, Outcome::Confirmed);
+        let v = decide(&f);
+        assert_eq!(v.outcome, Outcome::Confirmed);
+        assert_eq!(v.reason, "", "the outcome says it");
         f.outside = Some(vec!["the pasteboard changed".into()]);
         f.signals = Some(Signals { elsewhere: 1, ..Signals::default() });
         let v = decide(&f);
         assert_eq!(v.outcome, Outcome::Confirmed);
-        assert!(
-            v.reason.contains("pasteboard") && v.reason.contains("a menu, a popover"),
-            "{}",
-            v.reason
-        );
+        assert!(v.reason.contains("pasteboard") && v.reason.contains("popover"), "{}", v.reason);
     }
 
     /// Something changing is not the intended effect (a FP of the truth
@@ -301,7 +298,7 @@ mod tests {
             change(&mut f);
             let v = decide(&f);
             assert_eq!(v.outcome, Outcome::Uncertain, "{f:?}");
-            assert!(v.reason.starts_with("something changed"), "{}", v.reason);
+            assert!(v.reason.starts_with("changed: "), "{}", v.reason);
         }
     }
 
@@ -350,7 +347,7 @@ mod tests {
         f.already = true;
         let v = decide(&f);
         assert_eq!(v.outcome, Outcome::Uncertain);
-        assert!(v.reason.contains("already matched"), "{}", v.reason);
+        assert!(v.reason.contains("already in that state"), "{}", v.reason);
     }
 
     #[test]

@@ -24,7 +24,8 @@ allows it), and on the person's other machines that run cmux.
 
 ## How to work
 
-1. `list_windows` (or `list_apps`) to find the window.
+1. `list_windows` (or `list_apps`) to find the window. Windows of denied apps
+   are only counted, per app, in `denied`.
 2. `screenshot` that window (works when it is covered) or `get_ui_tree` it.
 3. Act on `element_id`s from the tree (best: they work in the background and
    survive layout changes), or on pixels of your latest screenshot of that
@@ -80,7 +81,8 @@ one state at the end:
 ```
 
 - Every acting step settles on its own and gets its own `outcome`
-  (`confirmed`, `no_effect`, `uncertain`), `outcome_reason`, `read_back` and
+  (`confirmed`, `no_effect`, `uncertain`), `outcome_reason` (why, when not
+  `confirmed`), `read_back` and
   `changes` (what changed in the window during that step) in `results`.
 - `require: "confirmed"` stops the batch unless the step read back;
   `"not_no_effect"` stops it when the step did nothing; by default only an
