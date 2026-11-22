@@ -53,6 +53,25 @@ const rows = chat([
   summary(5, { status: "completed", durationMs: 48_000, toolCount: 4 }),
 ]);
 
+/// Content that cannot wrap: an unbroken token, a long URL, a wide table and a one-line command. The
+/// column must hold it: the token and URL break, the table and code scroll inside their own boxes,
+/// and nothing pushes the transcript wider than its pane.
+const TOKEN = "sha256:" + "0123456789abcdef".repeat(16);
+const OVERFLOW = [
+  `The build failed on a cache key no line can break: ${TOKEN}`,
+  "",
+  `See https://github.com/manaflow-ai/cmux/actions/runs/42429560256/job/128575208330?pr=36342&check_suite_focus=true#step:7:1842 for the log.`,
+  "",
+  "| Job | Runner | Cache key | Started | Finished | Duration | Retries | Exit |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  `| react-apps-base-check | blacksmith-16vcpu-ubuntu-2404 | \`${TOKEN.slice(0, 90)}\` | 22:01:56 | 22:38:53 | 36m57s | 2 | 1 |`,
+  "",
+  "```sh",
+  `CMUX_WEB_TEST_FILES="test/session-info-overlay-toggle.test.ts test/composer-inline-caret-gap.browser.test.ts test/accent-glass-invariants-6.test.ts" CMUX_WEB_TEST_JOBS=1 CMUX_WEB_TEST_RETRIES=0 bash ../scripts/ci/run-webviews-tests.sh --cache ${TOKEN}`,
+  "```",
+].join("\n");
+const overflowRows = chat([user(`Why did the cache miss on ${TOKEN}?`, 6), assistant(OVERFLOW, 5)]);
+
 /// The pane as the app pushes Settings' `agentPane.display.*` keys (`display`, chatDisplay.ts).
 const variant = (display: Record<string, unknown>, note: string): AgentPaneVariant => ({
   note,
@@ -71,5 +90,19 @@ export default agentPaneEntry({
     narrow: variant({ "agentPane.display.width": 640 }, "Chat Text Width 640: a 640px column in every pane."),
     wide: variant({ "agentPane.display.width": 960 }, "Chat Text Width 960: a 960px column where the pane fits it."),
     "full-width": variant({ "agentPane.display.fullWidth": true }, "Chat Full Width: the column fills the pane."),
+    overflow: {
+      ...variant(
+        {},
+        "Content that cannot wrap stays inside the column: tokens break, tables and code scroll in place.",
+      ),
+      snapshot: overflowRows,
+    },
+    "overflow-full-width": {
+      ...variant(
+        { "agentPane.display.fullWidth": true },
+        "The same content at Chat Full Width: it stays inside the pane.",
+      ),
+      snapshot: overflowRows,
+    },
   },
 });
