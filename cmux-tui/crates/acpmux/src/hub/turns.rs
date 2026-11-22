@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::exit_reason::explains_exit;
+use super::transcript::REPLAY_CHARS;
 use super::*;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -604,13 +605,11 @@ impl Hub {
         // running turn, as no notice does (`inbox.rs`): it kept that turn going past the person's
         // queued prompt (Leo, 2026-10-29: "but even if im just queueing, your turn should still be
         // ending"). It queues behind the prompt, and one sent with `interrupt` stops nothing. The
-        // person's own steer and Send now still go in, and so does an inbox digest asked to steer
-        // (`inbox_digest.rs`): its drain asked for it. Checked again as the steer is written
-        // (`steer_end.rs`).
-        let prompt_held = from_agent
-            && running.is_some()
-            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
-            && super::inbox::persons_prompt_waits(session);
+        // person's own steer and Send now still go in; an inbox digest does not (its drain never
+        // asks to steer then, `inbox_digest.rs`; this holds one whose prompt came after the
+        // drain). Checked again as the steer is written (`steer_end.rs`).
+        let prompt_held =
+            from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
         // Other agents wait until the person's own turn ends; family replies still enter it.
         let persons_held = from_agent
             && running.as_ref().is_some_and(|t| t.persons)
@@ -967,8 +966,13 @@ impl Hub {
             let head =
                 super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
             let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
-            provenance = Some(super::digest::digest_provenance(&parts));
-            let blocks = super::digest::digest_blocks(&parts);
+            // The person's prompts a hold gathered stay the person's words (`person_hold.rs`).
+            let blocks = if run.agent.is_none() {
+                super::person_hold::person_blocks(&parts)
+            } else {
+                provenance = Some(super::digest::digest_provenance(&parts));
+                super::digest::digest_blocks(&parts)
+            };
             let text = prompt_text(&blocks);
             display_parts = None;
             (blocks, text)
@@ -1028,7 +1032,7 @@ impl Hub {
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
         if control == Control::Web || !family {
-            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+            session.floor.mark_last_turn(control == Control::Web, device.clone());
         }
         session
             .floor
@@ -1066,6 +1070,10 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
+        // A start for this turn asks for suggestions only when a person's prompt starts it.
+        session
+            .start_for
+            .store(super::host_level::start_for(&run, provenance.as_ref()), Ordering::SeqCst);
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
@@ -1190,9 +1198,15 @@ impl Hub {
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+            && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
+            // The whole transcript covers what an older agent session lacked too.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq = None;
             blocks.insert(0, restored_transcript(session, &transcript));
+        } else if let Some(block) = self.missed_turns(session, REPLAY_CHARS) {
+            // The agent resumed an older copy of its own session (`journal_restore.rs`): only
+            // the turns after it.
+            blocks.insert(0, block);
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -1204,9 +1218,11 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
             )
             .seq;
+        // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
+        super::turn_shots::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
@@ -1282,6 +1298,11 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
+        // summary worth a model call (`rolling_summary.rs`).
+        self.recap_turn_started(session, person);
+        self.summary_turn_started(session, person);
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1450,7 +1471,8 @@ impl Hub {
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
-                            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+                            && let Some(transcript) =
+                                self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
                             blocks.insert(0, restored_transcript(session, &transcript));
                             // The new agent session gets every rule again.
@@ -1695,8 +1717,25 @@ impl Hub {
         }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
-            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            let was_unstored = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.claude_unstored_work = false;
+                std::mem::take(&mut m.claude_unstored)
+            };
             if was_unstored {
+                self.save_meta(session);
+            }
+        } else if let Err(e) = &result
+            && session.meta().claude_unstored
+            && self.unstored_turn_worked(session, &e.message)
+        {
+            // A failed turn whose agent did work keeps the unstored conversation awake
+            // (`SessionMeta::claude_unstored_work`); one that only got agent errors does not.
+            let marked = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                !std::mem::replace(&mut m.claude_unstored_work, true)
+            };
+            if marked {
                 self.save_meta(session);
             }
         }
@@ -1878,6 +1917,8 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
+            // Its recap and question: the chat's rolling summary (`rolling_summary.rs`).
+            let wrap_up_recap = crate::wrap_up_suggestion::take_recap(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -1914,6 +1955,7 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
+                    self.summary_turn_ended(session, status == "completed", wrap_up_recap);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
@@ -1949,6 +1991,7 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
+                    self.summary_turn_ended(session, false, None);
                     let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
@@ -2032,6 +2075,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        // Its before picture has no after coming (`turn_shots.rs`).
+        super::turn_shots::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
         }
@@ -2505,6 +2550,20 @@ impl Hub {
     }
 
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {
+        self.rename_as(session, name, super::task_names::Naming::Hand).await
+    }
+
+    /// `rename`, saying who names it (`task_names::Naming`): a person's or an agent's rename
+    /// titles it by the name in words, a task's by the task's title, an address (`register`)
+    /// leaves its title as it is. Every one keeps the old name as a former name
+    /// (`former_names.rs`); a name another session has now is refused, one it had is taken.
+    pub(super) async fn rename_as(
+        &self,
+        session: &Arc<Session>,
+        name: String,
+        naming: super::task_names::Naming<'_>,
+    ) -> Result<(), RpcError> {
+        use super::task_names::Naming;
         if self
             .sessions
             .lock()
@@ -2514,15 +2573,36 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
-        let old = {
+        let old = session.read_meta(|m| m.name.clone());
+        self.release_former_names(session, &name, &old);
+        let (old, titled) = {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
+            let titled = match naming {
+                Naming::Hand => super::task_names::name_in_words(&name).inspect(|title| {
+                    m.title = Some(title.clone());
+                    m.title_source = Some(super::titles::NAMED.to_owned());
+                    m.title_prompt = None;
+                }),
+                Naming::Task(title) => {
+                    m.title = Some(title.to_owned());
+                    m.title_source = Some(super::task_names::TASK.to_owned());
+                    m.title_prompt = None;
+                    Some(title.to_owned())
+                }
+                Naming::Address => None,
+            };
             m.name_given = true;
-            std::mem::replace(&mut m.name, name.clone())
+            let old = std::mem::replace(&mut m.name, name.clone());
+            super::former_names::push_former(&mut m.former_names, &old, &name);
+            (old, titled)
         };
         // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
+        if let Some(title) = titled {
+            self.append(session, "mux", "titled", json!({"title": title}));
+        }
         self.save_meta_kept(session)?;
         // Its running Claude Code takes the name too (`live_name.rs`).
         self.rename_live_claude(session);
@@ -2714,6 +2794,7 @@ impl Hub {
                 let cwd = session.meta().cwd.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     super::file_uploads::remove_session(&id);
+                    super::turn_shots::remove_session(&id);
                     // And the PDFs it saved in its project (`acp_prompt_blocks`).
                     remove_pdf_attachments(&cwd, &id);
                 })
@@ -2747,6 +2828,7 @@ impl Hub {
                 update_line: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
+                peer_batch: false,
             });
             drop(sessions);
             // Gone from v1: a chat that comes back under the id gets a book again.
