@@ -424,8 +424,8 @@ enum RemoteMachinesStrings {
         String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .localizedModule), name)
     }
     /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
-    /// when its own budget says it is over, and ending with its free disk only when that is low.
-    /// "CPU n/m" names no counted noun, so it reads right for any count.
+    /// when its own budget says it is over, else ending with placement's verdict (`peers[].load.words`).
+    /// Its free disk shows only when that is low. "CPU n/m" names no counted noun, so it reads right for any count.
     static func resources(_ r: AcpmuxPeerList.Resources) -> String {
         var parts = [ramFree(r.ramFreeGB),
                      String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .localizedModule),
@@ -434,9 +434,7 @@ enum RemoteMachinesStrings {
             parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .localizedModule), disk))
         }
         if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .localizedModule), at: 0) }
-        // Placement's verdict as the picker and Settings > Machines read it (acpmux `peers[].load.words`).
-        else if let verdict = r.verdict { parts.append(verdict) }
-        return parts.joined(separator: " · ")
+        return (parts + (r.over ? [] : [r.verdict].compactMap { $0 })).joined(separator: " · ")
     }
     /// What VoiceOver reads for a machine's room row: the machine, then its room.
     static func resourcesLabel(_ name: String, _ r: AcpmuxPeerList.Resources) -> String {

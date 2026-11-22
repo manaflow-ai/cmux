@@ -955,6 +955,14 @@ pub fn with_load_rows(mut rows: Vec<Value>, now_ms: u64) -> Vec<Value> {
     rows
 }
 
+impl crate::hub::Hub {
+    /// The peers as `_acpmux/status` and `_acpmux/peers` list them: each with its load row
+    /// (`load_row`), the numbers and verdict every list of machines draws.
+    pub fn peers_with_load(&self) -> Vec<Value> {
+        with_load_rows(self.peers(), crate::store::now_ms())
+    }
+}
+
 #[cfg(test)]
 #[path = "placement_tests.rs"]
 mod tests;
