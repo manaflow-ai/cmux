@@ -1,5 +1,6 @@
 // The virtual stack reads the same declarative lengths as the generated CSS grid tokens.
 import grid from "../../../../schemas/layout-grid/layout-grid.json";
+import { INTERFACE_SCALE_EVENT } from "../../ui/interfaceScale";
 
 export const gridLength = (name: string): number => {
   const metric = grid.metrics.find((value) => value.name === name);
@@ -93,11 +94,40 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
 /// per layout pass.
+///
+/// Read without a style pass: the app writes the scale inline on <html> (DesignSettings
+/// interfaceScaleScript), and reading an inline property costs nothing. A computed read is a style
+/// recalc of the whole document whenever the last commit changed its DOM, which every streamed frame
+/// does: it was a tenth of the focused chat's main thread with a reply and a tool streaming into it
+/// (composer-typing L1, `getPropertyValue` under `gridScale`), work the visible frame waited behind.
+/// With no inline value the stylesheets' (desktop.css, 1) is read once per document and style sheet
+/// count, and again on the App's scale event.
 export function gridScale(): number {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
-  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  if (typeof document === "undefined") return 1;
+  const root = document.documentElement;
+  const inline = parseFloat(root?.style?.getPropertyValue("--cmux-interface-scale") ?? "");
+  if (Number.isFinite(inline) && inline > 0) return inline;
+  return sheetScale(document);
 }
+
+let sheetScaleCache: { doc: Document; sheets: number; scale: number } | undefined;
+
+function sheetScale(doc: Document): number {
+  const sheets = doc.styleSheets?.length ?? 0;
+  const cached = sheetScaleCache;
+  if (cached && cached.doc === doc && cached.sheets === sheets) return cached.scale;
+  if (typeof getComputedStyle !== "function" || !doc.documentElement) return 1;
+  const raw = parseFloat(getComputedStyle(doc.documentElement).getPropertyValue("--cmux-interface-scale"));
+  const scale = Number.isFinite(raw) && raw > 0 ? raw : 1;
+  if (!sheetScaleListening && typeof window !== "undefined") {
+    sheetScaleListening = true;
+    window.addEventListener(INTERFACE_SCALE_EVENT, () => (sheetScaleCache = undefined));
+  }
+  sheetScaleCache = { doc, sheets, scale };
+  return scale;
+}
+
+let sheetScaleListening = false;
 
 /// What a row is for the gap rules (grid.md 5.5). Kept per row in the layout, so a placement that
 /// skips DOM-empty rows still picks the gap from the neighbours that draw.

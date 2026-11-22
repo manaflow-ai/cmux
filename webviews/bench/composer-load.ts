@@ -49,6 +49,8 @@ export async function runComposerLoad(
     gap: number;
     stream: number;
     toolLines: number;
+    /// Around the typed keys only (a CPU profile of the window the keys wait in, not the setup).
+    typing?: { start(): Promise<void>; stop(): Promise<void> };
   },
 ) {
   const { port, mode, length, keys, gap } = options;
@@ -164,6 +166,7 @@ export async function runComposerLoad(
   const clocksBefore = await readClocks(page, loads);
   const expected = Array.from({ length: keys }, (_, i) => "abcdefghijklmnopqrstuvwxyz"[i % 26]).join("");
   const late: number[] = [];
+  await options.typing?.start();
   const started = performance.now();
   for (let i = 0; i < keys; i++) {
     const due = started + i * gap;
@@ -175,6 +178,7 @@ export async function runComposerLoad(
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
+  await options.typing?.stop();
   const result = await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
