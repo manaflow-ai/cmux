@@ -326,12 +326,19 @@ def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[
 
 
 def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
-    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs).
+
+    A file red on the base as a whole (its bare name: it timed out or failed without naming a test there) covers every
+    red its head run names: the head's retry alone could only pass a file the base fails too. Shard 1 of run
+    44987019885 had 51 red files and 5 skipped; 29 of the other 46 were red on the base push by file name only (the
+    gallery files, accent-glass-invariants-2 and control-contrast-12, among them) and the head named their tests. A wrong
+    guess still moves no verdict: react-apps-base-check replays the file on the base and re-runs alone on the head any
+    red it would charge to the change."""
     by_file: dict[str, list[str]] = {}
     for name, ok in head.items():
         if not ok:
             by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
-    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+    return sorted(file for file, names in by_file.items() if file in reds or all(name in reds for name in names))
 
 
 EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
