@@ -135,3 +135,13 @@ test("a settled reply's own claim counts; a mention, code or a streaming reply d
   // Without the folder's repository a bare number names nothing.
   expect(labels(rows)).toEqual(["PR #12", "#7"]);
 });
+
+test("a reply that says it opened PR #N, or the PR owner/repo#N, names a pull request", () => {
+  const rows = [reply("Opened PR #21 for the fix."), reply("Opened the PR o/other#22."), reply("Opened #23.")];
+  expect(labels(rows, "o/r")).toEqual(["PR #21", "PR #22", "#23"]);
+  expect(producedLinks(rows, "o/r").map((link) => link.url)).toEqual([
+    "https://github.com/o/r/pull/21",
+    "https://github.com/o/other/pull/22",
+    "https://github.com/o/r/issues/23",
+  ]);
+});

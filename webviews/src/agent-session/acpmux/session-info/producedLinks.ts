@@ -196,7 +196,9 @@ function replyFindings(text: string): Finding[] {
       continue;
     }
     const ref = /^([\w-][\w.-]*\/[\w.-]+)#(\d+)$/.exec(target);
-    const pr = verb !== "filed" && (verb !== "opened" || /^PR/i.test(target) || !!merged.merged);
+    // "Opened PR #12": SAID's `PR ` before the target names it a pull request too, not only a `PR#12` target.
+    const named = match[0].slice(match[1]!.length).trimStart();
+    const pr = verb !== "filed" && (verb !== "opened" || /^(?:the\s+)?PR/i.test(named) || !!merged.merged);
     if (ref)
       found.push({
         kind: verb === "filed" ? "issue" : pr ? "pullRequest" : "either",
