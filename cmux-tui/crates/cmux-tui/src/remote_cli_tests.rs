@@ -3076,6 +3076,7 @@ fn summary_invitation(route_hints: Vec<String>) -> EnrollmentInvitation {
         route_hints,
         relay_access: Vec::new(),
         approval_required: true,
+        via_machine: None,
     }
 }
 
