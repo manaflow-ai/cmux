@@ -292,23 +292,22 @@ describe("tail glide out of view", () => {
   });
 
   test("a row in view glides, and the row above it out of the view is never clipped", () => {
-    // The reply is drawn above the view's top (a fake box: only the reads count); the live line starts
-    // drawn in it, 40 px above its place.
-    const { clips, slides } = grow({ top: 0, bottom: 400 }, ({ reply, live }) => {
-      reply.box = { top: -100, bottom: -20 };
+    // The reply lies above the view's top; the live line is in it.
+    const { clips, slides } = grow({ top: 110, bottom: 400 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
       live.box = { top: 100, bottom: 130 };
     });
     expect(slides.map((slide) => slide.keyframes)).toEqual([[{ translate: "0 -40px" }, { translate: "0 0" }]]);
     expect(clips).toEqual([]);
   });
 
-  test("a row that would glide into the view from outside it lands at once", () => {
-    // Drawn from 60..90 (above the view's top, 95) down to 100..130 (in it): it starts where nobody sees it.
+  test("a row just outside the view's edge that glides into it still plays (no snap at the edge)", () => {
+    // Drawn from 60..90 (just above the view's top, 95) down to 100..130 (in it): the reader sees it arrive.
     const { slides } = grow({ top: 95, bottom: 400 }, ({ reply, live }) => {
       reply.box = { top: 20, bottom: 100 };
       live.box = { top: 100, bottom: 130 };
     });
-    expect(slides).toEqual([]);
+    expect(slides.map((slide) => slide.keyframes)).toEqual([[{ translate: "0 -40px" }, { translate: "0 0" }]]);
   });
 
   test("a glide that ends out of view but starts in it still plays", () => {
