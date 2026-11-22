@@ -20,11 +20,14 @@ import Testing
     }
 
     /// A window with the scene; `shown` orders it on screen (Motion snaps a window with no screen).
-    private static func host(_ model: AppSceneModel, shown: Bool = false, width: CGFloat = 260) -> (NSWindow, AppSceneHostingView) {
+    /// `fillsBounds` hosts it as a widget tile, the only place a `transition` runs.
+    private static func host(_ model: AppSceneModel, shown: Bool = false, width: CGFloat = 260,
+                             fillsBounds: Bool = false) -> (NSWindow, AppSceneHostingView) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         if shown { window.orderFrontRegardless() }
         let hosting = AppSceneHostingView(model: model, bundleDirectory: nil)
+        hosting.fillsBounds = fillsBounds
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: 400)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
@@ -118,6 +121,15 @@ import Testing
         model.apply([.update(id: "box", props: ["rotation": .null])])
         root.layoutSubtreeIfNeeded()
         #expect(CATransform3DIsIdentity(layer.transform))
+    }
+
+    /// `offset` moves the drawing first, then `rotation` turns it about the center: a clock hand offset
+    /// up by half its length points right at a quarter turn (red if the offset moved after the turn).
+    @Test func offsetMovesTheDrawingBeforeTheRotation() {
+        let space = SceneTransformSpace(pivot: .zero, yDown: true)
+        let turn = CATransform3DGetAffineTransform(space.transform(degrees: 90, offset: CGPoint(x: 0, y: -10)))
+        let tip = CGPoint.zero.applying(turn)
+        #expect(abs(tip.x - 10) < 0.0001 && abs(tip.y) < 0.0001, "the hand's tip is at \(tip), want (10, 0)")
     }
 
     @Test func hitTestingFollowsAnOffsetChildLayerTransform() throws {
@@ -341,7 +353,7 @@ import Testing
                 .children(id: "list", children: ["first", "plain"]),
                 .root(id: "list"),
             ])
-            let (window, root) = Self.host(model, shown: true)
+            let (window, root) = Self.host(model, shown: true, fillsBounds: true)
             defer { window.contentView = nil; window.close() }
             try #require(window.screen != nil)
             let first = try #require(Self.node("first", in: root))

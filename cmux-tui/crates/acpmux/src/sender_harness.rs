@@ -259,7 +259,7 @@ pub fn note_mcp_client(params: &Value) {
 
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
-    let env = |key: &str| std::env::var(key).ok();
+    let env = crate::tool_env::var;
     of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
 }
 

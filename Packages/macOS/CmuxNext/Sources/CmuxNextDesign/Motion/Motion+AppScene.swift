@@ -153,14 +153,15 @@ public nonisolated struct SceneTransformSpace: Hashable, Sendable {
         yDown = layer.superlayer?.contentsAreFlipped() ?? true
     }
 
-    /// Scale by `scale`, turn `degrees` clockwise on screen, both about the center, then move by
-    /// `offset` points (+y down on screen).
+    /// Move by `offset` points (+y down on screen) first, then scale by `scale` and turn `degrees`
+    /// clockwise on screen, both about the center: a clock hand offset by half its length turns about
+    /// the face's center, as SwiftUI's `.offset` then `.rotationEffect`.
     public func transform(scale: CGFloat = 1, degrees: CGFloat = 0, offset: CGPoint = .zero) -> CATransform3D {
         let sign: CGFloat = yDown ? 1 : -1
-        var t = CATransform3DMakeTranslation(pivot.x + offset.x, pivot.y + offset.y * sign, 0)
+        var t = CATransform3DMakeTranslation(pivot.x, pivot.y, 0)
         if degrees != 0 { t = CATransform3DRotate(t, degrees * .pi / 180 * sign, 0, 0, 1) }
         if scale != 1 { t = CATransform3DScale(t, scale, scale, 1) }
-        return CATransform3DTranslate(t, -pivot.x, -pivot.y, 0)
+        return CATransform3DTranslate(t, offset.x - pivot.x, offset.y * sign - pivot.y, 0)
     }
 }
 

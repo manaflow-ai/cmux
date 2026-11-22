@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// id and calls ``configure(_:)`` with each new value of the node, so an `update` op reconfigures the
 /// view in place rather than rebuilding the section. Subclasses draw their node type; this base
 /// applies the props every node accepts (padding, help, opacity, disabled, and the decorations:
-/// `frame`, `background`, `borderColor`, `cornerRadius`, `hoverBackground`, `rotation`), a tap for a
+/// `frame`, `background`, `glass`, `borderColor`, `cornerRadius`, `hoverBackground`, `rotation`), a tap for a
 /// node with an `onTap` handler, and its context `menu`. Layout is manual: a parent asks
 /// ``height(width:)`` and ``naturalWidth`` and sets the frame. Colors are painted in ``paint()``,
 /// inside the view's theme scope, on each draw.
@@ -16,13 +16,31 @@ class AppSceneNodeNSView: NSView {
     weak var model: AppSceneModel?
     /// A container's laid-out children, in order (set by the reconciler).
     private(set) var childViews: [AppSceneNodeNSView] = []
+    /// The container drew its children once: a child added after this moves in by its `transition`.
+    private(set) var hasDrawnChildren = false
+    /// The node left its parent and its `transition` moves it out (``exitHost``).
+    var isLeaving: Bool { exitHost != nil }
     /// The app bundle's folder (an `Image` node's `src` is inside it), set by the reconciler.
     var bundleDirectory: URL?
+    /// The node draws in a widget tile (``AppSceneNativeView/fillsBounds``). Only there do spacers
+    /// take a tall stack's slack and `transition` / `contentTransition` run: every other app scene
+    /// (a sidebar section, a hover card, a pane) draws as it did before widgets
+    /// (AppSceneDefaultUnchangedTests).
+    var drawsInWidgetTile: Bool {
+        var view = superview
+        while let current = view {
+            if let native = current as? AppSceneNativeView { return native.fillsBounds }
+            view = current.superview
+        }
+        return false
+    }
     private var isPressed = false
     /// Tracks the pointer while the node has a `hoverBackground` (a local wash, no script round trip).
     var decorationHover: PointerHover?
     /// Whether the pointer is over a node with a `hoverBackground`.
     var isDecorationHovered = false
+    /// The App's own glass under the node's content, while the node has a `glass` level.
+    var decorationGlass: (level: GlassLevel, view: NSView)?
     /// Draws a gradient `background` under the node's content; made the first time a node asks for one.
     var decorationGradient: CAGradientLayer?
 
@@ -34,7 +52,7 @@ class AppSceneNodeNSView: NSView {
     /// when the node has one and the value changed, cleared at the end of the layout that follows.
     /// Every animatable write in between animates from what is on screen.
     var changeMotion: SceneMotion?
-    /// The node has a `transition` and has not entered yet.
+    /// The node has a `transition`, was added after its parent's first frame, and has not entered yet.
     var enterPending = false
     /// The scale, rotation and offset the layer's model transform was built from.
     var appliedTransform: SceneTransformParts?
@@ -72,7 +90,6 @@ class AppSceneNodeNSView: NSView {
         let first = previousNode == nil
         previousNode = first ? node : self.node
         changeMotion = !first && node != self.node && window != nil ? node.motion : nil
-        if first { enterPending = node.transition != nil }
         self.node = node
         themedToolTip = node.string("help").flatMap { $0.isEmpty ? nil : $0 }
         setOpacity(node.number("opacity").map { CGFloat(min(max($0, 0), 1)) } ?? 1)
@@ -109,12 +126,27 @@ class AppSceneNodeNSView: NSView {
     func setChildren(_ views: [AppSceneNodeNSView]) {
         guard views.map(ObjectIdentifier.init) != childViews.map(ObjectIdentifier.init) else { return }
         let keep = Set(views.map(ObjectIdentifier.init))
+        // After the first frame a child's `transition` moves it in and out (AppSceneNodeNSView+Motion),
+        // in a widget tile only: in every other app scene a child comes and goes at once.
+        let transitions = hasDrawnChildren && window != nil && drawsInWidgetTile
+        let previous = Set(childViews.map(ObjectIdentifier.init))
+        // The new children first: an exit that ends at once must find the node gone from them.
+        let leaving = childViews.filter { !keep.contains(ObjectIdentifier($0)) && $0.superview === childHost }
+        childViews = views
         // A child with a `transition` plays its exit first; one that moves to another parent stops it.
-        for old in childViews where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost && !old.beginExit(from: childHost) {
+        for old in leaving where !(transitions && old.beginExit(from: childHost)) {
             old.removeFromSuperview()
         }
-        for view in views where view.superview !== childHost { childHost.addSubview(view) }
-        childViews = views
+        for view in views {
+            // Back before its exit ended: it stays, at rest.
+            if view.exitHost != nil { view.cancelExit() }
+            if view.superview !== childHost { childHost.addSubview(view) }
+            if transitions, !previous.contains(ObjectIdentifier(view)), view.node.transition != nil {
+                view.enterPending = true
+                view.needsLayout = true
+            }
+        }
+        hasDrawnChildren = true
         needsLayout = true
     }
 
@@ -164,6 +196,11 @@ class AppSceneNodeNSView: NSView {
 
     func contentHeight(width: CGFloat) -> CGFloat { 0 }
     var contentNaturalWidth: CGFloat? { nil }
+    /// The first text baseline's distance below the node's top, laid out `width` wide; nil without text
+    /// (an HStack's `firstTextBaseline` then aligns the node's bottom, as SwiftUI does).
+    func firstBaseline(width: CGFloat) -> CGFloat? { nil }
+    /// The last text baseline's distance above the node's bottom; nil without text.
+    func lastBaselineFromBottom(width: CGFloat) -> CGFloat? { nil }
     /// Lays the content out in `rect` (the bounds less the padding).
     func layoutContent(in rect: CGRect) {}
 

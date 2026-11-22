@@ -727,6 +727,17 @@ fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
         ),
         "{machine}"
     );
+    // A Cloud model connection is set up in Settings > Cloud, never through
+    // `cmux accounts` (CodeRouter, which Cloud chats do not use).
+    let cloud_chat =
+        list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "cloud_chat").unwrap();
+    let cloud_text =
+        format!("{} {} {}", cloud_chat["prompt"], cloud_chat["person"], cloud_chat["apply"]);
+    assert!(cloud_text.contains("cmux://settings/cloud/claude"), "{cloud_chat}");
+    assert!(
+        !cloud_text.contains("cmux accounts list") && !cloud_text.contains("cmux accounts connect"),
+        "{cloud_chat}"
+    );
 
     let output = world.run(&["setup", "list", "--prompts-md"]);
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
@@ -1650,11 +1661,11 @@ fn serve_app(
 
 /// A fake cmux app on a socket of the world's that serves what `cmux setup
 /// computer-use` and `cmux settings set` ask: `computer_use.status` answers
-/// `status`; `settings.set computerUse.enabled` with `confirm` is the
-/// person's sheet, approved while `approve` is set (true turns Computer Use
-/// on with the grants of `on`, false turns it off) and declined otherwise,
+/// `status`; `settings.set computerUse.mode` with `confirm` is the
+/// person's sheet, approved while `approve` is set (a mode other than `off`
+/// turns Computer Use on with the grants of `on`, `off` turns it off) and declined otherwise,
 /// or left unanswered past the app's deadline (`timeout`) while `unanswered`
-/// is set; `settings.get computerUse.enabled` reads the last approved value.
+/// is set; `settings.get computerUse.mode` reads the last approved value.
 /// Every request is kept.
 struct FakeApp {
     status: Arc<Mutex<Value>>,
@@ -1681,18 +1692,20 @@ impl FakeApp {
         serve_app(listener, app.requests.clone(), move |method, params| {
             Some(match method {
                 "computer_use.status" => Ok(status.lock().unwrap().clone()),
-                "settings.get" if params["path"] == "computerUse.enabled" => {
-                    Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                "settings.get" if params["path"] == "computerUse.mode" => {
+                    let mode = if enabled.load(Ordering::SeqCst) { "fullAccess" } else { "off" };
+                    Ok(json!({"value": mode}))
                 }
                 "settings.set"
-                    if params["path"] == "computerUse.enabled" && params["confirm"] == true =>
+                    if params["path"] == "computerUse.mode" && params["confirm"] == true =>
                 {
                     if unanswered.load(Ordering::SeqCst) {
                         Err(json!({"code": "timeout",
                         "message": "settings.set did not finish within 120000ms"}))
                     } else if approve.load(Ordering::SeqCst) {
-                        let next = if params["value"] == true { &on } else { &off };
-                        enabled.store(params["value"] == true, Ordering::SeqCst);
+                        let turned_on = params["value"] != "off";
+                        let next = if turned_on { &on } else { &off };
+                        enabled.store(turned_on, Ordering::SeqCst);
                         *status.lock().unwrap() = next.clone();
                         Ok(json!({"path": params["path"], "value": params["value"]}))
                     } else {
@@ -1701,7 +1714,7 @@ impl FakeApp {
                     }
                 }
                 "settings.set" => Err(json!({"code": "setting_user_only",
-                "message": "computerUse.enabled is the person's; pass --confirm"})),
+                "message": "computerUse.mode is the person's; pass --confirm"})),
                 _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
             })
         });
@@ -1725,7 +1738,7 @@ impl FakeApp {
 /// Settings pane to open, and the `undo` turns it off on the same sheet.
 #[test]
 fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant() {
-    const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+    const UNDO: &str = "cmux settings set computerUse.mode off --confirm";
     let mut world = World::new("cu");
     let off =
         json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null});
@@ -1776,8 +1789,8 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     assert_eq!(action["command"], format!("open '{url}'"));
     let sets = app.settings_sets();
     assert_eq!(sets.len(), 3, "{sets:?}");
-    assert_eq!(sets[2]["path"], "computerUse.enabled");
-    assert_eq!(sets[2]["value"], true);
+    assert_eq!(sets[2]["path"], "computerUse.mode");
+    assert_eq!(sets[2]["value"], "fullAccess");
     assert_eq!(sets[2]["confirm"], true);
 
     // The person turns the switch on; nothing is left and nothing is asked.
@@ -1795,7 +1808,7 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     let output = world.run(&args);
     assert!(output.status.success(), "{UNDO}: {}", String::from_utf8_lossy(&output.stderr));
     let sets = app.settings_sets();
-    assert_eq!((&sets[3]["value"], &sets[3]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
+    assert_eq!((&sets[3]["value"], &sets[3]["confirm"]), (&json!("off"), &json!(true)), "{sets:?}");
     assert_eq!(world.json(&["setup", "computer-use", "--dry-run"])["state"], "planned");
 
     let output = world.run(&["setup", "computer-use", "now"]);
@@ -1835,7 +1848,7 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let result = world.json(&["setup", "computer-use"]);
     assert_eq!(result["state"], "needs_user", "{result}");
     assert_eq!(result["user_action"]["kind"], "wait", "{result}");
-    assert_eq!(result["undo"], "cmux settings set computerUse.enabled false --confirm");
+    assert_eq!(result["undo"], "cmux settings set computerUse.mode off --confirm");
     let early = world.json(&["setup", "computer-use"]);
     assert_eq!(early["user_action"]["kind"], "wait", "{early}");
     assert_eq!(early["undo"], Value::Null, "{early}");

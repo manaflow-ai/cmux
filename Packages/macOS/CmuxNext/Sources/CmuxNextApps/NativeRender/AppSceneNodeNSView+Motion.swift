@@ -13,7 +13,8 @@ import CoreImage.CIFilterBuiltins
 ///   keeps its motion and the next one adds to it; colors and outlines start from the presentation
 ///   value.
 /// - `loop`: a repeating animation on the layer, additive on its model value (``SceneLoop``).
-/// - `transition`: an enter animation the first time the node is laid out in a window, and an
+/// - `transition` (in a widget tile): an enter animation when a render adds the node after its parent's
+///   first frame, the first time it is laid out in a window, and an
 ///   exit animation when it is removed; the view stays in its parent until the exit ends.
 /// - `blur`, `glow`, `gradient`: a Gaussian content filter, a zero-offset colored shadow and a
 ///   gradient layer.
