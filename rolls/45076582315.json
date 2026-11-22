@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45076582315",
+  "recorded_at": "2026-11-22T22:45:15Z",
+  "reason": "image inputs changed in 1ccfd415d348c45e2729226923f7dad637504d7e..6b08d6dee352208af16d1283038f72e8fd411993",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "6b08d6dee352208af16d1283038f72e8fd411993",
+      "mergedAt": "2026-11-22T22:14:13Z",
+      "subject": "cmux-vm image: record the base's moved package, runtime and npm global versions (#50803)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T22:45:15Z",
+    "snapshot_id": "sh-73b850cb711a4babb1acdc2c76fb8d65",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45076582315): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7c3821ebbdd1c52d8dc64c2567bb1fc9daf2897c",
+    "image": "cloud-native-auto-45ed727f-45076582315-1",
+    "revision": "ci-45076582315-1",
+    "at": "2026-11-22T22:45:15Z"
+  },
+  "rolled_back": false
+}
