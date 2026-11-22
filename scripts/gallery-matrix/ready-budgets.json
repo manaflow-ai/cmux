@@ -43,6 +43,7 @@
     "agent-pane.tool-toggle-motion#stack": 4300,
     "agent-pane.transcript#codex-turn-run-open": 900,
     "agent-pane.transcript#fold-holds-clicked-line": 5900,
+    "home.messages-list#ten-thousand": 3900,
     "motion.sync-list#inserts-from-second-client": 3600,
     "motion.sync-list#renames-from-another-mac": 3100,
     "motion.sync-list#reorder-from-iphone": 2800
