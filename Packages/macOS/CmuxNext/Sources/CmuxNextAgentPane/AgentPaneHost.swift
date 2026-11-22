@@ -682,7 +682,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 if !owned, !environment.isAttached, let startOwner, await startOwner() {
                     throw AgentPaneHostError.chiefStarting
                 }
-                throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
+                guard owned || environment.isAttached else { throw AgentPaneHostError.chiefStopped }
+                // A handoff or a Restart agent service is stopping it: the start that follows ends
+                // this without the person, so the pane stays quiet meanwhile.
+                if daemons.isRestarting(home: environment.home) { throw AgentPaneHostError.daemonRestarting }
+                // Stopped, and no reconnect starts it again (cx-6bgzj): only the line's Retry does.
+                throw AgentPaneHostError.daemonStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")

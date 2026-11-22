@@ -63,6 +63,32 @@ struct AcpmuxCrashRestartTests {
         #expect(!fixture.launched, "a reconnect started a daemon that was shut down")
     }
 
+    /// cmux#48605: the page's own retries are reconnects, which never start a stopped daemon, so a
+    /// stopped daemon is said at once (no `details.reconnecting`) and its line offers Retry. Before,
+    /// it counted as transient: the pane said nothing and looked usable while it stayed down.
+    @Test func aStoppedDaemonIsSaidAtOnceSoItsRetryShows() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
+
+        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(!AgentPaneHostError.daemonStopped.isTransient, "a stopped daemon would wait silently on retries that never start it")
+    }
+
+    /// A handoff or Restart agent service stopping the daemon ends without the person: its reconnect
+    /// stays quiet (transient) while the start that follows runs, and starts nothing itself.
+    @Test func aReconnectWhileAHandoffStopsTheDaemonStaysQuiet() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let daemons = AcpmuxLocalDaemons()
+        daemons.mark(home: fixture.environment.home, restarting: true)
+        let host = AcpmuxHost(daemons: daemons, environment: fixture.environment)
+
+        await #expect(throws: AgentPaneHostError.daemonRestarting) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(AgentPaneHostError.daemonRestarting.isTransient)
+        #expect(!fixture.launched, "a reconnect during a handoff started a daemon of its own")
+    }
+
     /// The card's explicit Retry is a fresh `ready` handshake, unlike the automatic reconnect
     /// loop above. A cleanly stopped app-owned daemon must therefore be started by that action.
     @Test func aManualRetryAfterAShutdownStartsTheBundledDaemon() async throws {
