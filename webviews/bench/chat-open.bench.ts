@@ -814,6 +814,92 @@ try {
         await page.addInitScript((rail) => {
           localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
         }, arm);
+        // CAUSES=1: per React commit in the stretch, the components whose own state changed (the update's sources,
+        // props unchanged) and how many fibers rendered: why the attach takes more than one render.
+        if (process.env.CAUSES === "1")
+          await page.addInitScript(() => {
+            type Fiber = {
+              type?: { name?: string; displayName?: string } | string | null;
+              child: Fiber | null;
+              sibling: Fiber | null;
+              alternate: Fiber | null;
+              memoizedProps: unknown;
+              memoizedState: { memoizedState?: unknown; next?: unknown; queue?: unknown } | null;
+              tag: number;
+            };
+            const commits: string[] = [];
+            (window as unknown as { __benchCommits: string[] }).__benchCommits = commits;
+            const nameOf = (fiber: Fiber) =>
+              typeof fiber.type === "string"
+                ? fiber.type
+                : (fiber.type?.displayName ?? fiber.type?.name ?? `tag${fiber.tag}`);
+            (window as unknown as Record<string, unknown>).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+              supportsFiber: true,
+              renderers: new Map(),
+              inject: () => 1,
+              checkDCE: () => {},
+              onScheduleFiberRoot: () => {},
+              onCommitFiberUnmount: () => {},
+              onPostCommitFiberRoot: () => {},
+              onCommitFiberRoot: (_id: number, root: { current: Fiber }) => {
+                if (performance.getEntriesByName("bench:attach").length === 0) return;
+                if (performance.getEntriesByName("bench:latest").length > 0) return;
+                const sources = new Map<string, number>();
+                let rendered = 0;
+                let mounted = 0;
+                const stack: Fiber[] = [root.current];
+                while (stack.length) {
+                  const fiber = stack.pop()!;
+                  const old = fiber.alternate;
+                  if (!old) mounted += 1;
+                  else if (old.memoizedProps !== fiber.memoizedProps || old.memoizedState !== fiber.memoizedState) {
+                    rendered += 1;
+                    if (
+                      old.memoizedProps === fiber.memoizedProps &&
+                      fiber.tag !== 3 &&
+                      typeof fiber.type !== "string"
+                    ) {
+                      // Which state hooks (those with an update queue) changed: their indexes in the component.
+                      const changed: (number | string)[] = [];
+                      let a = fiber.memoizedState as {
+                        memoizedState?: unknown;
+                        next?: unknown;
+                        queue?: unknown;
+                      } | null;
+                      let b = old.memoizedState as typeof a;
+                      for (let index = 0; a && b && index < 300; index++) {
+                        if (a.queue && a.memoizedState !== b.memoizedState) {
+                          const value = (state: unknown) =>
+                            typeof state === "object" && state !== null
+                              ? Array.isArray(state)
+                                ? `[${state.length}]`
+                                : `{${Object.keys(state).slice(0, 4).join(",")}}`
+                              : typeof state === "function"
+                                ? "fn"
+                                : String(state).slice(0, 24);
+                          changed.push(`${index}:${value(b.memoizedState)}>${value(a.memoizedState)}`);
+                        }
+                        a = a.next as typeof a;
+                        b = b.next as typeof b;
+                      }
+                      const key = `${nameOf(fiber)}[${changed.slice(0, 6).join(" ")}]`;
+                      if (changed.length > 0) sources.set(key, (sources.get(key) ?? 0) + 1);
+                    }
+                  }
+                  if (fiber.sibling) stack.push(fiber.sibling);
+                  if (fiber.child) stack.push(fiber.child);
+                }
+                commits.push(
+                  `${performance.now().toFixed(1)} rendered ${rendered} mounted ${mounted}; state changed in: ${[
+                    ...sources,
+                  ]
+                    .slice(0, 16)
+                    .map(([key, n]) => (n > 1 ? `${n}x ${key}` : key))
+                    .join(", ")}`,
+                );
+              },
+            };
+          });
         await page.addInitScript((latestText) => {
           const Socket = window.WebSocket;
           window.WebSocket = class extends Socket {
@@ -838,6 +924,47 @@ try {
               super.send(data);
             }
           } as typeof WebSocket;
+          // Every DOM change in the stretch, by batch: which commit dirtied what the next forced layout re-lays.
+          const changes: string[] = [];
+          (window as unknown as { __benchChanges: string[] }).__benchChanges = changes;
+          const describe = (node: Node) =>
+            node instanceof Element
+              ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${[...node.classList]
+                  .slice(0, 2)
+                  .map((name) => `.${name}`)
+                  .join("")}${node.getAttribute("data-row-key") ? `[${node.getAttribute("data-row-key")}]` : ""}`
+              : node.nodeName;
+          new MutationObserver((records) => {
+            if (performance.getEntriesByName("bench:attach").length === 0) return;
+            if (performance.getEntriesByName("bench:latest").length > 0) return;
+            const at = performance.now().toFixed(0);
+            const counts = new Map<string, number>();
+            for (const record of records) {
+              const key =
+                record.type === "attributes"
+                  ? `${describe(record.target)} @${record.attributeName}${
+                      record.attributeName === "style" || record.attributeName === "class"
+                        ? ` ${record.oldValue?.slice(0, 60)} -> ${(record.target as Element).getAttribute(record.attributeName!)?.slice(0, 60)}`
+                        : ""
+                    }`
+                  : record.type === "childList"
+                    ? `${describe(record.target)} +${record.addedNodes.length}-${record.removedNodes.length}`
+                    : `text in ${describe(record.target.parentNode ?? record.target)}`;
+              counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
+            changes.push(
+              `${at} ${records.length}: ${[...counts]
+                .slice(0, 14)
+                .map(([key, n]) => (n > 1 ? `${n}x ${key}` : key))
+                .join(" | ")}`,
+            );
+          }).observe(document, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeOldValue: true,
+            characterData: true,
+          });
           let marked = false;
           const tick = () => {
             if (!marked && document.body?.textContent?.includes(latestText)) {
@@ -897,6 +1024,25 @@ try {
           timeout: 120_000,
         });
         await page.waitForTimeout(200);
+        if (process.env.CAUSES === "1")
+          console.log(
+            `stages ${chat.scale}:${arm} commits in the stretch (ms since load):\n  ${(
+              await page.evaluate(() => (window as unknown as { __benchCommits: string[] }).__benchCommits)
+            ).join("\n  ")}`,
+          );
+        console.log(
+          `stages ${chat.scale}:${arm} transcript box: ${await page.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+            return node
+              ? `${node.clientHeight}x${node.clientWidth} (offsetWidth ${node.offsetWidth}), window ${innerHeight}x${innerWidth}`
+              : "none";
+          })}`,
+        );
+        console.log(
+          `stages ${chat.scale}:${arm} DOM changes in the stretch (ms since load, records):\n  ${(
+            await page.evaluate(() => (window as unknown as { __benchChanges: string[] }).__benchChanges)
+          ).join("\n  ")}`,
+        );
         const profiled = profiling
           ? (
               (await cdp.send("Profiler.stop")) as {
