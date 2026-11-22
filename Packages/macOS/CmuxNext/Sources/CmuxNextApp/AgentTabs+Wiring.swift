@@ -145,7 +145,7 @@ extension AgentTabStore {
             let action = local ? CloudBringBack.action : onCloud ? CloudBringBack.toMachine : CloudMove.action
             return registry.perform(action, invocation: invocation)
         }
-        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
+        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }; services.launchImages.pictures = AgentLaunchPictures { [weak services, weak tabs] in if let services, let tabs { await AgentQuitFiles.saveImages(tabs) { AgentQuitFiles.isIncognito($0, in: services) } } }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.chiefFace = { [weak services, weak tabs] chief in
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
@@ -318,6 +318,10 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
+        }
+        tabs.holdSplitSizing = { [weak services] pane, daemon, direction in
+            guard let controller = daemon.store.pane(pane).flatMap({ services?.paneController(for: $0) }), let layout = controller.workspace?.layoutModel else { return nil }
+            return layout.showSplitSizing(splitting: controller.layoutPaneID, axis: direction == .right ? .horizontal : .vertical).map { shown -> @MainActor (Bool) -> Void in { [weak layout] landed in layout?.settleSplitSizing(shown, landed: landed) } }
         }
         tabs.showSplitScoped = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
