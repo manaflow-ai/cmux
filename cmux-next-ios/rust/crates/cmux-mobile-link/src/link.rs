@@ -950,12 +950,17 @@ where
                 return;
             }
         };
+        let mut frame = frame;
         let mut pending = frame.payload.len();
+        // Frames whose sender asked when they reach the transport (send_marked).
+        let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
+        marks.extend(frame.flushed.take());
         let mut result = sink.feed(frame).await;
         while result.is_ok() && pending < FLUSH_BYTES {
             match outbox.pop() {
-                Some(Next::Frame(frame)) => {
+                Some(Next::Frame(mut frame)) => {
                     pending += frame.payload.len();
+                    marks.extend(frame.flushed.take());
                     result = sink.feed(frame).await;
                 }
                 Some(Next::Shutdown) => {
@@ -969,6 +974,12 @@ where
         if let Err(error) = result.and(sink.flush().await) {
             inner.shut(&format!("write failed: {error}"));
             return;
+        }
+        if !marks.is_empty() {
+            let now = crate::frame::epoch_us();
+            for mark in marks.drain(..) {
+                mark.set(now);
+            }
         }
     }
 }
@@ -1204,17 +1215,27 @@ impl ChannelSender {
     /// Send bytes; writes are split into [`DATA_CHUNK`] frames, and a
     /// channel with [`CHANNEL_QUEUE_BYTES`] already queued waits for room.
     pub async fn send(&self, data: Bytes) -> Result<(), LinkError> {
+        self.send_marked(data, None).await
+    }
+
+    /// [`send`](Self::send), and `mark` is set when the last byte of `data`
+    /// was handed to the transport (the writer's flush after its frame).
+    pub async fn send_marked(&self, data: Bytes, mark: Option<crate::frame::FlushMark>) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
         let mut rest = data;
+        let mut mark = mark;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
             if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
             }
             let size = chunk.len();
-            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            let mut frame = Frame::new(self.id, FrameType::Data, chunk);
+            if rest.is_empty() {
+                frame.flushed = mark.take();
+            }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
                     if let Some(meter) = &self.meter {
