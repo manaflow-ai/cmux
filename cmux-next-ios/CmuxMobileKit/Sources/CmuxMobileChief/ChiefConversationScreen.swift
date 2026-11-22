@@ -148,6 +148,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // the new one before the old one leaves.
         if let previous = link.container { previous.handOffComposer() }
         let container = ChiefConversationContainer(conversation: conversation, session: session)
+        // A conversation with Chief (not one with people) asks before its first send (5.1.2(i)).
+        container.asksAIConsent = options.serviceTitle == "Chief"
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
         container.focusesComposerOnAppear = focusesComposer && !link.focusedComposer
@@ -202,6 +204,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
     let session: ChiefSession
+    /// Sends ask ``ChiefAIConsent`` first until the person agrees (a conversation with Chief).
+    var asksAIConsent = false
     private var popRecognizers: [UIGestureRecognizer] = []
     private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
     private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
@@ -275,6 +279,13 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     private func sendTapped() {
         guard let button = sendButton else { return }
+        // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
+        // Not Now keeps the draft in the composer.
+        if asksAIConsent, !ChiefAIConsent.isGranted {
+            guard presentedViewController == nil else { return }
+            present(ChiefAIConsent.alert { [weak self] in self?.sendTapped() }, animated: true)
+            return
+        }
         if session.acceptsSendsNow {
             for action in packageSendActions { button.sendAction(action) }
             return
