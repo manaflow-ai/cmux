@@ -40,6 +40,8 @@ pub struct TurnActivity {
     pub open_past_cap: usize,
     /// The tool calls of [`Self::open_tools`] that run a known build or test, by id.
     pub open_heavy: std::collections::BTreeMap<String, crate::host_load::Heavy>,
+    /// How many tool calls this turn started (`usage_share.rs`), each counted once.
+    pub tool_calls: u32,
 }
 
 impl TurnActivity {
@@ -75,9 +77,11 @@ impl TurnActivity {
         }
         if self.open_past_cap == 0 && self.open_tools.len() < MAX_OPEN_TOOLS {
             self.open_tools.insert(id.to_owned());
+            self.tool_calls = self.tool_calls.saturating_add(1);
         } else if kind == Some("tool_call") {
             // Past the cap only a new call counts: an update may be for a call already counted.
             self.open_past_cap += 1;
+            self.tool_calls = self.tool_calls.saturating_add(1);
         }
     }
 
