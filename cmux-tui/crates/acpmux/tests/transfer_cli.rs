@@ -61,12 +61,22 @@ impl Daemon {
     }
 
     async fn with_peer(tag: &str, target: Option<&Daemon>) -> Self {
+        Self::with_env(tag, target, json!({}), &[]).await
+    }
+
+    /// `with_peer`, with `harness_env` in the fake harness's env and `vars` in the daemon's.
+    async fn with_env(
+        tag: &str,
+        target: Option<&Daemon>,
+        harness_env: Value,
+        vars: &[(&str, &str)],
+    ) -> Self {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": harness_env}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
         let path = target.map(|target| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             session_move::fake_ssh(&home, target)
@@ -84,6 +94,7 @@ impl Daemon {
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
             .env("ACPMUX_AGENT_HOSTS", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
+            .envs(vars.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -138,5 +149,7 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_eq!(info["moving"], false, "{info}");
 }
 
+#[path = "transfer_cli/move_matrix.rs"]
+mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;

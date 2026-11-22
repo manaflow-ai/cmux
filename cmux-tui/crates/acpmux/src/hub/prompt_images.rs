@@ -115,6 +115,70 @@ pub(crate) fn image_path(id: &str) -> Option<PathBuf> {
     valid_id(id).then(|| dir().join(id))
 }
 
+/// The bundle folder a moved chat's images go in (`transfer.rs` export and import).
+pub(super) const BUNDLE_DIR: &str = "attachments";
+
+/// The ids of the images a log record names, when it is a record that names them.
+pub(super) fn ids_named_by(kind: &str, msg: &Value) -> Vec<String> {
+    if !NAMING_KINDS.contains(&kind) {
+        return Vec::new();
+    }
+    named_ids(msg).filter(|id| valid_id(id)).map(str::to_owned).collect()
+}
+
+/// A moved chat takes its images along (Leo, 2026-11-22: "moving sessions back and forth, the
+/// histories the pausing the images"): each kept image `ids` names goes into the bundle's
+/// `attachments/`, so the target shows the chat's images, not a hole. An id this machine no
+/// longer holds is left out: the chat shows it as missing here too. Answers how many went.
+pub(super) fn bundle_images<'a>(
+    ids: impl IntoIterator<Item = &'a String>,
+    bundle: &std::path::Path,
+) -> std::io::Result<usize> {
+    let to = bundle.join(BUNDLE_DIR);
+    let mut copied = 0;
+    for id in ids {
+        let Some(from) = image_path(id).filter(|p| p.is_file()) else { continue };
+        if copied == 0 {
+            crate::home_fs::create_dirs(&to)?;
+        }
+        std::fs::copy(&from, to.join(id))?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
+/// A moved chat's images, kept on this machine as its own prompts' are. Each is kept under the
+/// SHA-256 of its bytes and only when the bytes have that hash, so a bundle cannot replace
+/// another chat's image. Answers how many were kept.
+pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize> {
+    use sha2::Digest;
+    let from = bundle.join(BUNDLE_DIR);
+    let Ok(entries) = std::fs::read_dir(&from) else { return Ok(0) };
+    let mut kept = 0;
+    for entry in entries {
+        let entry = entry?;
+        let Some(id) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let Some(dest) = image_path(&id) else { continue };
+        if dest.is_file() {
+            kept += 1;
+            continue;
+        }
+        let bytes = std::fs::read(entry.path())?;
+        let hash: String =
+            sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != id {
+            tracing::warn!(id, "a moved image whose bytes are not its id: not kept");
+            continue;
+        }
+        crate::home_fs::create_dirs(dir())?;
+        let tmp = dir().join(format!(".{id}.moving"));
+        crate::home_fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, &dest)?;
+        kept += 1;
+    }
+    Ok(kept)
+}
+
 /// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
 pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     let images = msg.get("images").and_then(Value::as_array).into_iter().flatten();
