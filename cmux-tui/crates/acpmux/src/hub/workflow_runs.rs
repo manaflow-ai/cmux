@@ -6,6 +6,15 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::process::Stdio;
 
+/// The current trusted launch inputs for one workflow host request.  Resolve
+/// the owner's profile once, then derive every value from that same snapshot.
+#[derive(Clone, Debug)]
+pub(crate) struct WorkflowToolSnapshot {
+    pub allowed_tools: Option<Vec<String>>,
+    pub upstreams: String,
+    pub upstream_names: Vec<String>,
+}
+
 impl Hub {
     /// Starts workflow `name` of chat `owner`. `caller_subagent` is the Claude Code subagent
     /// (`{id, type}`) whose MCP call starts it, when one does (`subagent_call.rs`): the run's
@@ -48,49 +57,51 @@ impl Hub {
 
     /// Current preset restrictions can narrow a pinned run, never grant it new tools.
     pub async fn workflow_allowed_tools(&self, run: &RunRecord) -> Result<Option<Vec<String>>> {
+        Ok(self.workflow_tool_snapshot(run).await?.allowed_tools)
+    }
+
+    /// Resolve the owner's current profile once for a host request.  The
+    /// pinned run ceiling intersects with that one profile, and the same
+    /// profile supplies the folded upstream configuration.
+    pub(crate) async fn workflow_tool_snapshot(
+        &self,
+        run: &RunRecord,
+    ) -> Result<WorkflowToolSnapshot> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
         let profile = self.workflow_tool_profile(&meta).await?;
         let current = workflow_profile_tools(&profile, &meta);
-        Ok(match (&run.allowed_tools, current) {
+        let allowed_tools = match (&run.allowed_tools, current) {
             (None, current) => current,
             (Some(pinned), None) => Some(pinned.clone()),
             (Some(pinned), Some(current)) => {
                 Some(pinned.iter().filter(|tool| current.contains(tool)).cloned().collect())
             }
-        })
-    }
+        };
 
-    /// Fold only the same trusted tool-server specs this owner's next agent launch gets.
-    /// These launch credentials never enter the durable run record or status response.
-    async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
-        let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
-        let meta = owner.meta();
-        let profile = self.workflow_tool_profile(&meta).await?;
         let env = &profile.env;
-        if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
-            return Ok("[]".into());
-        }
-        let config = crate::agent_tools::current()
-            .scoped(env)
-            .without_off(env)
-            .for_session(&run.owner_session_id)
-            .folded()
-            .mcp_config();
-        Ok(config
-            .as_ref()
-            .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
-            .and_then(Value::as_str)
-            .unwrap_or("[]")
-            .to_owned())
-    }
-
-    pub(crate) async fn workflow_upstream_names(&self, run: &RunRecord) -> Result<Vec<String>> {
-        let specs: Vec<Value> = serde_json::from_str(&self.workflow_upstreams(run).await?)?;
-        Ok(specs
+        let upstreams = if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
+            "[]".into()
+        } else {
+            let config = crate::agent_tools::current()
+                .scoped(env)
+                .without_off(env)
+                .for_session(&run.owner_session_id)
+                .folded()
+                .mcp_config();
+            config
+                .as_ref()
+                .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
+                .and_then(Value::as_str)
+                .unwrap_or("[]")
+                .to_owned()
+        };
+        let specs: Vec<Value> = serde_json::from_str(&upstreams)?;
+        let upstream_names = specs
             .iter()
             .filter_map(|spec| spec.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect())
+            .collect();
+        Ok(WorkflowToolSnapshot { allowed_tools, upstreams, upstream_names })
     }
 
     async fn workflow_tool_profile(
@@ -277,6 +288,7 @@ impl Hub {
 
     async fn workflow_spawn(self: &Arc<Self>, run: &RunRecord) -> Result<()> {
         let mut command = workflow_runner_command()?;
+        let tools = self.workflow_tool_snapshot(run).await?;
         let Some(token) = self.workflow_runs.issue_runner(run)? else {
             return Ok(());
         };
@@ -305,9 +317,9 @@ impl Hub {
         if let Some(mark) = workflow_subagent_mark(run) {
             command.env(crate::cli::sender::SUBAGENT_ENV, mark);
         }
-        command.env(crate::agent_tools::UPSTREAMS_ENV, self.workflow_upstreams(run).await?);
-        if let Some(tools) = self.workflow_allowed_tools(run).await? {
-            command.env(crate::agent_tools::MCP_TOOLS_ENV, tools.join(","));
+        command.env(crate::agent_tools::UPSTREAMS_ENV, tools.upstreams);
+        if let Some(allowed) = tools.allowed_tools {
+            command.env(crate::agent_tools::MCP_TOOLS_ENV, allowed.join(","));
         }
         command
             .current_dir(&run.cwd)
