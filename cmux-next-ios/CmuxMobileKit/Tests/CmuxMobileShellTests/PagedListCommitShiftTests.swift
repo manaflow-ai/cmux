@@ -14,6 +14,8 @@ import UIKit
     struct Row: Identifiable, Equatable {
         let id: Int
         var tall = false
+        /// Taller than the list: alone on screen when it fills it.
+        var huge: CGFloat?
     }
 
     /// The rows, which a test changes in place (a row that grows, as a Chief that starts typing).
@@ -27,7 +29,7 @@ import UIKit
 
         var body: some View {
             PagedList(direction: .down, items: rows.items, phase: .loaded, edge: .end, loadMore: {}, retry: {}) { row in
-                Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: row.tall ? 82 : 60, alignment: .leading)
+                Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: row.huge ?? (row.tall ? 82 : 60), alignment: .leading)
             }
             .pagedIdentifier("commit.list")
             .pagedProbe(probe)
@@ -150,6 +152,45 @@ import UIKit
         hosted.container.transform = CGAffineTransform(translationX: 0, y: 22)
         settle()
         #expect(abs(hosted.seen.worst - 22) < 0.5, "a 22 pt move of everything read measured \(hosted.seen.shifts)")
+    }
+
+    /// The row cut by the list's top edge grows at rest (an edit, a Chief that starts typing): the rows
+    /// below it, all the reader sees, stay where they were (step d20b5519, video frames 351-352).
+    @Test func aRowCutByTheTopEdgeGrowingKeepsTheRowsBelowStill() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
+        settle()
+        let before = try #require(top(of: 11, in: list))
+        hosted.rows.items[10].tall = true
+        settle()
+        let after = try #require(top(of: 11, in: list))
+        #expect(abs(after - before) <= 0.5, "the row under the cut row moved \(after - before) pt")
+    }
+
+    /// The cut row is the only row on screen (taller than the list): nothing below it is in view, so
+    /// it keeps its own top while it grows, and what the reader sees of it stays put.
+    @Test func aRowAloneOnScreenCutByTheTopEdgeKeepsItsTopWhenItGrows() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        hosted.rows.items[10].huge = 1200
+        settle()
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 100 - list.adjustedContentInset.top), animated: false)
+        settle()
+        let visible = list.indexPathsForVisibleItems.map(\.item)
+        #expect(visible == [10], "row 10 alone on screen, saw \(visible)")
+        let before = try #require(top(of: 10, in: list))
+        hosted.rows.items[10].huge = 1300
+        settle()
+        let after = try #require(top(of: 10, in: list))
+        #expect(abs(after - before) <= 0.5, "the row alone on screen moved \(after - before) pt")
+    }
+
+    private func top(of item: Int, in list: UICollectionView) -> CGFloat? {
+        guard let attributes = list.layoutAttributesForItem(at: IndexPath(item: item, section: 0)) else { return nil }
+        return list.convert(attributes.frame.origin, to: nil).y
     }
 
     /// One run loop turn: the frame so far is committed.
