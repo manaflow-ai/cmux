@@ -28,3 +28,23 @@ First version: the token table of Instrument v0.1 as the 2026-11-22 debate adopt
 - Already drawn: the three seeds (grid 4, control 28, text 13), the control heights, `corner.control` 8,
   `corner.tooltip` 8, `ink.frame` 4%, `ink.outline` 16%, the three status hues, `prose.size` 14, the spacing
   scale.
+- Where a token's own scale is not what the surface draws, the token says so: `drawnOn` names only the
+  surfaces that read the scale, and `offToken` lists (file, line, value) the ones that draw a raw value.
+  `corner.card` lists 13: the transcript's cards draw 8px each, the permission ask the layout grid's 12,
+  the panel's card 6, none of them `--ds-radius-card`. `corner.composer` lists 7: the composer box draws
+  `calc(12px * var(--acpmux-density))` (layout-grid), not `--ds-radius-composer`'s 18. `--check` warns when
+  an entry's line no longer holds its value; that list is the gap this file exists to close.
+- What fails today on an off-token raw value in webviews CSS: `webviews/scripts/check-design-tokens.ts`
+  (`bun run check:design-tokens`, in `check:pieces`; it gates a PR to `main` and warns on
+  `feat-cmux-next`). Its baseline, `webviews/scripts/design-tokens-baseline.jsonl`, only shrinks; at this
+  version it holds 985 rows, 2892 literals: spacing 1526, height 448, token-copy 413, radius 254 (83 rows),
+  font-weight 134, color 59, duration 29, easing 28, opaque-glass 1. Font sizes are
+  `scripts/cmux-next/check-type-scale.py`'s.
+- Not covered yet (a raw value here fails nothing):
+  - A radius on the scale (0/4/6/8/12/16) typed as px instead of its token: every 8px transcript card
+    passes. Only the token-only files (`TOKEN_ONLY_FILES`) require a `var()`.
+  - A radius set through a custom property: `--acpmux-composer-radius: 18px` is read as a token
+    definition and skipped, as is a `--x: Npx` anywhere.
+  - Ink percentages: a `color-mix()` over a `var()` is not a colour literal, so the selected row's
+    accent 8% and any hover or line share pass whatever their percentage.
+  - A `calc(Npx * scale)` copy of a token: the token-copy check drops arithmetic before it reads a value.

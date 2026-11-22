@@ -165,6 +165,12 @@ def validate(data):
                                  f'{t.get("today", {}).get("value")!r}; record what it waits on (waits)')
             if not pending(t) and waits is not None:
                 raise TokenError(f'{name}: the app already draws Instrument\'s value; drop waits {waits!r}')
+        if 'note' in t and not (isinstance(t['note'], str) and t['note']):
+            raise TokenError(f'{name}: note is a sentence')
+        for off in t.get('offToken', []):
+            if not (isinstance(off, dict) and {'file', 'line', 'value', 'on'} <= off.keys()
+                    and isinstance(off['line'], int)):
+                raise TokenError(f'{name}: an offToken entry is {{file, line, value, on}}')
 
 
 def drift(data, root=ROOT):
@@ -189,6 +195,25 @@ def drift(data, root=ROOT):
             found.append(f'{t["name"]}: {today["file"]} {today["path"]} is {live!r}, the token file says '
                          f'{today["value"]!r}. A default moved: set today.value, bump the version and add it '
                          f'to {CHANGELOG}.')
+    return found
+
+
+def _literal(value):
+    """The CSS text an offToken entry quotes, without the explanation after ' = ' or ' ('."""
+    return re.split(r' = | \(', value, maxsplit=1)[0].strip()
+
+
+def stale_off_token(data, root=ROOT):
+    """offToken entries whose file:line no longer holds the raw value. Warnings: other PRs move these
+    lines, so a stale entry asks for a refresh and never fails a check."""
+    found = []
+    for t in data['tokens']:
+        for off in t.get('offToken', []):
+            path = root / off['file']
+            lines = path.read_text(encoding='utf-8').split('\n') if path.is_file() else []
+            if off['line'] > len(lines) or _literal(off['value']) not in lines[off['line'] - 1]:
+                found.append(f'{t["name"]}: offToken {off["file"]}:{off["line"]} no longer reads '
+                             f'{_literal(off["value"])!r}; refresh the entry')
     return found
 
 
@@ -307,6 +332,8 @@ def main(argv=None):
         problems.append(f'{BASELINE} is missing; write it once with --update-baseline')
     else:
         problems += ratchet(data, baseline)
+    for warning in stale_off_token(data):
+        print(f'gen-instrument-tokens: warning: {warning}', file=sys.stderr)
     if not args.check:
         (ROOT / CSS_FILE).write_text(css(data), encoding='utf-8')
     for problem in problems:

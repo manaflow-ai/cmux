@@ -5,7 +5,7 @@ Covers scripts/cmux-next/gen-instrument-tokens.py and schemas/instrument/ (instr
 pending-baseline.json, CHANGELOG.md), and the sources it reads today's values from:
 schemas/design-scale/design-scale.json, schemas/type-scale/type-scale.json,
 schemas/layout-grid/layout-grid.json, schemas/surface-roles/surface-roles.json,
-schemas/settings/source/appearance.json, schemas/settings/source/agent-pane-display.json.
+schemas/settings/source/appearance.json, schemas/settings/source/agent-pane-display.json, and the CSS files offToken entries name.
 """
 import copy
 import importlib.util
@@ -100,6 +100,18 @@ class InstrumentTokenTests(unittest.TestCase):
         data = dict(self.data, version='0.2.0')
         self.assertEqual(['schemas/instrument/CHANGELOG.md has no "## 0.2.0" entry'],
                          tokens.changelog_problems(data, (ROOT / tokens.CHANGELOG).read_text()))
+
+    def test_off_token_entries_are_where_they_say(self):
+        self.assertEqual([], tokens.stale_off_token(self.data))
+        card = self.token('corner.card')
+        self.assertTrue(card['offToken'], 'the transcript cards draw raw corners; the list names them')
+        card['offToken'][0]['line'] += 100000
+        self.assertIn('refresh the entry', tokens.stale_off_token(self.data)[0])
+
+    def test_off_token_entry_shape(self):
+        self.token('corner.card')['offToken'].append({'file': 'x.css', 'value': '8px'})
+        with self.assertRaisesRegex(tokens.TokenError, 'offToken entry'):
+            tokens.validate(self.data)
 
     def test_resolver_paths(self):
         doc = {'a': [{'name': 'x', 'v': 1}, {'name': 'y', 'v': 2}],
