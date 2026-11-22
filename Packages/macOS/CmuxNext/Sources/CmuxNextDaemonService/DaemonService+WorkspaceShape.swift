@@ -25,7 +25,6 @@ extension DaemonService {
     public func pane(holding surface: SurfaceID, in key: WorkspaceKey, after connection: DaemonConnection) async throws -> PaneID {
         if let pane = try await shape(of: key, after: connection)?.pane(holding: surface) { return pane }
         let listed = try await connection.listWorkspaces().workspaces.first { $0.key == key }.map(WorkspaceShape.init)
-        print("BLUEPRINT-DIAG store lacked pane for surface \(surface); daemon lists it: \(listed?.pane(holding: surface) != nil)") // DIAGNOSTIC
         guard let pane = listed?.pane(holding: surface) else {
             let why = listed == nil ? "the daemon lists no such workspace" : "the daemon lists the workspace without it"
             throw DaemonError.malformedResponse("pane for surface \(surface) not found (\(why))")
