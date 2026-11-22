@@ -1343,6 +1343,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         live: live_before
             .iter()
             .filter(|k| Some(*k) != harness_name.as_ref() && Some(*k) != external_key.as_ref())
+            // A cut peer's rows reading disconnected is the truth, not a false dead: only the
+            // local sessions are tracked while the peers are cut (peer keys are `peer/id`).
+            .filter(|k| !(stress.peercut && k.contains('/')))
             .cloned()
             .collect(),
         harness: harness_pid.and(harness_name.clone()),
