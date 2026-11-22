@@ -1,0 +1,4 @@
+{
+  "on": false,
+  "_why": "CI v2 step 9 (cmuxterm-hq#16502): with on=true every same-repository Mac pull request job runs on plain cmux-mac (plus xcode-<version>), which the controller grants and sizes, not on a glaeda pool. Flip once every PR mini runs an asker. It moves the jobs behind simple_pool_picker.py (ci.yml, ci-macos.yml, remote-daemon.yml); the Mac workflows with no picker (auth-refresh-tests, billing, cloud-command-deadlines, cloud-machine-tests, cloud-task-local-tests, iroh-v2, relay-tls, terminal-hang-diagnostics) move to cmux-mac inline in the pull request that flips this. The per-run label cmux-<run_id>-<run_attempt>-mac stays an opt-in. scripts/ci/mac_grants.py reads this file."
+}

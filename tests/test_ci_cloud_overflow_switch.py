@@ -1248,9 +1248,16 @@ class WorkflowTests(unittest.TestCase):
 
 
 class RepoVariableCheckTests(unittest.TestCase):
-    def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
+    # A label the drift policy refuses in MACOS_RUNNER_PR (a side lane's); an owned pull request pool label
+    # (glaeda-std-xcode-26.6) is no drift there, record or not.
+    REFUSED = "glaeda-side-std-xcode-26.6"
+
+    def env(self, label: str = REFUSED, **extra: str) -> dict[str, str]:
+        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=ubuntu-24.04\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
+
+    def test_an_owned_pull_request_pool_is_no_drift_without_the_record(self) -> None:
+        self.assertEqual(check.problems(self.env("glaeda-std-xcode-26.6")), [])
 
     def test_a_signing_variable_the_drift_policy_accepts_is_still_reported(self) -> None:
         env = {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_26=warp-macos-15-arm64-6x\n", "CI_OWNED_POOL_SLOTS": "",
@@ -1270,7 +1277,7 @@ class RepoVariableCheckTests(unittest.TestCase):
         self.assertTrue(check.problems(self.env()))
 
     def test_the_switch_failover_is_expected_while_the_record_exists(self) -> None:
-        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-std-xcode-26.6"}}}
+        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": self.REFUSED}}}
         self.assertEqual(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record))), [])
         other = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-light-xcode-26.6"}}}
         self.assertTrue(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(other))))
@@ -1368,6 +1375,23 @@ class ReadTokenTests(unittest.TestCase):
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
         self.assertLess(steps.index(mint), steps.index(step))
+
+
+    def test_the_pools_step_reads_online_runners_with_a_read_only_administration_token(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["watch"]["steps"]
+        [mint] = [s for s in steps if s.get("id") == "runners-token"]
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-administration": "read"})
+        self.assertEqual(mint["with"]["repositories"], "${{ github.event.repository.name }}")
+        self.assertTrue(mint["continue-on-error"])
+        [pools] = [s for s in steps if s.get("id") == "pools"]
+        self.assertEqual(pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], "${{ steps.runners-token.outputs.token }}")
+        self.assertLess(steps.index(mint), steps.index(pools))
+        for other in steps:
+            if other is not pools:
+                self.assertNotIn("runners-token", json.dumps(other.get("env", {})), other.get("name"))
+        [spill] = [s for s in steps if s.get("id") == "spill-tooling"]
+        self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])
 
 
 if __name__ == "__main__":

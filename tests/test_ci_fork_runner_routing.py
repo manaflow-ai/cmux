@@ -155,6 +155,11 @@ FAST_CHECKS_ADMISSION_EXPRESSION = (
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
 )
+# An outsider-triggered job that reads untrusted source may also take the PR control one-job JIT VM, which no
+# persistent runner registers (web-complexity-trusted.yml); a fork running its own copy keeps hosted Ubuntu.
+PR_CONTROL_JIT_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                     "'cmux-gcp-pr-control-jit-x64' }}") + r"\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -222,12 +227,15 @@ FLEET_FIRST_OPERAND = re.compile(
     r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"') \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+# The queue-management jobs' on switch for the reserved queue label (tests/test_ci_write_token_jit_label.py
+# QUEUE_WORKFLOWS): a variable compared with a literal, then that one literal, before their own first operand.
+QUEUE_FIRST_OPERAND = "vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || "
 
 
 def without_fleet_first(runs_on: str) -> str:
     """RUNS_ON with the janitors' fleet-first operand removed, when it sits right after the fork branch."""
     if runs_on.startswith(FORK_BRANCH_PREFIX):
-        rest = runs_on[len(FORK_BRANCH_PREFIX):]
+        rest = runs_on[len(FORK_BRANCH_PREFIX):].removeprefix(QUEUE_FIRST_OPERAND)
         matched = FLEET_FIRST_OPERAND.match(rest)
         if matched:
             return FORK_BRANCH_PREFIX + rest[matched.end():]
@@ -238,6 +246,7 @@ def without_fleet_first(runs_on: str) -> str:
 # attempt 1, ahead of the PR queue (Leo, 2026-11-19: "why isn't nightly getting priority then? on the linux things").
 OWNED_EPHEMERAL_LABELS = frozenset({
     "cmux-gcp-nightly-jit-x64", "cmux-gcp-repair-jit-x64", "cmux-gcp-pr-control-jit-x64", "cmux-gcp-deploy-jit-x64",
+    "cmux-gcp-queue-jit-x64",
 })
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
@@ -1052,7 +1061,8 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
-              and not TRUSTED_RUNNER_LINE.match(line)):
+              and not TRUSTED_RUNNER_LINE.match(line)
+              and not PR_CONTROL_JIT_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 

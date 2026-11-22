@@ -73,7 +73,8 @@ class RepositoryTests(unittest.TestCase):
 
     def test_every_allowance_still_names_a_file(self):
         names = {w.name for w in self.workflows}
-        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
+        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE,
+                      cc.CANCEL_ON_SCHEDULE_IDEMPOTENT, cc.TRIVIAL_NO_SUPERSEDE):
             self.assertEqual(sorted(set(table) - names), [])
         for name, _owner in [*cc.EXCLUDED_SHARED, *cc.EXCLUDED_CANCEL]:
             self.assertIn(name, names)
@@ -288,6 +289,24 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(after["dropped"], {"cron collapsed": 2, "superseded head": 1}, "nightly runs are kept")
         self.assertLess(after["trivial"]["p50"], base["trivial"]["p50"])
         self.assertLess(after["drained"], base["drained"])
+
+
+class IdempotentScheduleCancel(unittest.TestCase):
+    def test_an_idempotent_sweep_may_cancel_on_schedule_and_no_other_cron_may(self):
+        text = textwrap.dedent("""\
+            on:
+              schedule: [{cron: '*/5 * * * *'}]
+            concurrency:
+              group: sweep
+              cancel-in-progress: true
+            jobs:
+              shed: {runs-on: ubuntu-latest, steps: [{run: 'true'}]}
+            """)
+        with tempfile.TemporaryDirectory() as tmp:
+            allowed = write(Path(tmp), "ci-shed-superseded-runs.yml", text)
+            other = write(Path(tmp), "some-other-sweep.yml", text)
+            self.assertEqual(cc.cron_findings(allowed), [])
+            self.assertTrue(any("can cut a running" in p for p in cc.cron_findings(other)))
 
 
 if __name__ == "__main__":

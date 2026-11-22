@@ -12,7 +12,9 @@ waiting on the child's copy of the output pipe.
 from __future__ import annotations
 
 import concurrent.futures
+import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -203,6 +205,90 @@ class PortableSubstitutes(unittest.TestCase):
         result = self.run_payload("./a.sh\nswift test\n")
         self.assertEqual(result.returncode, 2)
         self.assertIn("unrecognized line", result.stderr)
+
+
+GUARD_FIXTURE = """jobs:
+  workflow-guard-tests:
+    strategy:
+      matrix:
+        group: [ci]
+    steps:
+      - name: Quick step
+        run: echo quick
+      - name: Hung step
+        run: sleep 120
+"""
+
+
+class RunReportsTiming(unittest.TestCase):
+    """A run prints each step as it finishes, and a run stopped by a signal
+    (the job timeout) names the steps still running and how long they ran."""
+
+    def start_run(self, root: Path) -> subprocess.Popen[str]:
+        (root / ".github/workflows").mkdir(parents=True)
+        (root / ".github/workflows/ci-guards.yml").write_text(GUARD_FIXTURE)
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                    "commit", "-qm", "fixture"]):
+            subprocess.run(["git", *args], cwd=root, check=True)
+        return subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "2"],
+            cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+        )
+
+    def test_sigterm_names_the_steps_still_running(self) -> None:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum.name), tempfile.TemporaryDirectory() as temp:
+                proc = self.start_run(Path(temp))
+                lines = []
+                try:
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        lines.append(line)
+                        if "Quick step" in line:
+                            break
+                    # The finished step was printed before the run ended.
+                    self.assertRegex(lines[-1], r"^  ok +[0-9.]+s  at +[0-9]+s  workflow-guard-tests / ci: Quick step")
+                    proc.send_signal(signum)
+                    output, _ = proc.communicate(timeout=60)
+                finally:
+                    proc.kill()
+                self.assertEqual(proc.returncode, 130, output)
+                self.assertIn("1 still running:", output)
+                self.assertRegex(output, r"still running +[0-9.]+s  workflow-guard-tests / ci: Hung step")
+
+
+PARALLEL_FIXTURE = """import sys, unittest
+sys.path.insert(0, {tests!r})
+import parallel_unittest
+
+class Fixture(unittest.TestCase):
+    def test_passes(self):
+        pass
+
+    def test_fails(self):
+        self.fail("fixture failure")
+
+if __name__ == "__main__":
+    sys.exit(parallel_unittest.main())
+"""
+
+
+class ParallelUnittest(unittest.TestCase):
+    def run_fixture(self, workers: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "test_fixture.py"
+            path.write_text(PARALLEL_FIXTURE.format(tests=str(ROOT / "tests")))
+            return subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "CMUX_TEST_WORKERS": workers})
+
+    def test_a_failing_test_fails_the_file_in_parallel_and_in_order(self) -> None:
+        for workers in ("1", "2"):
+            with self.subTest(workers=workers):
+                result = self.run_fixture(workers)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("fixture failure", result.stderr)
+        self.assertIn("1 passed, 1 failed", self.run_fixture("2").stdout)
 
 
 class FastWorkflowReportsOnMainPush(unittest.TestCase):
