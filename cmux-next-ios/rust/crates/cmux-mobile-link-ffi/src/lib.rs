@@ -20,6 +20,7 @@ mod link_side;
 mod terminal_chat;
 mod terminal_history;
 mod terminal_prediction;
+mod terminal_projection;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
@@ -31,6 +32,7 @@ pub use terminal_history::{
     DEFAULT_HISTORY_CAP_BYTES, DeliveredHistory, HistoryFetch, HistoryRow, TerminalDeliveredHistory, VtRow,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 
 uniffi::setup_scaffolding!();
 

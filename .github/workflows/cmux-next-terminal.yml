@@ -31,6 +31,7 @@ on:
       - cmux-tui/crates/cmux-terminal-sizing/**
       - cmux-tui/crates/cmux-terminal-client/**
       - cmux-tui/crates/cmux-encode/**
+      - cmux-tui/crates/cmux-terminal-projection/**
       - cmux-tui/Cargo.lock
       - schemas/terminal-corpus/**
       - Packages/Shared/CmuxTerminalSizing/**
@@ -50,6 +51,7 @@ on:
       - cmux-tui/crates/cmux-terminal-sizing/**
       - cmux-tui/crates/cmux-terminal-client/**
       - cmux-tui/crates/cmux-encode/**
+      - cmux-tui/crates/cmux-terminal-projection/**
       - cmux-tui/Cargo.lock
       - schemas/terminal-corpus/**
       - Packages/Shared/CmuxTerminalSizing/**
@@ -108,6 +110,24 @@ jobs:
             -p ghostty-vt -p ghostty-vt-sys -p cmux-terminal-sizing \
             -p cmux-terminal-client -p cmux-encode \
             -- --skip terminal_corpus_snapshots_encode_ready_and_complete
+
+      # The iPhone's terminal projection against Ghostty's VT core, cell by
+      # cell: the Mac's grid, and a real resize to each phone size (Leo,
+      # 2026-11-22: "that the resizing behaviour is indeed the same as it
+      # would've been if the recalc and resize had truly happened on the
+      # mac."). The per-case tables go to the job summary.
+      - name: cargo test (terminal projection parity)
+        working-directory: cmux-tui
+        run: |
+          export ZIG="$CMUX_ZIG"
+          out="$RUNNER_TEMP/parity"
+          status=0
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 || status=$?
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test bench -- --ignored --nocapture layout_change || status=$?
+          for f in "$out/parity.md" "$out/resize.md" "$out/layout.md"; do
+            [ -f "$f" ] && { cat "$f"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$status"
 
   swift-terminal-linux:
     name: Swift terminal packages (portable)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
