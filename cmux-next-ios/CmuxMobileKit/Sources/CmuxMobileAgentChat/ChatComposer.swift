@@ -73,6 +73,9 @@ struct ChatComposer: View {
     @State private var placedCollapsible: Bool?
 
     var body: some View {
+        #if os(iOS) && DEBUG
+        let _ = InputLatencyTrace.shared?.note("chat_composer_body")
+        #endif
         VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {
                 slashSuggestions
@@ -991,6 +994,9 @@ final class MentionIndex {
         let key = (store.revision, store.turns.count, store.subagents.count, store.summary.cwd)
         if self.key.map({ $0 != key }) ?? true {
             self.key = key
+            #if os(iOS) && DEBUG
+            InputLatencyTrace.shared?.note("mention_scan")
+            #endif
             artifacts = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd).artifacts
             lastQuery = nil
         }

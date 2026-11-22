@@ -100,8 +100,17 @@ public final class ComposerDraftStore {
         }
     }
 
+    #if DEBUG
+    /// DEBUG: told of each draft file written on the main thread
+    /// (`InputLatencyTrace.note`, `ComposerLinkUITests`).
+    public static var mainThreadWrite: (@MainActor () -> Void)?
+    #endif
+
     private func write() {
         guard let url else { return }
+        #if DEBUG
+        if Thread.isMainThread { Self.mainThreadWrite?() }
+        #endif
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(drafts) else { return }
         #if os(iOS)

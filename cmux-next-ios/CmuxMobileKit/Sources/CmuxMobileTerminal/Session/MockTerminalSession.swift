@@ -95,12 +95,18 @@ public final class MockTerminalSession: TerminalSession {
     private var fullTick = 0
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
+    /// `offline`: the Mac is out of reach (`CMUX_MOBILE_MOCK_LINK=down`). The
+    /// shell's screen is there, the session says it is offline, and nothing
+    /// typed arrives.
+    private let offline: Bool
+
     public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
-                macResize: Duration? = nil) {
+                macResize: Duration? = nil, offline: Bool = false) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.roundTrip = roundTrip
         self.macResize = macResize
+        self.offline = offline
     }
 
     public var remoteRows: Int? { macGrid?.rows }
@@ -113,6 +119,7 @@ public final class MockTerminalSession: TerminalSession {
         run { session in
             session.write("Last login: Mon Oct 12 09:41:07 on ttys004\r\n")
             session.prompt()
+            if session.offline { session.handler?(.connection(.offline(mac: "Mock Mac"))) }
             guard intro else { return }
             for command in ["ls -la", "git log --oneline --graph -n 18", "cargo build --release -p cmux-mobile-host"] {
                 try await session.typeCommand(command)
@@ -121,6 +128,7 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func send(_ bytes: Data) {
+        guard !offline else { return }
         bytesFromPhone += bytes.count
         guard batchesInputPerTurn else {
             sends += 1
