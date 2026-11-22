@@ -12,7 +12,8 @@
 #   cmux-mac-live-update       cmux-tui/<commit>/mac-live.json, written once (`cmux app try` reads it),
 #                              then cmux-tui/channels/mac-live.json (the same signed file)
 #
-# Used by point-machine-channel-early, point-machine-channel and sign-linux-release in
+# Used by point-machine-channel-early, point-machine-channel, point-mac-live-channel and (through
+# cmux-linux-release-aliases.sh) mark-tree-commits in
 # .github/workflows/cmux-tui-artifacts.yml.
 #
 # usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only]

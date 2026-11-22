@@ -4612,6 +4612,28 @@ jobs:
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
+      # Commits that share a published tree and built nothing (their run adopted an earlier commit's tree)
+      # get a signed cmux-tui/<sha>/release.json: an alias of tree/<key>/release.json, which the run that
+      # published the tree signed (point-machine-channel). The only step given the signing key here; this
+      # job runs feat-cmux-next's own code in the artifacts environment, as point-machine-channel does.
+      # Each tree key is computed from the source, never read from the unsigned markers above. Delivery,
+      # not a gate: a failure is a warning (scripts/ci/cmux-linux-release-aliases.sh).
+      - name: Sign the Linux release files of commits that share a tree
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/linux-release-aliases"
+          rm -rf "$dir" && mkdir -p "$dir" && chmod 700 "$dir"
+          timeout 900 scripts/ci/cmux-linux-release-aliases.sh "$dir" --window 40 --channel feat-cmux-next \
+            || echo "::warning::Linux release aliases did not finish; the next push signs what is left"
+          rm -rf "$dir"
+
       # This commit's hot keys (scripts/cmux-next/hot-apply.py keys): hot-apply plans an app's commit against
       # a newer one by comparing these, with no checkout, diff or key computation of its own. A publication,
       # not a check: a failure here only makes hot-apply fall back to diffing, so it never reds the job.
