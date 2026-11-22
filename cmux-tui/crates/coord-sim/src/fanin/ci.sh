@@ -1,32 +1,58 @@
 #!/usr/bin/env bash
 # The fan-in ramps on a CI Linux runner, from the repo root:
-#   cmux-ci test --setup rust --timeout 7200 --artifact DIR -- bash cmux-tui/crates/coord-sim/src/fanin/ci.sh [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]
+#   cmux-ci test --setup rust --timeout 7200 --artifact DIR -- bash cmux-tui/crates/coord-sim/src/fanin/ci.sh [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS] [perf]
 # Builds the acpmux daemon (release) and coord-sim, runs `coord-sim fanin` (real daemons both sides,
 # one controller, N sessions over HOSTS hosts) and copies the tables and raw samples to
 # $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts, 3 fan-out rounds
-# (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts).
+# (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts). A 5th argument
+# `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.txt).
 set -uo pipefail
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
 HOSTS=${3:-10}
 ROUNDS=${4:-${FANIN_FANOUT_ROUNDS:-3}}
+PROFILE=${5:-}
 ROOT=$(pwd)
 OUT=${FAST_CHECKS_OUT:-/tmp/fanin-out}
 mkdir -p "$OUT"
 ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 ulimit -u unlimited 2>/dev/null || true
 echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ulimit -n), nproc $(ulimit -u)"
+if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
 (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
 BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
-(cd cmux-tui/crates/coord-sim && cargo build --release && cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
+(cd cmux-tui/crates/coord-sim && env -u RUSTFLAGS cargo build --release && env -u RUSTFLAGS cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
 SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
 [ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
 RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
 chmod 700 "$RUN"
+# The largest ramp's controller, found by the home in its environment (`fanin/fleet.rs` env_for).
+profile() {
+  local top=${RAMPS##*,} pid="" p
+  command -v perf >/dev/null || { echo "FANIN perf: perf is not installed on this runner"; return; }
+  for _ in $(seq 1 3600); do
+    for p in $(pgrep -f -- "$BIN daemon run" || true); do
+      tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "n$top/controller" && { pid=$p; break; }
+    done
+    [ -n "$pid" ] && break
+    sleep 1
+  done
+  [ -n "$pid" ] || { echo "FANIN perf: no controller for n=$top"; return; }
+  echo "FANIN perf: recording controller pid $pid"
+  perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1 \
+    || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
+  perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
+  perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
+  perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g caller,0.5,callee,function,percent --percent-limit 2 >"$OUT/perf.txt" 2>/dev/null
+  rm -f "$OUT/perf.data"
+  echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
+}
+[ "$PROFILE" = perf ] && { profile & PROF=$!; }
 "$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
   --out "$RUN" --acpmux "$BIN" --wall-clock-cap 6000 2>&1 | tee "$OUT/fanin.log" | grep -v '^FANIN_SUMMARY'
 code=${PIPESTATUS[0]}
+[ -n "${PROF:-}" ] && wait "$PROF"
 "$SIM" fanin teardown --out "$RUN" || true
 cp "$RUN/fanin-summary.json" "$OUT/" 2>/dev/null || true
 for d in "$RUN"/n*; do
