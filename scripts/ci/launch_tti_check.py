@@ -299,9 +299,16 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path) -> None:
-    shutil.rmtree(app)
-    subprocess.run(["ditto", str(pristine), str(app)], check=True, timeout=600)
+def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+    """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
+    which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
+    path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
+    every file, cmuxterm-hq run 44723138688, 2026-11-20), so a re-copy in place failed every cold round."""
+    new = app.parent.parent / f"app-cold-{n}" / app.name
+    new.parent.mkdir(parents=True, exist_ok=False)
+    subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
+    shutil.rmtree(app, ignore_errors=True)
+    return new
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -399,7 +406,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
 
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
-    """One quit and measured launch; returns (row, the new process)."""
+    """One quit and measured launch; returns (row, the new process, the app it ran: a cold round's is a new copy)."""
     path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
                  "post_access": keys.access, "input": path}
@@ -408,17 +415,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     if put:
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-        return row, process
+        return row, process, app
     why = quit_app(inst, process)
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            fresh_copy(app, pristine)
+            app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-            return row, process
+            return row, process, app
+        # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
+        inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
         if kind == "cold_after_update":
             row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
@@ -487,7 +496,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-    return row, process
+    return row, process, app
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -518,7 +527,7 @@ def check(args) -> int:
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
         for n, (kind, which) in enumerate(args.plan, 1):
-            row, process = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:

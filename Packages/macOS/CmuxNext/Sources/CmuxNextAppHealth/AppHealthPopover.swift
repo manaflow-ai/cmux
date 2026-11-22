@@ -168,58 +168,58 @@ enum AppHealthCard {
 
 /// App health's native words: the part labels the app gives the Rust model, the footer line and the card's.
 struct AppHealthStrings {
-    static var allClear: String { String(localized: "appHealth.allClear", defaultValue: "Everything is working", table: "AppHealth", bundle: .module) }
-    static var done: String { String(localized: "appHealth.done", defaultValue: "Done", table: "AppHealth", bundle: .module) }
-    static var repairNow: String { String(localized: "appHealth.repairNow", defaultValue: "Repair now", table: "AppHealth", bundle: .module) }
-    static var showChat: String { String(localized: "appHealth.showChat", defaultValue: "Show chat", table: "AppHealth", bundle: .module) }
+    static var allClear: String { String(localized: "appHealth.allClear", defaultValue: "Everything is working", table: "AppHealth", bundle: .localizedModule) }
+    static var done: String { String(localized: "appHealth.done", defaultValue: "Done", table: "AppHealth", bundle: .localizedModule) }
+    static var repairNow: String { String(localized: "appHealth.repairNow", defaultValue: "Repair now", table: "AppHealth", bundle: .localizedModule) }
+    static var showChat: String { String(localized: "appHealth.showChat", defaultValue: "Show chat", table: "AppHealth", bundle: .localizedModule) }
 
     /// A part named by its place's title: "“Fix the login bug”".
     static func titled(_ title: String) -> String {
-        String(format: String(localized: "appHealth.part.titled", defaultValue: "“%@”", table: "AppHealth", bundle: .module), title)
+        String(format: String(localized: "appHealth.part.titled", defaultValue: "“%@”", table: "AppHealth", bundle: .localizedModule), title)
     }
 
     /// Where a part is: "Agent chat in cmux-next" (`kind` is the part's label, `workspace` the workspace's shown name).
     static func place(_ kind: String, workspace: String) -> String {
-        String(format: String(localized: "appHealth.place", defaultValue: "%1$@ in %2$@", table: "AppHealth", bundle: .module), kind, workspace)
+        String(format: String(localized: "appHealth.place", defaultValue: "%1$@ in %2$@", table: "AppHealth", bundle: .localizedModule), kind, workspace)
     }
 
-    static var receipts: String { String(localized: "appHealth.receipts", defaultValue: "Recent repairs", table: "AppHealth", bundle: .module) }
+    static var receipts: String { String(localized: "appHealth.receipts", defaultValue: "Recent repairs", table: "AppHealth", bundle: .localizedModule) }
 
     /// "Agent chat: Slow".
     static func partLine(_ label: String, _ state: String) -> String {
-        String(format: String(localized: "appHealth.line", defaultValue: "%1$@: %2$@", table: "AppHealth", bundle: .module), label, state)
+        String(format: String(localized: "appHealth.line", defaultValue: "%1$@: %2$@", table: "AppHealth", bundle: .localizedModule), label, state)
     }
 
     static func pending(_ label: String) -> String {
-        String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), label)
+        String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .localizedModule), label)
     }
 
     static func pendingMore(_ count: Int) -> String {
-        String(format: String(localized: "appHealth.pendingMore", defaultValue: "%@ more waiting", table: "AppHealth", bundle: .module), String(count))
+        String(format: String(localized: "appHealth.pendingMore", defaultValue: "%@ more waiting", table: "AppHealth", bundle: .localizedModule), String(count))
     }
 
     static func outcome(_ outcome: String) -> String? {
         switch outcome {
-        case "started": String(localized: "appHealth.outcome.started", defaultValue: "Repair started", table: "AppHealth", bundle: .module)
-        case "ok": String(localized: "appHealth.outcome.ok", defaultValue: "Fixed", table: "AppHealth", bundle: .module)
-        case "failed": String(localized: "appHealth.outcome.failed", defaultValue: "Failed", table: "AppHealth", bundle: .module)
-        case "gaveUp": String(localized: "appHealth.outcome.gaveUp", defaultValue: "Gave up", table: "AppHealth", bundle: .module)
+        case "started": String(localized: "appHealth.outcome.started", defaultValue: "Repair started", table: "AppHealth", bundle: .localizedModule)
+        case "ok": String(localized: "appHealth.outcome.ok", defaultValue: "Fixed", table: "AppHealth", bundle: .localizedModule)
+        case "failed": String(localized: "appHealth.outcome.failed", defaultValue: "Failed", table: "AppHealth", bundle: .localizedModule)
+        case "gaveUp": String(localized: "appHealth.outcome.gaveUp", defaultValue: "Gave up", table: "AppHealth", bundle: .localizedModule)
         default: nil
         }
     }
 
-    static var sessionDaemon: String { String(localized: "appHealth.part.sessionDaemon", defaultValue: "Session service", table: "AppHealth", bundle: .module) }
+    static var sessionDaemon: String { String(localized: "appHealth.part.sessionDaemon", defaultValue: "Session service", table: "AppHealth", bundle: .localizedModule) }
     static var connection: String {
-        String(localized: "appHealth.part.acpmux", defaultValue: "Connection to the session service", table: "AppHealth", bundle: .module)
+        String(localized: "appHealth.part.acpmux", defaultValue: "Connection to the session service", table: "AppHealth", bundle: .localizedModule)
     }
-    static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .module) }
+    static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .localizedModule) }
 
     /// The page parts' names in plain words: a page's own name is its resource ("agent-pane"), which reads as
     /// code ("Agent pane"); the agent chat is what the person calls it.
     static func pageLabel(resource: String, fallback: String) -> String {
         switch resource {
         case "agent-pane":
-            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .module)
+            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .localizedModule)
         default: fallback
         }
     }
@@ -233,25 +233,25 @@ struct AppHealthStrings {
             switch state {
             case .healthy, .slow: break
             case .stuck:
-                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .localizedModule), label)
             case .repairing:
-                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .localizedModule), label)
             case .failed:
-                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .localizedModule), label)
             }
         }
         return headline.pending.map {
-            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), $0)
+            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .localizedModule), $0)
         }
     }
 
     static func state(_ state: AppHealth.State) -> String? {
         switch state {
         case .healthy: nil
-        case .slow: String(localized: "appHealth.state.slow", defaultValue: "Slow", table: "AppHealth", bundle: .module)
-        case .repairing: String(localized: "appHealth.state.repairing", defaultValue: "Repairing", table: "AppHealth", bundle: .module)
-        case .stuck: String(localized: "appHealth.state.stuck", defaultValue: "Not responding", table: "AppHealth", bundle: .module)
-        case .failed: String(localized: "appHealth.state.failed", defaultValue: "Needs a repair", table: "AppHealth", bundle: .module)
+        case .slow: String(localized: "appHealth.state.slow", defaultValue: "Slow", table: "AppHealth", bundle: .localizedModule)
+        case .repairing: String(localized: "appHealth.state.repairing", defaultValue: "Repairing", table: "AppHealth", bundle: .localizedModule)
+        case .stuck: String(localized: "appHealth.state.stuck", defaultValue: "Not responding", table: "AppHealth", bundle: .localizedModule)
+        case .failed: String(localized: "appHealth.state.failed", defaultValue: "Needs a repair", table: "AppHealth", bundle: .localizedModule)
         }
     }
 }
