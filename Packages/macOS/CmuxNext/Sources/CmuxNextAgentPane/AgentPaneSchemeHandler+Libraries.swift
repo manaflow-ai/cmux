@@ -16,9 +16,14 @@ extension AgentPaneSchemeHandler {
     /// The library `url` names, read from `folder` (the markdown viewer's bundled libraries), as
     /// the markdown page gets it; nil for another URL or a library the pane does not load.
     @concurrent nonisolated static func library(for url: URL, in folder: URL?) async -> Data? {
-        guard let folder, isLibrary(url) else { return nil }
-        let name = String(url.path.dropFirst(MarkdownPageResource.library.count + 2))
-        guard paneLibraries.contains(name) else { return nil }
+        guard isLibrary(url) else { return nil }
+        return await library(named: String(url.path.dropFirst(MarkdownPageResource.library.count + 2)), in: folder)
+    }
+
+    /// The library `name` (`ondine.js`) read from `folder`, for this host and the shared page
+    /// host's `__lib/` (``AgentPageResources``); nil for a library the pane does not load.
+    @concurrent nonisolated static func library(named name: String, in folder: URL?) async -> Data? {
+        guard let folder, paneLibraries.contains(name) else { return nil }
         return await MarkdownPageResource.library(name, in: folder)
     }
 

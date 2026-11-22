@@ -264,13 +264,17 @@ function meter(row) {
         .animation("smooth")
     ]),
     ProgressView(() => (left() === null ? null : left() / 100)),
-    HStack({ spacing: 6 }, [
-      Text("left this week").font("caption").color(cmux.theme.text.secondary).fixedSize("horizontal"),
-      Spacer(),
-      () => (row().sessionLeft !== null ? Badge(`session ${Math.round(row().sessionLeft)}%`, cmux.theme.text.secondary) : null),
-      () => (row().verdict && PACE[row().verdict] ? Badge(PACE[row().verdict], row().verdict === "over" ? cmux.theme.warning : cmux.theme.success) : null),
-      () => (row().extraUsd > 0 ? Badge(`$${row().extraUsd.toFixed(2)} extra`, cmux.theme.danger) : null)
-    ])
+    // One line of details that wraps between its parts in a narrow card (a row of badges cannot).
+    Text(() => {
+      const r = row()
+      const parts = ["left this week"]
+      if (r.sessionLeft !== null) parts.push(`session ${Math.round(r.sessionLeft)}%`)
+      if (r.verdict && PACE[r.verdict]) parts.push(PACE[r.verdict])
+      if (r.extraUsd > 0) parts.push(`$${r.extraUsd.toFixed(2)} extra`)
+      return parts.join(" · ")
+    })
+      .font("caption")
+      .color(() => (row().verdict === "over" || row().extraUsd > 0 ? cmux.theme.warning : cmux.theme.text.secondary))
   ])
 }
 
@@ -491,7 +495,11 @@ function renderPage() {
       ]),
       Spacer()
     ]),
-    HStack({ spacing: 14, alignment: "top" }, [today(true), usageCard(), gacha()].map((card) => card.frame({ minWidth: 250, maxWidth: "infinity" }))),
+    // The page has no wrap and no pane width to read, so the cards go two a row: Today and the gacha
+    // share one (each half of it whatever its content: a width of "infinity" in both makes their
+    // flex bases equal), and Usage, the widest, takes the row below. It fits a pane from 450 pt up.
+    HStack({ spacing: 14, alignment: "top" }, [today(true), gacha()].map((card) => card.frame({ width: "infinity" }))),
+    usageCard(),
     HStack({ spacing: 6 }, [
       Icon("computeruse.click").font("caption").color(cmux.theme.text.tertiary),
       Text("Right-click a card for more: change the city, read usage now, show your chiefs.").font("caption").color(cmux.theme.text.tertiary),

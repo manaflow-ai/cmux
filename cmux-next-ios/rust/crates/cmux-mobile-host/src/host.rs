@@ -36,12 +36,16 @@ pub enum IceSource {
     /// `GET /v1/ice` with a current access token (the signaling socket
     /// outlives any one token), cached while the credentials have half
     /// their lifetime left and refreshed ahead of the next dial, so an
-    /// answer never waits on an HTTP round trip.
+    /// answer never waits on an HTTP round trip. After a wake or a network
+    /// change the last servers stay, stale: an answer uses them at once and
+    /// a refresh runs beside it, for the next answer.
     Api {
         base_url: String,
         build_space: Option<BuildSpace>,
         tokens: Arc<Tokens>,
         cache: Arc<IceCache>,
+        /// A background refresh is running (one at a time).
+        refreshing: Arc<std::sync::atomic::AtomicBool>,
     },
 }
 
@@ -49,57 +53,137 @@ pub enum IceSource {
 const LONG_LIVED: Duration = Duration::from_secs(20);
 const QUICK_RECONNECT: Duration = Duration::from_millis(150);
 
-/// How long an answer waits for `GET /v1/ice` when nothing is cached.
+/// How long an answer waits for `GET /v1/ice` when nothing was ever fetched
+/// (the first answer of this process, or after a failed first fetch).
 const ICE_BUDGET: Duration = Duration::from_secs(5);
+
+/// Measurement only: answer as before stale ICE servers were kept (a wake
+/// or a network change drops them, and the next answer waits for
+/// `GET /v1/ice`). Off by default; tests turn it on for their baseline.
+static FETCH_AFTER_WAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Measurement only (see [`FETCH_AFTER_WAKE`]).
+pub fn set_fetch_after_wake(on: bool) {
+    FETCH_AFTER_WAKE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Where an answer's ICE servers came from (its timeline mark).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IceOrigin {
+    /// Fresh in the cache (or fixed).
+    Cached,
+    /// The last ones, past a wake, a network change or their lifetime; a
+    /// refresh runs in the background.
+    Stale,
+    /// Fetched while the answer waited.
+    Fetched,
+}
+
+impl IceOrigin {
+    fn mark(self) -> &'static str {
+        match self {
+            Self::Cached => "ice_servers_cached",
+            Self::Stale => "ice_servers_stale",
+            Self::Fetched => "ice_servers_fetched",
+        }
+    }
+}
 
 impl IceSource {
     pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
-        Self::Api { base_url, build_space, tokens, cache: Arc::new(IceCache::new()) }
+        Self::Api {
+            base_url,
+            build_space,
+            tokens,
+            cache: Arc::new(IceCache::new()),
+            refreshing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
     }
 
-    /// The servers and whether they came from the cache.
-    pub(crate) async fn servers(&self) -> (Vec<IceServer>, bool) {
+    /// The servers for an answer and where they came from. Only with
+    /// nothing ever fetched does this wait (at most [`ICE_BUDGET`]).
+    pub async fn servers(&self) -> (Vec<IceServer>, IceOrigin) {
         match self {
-            Self::Fixed(servers) => (servers.clone(), true),
-            Self::Api { base_url, build_space, tokens, cache } => {
+            Self::Fixed(servers) => (servers.clone(), IceOrigin::Cached),
+            Self::Api { cache, .. } => {
                 if let Some(servers) = cache.fresh() {
-                    return (servers, true);
+                    return (servers, IceOrigin::Cached);
                 }
-                let token = match tokens.access_token().await {
-                    Ok(token) => token,
-                    Err(error) => {
-                        tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
-                        return (Vec::new(), false);
-                    }
-                };
-                let api = ApiClient::new(base_url, &token).with_build_space(build_space.clone());
-                cache.get(&api, ICE_BUDGET).await
+                if !FETCH_AFTER_WAKE.load(std::sync::atomic::Ordering::Relaxed)
+                    && let Some(servers) = cache.last()
+                {
+                    self.refresh_in_background();
+                    return (servers, IceOrigin::Stale);
+                }
+                (self.fetch().await, IceOrigin::Fetched)
             }
         }
     }
 
-    /// A sleep can outlast TURN credentials while the platform's monotonic clock
-    /// stands still. Never reuse pre-wake ICE credentials for the next phone dial.
-    fn invalidate(&self) {
+    /// `GET /v1/ice` within [`ICE_BUDGET`], into the cache; no servers when
+    /// it fails.
+    async fn fetch(&self) -> Vec<IceServer> {
+        let Self::Api { base_url, build_space, tokens, cache, .. } = self else { return Vec::new() };
+        let token = match tokens.access_token().await {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
+                return Vec::new();
+            }
+        };
+        let api = ApiClient::new(base_url, &token).with_build_space(build_space.clone());
+        cache.get(&api, ICE_BUDGET).await.0
+    }
+
+    /// Fetch fresh servers beside the caller, unless a refresh runs already.
+    fn refresh_in_background(&self) {
+        let Self::Api { refreshing, .. } = self else { return };
+        if refreshing.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let source = self.clone();
+        let flag = Arc::clone(refreshing);
+        tokio::spawn(async move {
+            source.fetch().await;
+            flag.store(false, std::sync::atomic::Ordering::Release);
+        });
+    }
+
+    /// A sleep can outlast TURN credentials while the platform's monotonic
+    /// clock stands still, and a network change may need other servers: the
+    /// cached ones are stale now. They are kept for the next answer, which
+    /// would otherwise wait for `GET /v1/ice`, and a refresh starts at once.
+    pub fn invalidate(&self) {
         if let Self::Api { cache, .. } = self {
-            cache.clear();
+            if FETCH_AFTER_WAKE.load(std::sync::atomic::Ordering::Relaxed) {
+                cache.clear();
+                return;
+            }
+            cache.mark_stale();
+            self.refresh_in_background();
         }
     }
 
     /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
-    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
-        self.invalidate();
+    async fn servers_uncached(&self) -> (Vec<IceServer>, IceOrigin) {
+        if let Self::Api { cache, .. } = self {
+            cache.clear();
+        }
         self.servers().await
     }
 
     /// Keep the cache filled while the host runs: fetch now, then again
     /// whenever it is about to go stale.
     fn keep_fresh(&self) -> Option<tokio::task::JoinHandle<()>> {
-        let Self::Api { .. } = self else { return None };
+        let Self::Api { cache, .. } = self else { return None };
         let source = self.clone();
+        let cache = Arc::clone(cache);
         Some(tokio::spawn(async move {
             loop {
-                let (servers, _) = source.servers().await;
+                let servers = match cache.fresh() {
+                    Some(servers) => servers,
+                    None => source.fetch().await,
+                };
                 let wait = if servers.is_empty() { Duration::from_secs(30) } else { Duration::from_secs(60) };
                 tokio::time::sleep(wait).await;
             }
@@ -564,9 +648,9 @@ async fn answer_session(
     let timeline = Timeline::new();
     timeline.mark("offer_received");
     let baseline = std::env::var_os("CMUX_MOBILE_BASELINE").is_some();
-    let (ice_servers, cached) =
+    let (ice_servers, origin) =
         if baseline { context.ice.servers_uncached().await } else { context.ice.servers().await };
-    timeline.mark(if cached { "ice_servers_cached" } else { "ice_servers_fetched" });
+    timeline.mark(origin.mark());
     let options = DialOptions {
         ice_servers,
         include_loopback: context.include_loopback,

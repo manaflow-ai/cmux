@@ -9,7 +9,7 @@ fn launch_shell_header_compiles_and_is_exported() {
     let object = temporary.join("launch_shell_header.o");
     std::fs::write(
         &source,
-        "#include \"cmux_launch_shell.h\"\nuint8_t (*check)(uint8_t, size_t) = cmux_launch_shell_input_disposition;\nbool (*replays)(uint8_t, bool, bool) = cmux_launch_shell_replays;\n",
+        "#include \"cmux_launch_shell.h\"\nuint8_t (*check)(uint8_t, size_t) = cmux_launch_shell_input_disposition;\nbool (*replays)(uint8_t, bool, bool) = cmux_launch_shell_replays;\nbool (*plan)(const char *, const char *, const CmuxLaunchShellNow *, CmuxLaunchShellPlan *) = cmux_launch_shell_plan;\n_Static_assert(sizeof(CmuxLaunchShellPlan) == 1200, \"plan layout\");\n",
     )
     .unwrap();
     let output = Command::new("cc")
@@ -32,9 +32,13 @@ fn launch_shell_header_compiles_and_is_exported() {
     assert!(exports.status.success(), "{}", String::from_utf8_lossy(&exports.stderr));
     let exports = String::from_utf8(exports.stdout).unwrap();
     assert!(
-        ["_cmux_launch_shell_input_disposition", "_cmux_launch_shell_replays"]
-            .iter()
-            .all(|symbol| exports.lines().any(|line| line == *symbol)),
+        [
+            "_cmux_launch_shell_input_disposition",
+            "_cmux_launch_shell_replays",
+            "_cmux_launch_shell_plan"
+        ]
+        .iter()
+        .all(|symbol| exports.lines().any(|line| line == *symbol)),
         "missing packaged symbol"
     );
 }

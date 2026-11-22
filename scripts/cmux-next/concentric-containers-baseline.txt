@@ -18,7 +18,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteStateCard.swift: l
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift: private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift: dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift: let surface = CardSurfaceView()
-Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift: surface.cornerRadius = Metrics.surfaceCornerRadius
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdatedCardHost.swift: glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Share/ShareCmuxView.swift: surface = Glass.makeOverlayPanel(interactive: true, tone: .neutralGlass(.transient))
 webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css: .acpmux-bg-card { border-radius: var(--grid-cards-radius) }
@@ -106,7 +105,6 @@ webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }
 webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: var(--page-size-10) }
-webviews/src/pages/shared/desktop.css: .ui-tooltip, .ui-title-tooltip { border-radius: 5px }
 webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
 webviews/src/ui/importCards.css: .import-card { border-radius: 10px }
 webviews/src/ui/ui.css: .ui-sheet { border-radius: 12px 12px 0 0 }

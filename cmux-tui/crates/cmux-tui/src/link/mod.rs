@@ -90,7 +90,7 @@ pub(crate) fn start_link_entry(
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
-    cloud_fs::install_if_cloud_host();
+    cloud_fs::install_file_owner();
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
@@ -137,6 +137,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
     if args.first().map(String::as_str) == Some("project") {
         return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
+    if args.first().map(String::as_str) == Some("memory") {
+        return sync_cli::memory::run(args.get(1..).unwrap_or_default());
     }
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(

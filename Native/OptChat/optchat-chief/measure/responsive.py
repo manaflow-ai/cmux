@@ -360,6 +360,23 @@ def run(ctx):
             results.append(res)
             log(f"probe {probe['id']}: sign {res['sign_ms']} ms, useful {res['useful_ms']} ms, final {res['final_ms']} ms, "
                 f"turns {res['turns']}, msgs {[(m['ack_ms'], m['acted_ms']) for m in res['msgs']]}")
+            # What the Chief said, and when, so a step log alone explains a miss.
+            said = []
+            for r in rec.snapshot():
+                ch = r["e"].get("change") or {}
+                m = ch.get("message") or {}
+                if (t_first <= r["t"] <= t_end and ch.get("kind") == "message"
+                        and m.get("author") == AGENT and _text(m).strip()):
+                    said.append((r["t"] - t_first, _text(m)[:160]))
+            log(f"probe-texts {probe['id']}: {json.dumps(said)}")
+            tr = [e for e in trace_events() if t_first <= e.get("ts", 0) <= t_end
+                  and e.get("ev") in ("turn.start", "turn.end", "turn.interrupt", "tool", "spawn", "spawn.report")]
+            log(f"probe-trace {probe['id']}: " + json.dumps([
+                [e["ts"] - t_first, e["ev"], e.get("name") or e.get("status") or e.get("why") or "",
+                 e.get("ms")] + ([{"ttft": e.get("ttft_ms"), "start": e.get("start_ms"),
+                                   "cost": e.get("cost_usd"), "req": e.get("requests"),
+                                   "first": e.get("first_usage")}] if e.get("ev") == "turn.end" else [])
+                for e in tr]))
             time.sleep(3)
     finally:
         json.dump({"results": results, "events": rec.snapshot()}, open(os.path.join(out, "responsive.json"), "w"))

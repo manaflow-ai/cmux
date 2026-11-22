@@ -235,6 +235,7 @@ impl Surface {
                 input_route: arc_swap::ArcSwapOption::empty(),
                 #[cfg(any(unix, windows))]
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

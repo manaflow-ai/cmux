@@ -75,7 +75,7 @@ struct CreateAndShowClaimsTests {
                                             targetProfileID: "default")
             var batch = ImportBatch(source: source, kinds: [.openTabs])
             batch.openTabs = [ImportedTab(url: Self.url, title: nil, window: 0, pinned: false)]
-            ImportedTabsOpener.open(ImportSummary(batches: [batch]), services: services)
+            ImportedTabsOpener.open(ImportSummary(batches: [batch]).tabWorkspaces, services: services)
         case .openFolder: // the Open Folder panel's completion
             WorkspaceHandlers.createAndShow(context, name: "tmp", cwd: NSTemporaryDirectory())
         }

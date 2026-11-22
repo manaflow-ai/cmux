@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useInsertionEffect, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject, useInsertionEffect } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -7,7 +7,8 @@ import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./c
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
-import { useComposerLook } from "./composerLook";
+import { lookRowInBox } from "./composerLook";
+import { useComposerLookWithV2, useComposerV2 } from "./composerV2";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -104,9 +105,6 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
-  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
-  /// quiet row's empty middle.
-  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -148,7 +146,6 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
-  bottom,
 }: ComposerBoxProps) {
   acpmuxPerf.render("composer:box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
@@ -160,7 +157,11 @@ export function ComposerBox({
   // an agent chat doesn't do anything right now"). The row moves on a look switch while the prompt
   // stays mounted, so the draft and caret stay.
   const { plainFooter, attachmentView } = useComposerSettings();
-  const rowInBox = useComposerLook() === "codex";
+  const rowInBox = lookRowInBox(useComposerLookWithV2());
+  // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
+  // words, as attributes composerV2.css reads; both absent while it is off.
+  const composerV2 = useComposerV2();
+  const hasText = composerV2 !== undefined && /\S/.test(field.value);
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
@@ -302,6 +303,8 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        data-composer-v2={composerV2}
+        data-has-text={hasText ? "true" : undefined}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
@@ -442,9 +445,6 @@ export function ComposerBox({
         {rowInBox && quietRow}
       </div>
       {!rowInBox && quietRow}
-      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
-          radios and focus: they draw over the quiet row's empty middle (composerLook.css). */}
-      {bottom && <div className="acpmux-composer-under">{bottom}</div>}
     </>
   );
 }

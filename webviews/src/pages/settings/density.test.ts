@@ -7,14 +7,13 @@ import { customDensities, duplicate, parseExport, PRESETS, resolve, setExactMetr
 import { isCustomDensity } from "./validate";
 
 // Lucas 2026-11-16: every density is Default times one factor (0.8, 0.9, 1, 1.1, 1.2), with 24, 28, 30, 32
-// and 36 pt rows (Swift `DensityPreset`). Compact is the user's tuned density (2026-11-19): Helium's 28 pt tabs, a
-// 24 pt sidebar row token and a 1 pt strip padding.
-test("Compact is the user's tuned density: 28 pt tabs on a 1 pt strip padding", () => {
+// and 36 pt rows (Swift `DensityPreset`). Compact is Helium's.
+test("Compact draws Helium's 28 pt rows at Default's proportions", () => {
   const compact = resolve(PRESETS[1]!);
   expect(compact).toEqual({
-    sidebarRowHeight: 26,
+    sidebarRowHeight: 28,
     tabHeight: 28,
-    tabStripHeight: 30,
+    tabStripHeight: 33,
     itemCornerRadius: 8,
     iconSize: 15,
     body: 12.6,
@@ -25,7 +24,7 @@ test("Compact is the user's tuned density: 28 pt tabs on a 1 pt strip padding", 
 });
 
 test("rows and text scale with one factor from Ultra-compact to Spacious (as the app's)", () => {
-  expect(PRESETS.map((preset) => resolve(preset).sidebarRowHeight)).toEqual([24, 26, 30, 32, 36]);
+  expect(PRESETS.map((preset) => resolve(preset).sidebarRowHeight)).toEqual([24, 28, 30, 32, 36]);
   expect(PRESETS.map((preset) => resolve(preset).body)).toEqual([11.2, 12.6, 14, 15.4, 16.8]);
   expect(PRESETS.map((preset) => preset.spacing)).toEqual([0.8, 0.9, 1, 1.1, 1.2]);
 });
@@ -66,10 +65,11 @@ test("a custom density round-trips and passes the settings check", () => {
 // Austin 2026-11-05: five densities in this order, Default (id cozy) in the middle; Lucas 2026-11-13: its
 // rows are 30 pt and its text the ChatGPT app's 14 pt; Comfortable and Spacious above it.
 // The previews draw what the app draws (Swift TabsFollowRowsTests): tabs as tall as the rows, and a strip that
-// grows with them. Compact's strip is its 28 pt tab and its 1 pt strip padding above and below (user 2026-11-19).
+// grows with them. Default's strip is its 30 pt tab and its 5 pt strip padding (Lucas 2026-11-20, Chrome's tab top),
+// Comfortable's and Spacious's that padding times 1.1 and 1.2 (5.5 pt, and 6.5 pt for Spacious's half-point bar).
 test("every preset's tabs and strip are the app's", () => {
   expect(PRESETS.map((preset) => resolve(preset).tabHeight)).toEqual([24, 28, 30, 32, 36]);
-  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 30, 36, 39, 43]);
+  expect(PRESETS.map((preset) => resolve(preset).tabStripHeight)).toEqual([29, 33, 40, 43, 49]);
   // A copy of a built-in keeps following its rows: no preset pins its tab height.
   expect(PRESETS.some((preset) => preset.tokens?.tabHeight !== undefined)).toBe(false);
 });
@@ -79,8 +79,8 @@ test("Default is the Codex-size middle density, and sizes grow in order", () => 
   const sizes = PRESETS.map((preset) => resolve(preset));
   expect(sizes[2]!.body).toBe(14);
   expect(sizes[2]!.sidebarRowHeight).toBe(30);
-  expect(sizes[2]).toMatchObject({ tabHeight: 30, tabStripHeight: 36, itemCornerRadius: 9 });
-  expect(sizes[1]).toMatchObject({ body: 12.6, sidebarRowHeight: 26 });
+  expect(sizes[2]).toMatchObject({ tabHeight: 30, tabStripHeight: 40, itemCornerRadius: 9 });
+  expect(sizes[1]).toMatchObject({ body: 12.6, sidebarRowHeight: 28 });
   for (let index = 1; index < sizes.length; index += 1) {
     expect(sizes[index]!.body).toBeGreaterThanOrEqual(sizes[index - 1]!.body);
     expect(sizes[index]!.sidebarRowHeight).toBeGreaterThanOrEqual(sizes[index - 1]!.sidebarRowHeight);
@@ -131,7 +131,7 @@ test("duplicating and exporting a preset preserves the native chrome and compose
       expect(density.tokens?.omnibarHeight).toBe(factor === 1 ? 34 : Math.round((28 / 0.9) * factor * 2) / 2);
       // Default's capitals are 11 pt, Compact's 10, with the smoothing's 0.31 pt.
       if (factor === 1) expect(density.tokens?.omnibarFontSize).toBeCloseTo((11 - 0.31) / 0.70459);
-      expect(density.tokens?.sidebarRowHeight).toBe([22.5, 24, 28, 30, 33.5][index]);
+      expect(density.tokens?.sidebarRowHeight).toBe([22.5, 26, 28, 30, 33.5][index]);
       expect(resolve(density)).toEqual(resolve(base));
     }
   }

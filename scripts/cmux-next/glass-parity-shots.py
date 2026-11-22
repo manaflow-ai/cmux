@@ -62,7 +62,10 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--matrix", default="full", choices=["full", "quick", "none"])
 parser.add_argument("--vdisplay", default="")
-parser.add_argument("--vdisplay-hidpi", action="store_true")
+parser.add_argument("--vdisplay-hidpi", nargs="?", const="hidpi", default="", choices=["hidpi", "hidpi-points"])
+# The virtual display's size in points (the 900 x 600 test window fits any): a 2x display of 1920x1200 points
+# is 3840x2400 pixels, over what some hosts' virtual displays take (scripts/measure/vdisplay-hidpi-probe.sh).
+parser.add_argument("--vdisplay-size", default="1920x1200")
 parser.add_argument("--hz", type=float, default=60)
 parser.add_argument("--activate", action="store_true")
 parser.add_argument("--frames", action="store_true")
@@ -178,10 +181,13 @@ def passes(diff, gate=GATE):
 display = None
 if opts.vdisplay:
     out_path = os.path.join(opts.out, "vdisplay.out")
-    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main", "1920x1200"]
-                               + (["hidpi"] if opts.vdisplay_hidpi else []),
+    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main",
+                                opts.vdisplay_size] + ([opts.vdisplay_hidpi] if opts.vdisplay_hidpi else []),
                                stdout=open(out_path, "w"), stderr=subprocess.STDOUT)
-    wait(lambda: open(out_path).read().startswith(("ready", "error")), 20)
+    # A 2x display can take 20 s to list and 15 s more for its modes (vdisplay.m): wait for its "ready" line, not
+    # for the first line, which is a diagnostic while it comes up (runs 4-10 printed an empty "vdisplay:").
+    wait(lambda: any(line.startswith(("ready", "error")) for line in open(out_path).read().splitlines()),
+         60 if opts.vdisplay_hidpi else 20)
     print("vdisplay:", open(out_path).read().strip(), flush=True)
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
@@ -333,6 +339,15 @@ try:
                         if gated and not ok:
                             failures.append(f"{reply['stem']} {kind} {engine}: glass mean {material.get('mean')} "
                                             f"p99 {material.get('p99')} max {material.get('max')}")
+                        # WebKit text is gated on every text axis: the pages draw with the native text's smoothing
+                        # (appearance.fontSmoothing `auto`, WebTheme.pageSmoothing; `flat` and `smooth` pin both
+                        # sides), which run c2c44e1f measured exact (mean 0.005, p99 0). Chromium shapes with
+                        # HarfBuzz and rasterizes with Skia (other subpixel glyph positions, about 16% less ink),
+                        # so its text stays reported, not gated.
+                        if gated and engine == "webkit" and scenario.get("text", "standard") in ("standard", "flat", "smooth") \
+                                and not passes(full, TEXT_TOLERANCE):
+                            failures.append(f"{reply['stem']} {kind} {engine}: text mean {full.get('mean')} "
+                                            f"p99 {full.get('p99')} (same smoothing on both sides)")
                 print(f"{reply['stem']}: worst glass mean {worst:.3f} rt={status.get('reduce_transparency')} "
                       f"key={status.get('key')} host_glass={status.get('host_glass')}", flush=True)
             if opts.frames:

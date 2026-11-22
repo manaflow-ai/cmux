@@ -396,3 +396,112 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
         "provider.unavailable"
     );
 }
+
+/// The Mac's calendars (`system_calendar`, EventKit on the Mac): the daemon
+/// bounds and normalizes the read before the Mac app sees it, answers repeat
+/// reads from its cache only once access is granted, and lets the permission
+/// prompt open only from a tap.
+#[test]
+fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_tap() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"system_calendar:read":"show your next events"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["system_calendar"]);
+    let hour = 3_600_000_i64;
+    let answer = |rx: &Receiver<Value>, value: Value| {
+        let request = next_request(rx);
+        f.supervisor
+            .provider_result(
+                PROVIDER,
+                request["request_id"].as_u64().unwrap(),
+                true,
+                json!({ "value": value }),
+            )
+            .unwrap();
+        request
+    };
+
+    // A read of more than 31 days never reaches the Mac app.
+    let refused = f.call("m1", "system_calendar.events", json!({"days":40}), false);
+    assert_eq!(refused["body"]["code"], "validation.invalid", "{refused}");
+
+    // Before the person answers macOS, the answer is not cached: the next read asks again.
+    let range = json!({"days":2});
+    let waiting = json!({"access":"notDetermined","events":[]});
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, waiting);
+    assert_eq!(request["params"], json!({"days":2,"limit":20}), "defaults filled in");
+    f.wait("first read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+
+    // The prompt needs a gesture; with one it routes as the user.
+    let refused = f.call("m1", "system_calendar.request_access", json!({}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.request_access","params":{}}),
+            true,
+        )
+        .unwrap();
+    let request = answer(&rx, json!({"access":"granted"}));
+    assert_eq!(request["origin"], "user");
+    f.wait("access result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+
+    // Granted: the first read goes to the Mac, the same read again is answered from the cache.
+    let events = json!({"access":"granted","events":[{"id":"e@1","title":"Standup","start":hour,
+        "end":2 * hour,"allDay":false,"calendar":"Work","color":"#1badf8"}]});
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    answer(&rx, events.clone());
+    let first =
+        f.wait("granted read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(first["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":events}}));
+    let cached = f.call("m1", "system_calendar.events", range.clone(), false);
+    assert_eq!(cached, json!({"ok":true,"body":{"value":events}}));
+    assert!(
+        rx.try_iter().all(|e| e["event"] != "apps-provider-request"),
+        "a cached read never reaches the Mac app"
+    );
+
+    // EventKit says a calendar changed: the cache is dropped, so the next read reaches the Mac.
+    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "system_calendar").unwrap(), json!({}));
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, events);
+    assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
+}

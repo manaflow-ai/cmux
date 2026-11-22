@@ -29,7 +29,9 @@ import Foundation
 /// origin it claims) gets the window with every browser page area, chat, Home
 /// view and app page not known to be safe masked in gray
 /// (``AppWindowImage/maskedCapture(_:)``, ``ScreenshotMask``), and `masked`,
-/// how many areas the image covers. Page pixels reach automation
+/// how many areas the image covers, with `masked_areas`, what the grey areas in
+/// the image are (`home`, `chat`, `browser`, ...: ``ScreenshotMask/areaName(_:)``),
+/// so an agent never reads a privacy mask as a blank pane. Page pixels reach automation
 /// only through the browser host's guarded capture (`cmux browser page
 /// screenshot`), so a browser tab no window shows is refused to it.
 enum ScreenshotHandlers {
@@ -108,28 +110,44 @@ enum ScreenshotHandlers {
         let scale: Double
         let method: String
         var masked: Int?
+        /// What the image's masked areas are, each name once, sorted (nil: a person's raw capture).
+        var maskedAreas: [String]?
+
+        /// The run's result fields besides the PNG: size, scale, method and, for a masked capture,
+        /// `masked` and `masked_areas`.
+        var fields: [String: ActionResultValue] {
+            var result: [String: ActionResultValue] = [
+                "width": .int(image.width), "height": .int(image.height), "scale": .double(scale), "method": .string(method),
+            ]
+            if let masked { result["masked"] = .int(masked) }
+            if let maskedAreas { result["masked_areas"] = .array(maskedAreas.map { .string($0) }) }
+            return result
+        }
     }
 
     /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run,
     /// masked for any other (``ActionInvocation/isPersonsOwnRun``).
     static func shown(_ window: NSWindow, crop view: NSView?, for invocation: ActionInvocation, services: AppServices) async throws -> Capture {
-        let shot: (image: CGImage, masked: Int?)
+        let shot: (image: CGImage, masked: Int?, areas: [ScreenshotMask.Area]?)
         if !invocation.isPersonsOwnRun {
             let result = try await AppWindowImage.maskedCapture(window)
-            shot = (result.image, result.masked)
+            shot = (result.image, result.masked, result.areas)
         } else {
-            shot = (try await AppWindowImage(services: services).capture(window), nil)
+            shot = (try await AppWindowImage(services: services).capture(window), nil, nil)
         }
         let full = shot.image, count = shot.masked
         let size = window.frame.size
         let scale = size.width > 0 ? Double(full.width) / size.width : Double(window.backingScaleFactor)
-        guard let view else { return Capture(image: full, scale: scale, method: "window", masked: count) }
+        guard let view else {
+            return Capture(image: full, scale: scale, method: "window", masked: count, maskedAreas: shot.areas.map { ScreenshotMask.Area.names($0, in: nil) })
+        }
         // The view may have left the window while the capture ran.
+        let rect = view.convert(view.bounds, to: nil)
         guard view.window === window,
-              let cropped = full.cropped(toWindowRect: view.convert(view.bounds, to: nil), windowSize: size) else {
+              let cropped = full.cropped(toWindowRect: rect, windowSize: size) else {
             throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.outsideWindow)
         }
-        return Capture(image: cropped, scale: scale, method: "window", masked: count)
+        return Capture(image: cropped, scale: scale, method: "window", masked: count, maskedAreas: shot.areas.map { ScreenshotMask.Area.names($0, in: rect) })
     }
 
     /// A browser tab no window shows, rendered by its engine in the
@@ -191,10 +209,7 @@ enum ScreenshotHandlers {
         let encoded = await encode(image)
         guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
         guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
-        var result: [String: ActionResultValue] = [
-            "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
-        ]
-        if let masked = capture.masked { result["masked"] = .int(masked) }
+        var result = capture.fields
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:

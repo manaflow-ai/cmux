@@ -54,7 +54,7 @@ public struct StreamedBrowserPage: View {
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .accessibilityLabel(Text("Keyboard"))
@@ -164,7 +164,7 @@ public struct StreamedBrowserPage: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 16).padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
