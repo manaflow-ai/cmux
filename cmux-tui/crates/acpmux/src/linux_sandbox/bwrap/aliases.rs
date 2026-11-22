@@ -375,6 +375,21 @@ fn guarded_aliases_viewed(
     }
 }
 
+/// True when a mount placed over `other` covers `alternate`: the path names a
+/// directory of `other` that the child mount hides, so nothing in the sandbox
+/// reads through it. A service with `PrivateTmp=` shows its own `/tmp` bound
+/// from `/tmp/systemd-private-X/tmp` of the same filesystem, which hides that
+/// directory in the host root and with it every path below it.
+fn hidden_by_mount_over(alternate: &Path, other: &MountEntry, mounts: &[MountEntry]) -> bool {
+    mounts.iter().any(|m| {
+        m.parent == other.id
+            && m.id != other.id
+            && m.point != other.point
+            && m.point.starts_with(&other.point)
+            && alternate.starts_with(&m.point)
+    })
+}
+
 /// True when `source` (through mount `from`) and `alternate` (through mount
 /// `through`) are the same path below two different rebuilt views, each
 /// view matched by its own mount ID. A view root itself never matches.
@@ -494,6 +509,7 @@ fn check_trees(
                 // absent there (a denial) or read-only (memory, a work folder
                 // at the view the session did not name).
                 if source != alternate
+                    && !hidden_by_mount_over(&alternate, other, &mounts)
                     && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
                 {
                     reasons.insert(format!(
@@ -525,6 +541,21 @@ mod tests {
     /// A second mount of the home: /home/u is also mounted at /alias/u.
     const SECOND_HOME: &str =
         "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
+
+    /// A service with `PrivateTmp=` binds its own `/tmp` from a directory of the
+    /// same filesystem; the host's copy of that directory sits below the hidden
+    /// `/tmp` and is no second path to the session's folders.
+    #[test]
+    fn a_private_tmp_binding_is_not_a_second_path_to_its_own_files() {
+        let private = "/tmp/systemd-private-x-runner.service-y/tmp";
+        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        let trees = [(Path::new("/tmp/session/work"), 2, true)];
+        assert_eq!(guarded_aliases(&trees, &info), Vec::<String>::new());
+        // Without the binding the same file is reachable at its host path.
+        let shown = format!("{ROOT}2 1 8:1 {private} /mnt/t rw - ext4 root rw\n");
+        let trees = [(Path::new("/mnt/t/session/work"), 2, true)];
+        assert!(!guarded_aliases(&trees, &shown).is_empty());
+    }
 
     #[test]
     fn regression_home_alias_refuses_without_a_rebuilt_view() {
