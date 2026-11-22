@@ -71,6 +71,10 @@ if [[ "$only" != terminal ]]; then
       bun bench/first-load-after-restart.bench.ts >"$out/chat-$link.log" 2>&1 ||
       { status=1; echo "restart-settled: the chat bench failed on $link:"; grep -v BABEL "$out/chat-$link.log" | tail -n 20; }
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true
+    # PROFILE=1 or WIRE_TRACE=1 (the bench's knobs, passed through the environment): what they print, too.
+    if [[ "${PROFILE:-}" == 1 || "${WIRE_TRACE:-}" == 1 ]]; then
+      grep -E "^wire |relaunch long tasks|^  round |profile|^ +[0-9.]+ ms " "$out/chat-$link.log" | head -n 400 || true
+    fi
   done
 fi
 
