@@ -1,4 +1,4 @@
-// The `try`s the composer needs, kept out of its components: the React Compiler does not compile a
+// The `try`s the composer and the transcript need, kept out of their components: the React Compiler does not compile a
 // function with a `try` that has no `catch` or holds a condition, and leaves the whole component
 // uncompiled (every render then re-creates every child's props).
 
@@ -12,12 +12,26 @@ export function holdFlag(flag: { current: boolean }, value: boolean, run: () => 
   }
 }
 
+/// Runs `run`, then `after`, even if `run` threw.
+export function runThen(run: () => void, after: () => void): void {
+  try {
+    run();
+  } finally {
+    after();
+  }
+}
+
 /// Points `ref` (a callback ref or a ref object a component was given) at `value`. Kept out of
 /// components for the same reason: the compiler treats a prop or a hook's result as read-only, and a
 /// component that writes `.current` on one stays uncompiled.
 export function setRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
   if (typeof ref === "function") ref(value);
   else if (ref) (ref as React.RefObject<T | null>).current = value;
+}
+
+/// Sets `.current` on a ref object a component was given, for the same reason.
+export function fillRef<T>(ref: { current: T }, value: T): void {
+  ref.current = value;
 }
 
 /// Runs `resume`; `failed` when it answers false or throws.
