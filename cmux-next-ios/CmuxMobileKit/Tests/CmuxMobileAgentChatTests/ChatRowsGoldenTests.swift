@@ -45,23 +45,42 @@ import UIKit
         return String(hash, radix: 16)
     }
 
-    /// Each row the list shows: its id, its kind and a hash of everything it draws (its text,
-    /// a tool's name and state, a fold's state, its gap). Wall-clock times are left out: the store
-    /// stamps a tool call's start and end with the time it applied the record, which differs per
-    /// run (seen: the same build hashed a fold and a tool row differently in two runs).
+    /// Each row the list shows: its id, its kind and a hash of what it holds (its text, a tool's name
+    /// and state, a fold's state, its gap) and of the text it draws that depends on time (a fold's
+    /// "Worked for …" line, a tool's duration), compared exactly. Left out of the first part only:
+    /// the store stamps a tool call's start and end with the time it applied the record, and a
+    /// thought gets a random id, both of which differ per run (the store has no clock seam).
     static func rows(_ list: ChatTranscriptList) -> String {
         shown(list).map { id in
             guard let row = list.row(id) else { return "\(id)|missing" }
-            return "\(id)|\(row.hostedReuseKey)|\(fnv(withoutClockTimes(String(reflecting: row.kind)) + " gap \(row.gap)"))"
+            let held = withoutRunValues(String(reflecting: row.kind)) + " gap \(row.gap)"
+            return "\(id)|\(row.hostedReuseKey)|\(fnv(held + " drawn " + drawnTimes(row.kind)))"
         }.joined(separator: ";")
     }
 
-    /// The description with every date (`2026-11-22 10:13:51 +0000`) replaced by the fixture's
-    /// time when it is the fixture's, else by "now".
-    static func withoutClockTimes(_ text: String) -> String {
+    /// The time-dependent text a row draws: a fold's line, a tool's or a group's duration.
+    static func drawnTimes(_ kind: ChatRow.Kind) -> String {
+        let wording = ToolWording()
+        func time(_ calls: [ACPToolCall]) -> String {
+            guard let start = calls.compactMap(\.startedAt).min(), let end = calls.compactMap(\.endedAt).max(),
+                  let seconds = wording.shown(end.timeIntervalSince(start)) else { return "-" }
+            return wording.duration(seconds)
+        }
+        switch kind {
+        case .worked(let fold): return fold.label + " [" + fold.rows.map { drawnTimes($0.kind) }.joined(separator: ",") + "]"
+        case .tool(let call): return time([call])
+        case .toolGroup(let calls, _): return time(calls)
+        default: return ""
+        }
+    }
+
+    /// The description with every date (`2026-11-22 10:13:51 +0000`) replaced by "fixture" when it
+    /// is the fixture's time, else "now", and every UUID by "uuid".
+    static func withoutRunValues(_ text: String) -> String {
         let fixture = String(describing: at)
-        let pattern = #/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+\d{4}/#
-        return text.replacing(pattern) { match in String(match.output) == fixture ? "fixture" : "now" }
+        let date = #/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+\d{4}/#
+        let uuid = #/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/#
+        return text.replacing(date) { String($0.output) == fixture ? "fixture" : "now" }.replacing(uuid, with: "uuid")
     }
 
     /// The chat as it opens: finished, edited, failed and running turns.
