@@ -28,14 +28,14 @@ extension SidebarItemRowView {
         // The more button whose menu is open stays lit after the pointer leaves for the menu (Leo 2026-10-26).
         hoverMore?.showsMenu = shown && showsMenu
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the
-        // hovered buttons should just replace the other ones"): the dot, the spinner, the status mark and the
-        // task count all hide while the controls show, and none of them moves (no layout shift).
+        // hovered buttons should just replace the other ones"): the dot, the spinner and the status mark all hide
+        // while the controls show, and none of them moves (no layout shift). The task hairline sits at the row's foot,
+        // under no control, so it stays.
         if !isEditing {
             rowBadge.alphaValue = shown ? 0 : 1
             badge.alphaValue = shown ? 0 : 1
         }
         activity.alphaValue = shown ? 0 : 1
-        taskCount.alphaValue = shown ? 0 : 1
         // Unpin shows beside the more button, read only while the controls show (a tile at rest asks nothing).
         let unpins = shown && hoverMore != nil && onUnpin != nil && isPinned?() == true
         if unpins, hoverUnpin == nil {
