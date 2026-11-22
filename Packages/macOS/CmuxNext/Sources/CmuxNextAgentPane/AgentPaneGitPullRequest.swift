@@ -195,25 +195,25 @@ extension AgentPaneGitPullRequest {
     /// No `gh` in the user's usual install folders.
     nonisolated static var noGitHubCLIMessage: String {
         String(localized: "agentPane.error.gitNoGitHubCLI", defaultValue: "Install the GitHub CLI (gh) to open a pull request.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// The repository has no branch checked out.
     nonisolated static var detachedMessage: String {
-        String(localized: "agentPane.error.gitDetached", defaultValue: "Check out a branch to open a pull request.", bundle: .module)
+        String(localized: "agentPane.error.gitDetached", defaultValue: "Check out a branch to open a pull request.", bundle: .localizedModule)
     }
 
     /// The branch has no upstream, or commits its upstream lacks. Kept for the
     /// Changes page's existing wording; Create PR now invokes the Rust push.
     nonisolated static var pushFirstMessage: String {
         String(localized: "agentPane.error.gitPushFirst",
-               defaultValue: "Push this branch first; the pull request opens from what's on the remote.", bundle: .module)
+               defaultValue: "Push this branch first; the pull request opens from what's on the remote.", bundle: .localizedModule)
     }
 
     /// The Create PR caller did not provide the session-host push wire.
     nonisolated static var pushUnavailableMessage: String {
         String(localized: "agentPane.error.gitPushUnavailable",
-               defaultValue: "The branch could not be pushed; reconnect the chat and try again.", bundle: .module)
+               defaultValue: "The branch could not be pushed; reconnect the chat and try again.", bundle: .localizedModule)
     }
 
     /// The Rust push mutation carries its machine reason and an actionable
@@ -236,13 +236,13 @@ extension AgentPaneGitPullRequest {
     /// The branch is behind its upstream (pushed from elsewhere).
     nonisolated static var pullFirstMessage: String {
         String(localized: "agentPane.error.gitPullFirst",
-               defaultValue: "This branch is behind its remote. Pull first, then open the pull request.", bundle: .module)
+               defaultValue: "This branch is behind its remote. Pull first, then open the pull request.", bundle: .localizedModule)
     }
 
     /// `git.pullRequest` arrived without a real click or key press in the pane.
     nonisolated static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitPullRequestGesture",
-               defaultValue: "Opening a pull request needs a click or key press in the pane.", bundle: .module)
+               defaultValue: "Opening a pull request needs a click or key press in the pane.", bundle: .localizedModule)
     }
 
     /// `git.pullRequest` (nil: params that break the contract), for a chat on this Mac only: spends
@@ -315,6 +315,6 @@ extension AgentPaneGitPullRequest {
     /// `git.pullRequest` whose params break its contract.
     nonisolated static var invalidMessage: String {
         String(localized: "agentPane.error.gitPullRequestInvalid", defaultValue: "The app refused to open that pull request.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 }

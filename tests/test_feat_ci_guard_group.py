@@ -18,7 +18,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import entry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -263,9 +262,9 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_the_persistent_pool(self):
-        # Linux only: a fork pull request on Blacksmith, every same-repository run on the persistent pool. On a
-        # mini 24 of its steps red (no python3.9 or node, temp-cwd scripts), so portable-placement never places it.
+    def test_the_job_runs_on_the_persistent_linux_pool(self):
+        # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
+        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])

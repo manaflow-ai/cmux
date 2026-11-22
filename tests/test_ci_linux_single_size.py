@@ -299,7 +299,8 @@ class FixedPairRuleTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_ghosttykit_release_check_takes_the_persistent_pool(self) -> None:
+    def test_the_ghosttykit_release_check_takes_the_persistent_linux_pool(self) -> None:
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): never one Blacksmith size.
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
         cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
         self.assertEqual(len(cells), 1, cells)
