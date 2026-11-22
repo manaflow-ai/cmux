@@ -54,6 +54,7 @@ import Testing
             },
             accountsCall: { _, method, params in
                 if method == .accounts || method == .accountUsage { return Self.accountsReply }
+                if method == .accountReadiness { return Data(#"{"providers":[]}"#.utf8) }
                 calls.withLock { $0.append(Call(method: method.rawValue, params: params.compactMapValues { $0 as? String })) }
                 if missing, SettingsHarnesses.signInMethods.values.contains(method) {
                     throw AcpmuxRPCError(code: -32601, message: "method not found")

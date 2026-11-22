@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+public import CmuxNextOnboarding
 import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -68,14 +69,42 @@ extension SettingsHarnesses {
             if let page = Self.signInPage(value) { await openSignInPage?(page) }
             return ["signIn": value]
         case .accountSignInFinish:
-            await readAccounts(environment, generation: generation)
+            await readSignIns(environment)
             return ["finished": value]
         case .accountSignInCancel:
             return .object([:])
         default:
-            await readAccounts(environment, generation: generation)
+            await readSignIns(environment)
             return .object([:])
         }
+    }
+
+    /// Onboarding's two sign-in keys (`signInAccounts`, `signInReadiness`): both null until the daemon
+    /// answers `_acpmux/account/readiness`, so with an older daemon onboarding is as before.
+    public var onboardingSignInState: (accounts: JSONValue, readiness: JSONValue) {
+        guard let signInReadiness else { return (.null, .null) }
+        return (signInAccountsState, signInReadiness)
+    }
+
+    /// The Agents step's in-place sign-in over this forwarder (AgentSignInSource).
+    public var onboardingSignIn: OnboardingSignIn? { .forwarding { [weak self] in self } }
+
+    /// Reads the accounts and the providers' readiness again (onboarding's open and focus).
+    public func refreshSignIns() async {
+        guard let environment = environment() else { return }
+        await readSignIns(environment)
+    }
+
+    /// The accounts, then `_acpmux/account/readiness` as the daemon sent it: method not found clears
+    /// it, another failure keeps what is shown. The readiness is only read once a read answered it.
+    private func readSignIns(_ environment: AcpmuxEnvironment) async {
+        await readAccounts(environment, generation: generation)
+        do {
+            let data = try await callAccounts(environment, .accountReadiness, [:])
+            if let value = try? JSONValue.parse(data) { signInReadiness = value }
+        } catch let error as AcpmuxRPCError where error.isMethodMissing {
+            signInReadiness = nil
+        } catch {}
     }
 
     /// The daemon's params from the page's: a listed `account`, else a new one's `family` (and `name`).
@@ -106,5 +135,15 @@ extension SettingsHarnesses {
               url.scheme?.lowercased() == "https", url.user == nil, url.password == nil, url.port == nil,
               SignInPage(url: url) != nil else { return nil }
         return url
+    }
+}
+
+extension OnboardingSignIn {
+    /// The Agents step's sign-in over `harnesses` (the App's own reader): the same forwarder, rows and
+    /// page opener as Settings > Accounts. A gone reader answers null and refuses nothing it does not run.
+    public static func forwarding(_ harnesses: @escaping @MainActor () -> SettingsHarnesses?) -> OnboardingSignIn {
+        OnboardingSignIn(state: { harnesses()?.onboardingSignInState ?? (.null, .null) },
+                         refresh: { await harnesses()?.refreshSignIns() },
+                         run: { action, params in try await harnesses()?.runSignIn(action, params) })
     }
 }

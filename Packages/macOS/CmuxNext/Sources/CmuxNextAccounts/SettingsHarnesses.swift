@@ -37,6 +37,8 @@ public final class SettingsHarnesses {
     private(set) var problem: String?
     /// `_acpmux/accounts` (SettingsHarnesses+Accounts.swift); nil from a daemon without it.
     var accounts: [SettingsProviderAccount]?
+    /// `_acpmux/account/readiness`'s answer as sent (SettingsHarnesses+AccountSignIn.swift); nil from a daemon without it.
+    var signInReadiness: JSONValue?
     /// Each account's plan usage limits read at rest, by id (SettingsHarnesses+AccountUsage.swift).
     var accountUsage: [String: JSONValue] = [:]
     /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.

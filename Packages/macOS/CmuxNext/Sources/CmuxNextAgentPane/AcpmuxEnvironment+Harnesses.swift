@@ -90,6 +90,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case accountRemove = "_acpmux/account/remove"
     /// `{account}`: the CLI's own logout in its folder; the row stays, signed out.
     case accountSignOut = "_acpmux/account/sign_out"
+    /// `{}`: each provider's readiness for onboarding (`{providers: [{family, state, account?, label?}]}`).
+    case accountReadiness = "_acpmux/account/readiness"
     /// Adds a route (here a direct-subscription account in a folder of its own, or an API-key account).
     case routeAdd = "_acpmux/route/add"
     /// `{id}`: removes a route; acpmux keeps a backup of its file.
@@ -139,7 +141,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .accountUsage: .seconds(40)
         // A start waits for the CLI's link (acpmux `agent_login::URL_WAIT`, 20 s); a logout runs the CLI.
         case .accountSignIn, .accountRemove, .accountSignOut: .seconds(40)
-        case .accountSignInCancel, .accountSwitch: .seconds(20)
+        case .accountSignInCancel, .accountSwitch, .accountReadiness: .seconds(20)
         // The daemon holds a finish until the approval or the sign-in's expiry (`agent_login::EXPIRY`, 15 min).
         case .accountSignInFinish: .seconds(16 * 60)
         }
