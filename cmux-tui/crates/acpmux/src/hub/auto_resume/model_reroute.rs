@@ -83,7 +83,7 @@ impl Hub {
         let (root, cut_turn, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("model-reroute", async move {
             let Some((from, to)) = hub.reroute_target(&session, &error).await else {
                 if hub.take_pending(&session, &cut_turn) {
                     hub.settled_unretried(&session, &cut_turn, "not_retried");
