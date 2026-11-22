@@ -169,10 +169,11 @@ final class NextFrameTick {
     }
 
     /// The link retains its target; the target holds the tick weakly.
-    private final class Target: NSObject {
+    /// Main actor: the link is added to the main run loop, so it fires there.
+    @MainActor private final class Target: NSObject {
         weak var owner: NextFrameTick?
         init(_ owner: NextFrameTick) { self.owner = owner }
-        @objc func fire() { MainActor.assumeIsolated { owner?.fired() } }
+        @objc func fire() { owner?.fired() }
     }
 }
 #endif

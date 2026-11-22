@@ -663,11 +663,12 @@ struct AgentChatEmptyState: View {
 /// in on the entrance's spring the first time the chat shows (`NewChatEntrance`).
 struct NewChatGreeting: View {
     let store: AgentChatStore
-    private let style = NewChatEntrance.Style.current
+    private let style: NewChatEntrance.Style
     @State private var settled: Bool
 
     init(store: AgentChatStore, entrance: Bool) {
         self.store = store
+        style = NewChatEntrance.Style.current
         _settled = State(initialValue: !entrance || store.newChatEntrance.greeting || UIAccessibility.isReduceMotionEnabled)
     }
 
@@ -791,7 +792,7 @@ public struct AgentChatBottomStack: View {
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
     /// composer rises in. Typing works throughout; the motion is render only.
     @State private var composerSettled: Bool
-    private let entranceStyle = NewChatEntrance.Style.current
+    private let entranceStyle: NewChatEntrance.Style
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.init(store: store, surface: surface, bottomPadding: 8)
@@ -801,6 +802,7 @@ public struct AgentChatBottomStack: View {
         self.store = store
         self.surface = surface
         self.bottomPadding = bottomPadding
+        entranceStyle = NewChatEntrance.Style.current
         // Only a new chat's first showing rises in; a chat with history, one still loading it,
         // or a second visit draws the composer in place.
         _composerSettled = State(initialValue: !store.isNewChat || store.awaitsFirstPrompt || store.newChatEntrance.composer
