@@ -91,8 +91,15 @@ public final class WebUpdater {
     /// Whether cmux is in the front: checks come every ``interval`` there and every
     /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
     @ObservationIgnored public var foreground = true
+    /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
+    /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
+    @ObservationIgnored public var onChecked: () -> Void = {}
+    /// Whether the channel's switch file of web pieces refuses an update, asked before a new one
+    /// is downloaded and made active (the app asks `cmux app web-pieces refused`; the decision is
+    /// Rust's). A refused update is never served. Default: none is.
+    @ObservationIgnored public var refuses: @MainActor (WebUpdatePointer) async -> Bool = { _ in false }
 
-    let store: WebUpdateStore
+    public let store: WebUpdateStore
     public let app: App
     let keys: WebUpdateKeys
     let base: URL
@@ -256,6 +263,7 @@ public final class WebUpdater {
                 let next = foreground ? interval : backgroundInterval
                 nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
+            onChecked()
         }
         do {
             guard let fresh = try await newPointer() else {
@@ -269,6 +277,12 @@ public final class WebUpdater {
                 // A lasting refusal: read the pointer again only when it changes.
                 if self.channel == channel { etag = tag }
                 throw error
+            }
+            // Refused by the switch file: never downloaded or made active, so no page loads it
+            // before the pieces read would roll it back. Asked again when the pointer changes.
+            if await refuses(pointer) {
+                if self.channel == channel { etag = tag }
+                throw WebUpdateRefusal.refusedBySwitchFile
             }
             phase = .downloading
             var request = URLRequest(url: pointer.archiveURL(base: base))
@@ -318,7 +332,8 @@ public final class WebUpdater {
             }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
-            phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
+            phase = refusal == .notNewer || refusal == .refusedBySwitchFile || Self.isAppTooOld(refusal)
+                ? .idle : .failed(String(describing: refusal))
         } catch {
             phase = .failed(error.localizedDescription)
         }
