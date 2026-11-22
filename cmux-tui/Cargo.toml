@@ -534,7 +534,7 @@ arc-swap = "1.9"
 imbl = "7"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
-# declaring that MSRV. Pinned here so the bump to 0.40 is its own change.
+# declaring that MSRV; it stays at 0.39.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "cache", "hooks", "limits"] }
 # Unicode normalization for history search folding (cmux-history). Already in
 # the graph through url -> idna -> idna_adapter at this version; compiled
