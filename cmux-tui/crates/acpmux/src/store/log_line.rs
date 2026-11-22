@@ -80,14 +80,19 @@ impl<'a> RecordHead<'a> {
 
 #[cfg(test)]
 thread_local! {
-    /// Log lines parsed on this thread by `scan` and `scan_heads` (tests count them).
+    /// Log lines parsed on this thread by `scan`, `scan_heads` and `scan_back` (tests count them).
     pub(crate) static PARSED_LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Those lines' bytes.
+    pub(crate) static PARSED_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Parses one log line into its record.
 pub(super) fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
     #[cfg(test)]
-    PARSED_LINES.with(|n| n.set(n.get() + 1));
+    {
+        PARSED_LINES.with(|n| n.set(n.get() + 1));
+        PARSED_BYTES.with(|n| n.set(n.get() + line.len() as u64));
+    }
     serde_json::from_slice(line)
 }
 
