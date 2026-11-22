@@ -15,8 +15,24 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "shell")
 /// a `NavigationStack`; progress is implicit.
 public struct SetupFlow: View {
     /// A setup step. `createTeam` is pushed from the space choice, never planned.
-    public enum Step: Hashable, Sendable {
-        case team, pairMac, notifications, createTeam
+    /// `intro` ("Here's how cmux works") opens setup and `firstChat` ("Start
+    /// your first agent") ends it, whenever setup has anything else to ask.
+    public enum Step: String, Hashable, Sendable, CaseIterable {
+        case intro, team, pairMac, notifications, plan, firstChat, createTeam
+    }
+
+    /// The billing page, drawn by the host (CmuxMobileShell owns billing): planned only for
+    /// a build that sells plans in the app, and skipped at the moment setup would show it
+    /// when the account can't buy (on a paid plan, billed on the web or by a team, or the
+    /// App Store sells nothing to this build).
+    public struct PlanPage {
+        let view: @MainActor (_ next: @escaping () -> Void) -> AnyView
+        let skips: @MainActor () -> Bool
+
+        public init(skips: @escaping @MainActor () -> Bool, view: @escaping @MainActor (_ next: @escaping () -> Void) -> AnyView) {
+            self.view = view
+            self.skips = skips
+        }
     }
 
     let steps: [Step]
@@ -31,13 +47,19 @@ public struct SetupFlow: View {
     /// Signs out to Welcome, to start over with another account.
     let signOut: () -> Void
     let finish: () -> Void
-    @State private var path: [Step] = []
+    /// The first-agent page's task and the Mac the page named (nil: none online): setup ends
+    /// and Chief opens with it.
+    let startChat: (String, String?) -> Void
+    let planPage: PlanPage?
+    @State private var path: [Step]
     /// `steps` as of the latest update. A page's `next` can run on a copy of
     /// this view from before the plan was fixed (the fleet's push probe: plan
     /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
     /// on the default [team, pairMac]); state reads the current value.
     @State private var plan: [Step]?
-    @State private var confirmsSignOut = false
+    /// The page whose Sign out asked to confirm: its footer's button anchors the
+    /// confirmation (a dialog on the whole stack floated mid-page, Aziz 2026-11-18).
+    @State private var signOutFrom: String?
 
     public init(
         steps: [Step], auth: CmuxMobileAuthModel, store: AppStore,
@@ -45,8 +67,12 @@ public struct SetupFlow: View {
         teamPicked: @escaping (String) -> Void = { _ in },
         personalPicked: @escaping () -> Void = {},
         teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
+        initialStep: Step? = nil,
+        startChat: @escaping (String, String?) -> Void = { _, _ in },
+        planPage: PlanPage? = nil,
         finish: @escaping () -> Void
     ) {
+        self.planPage = planPage
         self.steps = steps
         self.auth = auth
         self.store = store
@@ -55,6 +81,10 @@ public struct SetupFlow: View {
         self.teamCreated = teamCreated
         self.signOut = signOut
         self.finish = finish
+        self.startChat = startChat
+        // DEBUG captures (`-cmux-mobile-setup-step NAME`) open on a later page with
+        // the pages before it on the stack, so Back works as it does after taps.
+        _path = State(initialValue: initialStep.map { Self.path(to: $0, in: steps) } ?? [])
     }
 
     /// Whether setup should ask for notifications: only a build that can
@@ -74,9 +104,9 @@ public struct SetupFlow: View {
             // in, and a way back to Welcome to start over. Inset per page: on
             // the stack, pushed pages did not leave room for it and the footer
             // sat over the bottom of Continue (terminal review round 4).
-            .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter(on: steps.first?.rawValue ?? "root") }
             .navigationDestination(for: Step.self) { step in
-                page(step).safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+                page(step).safeAreaInset(edge: .bottom, spacing: 0) { accountFooter(on: step.rawValue) }
             }
         }
         .tint(theme.colors.label.color)
@@ -84,8 +114,8 @@ public struct SetupFlow: View {
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
-            case .setupSignOut: confirmsSignOut = true
-            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
+            case .setupSignOut: signOutFrom = (path.last ?? steps.first)?.rawValue ?? "root"
+            case .setupConfirmSignOut: signOutFrom = nil; signOut()
             default: break
             }
         }
@@ -102,15 +132,6 @@ public struct SetupFlow: View {
             finish()
         }
         #endif
-        .confirmationDialog("Sign out and start over?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
-            Button("Sign Out", role: .destructive) {
-                theme.haptics.warning()
-                signOut()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You can sign in again with this or another account.")
-        }
     }
 
     #if DEBUG
@@ -121,7 +142,7 @@ public struct SetupFlow: View {
     }
     #endif
 
-    private var accountFooter: some View {
+    private func accountFooter(on page: String) -> some View {
         HStack(spacing: 6) {
             if let email = auth.user?.email, !email.isEmpty {
                 Text("Signed in as \(email)")
@@ -129,10 +150,30 @@ public struct SetupFlow: View {
                     .truncationMode(.middle)
                 Text("·")
             }
-            Button("Sign out") { confirmsSignOut = true }
+            Button("Sign out") { signOutFrom = page }
                 .fontWeight(.semibold)
                 .foregroundStyle(theme.colors.label)
                 .accessibilityIdentifier("setup.sign-out")
+                // On the button, so the confirmation opens from it. Each page's footer
+                // presents only its own, or the root page's would also present under
+                // a pushed one.
+                .confirmationDialog(
+                    "Sign out and start over?",
+                    isPresented: Binding(
+                        get: { signOutFrom == page },
+                        set: { if !$0, signOutFrom == page { signOutFrom = nil } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign Out", role: .destructive) {
+                        theme.haptics.warning()
+                        signOutFrom = nil
+                        signOut()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("You can sign in again with this or another account.")
+                }
         }
         .font(theme.type.meta)
         .foregroundStyle(theme.colors.label2)
@@ -143,6 +184,7 @@ public struct SetupFlow: View {
 
     @ViewBuilder private func page(_ step: Step) -> some View {
         switch step {
+        case .intro: IntroStep(next: { advance(from: .intro) })
         case .team:
             TeamStep(auth: auth, store: store, picked: teamPicked, personal: personalPicked,
                      create: { path.append(.createTeam) }, next: { advance(from: .team) })
@@ -154,12 +196,44 @@ public struct SetupFlow: View {
             }
         case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
+        case .plan:
+            if let planPage { planPage.view { advance(from: .plan) } } else { Color.clear.onAppear { advance(from: .plan) } }
+        case .firstChat:
+            let mac = store.activeTeam?.macs.first(where: \.isOnline)
+            FirstChatStep(onlineMac: mac?.name,
+                          accountHasMac: store.accountMacCount.map { $0 > 0 },
+                          connectMac: { connectMac() },
+                          start: { prompt in
+                              log.info("setup: first agent task chosen")
+                              startChat(prompt, mac?.id)
+                          },
+                          skip: {
+                              log.info("setup: first agent skipped")
+                              finish()
+                          })
+        }
+    }
+
+    /// "Connect your Mac" on the first-agent page: back to the pair page when it is on the
+    /// stack (it is whenever no Mac was online at planning), else pushed.
+    private func connectMac() {
+        log.info("setup: first agent, connect your Mac")
+        if let index = path.lastIndex(of: .pairMac) {
+            path = Array(path[...index])
+        } else if steps.first == .pairMac {
+            path = []
+        } else {
+            path.append(.pairMac)
         }
     }
 
     private func advance(from step: Step) {
+        // Only the page on top moves on: a second tap mid-push, or a demo command a page under
+        // the top one also hears, would push the next page twice.
+        guard (path.last ?? steps.first) == step || (step == .team && path.last == .createTeam) else { return }
         let steps = plan ?? self.steps
-        let next = Self.step(after: step, in: steps)
+        var next = Self.step(after: step, in: steps)
+        if next == .plan, planPage?.skips() ?? true { next = Self.step(after: .plan, in: steps) }
         let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
         log.info("\(said, privacy: .public)")
         guard let next else {
@@ -175,9 +249,34 @@ public struct SetupFlow: View {
     /// online) still leads to the steps planned after it, such as
     /// notifications, instead of ending setup.
     nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
-        let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
         guard let rank = order.firstIndex(of: step) else { return nil }
         return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
+    }
+
+    /// Setup's pages in the order they can appear.
+    public nonisolated static let order: [Step] = [.intro, .team, .createTeam, .pairMac, .notifications, .plan, .firstChat]
+
+    /// Setup's plan for an account: the space choice when it has no team or
+    /// several, Connect your Mac while no Mac is online, notifications while
+    /// the system has not asked. When any of those is asked, setup opens with
+    /// "Here's how cmux works" and ends with "Start your first agent"; when
+    /// none is, there is no setup at all (a returning account on this phone).
+    /// `sellsPlans`: the build sells plans in the app; the plans page then comes
+    /// before the first agent, never on its own.
+    public nonisolated static func plan(teamCount: Int, macOnline: Bool, asksNotifications: Bool, sellsPlans: Bool = false) -> [Step] {
+        var core: [Step] = []
+        if teamCount != 1 { core.append(.team) }
+        if !macOnline { core.append(.pairMac) }
+        if asksNotifications { core.append(.notifications) }
+        guard !core.isEmpty else { return [] }
+        return [.intro] + core + (sellsPlans ? [.plan] : []) + [.firstChat]
+    }
+
+    /// The stack that shows `step` with the planned pages before it under it
+    /// (the root is `steps.first`, so it is not on the path).
+    public nonisolated static func path(to step: Step, in steps: [Step]) -> [Step] {
+        guard let index = steps.firstIndex(of: step), index > 0 else { return [] }
+        return Array(steps[1...index])
     }
 }
 
@@ -232,25 +331,6 @@ private struct SetupSymbol: View {
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
             .accessibilityHidden(true)
-    }
-}
-
-private struct ExplainerRow: View {
-    let symbol: String
-    let text: LocalizedStringKey
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17))
-                .frame(width: 22)
-                .foregroundStyle(theme.colors.label)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(theme.type.body)
-                .foregroundStyle(theme.colors.label)
-        }
-        .padding(.vertical, 8)
     }
 }
 
@@ -642,33 +722,40 @@ private struct PairMacCTAStyle: ButtonStyle {
     }
 }
 
-/// Notification priming before the system prompt. Planned only for builds
+/// Notification priming before the system prompt: real cmux notifications
+/// (`NotificationsShot`), what they are for, and the ask. Planned only for builds
 /// that can receive pushes, while the system has not asked yet.
 private struct NotificationsStep: View {
     let next: () -> Void
 
     var body: some View {
-        SetupPage(symbol: "bell.badge", title: "Know when an agent needs you") {
-            VStack(alignment: .leading, spacing: 4) {
-                ExplainerRow(symbol: "questionmark.bubble", text: "Questions and permission requests")
-                ExplainerRow(symbol: "checkmark.circle", text: "Finished tasks")
-                ExplainerRow(symbol: "exclamationmark.triangle", text: "Errors that stop an agent")
+        SetupPage(title: "See what needs you, as it happens") {
+            NotificationsShot()
+        } content: {
+            Text("A request to approve, a finished task, a word from Chief. Press and hold one to answer it without opening cmux.")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 340)
+        } actions: { actions }
+            #if DEBUG
+            .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
+            #endif
+    }
+
+    @ViewBuilder private var actions: some View {
+        PrimaryCapsule("Turn on notifications") {
+            Task {
+                let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                // The token goes to the service once this phone is registered with its team.
+                if granted, BuildCapabilities.current.push { UIApplication.shared.registerForRemoteNotifications() }
+                next()
             }
-            .frame(maxWidth: 340, alignment: .leading)
-        } actions: {
-            PrimaryCapsule("Turn on notifications") {
-                Task {
-                    let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-                    // The token goes to the service once this phone is registered with its team.
-                    if granted, BuildCapabilities.current.push { UIApplication.shared.registerForRemoteNotifications() }
-                    next()
-                }
-            }
-            TextCTA("Not now", action: next)
         }
-        #if DEBUG
-        .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
-        #endif
+        .accessibilityIdentifier("setup.notifications.allow")
+        TextCTA("Not now", action: next)
+            .accessibilityIdentifier("setup.notifications.not-now")
     }
 }
 #endif

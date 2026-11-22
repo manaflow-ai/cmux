@@ -867,6 +867,35 @@ final class ShellModel {
         }
     }
 
+    /// Setup's "Start your first agent": Home opens on Chief at once, and the task goes to the
+    /// Chief of the Mac the page named (focused first, since Chief follows the focused Mac). With
+    /// no Mac online, or a send that cannot reach it, the task waits in Chief's message field
+    /// instead: nothing is lost, and the person sends it once the Mac is online.
+    func startFirstChat(_ text: String, macID: String?) {
+        tab = .home
+        homePath = NavigationPath(chiefConversation: nil)
+        guard let live else {
+            // Mock data: the mock Chief answers.
+            ChiefSources.shared.mac.sendKeepingDraft(text: text)
+            return
+        }
+        guard let macID else {
+            ChiefSources.shared.mac.keepUnsent(text: text)
+            return
+        }
+        if live.focusedMacID != macID { live.select(macID: macID) }
+        // task-owner: one send to the named Mac's Chief; the composer keeps the task otherwise
+        sendingToChief = true
+        Task { @MainActor [weak self] in
+            let sent = await live.sendToChief(text, on: macID)
+            guard let self else { return }
+            self.sendingToChief = false
+            guard !sent else { return }
+            ChiefSources.shared.mac.keepUnsent(text: text)
+            self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief yet. Your task is in Chief's message field.")
+        }
+    }
+
     func openChiefCallSettings() {
         tab = .settings
         settingsPath = [.chiefCalls]

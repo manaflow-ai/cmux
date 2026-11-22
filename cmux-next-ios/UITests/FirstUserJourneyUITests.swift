@@ -97,9 +97,17 @@ final class FirstUserJourneyUITests: XCTestCase {
         begin(cell)
         let app = launch(setupComplete: false)
         var seen: [String] = []
-        for _ in 0..<8 {
+        for _ in 0..<10 {
             if app.tabBars.firstMatch.exists { break }
-            if app.scrollViews["setup.teams.choose"].exists, app.buttons["Manaflow"].exists {
+            if app.buttons["setup.intro.continue"].exists {
+                seen.append("intro")
+                judge(cell, where: "onboarding/intro", step: "how cmux works page", app: app)
+                app.buttons["setup.intro.continue"].tap()
+            } else if app.buttons["setup.first-chat.skip"].exists {
+                seen.append("first-chat")
+                judge(cell, where: "onboarding/first-chat", step: "first agent page", app: app)
+                app.buttons["setup.first-chat.skip"].tap()
+            } else if app.scrollViews["setup.teams.choose"].exists, app.buttons["Manaflow"].exists {
                 seen.append("team")
                 judge(cell, where: "onboarding/team", step: "team page", app: app)
                 app.buttons["Manaflow"].tap()
@@ -120,7 +128,8 @@ final class FirstUserJourneyUITests: XCTestCase {
                 app.buttons["Not now"].tap()
             } else {
                 _ = waitForAny([app.tabBars.firstMatch, app.scrollViews["setup.teams.choose"],
-                                app.buttons["setup.pair-mac.cta"], app.buttons["Not now"]], timeout: 10)
+                                app.buttons["setup.pair-mac.cta"], app.buttons["Not now"],
+                                app.buttons["setup.intro.continue"], app.buttons["setup.first-chat.skip"]], timeout: 10)
             }
             stepCount += 1
         }
@@ -132,7 +141,8 @@ final class FirstUserJourneyUITests: XCTestCase {
         app.terminate()
         walk(cell, where: "onboarding", reach: {
             let app = self.launch(setupComplete: false)
-            _ = self.waitForAny([app.scrollViews["setup.teams.choose"], app.buttons["setup.pair-mac.cta"]], timeout: 20)
+            _ = self.waitForAny([app.buttons["setup.intro.continue"], app.scrollViews["setup.teams.choose"],
+                                 app.buttons["setup.pair-mac.cta"]], timeout: 20)
             return app
         }, skip: ["setup.sign-out", "Sign out", "Sign Out"])
         finish(cell)

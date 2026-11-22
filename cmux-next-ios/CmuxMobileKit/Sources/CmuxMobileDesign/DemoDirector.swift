@@ -57,6 +57,12 @@ public final class DemoDirector {
         case onboardingTypeCode(String)
         case setupPickTeam(index: Int)
         case setupNotNow
+        /// "Here's how cmux works": Continue.
+        case setupContinue
+        /// "Start your first agent": tap the starter at `index`.
+        case setupFirstChat(index: Int)
+        /// "Start your first agent": type into its field.
+        case setupFirstChatType(String)
         // Team appearance editor.
         case editorColor(hex: String)
         case editorEmoji(String)
