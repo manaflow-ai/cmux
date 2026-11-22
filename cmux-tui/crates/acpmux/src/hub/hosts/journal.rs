@@ -101,7 +101,7 @@ impl Hub {
     }
 
     /// The subagents `session`'s log started and which of them still run, as the tap followed
-    /// them live (`work_below.rs` `seed_subagents_from_log`).
+    /// them live (`work_below.rs` `seed_subagents`).
     pub(in crate::hub) fn subagents_from_log(
         &self,
         session: &Session,
@@ -445,8 +445,12 @@ impl WorkFold {
                 "turn_started" => {
                     work.last_control =
                         Some(Control::from_recorded(e.msg.get("control").and_then(Value::as_str)));
+                    work.last_device = text("device");
                 }
-                "turn_control" => work.last_control = Some(Control::Web),
+                "turn_control" => {
+                    work.last_control = Some(Control::Web);
+                    work.last_device = text("device");
+                }
                 "remote_floor_cancel" => work.floor_cancelled = text("turnId"),
                 _ => {}
             }
@@ -503,6 +507,7 @@ impl WorkFold {
                     },
                 ));
                 work.turn_line = e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
+                work.turn_device = e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                 work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                 work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                 work.turn_at = e.at;
@@ -520,6 +525,8 @@ impl WorkFold {
                 if let Some(t) = work.turn.as_mut() {
                     if e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str()) {
                         t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                        work.turn_device =
+                            e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                     } else {
                         // The turn it carried into, put in place before its end was logged.
                         work.next_raised = true;
@@ -540,6 +547,7 @@ impl WorkFold {
                     (from.unwrap_or_default(), c.clone())
                 });
                 work.turn = None;
+                work.turn_device = None;
                 work.turn_line = None;
                 work.turn_carried = false;
                 work.turn_persons = false;

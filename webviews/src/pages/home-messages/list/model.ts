@@ -10,6 +10,7 @@
 // - Each row: avatar, name, a two-line preview, Messages' list time and the unread dot.
 import { activityAt, channelIds, chiefState, conversationName, type ChiefState } from "../../home-channels/model";
 import type { HomeConversation, HomeParticipant } from "../../home-channels/types";
+import { intl } from "../../../ui/intl";
 
 /** One conversation as the list draws it (a row or a pinned tile). */
 export interface ListItem {
@@ -76,13 +77,20 @@ export function fold(text: string): string {
   return text.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase();
 }
 
-/** A search match: the title, the preview or another member's name. */
-export function matches(item: ListItem, needle: string): boolean {
+/** The search's test for one row: the title, the preview or another member's name. The needle is folded
+ * once here, not once per row (TanStack Table's `resolveFilterValue`). */
+export function matcher(needle: string): (item: ListItem) => boolean {
   const n = fold(needle);
-  if (!n) return true;
-  return (
-    fold(item.title).includes(n) || fold(item.preview).includes(n) || item.members.some((p) => fold(p.name).includes(n))
-  );
+  if (!n) return () => true;
+  return (item) =>
+    fold(item.title).includes(n) ||
+    fold(item.preview).includes(n) ||
+    item.members.some((p) => fold(p.name).includes(n));
+}
+
+/** A search match for one row; a whole list's filter takes `matcher(needle)` once. */
+export function matches(item: ListItem, needle: string): boolean {
+  return matcher(needle)(item);
 }
 
 /** Messages' list time: the time today, "Yesterday", the weekday within the last week, else the
@@ -93,10 +101,10 @@ export function listTime(at: number, now: number, language: string, yesterday: s
   const today = new Date(now);
   const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((startOf(today) - startOf(then)) / 86_400_000);
-  if (days <= 0) return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(then);
+  if (days <= 0) return intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(then);
   if (days === 1) return yesterday;
-  if (days <= 6) return new Intl.DateTimeFormat(language, { weekday: "long" }).format(then);
-  return new Intl.DateTimeFormat(language, { dateStyle: "short" }).format(then);
+  if (days <= 6) return intl.DateTimeFormat(language, { weekday: "long" }).format(then);
+  return intl.DateTimeFormat(language, { dateStyle: "short" }).format(then);
 }
 
 /** The list order before any search or filter: the pinned rows in my pin order (lower position
@@ -163,9 +171,8 @@ export function listModel(conversations: ReadonlyMap<string, HomeConversation>, 
   const restItems = rest.map(item);
   if (!query && !options.unreadOnly) return { pinned: pinnedItems, rows: restItems };
   // A search or a filter lists every match as a row, pinned ones first, and no grid.
-  const rows = [...pinnedItems, ...restItems].filter(
-    (row) => (!options.unreadOnly || row.unread) && (!query || matches(row, query)),
-  );
+  const matching = query ? matcher(query) : () => true;
+  const rows = [...pinnedItems, ...restItems].filter((row) => (!options.unreadOnly || row.unread) && matching(row));
   return { pinned: [], rows };
 }
 

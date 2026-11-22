@@ -1,0 +1,43 @@
+{
+  "title": "Agent badges (experiments.agentBadges with its running beam): an agent in a background tab runs, asks for approval, then finishes; its tab's count pill and its row's status pill change in place",
+  "settings": {"experiments": {"agentBadges": true, "agentBadgesBeam": true}},
+  "harnessFixture": {
+    "harnesses": {
+      "fake": {
+        "argv": ["python3", "-I", "-c", "import json\nimport sys\nimport uuid\n\n\ndef send(message):\n    sys.stdout.write(json.dumps(message) + \"\\n\")\n    sys.stdout.flush()\n\n\ndef say(sid, text):\n    send({\"jsonrpc\": \"2.0\", \"method\": \"session/update\", \"params\": {\"sessionId\": sid, \"update\": {\n        \"sessionUpdate\": \"agent_message_chunk\", \"content\": {\"type\": \"text\", \"text\": text}}}})\n\n\ndef prompt_text(params):\n    return \"\".join(b.get(\"text\", \"\") for b in params.get(\"prompt\", []) if isinstance(b, dict)).strip()\n\n\npending = {}\nasks = 0\nfor line in sys.stdin:\n    try:\n        msg = json.loads(line)\n    except ValueError:\n        continue\n    method, rid = msg.get(\"method\"), msg.get(\"id\")\n    if method is None and rid in pending:\n        prompt_id, sid = pending.pop(rid)\n        outcome = (msg.get(\"result\") or {}).get(\"outcome\") or {}\n        if outcome.get(\"outcome\") == \"selected\":\n            say(sid, \"Approved.\")\n            send({\"jsonrpc\": \"2.0\", \"id\": prompt_id, \"result\": {\"stopReason\": \"end_turn\"}})\n        else:\n            send({\"jsonrpc\": \"2.0\", \"id\": prompt_id, \"result\": {\"stopReason\": \"cancelled\"}})\n        continue\n    if method == \"session/cancel\":\n        for ask_id, (prompt_id, sid) in list(pending.items()):\n            pending.pop(ask_id)\n            send({\"jsonrpc\": \"2.0\", \"id\": prompt_id, \"result\": {\"stopReason\": \"cancelled\"}})\n        continue\n    if rid is None:\n        continue\n    if method == \"initialize\":\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\n            \"protocolVersion\": 1,\n            \"agentInfo\": {\"name\": \"badges-agent\", \"title\": \"Release agent\", \"version\": \"1.0.0\"},\n            \"agentCapabilities\": {\"loadSession\": False, \"promptCapabilities\": {}}}})\n    elif method == \"session/new\":\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\"sessionId\": str(uuid.uuid4())}})\n    elif method == \"session/prompt\":\n        params = msg.get(\"params\", {})\n        sid, text = params.get(\"sessionId\"), prompt_text(params)\n        if text.startswith(\"gate:\"):\n            say(sid, \"Running the release checks.\")\n            with open(text[5:].strip()) as gate:\n                gate.read()\n            say(sid, \" Checks passed.\")\n            send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\"stopReason\": \"end_turn\"}})\n        elif text.startswith(\"ask:\"):\n            asks += 1\n            ask_id = f\"ask-{asks}\"\n            pending[ask_id] = (rid, sid)\n            send({\"jsonrpc\": \"2.0\", \"id\": ask_id, \"method\": \"session/request_permission\", \"params\": {\n                \"sessionId\": sid,\n                \"toolCall\": {\"toolCallId\": f\"call-{asks}\", \"title\": text[4:].strip(), \"kind\": \"execute\",\n                             \"status\": \"pending\"},\n                \"options\": [{\"optionId\": \"allow\", \"name\": \"Allow\", \"kind\": \"allow_once\"},\n                            {\"optionId\": \"reject\", \"name\": \"Reject\", \"kind\": \"reject_once\"}]}})\n        else:\n            say(sid, text)\n            send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {\"stopReason\": \"end_turn\"}})\n    else:\n        send({\"jsonrpc\": \"2.0\", \"id\": rid, \"result\": {}})"],
+        "description": "A stand-in release agent: gate: waits on a FIFO, ask: asks permission (Agent badges tour)"
+      }
+    }
+  },
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "A quiet workspace, so an idle row shows beside the agent's", "cmux": ["workspace", "new", "--name", "Notes"], "wait": 1, "shot": false},
+    {"title": "New workspace Release", "cmux": ["workspace", "new", "--name", "Release"], "wait": 1, "shot": false},
+    {"title": "Show Release", "cmux": ["workspace", "name:Release", "focus"], "wait": 1, "shot": false},
+    {"title": "A gate the agent's first turn waits on", "daemon": true,
+     "cmux": ["workspace", "name:Release", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+              "rm -f /tmp/cmux-agent-badges-gate; mkfifo /tmp/cmux-agent-badges-gate; clear\r"],
+     "wait": 1, "shot": false},
+    {"title": "The agent starts: its turn runs until the gate opens",
+     "cmux": ["agents", "chat", "new", "--harness", "fake", "--name", "release-check", "--", "gate: /tmp/cmux-agent-badges-gate"],
+     "wait": 2, "shot": false},
+    {"title": "A terminal tab in front, so the agent works in the background", "cmux": ["action", "run", "newSurface"], "wait": 1, "shot": false},
+    {"title": "Name the terminal tab", "cmux": ["tab", "current", "rename", "--name", "Shell"], "wait": 1, "shot": false},
+    {"title": "Queue the agent's next step: it will ask to deploy",
+     "cmux": ["agents", "chat", "send", "release-check", "--", "ask: Deploy release to staging"], "wait": 1, "shot": false},
+    {"title": "Running: the row's Running pill and the beam on its edge; the tab's count slot is reserved and empty", "wait": 3},
+    {"title": "Still running", "wait": 2},
+    {"title": "The first turn ends and the ask begins", "daemon": true,
+     "cmux": ["workspace", "name:Release", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+              "echo go > /tmp/cmux-agent-badges-gate\r"],
+     "wait": 1, "shot": false},
+    {"title": "Needs approval: the row's pill turns to Needs approval and the beam stops; the tab's count appears, nothing moves", "wait": 3},
+    {"title": "Still waiting on the person", "wait": 2},
+    {"title": "The ask is withdrawn", "cmux": ["agents", "chat", "interrupt", "release-check"], "wait": 1, "shot": false},
+    {"title": "The agent reports back",
+     "cmux": ["agents", "chat", "send", "release-check", "--", "Deployed to staging. Every check passed."], "wait": 2, "shot": false},
+    {"title": "Done: the row's Done pill; the tab's count stays until the chat is read, nothing moves", "wait": 3},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}

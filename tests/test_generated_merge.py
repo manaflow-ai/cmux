@@ -13,7 +13,9 @@ cmux-generated-v1 is not generated at all.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -177,11 +179,11 @@ class AuditFixtureTests(unittest.TestCase):
 
     def test_a_routed_tree_passes(self):
         self.base_tree("src/widgets.generated.ts merge=cmux-generated-v1\n"
-                       "docs/settings.json merge=cmux-generated-v1\n")
+                       "docs/settings.json merge=cmux-export-v1\n")
         self.assertEqual(self.audit(self.routed()), [])
 
     def test_a_generated_file_that_merges_by_line_fails(self):
-        self.base_tree("docs/settings.json merge=cmux-generated-v1\n")
+        self.base_tree("docs/settings.json merge=cmux-export-v1\n")
         problems = self.audit(self.routed())
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("src/widgets.generated.ts", problems[0])
@@ -192,7 +194,7 @@ class AuditFixtureTests(unittest.TestCase):
                        "status": "committed"},
                       {"id": "gadgets", "generator": "scripts/gen-gadgets.py", "outputs": ["src/gadgets.json"],
                        "status": "committed"})
-        self.base_tree("src/*.generated.ts merge=cmux-generated-v1\ndocs/settings.json merge=cmux-generated-v1\n")
+        self.base_tree("src/*.generated.ts merge=cmux-generated-v1\ndocs/settings.json merge=cmux-export-v1\n")
         self.write("src/gadgets.json")
         problems = self.audit(self.routed())
         self.assertEqual(len(problems), 1, problems)
@@ -200,7 +202,7 @@ class AuditFixtureTests(unittest.TestCase):
         self.assertIn("REGENERATE has no entry", problems[0])
 
     def test_a_hand_written_file_kept_by_the_generated_driver_fails(self):
-        self.base_tree("src/** merge=cmux-generated-v1\ndocs/settings.json merge=cmux-generated-v1\n")
+        self.base_tree("src/** merge=cmux-generated-v1\ndocs/settings.json merge=cmux-export-v1\n")
         problems = self.audit(self.routed())
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("src/hand.ts", problems[0])
@@ -209,13 +211,13 @@ class AuditFixtureTests(unittest.TestCase):
     def test_a_line_family_kept_by_the_generated_driver_fails(self):
         """A file no merge host rebuilds must never keep one side: the other side's change would be lost."""
         self.base_tree("src/*.generated.ts merge=cmux-generated-v1\nvendor/** merge=cmux-generated-v1\n"
-                       "docs/settings.json merge=cmux-generated-v1\n")
+                       "docs/settings.json merge=cmux-export-v1\n")
         problems = self.audit(self.routed())
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("vendor/notices.md", problems[0])
 
     def test_an_entry_for_a_family_that_is_gone_fails(self):
-        self.base_tree("src/*.generated.ts merge=cmux-generated-v1\ndocs/settings.json merge=cmux-generated-v1\n")
+        self.base_tree("src/*.generated.ts merge=cmux-generated-v1\ndocs/settings.json merge=cmux-export-v1\n")
         problems = self.audit({**self.routed(), "retired": generated_merge.here(("python3", "x.py"))})
         self.assertEqual(problems, ["REGENERATE['retired']: no generated file has this family any more; remove the entry"])
 
@@ -228,7 +230,9 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo = self.tmp / "repo"
         self.env = git_env(self.tmp)
-        (self.tmp / "gitconfig").write_text("[merge \"cmux-generated-v1\"]\n\tdriver = true\n")
+        # The driver scripts/install-git-hooks.sh registers: a three-way merge, else this branch's copy.
+        driver = f"{sys.executable} -I {ROOT / 'scripts/merge-insertions.py'} --generated %O %A %B %P %L"
+        (self.tmp / "gitconfig").write_text(f"[merge \"cmux-generated-v1\"]\n\tdriver = {driver}\n")
         for relative in ("scripts/ci/generated_files_guard.py", "scripts/ci/ci_process_tree.py",
                          "scripts/cmux-next/generated_outputs.py", "scripts/cmux-next/generated_merge.py"):
             (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -272,6 +276,8 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.git("checkout", "-q", "lane")
         merged = self.git("merge", "--no-edit", "main", check=False)
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)  # no conflict
+        # Both sides rewrote the `"a"` line (its comma): no three-way merge, so the lane's copy, said loudly.
+        self.assertIn("out/widgets.json: both sides rebuilt this generated file", merged.stderr)
         self.assertEqual(json.loads((self.repo / "out/widgets.json").read_text()), ["a", "lane"])  # kept, stale
         saved = dict(generated_merge.REGENERATE)
         generated_merge.REGENERATE.clear()
@@ -288,6 +294,162 @@ class MergeRegeneratesTests(unittest.TestCase):
             generated_merge.REGENERATE.update(saved)
         self.assertEqual(json.loads((self.repo / "out/widgets.json").read_text()), ["a", "base", "lane"])
         self.assertEqual(self.git("diff", "--cached", "--name-only").stdout.split(), ["out/widgets.json"])
+
+
+SETTINGS_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Keys.generated.swift"
+SETTINGS_EXPORTS = (
+    "docs/mdm/com.manaflow.cmux.json",
+    "docs/mdm/com.manaflow.cmux.plist",
+    "docs/mdm/com.manaflow.cmux.intune.plist",
+    "docs/mdm/cmux-example.mobileconfig",
+    "docs/mdm/managed-preferences.md",
+    "schemas/settings/settings-schema.json",
+)
+# Stands for the settings Swift generator (a `here` family regenerate reruns on any host).
+SWIFT_GENERATOR = f"""import pathlib
+keys = sorted(p.stem for p in pathlib.Path('settings-sources').glob('*.key'))
+out = pathlib.Path({SETTINGS_SWIFT!r})
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text('let settingKeys = [\\n' + ''.join(f'    "{{k}}",\\n' for k in keys) + ']\\n')
+"""
+# Stands for regenerate-settings-exports.sh, which only a Mac runs: in this fixture each side's commit ran it,
+# the merge never does.
+MAC_EXPORTER = """import json, pathlib
+keys = sorted(p.stem for p in pathlib.Path('settings-sources').glob('*.key'))
+def write(path, text):
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(path).write_text(text)
+props = {k: {'type': 'boolean'} for k in keys}
+write('schemas/settings/settings-schema.json', json.dumps({'properties': props}, indent=2) + '\\n')
+write('docs/mdm/com.manaflow.cmux.json', json.dumps({'keys': keys}, indent=2) + '\\n')
+rows = ''.join(f'\\t<key>{k}</key>\\n\\t<true/>\\n' for k in keys)
+plist = '<?xml version="1.0" encoding="UTF-8"?>\\n<plist version="1.0">\\n<dict>\\n' + rows + '</dict>\\n</plist>\\n'
+write('docs/mdm/com.manaflow.cmux.plist', plist)
+write('docs/mdm/cmux-example.mobileconfig', plist)
+write('docs/mdm/com.manaflow.cmux.intune.plist', rows)
+write('docs/mdm/managed-preferences.md', '# Managed preferences\\n\\n' + ''.join(f'- `{k}`\\n' for k in keys) + '\\nEnd.\\n')
+"""
+
+
+class SettingsKeysFromBothSidesTests(unittest.TestCase):
+    """cmux#47525: base added settings keys (cornerFlush, finishSound, app.language, appearance.twoTone), the lane
+    added its own, and the merge kept the lane's settings-schema.json, docs/mdm exports and settings Swift, so
+    base's keys vanished with no conflict. The cmux-generated-v1 driver was `true` (always this branch's copy):
+    nothing on Linux rebuilds the Mac-only exports, and the settings Swift is rebuilt only by post-merge, which
+    never runs when a merge stops on a hand-written conflict and is finished with `git commit`.
+
+    The detector: a merge of two sides that each add a different settings key keeps both keys in every output,
+    after `regenerate --merge` and with no regenerate at all, and an old `driver = true` clone fails regenerate
+    naming the file that lost base's rows."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="generated-merge-keys-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "repo"
+        self.env = git_env(self.tmp)
+        self.drivers(old=False)
+        for relative in ("scripts/ci/generated_files_guard.py", "scripts/ci/ci_process_tree.py",
+                         "scripts/cmux-next/generated_outputs.py", "scripts/cmux-next/generated_merge.py",
+                         "scripts/cmux-next/settings-exports.txt", ".gitattributes"):
+            (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, self.repo / relative)
+        (self.repo / "scripts/ci/generated-files-baseline.txt").write_text("")
+        (self.repo / "scripts/ci/generated-files.json").write_text(json.dumps({
+            "conventions": ["**/*.generated.*"], "committed": [], "generators": [
+                {"id": "settings-sources", "generator": "gen_swift.py", "outputs": [SETTINGS_SWIFT],
+                 "status": "committed"}]}))
+        (self.repo / "gen_swift.py").write_text(SWIFT_GENERATOR)
+        (self.repo / "mac_export.py").write_text(MAC_EXPORTER)
+        (self.repo / "notes.txt").write_text("base\n")
+        self.git("init", "-q", "-b", "main")
+        self.add_keys("aaa.first", "zzz.last")
+        saved = dict(generated_merge.REGENERATE)
+        self.addCleanup(lambda: (generated_merge.REGENERATE.clear(), generated_merge.REGENERATE.update(saved)))
+        generated_merge.REGENERATE.clear()
+        generated_merge.REGENERATE["settings-sources"] = generated_merge.here((sys.executable, "gen_swift.py"))
+        generated_merge.REGENERATE["docs/mdm/com.manaflow.cmux.json"] = generated_merge.autofix("mac_export.py")
+
+    def drivers(self, *, old: bool):
+        """The drivers scripts/install-git-hooks.sh registers, or (OLD) the `true` every clone had before."""
+        insertions = f"{sys.executable} -I {ROOT / 'scripts/merge-insertions.py'}"
+        generated = "true" if old else f"{insertions} --generated %O %A %B %P %L"
+        export = "true" if old else f"{insertions} %O %A %B %P %L"
+        (self.tmp / "gitconfig").write_text(f"[merge \"cmux-generated-v1\"]\n\tdriver = {generated}\n"
+                                            f"[merge \"cmux-export-v1\"]\n\tdriver = {export}\n")
+
+    def git(self, *args, check=True):
+        return subprocess.run(["git", *args], cwd=self.repo, env=self.env, check=check, capture_output=True, text=True)
+
+    def add_keys(self, *keys: str, notes: str | None = None):
+        (self.repo / "settings-sources").mkdir(exist_ok=True)
+        for key in keys:
+            (self.repo / "settings-sources" / f"{key}.key").write_text(key + "\n")
+        if notes is not None:
+            (self.repo / "notes.txt").write_text(notes)
+        for script in ("gen_swift.py", "mac_export.py"):  # a Mac commit: every output rebuilt
+            subprocess.run([sys.executable, script], cwd=self.repo, check=True)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "add " + " ".join(keys))
+
+    def branches(self, *, conflict: bool):
+        self.git("checkout", "-q", "-b", "lane")
+        self.add_keys("look.glyph", notes="lane\n" if conflict else None)
+        self.git("checkout", "-q", "main")
+        self.add_keys("appearance.twoTone", notes="main\n" if conflict else None)
+        self.git("checkout", "-q", "lane")
+
+    def regenerate(self) -> tuple[int, str]:
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = generated_merge.main(["regenerate", "--repo", str(self.repo), "--merge", "--stage"])
+        return code, err.getvalue()
+
+    def assert_both_keys(self, where: str):
+        for path in (SETTINGS_SWIFT, *SETTINGS_EXPORTS):
+            text = (self.repo / path).read_text()
+            for key in ("look.glyph", "appearance.twoTone", "aaa.first", "zzz.last"):
+                self.assertIn(key, text, f"{where}: {path} lost {key}")
+        json.loads((self.repo / "schemas/settings/settings-schema.json").read_text())
+        json.loads((self.repo / "docs/mdm/com.manaflow.cmux.json").read_text())
+
+    def test_a_clean_merge_and_regenerate_keep_both_keys(self):
+        self.branches(conflict=False)
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assert_both_keys("after the merge")
+        code, err = self.regenerate()
+        self.assertEqual(code, 0, err)
+        self.assert_both_keys("after regenerate --merge")
+        self.assertEqual((self.repo / SETTINGS_SWIFT).read_text(),
+                         'let settingKeys = [\n    "aaa.first",\n    "appearance.twoTone",\n    "look.glyph",\n'
+                         '    "zzz.last",\n]\n')
+
+    def test_a_merge_finished_by_hand_with_no_rebuild_keeps_both_keys(self):
+        """post-merge never runs here: the merge stops on notes.txt and `git commit` finishes it."""
+        self.branches(conflict=True)
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(merged.returncode, 0)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.split(), ["notes.txt"])
+        (self.repo / "notes.txt").write_text("both\n")
+        self.git("add", "notes.txt")
+        self.git("commit", "-q", "--no-edit")
+        self.assert_both_keys("committed with no regenerate")
+        code, err = self.regenerate()
+        self.assertEqual(code, 0, err)
+
+    def test_an_old_keep_ours_clone_fails_regenerate_naming_the_file(self):
+        self.drivers(old=True)
+        self.branches(conflict=False)
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertNotIn("appearance.twoTone", (self.repo / "schemas/settings/settings-schema.json").read_text())
+        code, err = self.regenerate()
+        self.assertEqual(code, 1)
+        for path in SETTINGS_EXPORTS:
+            self.assertIn(f"{path}: the merge dropped", err)
+        self.assertIn("appearance.twoTone", err)
+        self.assertNotIn(SETTINGS_SWIFT, err)  # regenerate rebuilt that one from the merged sources
+        self.assertIn("appearance.twoTone", (self.repo / SETTINGS_SWIFT).read_text())
 
 
 class InsertionsOnTheHandWrittenRegistriesTests(unittest.TestCase):

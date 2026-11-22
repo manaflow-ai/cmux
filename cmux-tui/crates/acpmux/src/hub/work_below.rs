@@ -123,10 +123,11 @@ impl Hub {
     /// summary still counts them. A new daemon started with none, and until each subagent's next
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
-    /// subagents of the one before, and a turn start the foreground ones, as live. Read from the
-    /// adoption checkpoint of host `incarnation` when there is one (`hosts/checkpoint.rs`).
-    pub(super) fn seed_subagents_from_log(&self, session: &Session, incarnation: &str) {
-        let tree = self.subagents_from_log(session, incarnation);
+    /// subagents of the one before, and a turn start the foreground ones, as live. Read off the
+    /// executor (`hosts.rs` `read_whole_log`) by [`Hub::subagents_from_log`], from the adoption
+    /// checkpoint of the host's incarnation when there is one (`hosts/checkpoint.rs`); this
+    /// applies what it found.
+    pub(super) fn seed_subagents(&self, session: &Session, tree: crate::subagents::SubagentTree) {
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();
