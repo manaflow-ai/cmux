@@ -1,8 +1,7 @@
-//! A restart while the host's last entries are ones the log keeps nowhere (Claude Code's raw
-//! `stream_event` deltas, `hub/tap.rs`): the previous daemon acked them and the host dropped
-//! them, so none comes back in the replay. Adoption waited out `REPLAY_STALL` (10 s) for them,
-//! the log's last `hostSeq` being below the host's ack: a carrier fault run on 2026-11-22 read
-//! the daemon's "startup complete" 10.0 s after "agents may start".
+//! A kill while an idle Claude chat's last host entry is one the log keeps nowhere (the /context
+//! answer each turn's result asks for, `hub/tap.rs`): the next daemon adopts the host within
+//! seconds, never waiting out `REPLAY_STALL` (10 s) for entries the host already dropped. A
+//! carrier fault run on 2026-11-22 read "startup complete" 10.0 s after "agents may start".
 
 use super::*;
 
