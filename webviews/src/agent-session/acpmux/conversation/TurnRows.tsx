@@ -361,6 +361,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const endMark = failedLook && (
     <span
       className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
       role="img"
       aria-label={t("turn.failedMark")}
     >
