@@ -251,16 +251,14 @@ final class PaneToolbar: PaneControlsRefreshing {
 
     /// `menu`'s rows, taken out of it so another menu can hold them.
     private static func detach(_ menu: NSMenu) -> [NSMenuItem] {
-        let items = menu.items
-        menu.removeAllItems()
-        return items
+        defer { menu.removeAllItems() }
+        return menu.items
     }
 
     /// Show in Tab Bar, with its pin icon: the selected kind's controls, plus existing pins so they can be unpinned.
     private func showInTabBarItem(registry: ActionRegistry) -> NSMenuItem {
         let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
-        // The catalog rows above it carry icons: an icon-less row would start its text an empty icon slot in.
-        item.image = NSImage.menuSymbol("pin")
+        item.image = NSImage.menuSymbol("pin") // beside the catalog rows' icons, no empty icon slot
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
         let available = Set(kind.map(Self.actions) ?? [])
