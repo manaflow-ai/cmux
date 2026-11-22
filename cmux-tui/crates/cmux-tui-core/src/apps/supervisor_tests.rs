@@ -1346,6 +1346,9 @@ mod budget;
 #[path = "supervisor_store_sections_tests.rs"]
 mod store_sections;
 
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
+
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;
 
