@@ -269,6 +269,11 @@ extension CEFRuntime {
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
+        if extensionStores.hasPendingUnpacked(tab.profileID) {
+            let profile = tab.profileID
+            Task { [weak self] in self?.extensionStores.browserRegistered(profile) }
+        }
     }
 
     private func browserClosed(_ browser: Int32) {

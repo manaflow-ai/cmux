@@ -730,12 +730,18 @@ describe("auto-roll scripts", () => {
       expect(pinnedNow).toBe(newer);
     }), 60_000);
 
-  test("the promote job checks out full history for the never-older check", () => {
+  // Roll 44956612935 (2026-11-21): the checkout's single full-history fetch got an HTTP 408 and promote failed; a
+  // retried blobless fetch after a shallow checkout gives the never-older check the same history.
+  test("the promote job fetches full history for the never-older check, with retries", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ uses?: string; with?: Record<string, unknown> }> }> };
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, unknown> }> }> };
+    const steps = roll.jobs["promote"]!.steps;
     // This repository's checkout (a reused-workspace cleanup step may come before it; cmux-platform's come after).
-    const own = roll.jobs["promote"]!.steps.find((s) => s.uses?.startsWith("actions/checkout@") && !s.with?.repository);
-    expect(own!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const own = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@") && !s.with?.repository);
+    const fetch = steps.findIndex((s) => s.run?.includes("--filter=blob:none") && s.run.includes("refs/heads/feat-cmux-next"));
+    expect(fetch).toBeGreaterThan(own);
+    expect(steps[fetch]!.run).toContain("for try in 1 2 3");
+    expect(steps[fetch]!.run).toContain("--unshallow");
   });
 
   // Production, 2026-11-20: cmux-platform's pin was an auto-rolled id a roll trimmed (image_withdrawn). Every step that
@@ -759,6 +765,16 @@ describe("auto-roll scripts", () => {
       expect({ name, run: steps[push]!.run }).toMatchObject({ name, run: expect.stringContaining('--platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc"') });
       // The pins are read whenever the push runs: the checkout's condition is the push step's, or none.
       expect({ name, if: step.if ?? steps[push]!.if }).toEqual({ name, if: steps[push]!.if });
+      // Roll 44852142963 (2026-11-20): the pr-autofix app's installation is "selected" repositories without
+      // cmux-platform, so its token mint answered 404 and no roll could promote. The pins token comes from cmux-bot,
+      // installed on every repository of the org, read-only and for cmux-platform alone.
+      const mint = steps.find((s) => s.id === "pins-token");
+      expect({ name, mint: mint?.with }).toMatchObject({
+        name,
+        mint: { "app-id": "${{ vars.CMUX_BOT_APP_ID }}", "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}", owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "read" },
+      });
+      expect({ name, keys: Object.keys(mint!.with!).filter((k) => k.startsWith("permission-")) }).toEqual({ name, keys: ["permission-contents"] });
+      expect({ name, token: step.with?.token }).toEqual({ name, token: "${{ steps.pins-token.outputs.token }}" });
     }
   });
 

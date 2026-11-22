@@ -118,10 +118,15 @@ pub(super) struct CloudCommand {
     pub timeout_seconds: u64,
 }
 
-/// How long one wait step waits (its step limit is this plus [`STEP_SLACK`],
-/// within the provider's 300 s).
+/// How long one wait step waits. Its step limit is this plus [`STEP_SLACK`],
+/// [`STEP_LIMIT`], within the provider's 300 s exec. (On 2026-11-21 an exec
+/// held open was cut at about 125 s by the provider's edge, a 524; cmux-vm now
+/// sends a longer one as a background request, workers/cmux-vm
+/// src/upstream/live-background.ts, and a 200 s step passed on production.)
 pub(super) const WAIT_SECONDS: u64 = 280;
-const STEP_SLACK: u64 = 15;
+const STEP_SLACK: u64 = 10;
+/// The limit of every step, the start step's too: within the provider's 300 s.
+const STEP_LIMIT: u64 = WAIT_SECONDS + STEP_SLACK;
 /// A body holds at most 50 steps: one start and 49 waits.
 pub(super) const MAX_CLOUD_COMMAND_SECONDS: u64 = 49 * WAIT_SECONDS;
 /// Where a run keeps its files on the machine (under the machine user's home).
@@ -203,7 +208,7 @@ pub(super) fn wait_script(wait: u64, last: bool) -> String {
 pub(super) fn command_body(c: &CloudCommand) -> Value {
     let waits = c.timeout_seconds.clamp(1, MAX_CLOUD_COMMAND_SECONDS).div_ceil(WAIT_SECONDS);
     let mut steps = vec![json!({
-        "type": "machine", "machine": c.machine, "command": start_script(c), "timeout_seconds": 290,
+        "type": "machine", "machine": c.machine, "command": start_script(c), "timeout_seconds": STEP_LIMIT,
     })];
     let mut left = c.timeout_seconds.clamp(1, MAX_CLOUD_COMMAND_SECONDS);
     for i in 0..waits {
@@ -373,6 +378,52 @@ mod tests {
             repo: Some(("manaflow-ai/cmux".into(), "feat-cmux-next".into())),
             machine: "vm_abcdefghij0123456789".into(),
             timeout_seconds: timeout,
+        }
+    }
+
+    #[test]
+    fn every_step_ends_before_the_provider_cuts_an_exec_even_at_the_longest_timeout() {
+        for timeout in [
+            1,
+            WAIT_SECONDS,
+            WAIT_SECONDS + 1,
+            1_200,
+            MAX_CLOUD_COMMAND_SECONDS,
+            MAX_CLOUD_COMMAND_SECONDS + 999,
+        ] {
+            let body = command_body(&scout(timeout));
+            let steps = body["steps"].as_array().unwrap();
+            assert!(
+                steps.len() <= 50,
+                "a body holds at most 50 steps ({timeout} s: {})",
+                steps.len()
+            );
+            // STEP_LIMIT itself stays within the provider's 300 s exec; checked at compile time.
+            const { assert!(STEP_LIMIT <= 300) };
+            for (i, s) in steps.iter().enumerate() {
+                let limit = s["timeout_seconds"].as_u64().unwrap();
+                assert!(
+                    limit <= STEP_LIMIT,
+                    "{timeout} s: step {i} may run {limit} s, past the provider's 300 s exec"
+                );
+            }
+            let waited: u64 = steps[1..]
+                .iter()
+                .map(|s| s["timeout_seconds"].as_u64().unwrap() - STEP_SLACK)
+                .sum();
+            assert_eq!(
+                waited,
+                timeout.clamp(1, MAX_CLOUD_COMMAND_SECONDS),
+                "the waits cover the timeout exactly"
+            );
+        }
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let usage = crate::localization::catalog_for_locale(locale).automation.usage;
+            let max = format!("{}m", MAX_CLOUD_COMMAND_SECONDS / 60);
+            assert!(
+                usage.contains(&max),
+                "{locale}: the help names the real --timeout maximum, {max}"
+            );
         }
     }
 

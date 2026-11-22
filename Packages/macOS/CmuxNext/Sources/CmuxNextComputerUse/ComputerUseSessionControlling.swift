@@ -13,3 +13,14 @@ public protocol ComputerUseSessionControlling: AnyObject {
     /// then brings the app forward.
     func raiseWindow(_ id: String) async throws
 }
+
+public extension ComputerUseSessionControlling {
+    /// Stops the session one of `terminals` (comma-separated, a row's drive indicator's agent) started, else the
+    /// newest live one; with no terminals or no live session, every session: the person's stop must not depend on a
+    /// session list the host may not give (Stop Computer Use with no target, #37003).
+    func stop(terminals: String?) async throws {
+        let ids = Set((terminals ?? "").split(separator: ",").map(String.init))
+        guard !ids.isEmpty, let picked = ComputerUseLiveSession.pick(try await liveSessions(), terminals: ids) else { return try await stopAll() }
+        try await stop(picked.id)
+    }
+}

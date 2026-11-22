@@ -470,6 +470,15 @@ impl Mux {
         self.state.lock().unwrap().terminal_catalog.get(terminal_id).map(|surface| surface.id)
     }
 
+    /// The surface a client's tab shows `terminal_id` in ([`State::terminal_view_surface`]):
+    /// what an agent event names, not the runtime id a key or a renderer routes by.
+    pub(crate) fn agent_view_surface_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).terminal_view_surface(terminal_id)
+    }
+
     pub(crate) fn resource_selectors_for_pane(
         &self,
         pane: Option<PaneId>,

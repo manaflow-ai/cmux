@@ -143,7 +143,7 @@ extension PaletteLiveRead where Value == GlobalSearchCorpus {
 
 enum GlobalSearchStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "GlobalSearch", bundle: .module)
+        String(localized: key, defaultValue: value, table: "GlobalSearch", bundle: .module.inAppLanguage)
     }
 
     static var title: String { text("globalSearch.title", "Search All Windows") }

@@ -9,11 +9,12 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
+import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
+import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -2114,7 +2115,8 @@ except probe.OutOfTime as cut:
     }
   });
 
-  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
+  // 76 MiB of reads: bun's 5 s default killed it on a loaded shared pool runner (base run 44851992457, 2026-11-21).
+  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
     const big = join(dir, "one-line.txt");
     // 64 MiB with no line break: a key's name across the first read's edge, and one deeper in. The first piece ends
@@ -2149,26 +2151,39 @@ except MemoryError:
     }
   });
 
-  test("a line of many escapes that spell no key is read in linear time", () => {
+  test("a line of many escapes that spell no key is read in linear time", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
     const file = join(dir, "strings.json");
     // 400,000 escaped spaces on one line: each was a reading of the whole line, then a search back to its start
     // (4.7 s at this size, four times that at twice it). Then a key after 20,000 short lines of escapes, on its own line.
     writeFileSync(file, `{"s": "${"\\u0020".repeat(400_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(20_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
+    // The same file at half its size: the bound is this machine's own scan of it, not a fixed number of seconds a
+    // loaded runner misses (2.27 s against 1.5 s on a shared pool runner, base run 44851992457). Twice the input
+    // takes about twice the time when linear (1.6-2.1x measured) and four times when quadratic (3.8x before #41283).
+    const half = join(dir, "half.json");
+    writeFileSync(half, `{"s": "${"\\u0020".repeat(200_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(10_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
     const script = `
 import importlib.util, json, sys, time
 spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
-t0 = time.monotonic()
-hits = probe.scan_file(sys.argv[2])
-print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
+def timed(path):
+    best = None
+    for _ in range(2):
+        t0 = time.monotonic()
+        hits = probe.scan_file(path)
+        took = time.monotonic() - t0
+        best = took if best is None else min(best, took)
+    return hits, best
+_, half = timed(sys.argv[3])
+hits, full = timed(sys.argv[2])
+print(json.dumps({"hits": hits, "s": full, "half": half}))
 `;
     try {
-      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file, half], { encoding: "utf8" });
       const answer = JSON.parse(r.stdout || "{}");
       expect(answer.hits).toEqual([[20_002, "MISTRAL_API_KEY"]]);
-      expect(answer.s).toBeLessThan(1.5);
+      expect(answer.s / answer.half).toBeLessThan(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2195,7 +2210,7 @@ print(time.monotonic() - t0)
     }
   });
 
-  test("a huge login file is read only in part, and still names its kind", () => {
+  test("a huge login file is read only in part, and still names its kind", { timeout: 60_000 }, () => {
     const root = plant({
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
@@ -2490,6 +2505,60 @@ except probe.OutOfTime as cut:
     } as any;
     await directExec(api, "m1", { secrets: [] } as any)("true", 290_000);
     expect(waits[1]).toBeGreaterThanOrEqual(290_000);
+  });
+
+  test("an exec longer than the provider edge holds a request runs as a background request (cut at 125 s)", async () => {
+    const seen: { method: string; path: string; after: string | null; identity: string | null; auth: string | null }[] = [];
+    let polls = 0;
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        seen.push({ method: req.method, path: url.pathname, after: req.headers.get("x-freestyle-background-after-secs"), identity: req.headers.get("x-freestyle-identity-access-token"), auth: req.headers.get("authorization") });
+        if (url.pathname === "/v5/vms/vm-1/exec-await") {
+          // The edge's cut: without the header, a request held open past ~120 s answers 524.
+          if (req.headers.get("x-freestyle-background-after-secs") !== "60") return new Response("timeout", { status: 524 });
+          return Response.json({ requestId: "bg-1" }, { status: 202 });
+        }
+        if (url.pathname === "/v5/background-requests/bg-1") {
+          polls++;
+          return polls === 1 ? Response.json({ status: "pending" }, { status: 202 }) : Response.json({ statusCode: 0, stdout: "done\n", stderr: "" });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const api = {
+        raw: async () => ({ status: 200, body: { ok: true, value: { token: "id-tok", vm_id: "vm-1", linux_user: "cmux", api_base_url: base, expires_at: Date.now() + 900_000 } } }),
+      } as any;
+      const r = await directExec(api, "m1", { secrets: [] } as any, 1)("sleep 200; echo done", 290_000);
+      expect(r).toEqual({ code: 0, stdout: "done\n", stderr: "" });
+      expect(seen.map((x) => `${x.method} ${x.path}`)).toEqual(["POST /v5/vms/vm-1/exec-await", "GET /v5/background-requests/bg-1", "GET /v5/background-requests/bg-1"]);
+      for (const x of seen) {
+        expect(x.identity).toBe("id-tok");
+        expect(x.auth).toBeNull();
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a background exec whose answer never comes fails as unanswered; a stored refusal keeps its status", async () => {
+    const accepted = { status: 202, body: { requestId: "bg-2" } };
+    let polls = 0;
+    const down = async () => {
+      polls++;
+      return { status: 503, body: {} };
+    };
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
+    expect(polls).toBe(5);
+    const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
+    expect(refused.status).toBe(409);
+    await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
+    const short = { status: 200, body: { statusCode: 0 } };
+    expect(await settleBackground(short, "http://fs", {}, Date.now(), 1, down)).toBe(short);
   });
 
   test("an answer without the marker line is an error, not a clean machine", () => {
@@ -3127,5 +3196,23 @@ describe("the stub step's credential rule (cmux#40159)", () => {
   test("with a login on the machine, every request must carry it", () => {
     expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
     expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
+  });
+});
+
+describe("the --surge proof (cmux-platform#1594)", () => {
+  const slot = (index: number, machine_id: string | null, status = "created") => ({ index, status, machine_id, provider: "freestyle", reason: "r", retryable: false });
+  const receipt = { ...SURGE_PROOF_REQUEST, slots: [slot(0, "vm_aaaaaaaaaaaaaaaaaaaa"), slot(1, "vm_bbbbbbbbbbbbbbbbbbbb")] };
+  test("a replay matches only the same slots in the same order", () => {
+    expect(sameSurgeSlots(receipt, structuredClone(receipt))).toBe(true);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: [...receipt.slots].reverse() })).toBe(false);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: [receipt.slots[0], slot(1, null, "queued")] })).toBe(false);
+    expect(sameSurgeSlots(receipt, { ...receipt, slots: receipt.slots.slice(0, 1) })).toBe(false);
+    expect(sameSurgeSlots(receipt, null)).toBe(false);
+  });
+  test("cleanup deletes each named machine once, across every receipt", () => {
+    expect(surgeMachineIds(receipt, receipt, { slots: [slot(0, null, "refused")] }, undefined)).toEqual(["vm_aaaaaaaaaaaaaaaaaaaa", "vm_bbbbbbbbbbbbbbbbbbbb"]);
+  });
+  test("the proof asks for the smallest burst: 2 machines, 300 s", () => {
+    expect(SURGE_PROOF_REQUEST).toEqual({ count: 2, ttl_seconds: 300 });
   });
 });

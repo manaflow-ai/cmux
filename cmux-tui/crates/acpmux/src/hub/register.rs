@@ -133,7 +133,7 @@ enum Found {
 }
 
 /// The nearest of `ancestry` that `live` lists, with `socket` its inbox when one is given.
-pub(super) fn nearest_claude(
+pub(crate) fn nearest_claude(
     ancestry: &[u32],
     live: &[crate::claude_peers::Peer],
     socket: Option<&std::path::Path>,
@@ -146,7 +146,7 @@ pub(super) fn nearest_claude(
 }
 
 /// `ancestry` (the caller first) up to, not including, this daemon's own pid.
-fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
+pub(crate) fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
     let me = std::process::id();
     if let Some(at) = ancestry.iter().position(|p| *p == me) {
         ancestry.truncate(at);
@@ -297,7 +297,7 @@ impl Hub {
         let session = match shown {
             Some(s) => {
                 if s.meta().name != name {
-                    self.rename(&s, name.clone()).await?;
+                    self.rename_as(&s, name.clone(), super::task_names::Naming::Address).await?;
                 }
                 s
             }

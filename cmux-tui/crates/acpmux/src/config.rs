@@ -1326,6 +1326,32 @@ impl TitlesConfig {
     }
 }
 
+/// `summaries` in the config: each chat's rolling summary and next action
+/// (`hub/rolling_summary.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SummariesConfig {
+    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
+    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the summary. Env
+    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
+    /// harness (`_acpmux/complete`), on `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
+    /// (`haiku` on Claude).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl SummariesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
 /// The feature is disabled unless `enabled` is explicitly set to true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1471,6 +1497,18 @@ impl ContextOverrides {
     }
 }
 
+/// `personHold` (`hub/person_hold.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonHoldConfig {
+    /// The chats, by name, whose person's prompts wait.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1569,6 +1607,10 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `personHold`: the chats whose person's prompts wait a while to go in together, unless the
+    /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold: Option<PersonHoldConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
@@ -1646,6 +1688,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
+    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
+    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
@@ -1673,6 +1718,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1792,6 +1842,14 @@ pub struct SendRelay {
     pub ls_argv: Option<Vec<String>>,
 }
 
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
+}
+
 mod config_impl;
 
 fn is_default_kind(k: &HarnessKind) -> bool {
@@ -1909,8 +1967,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};

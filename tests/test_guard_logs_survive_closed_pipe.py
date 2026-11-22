@@ -16,7 +16,7 @@ Two detectors:
 - A scan of every shell script under scripts/ for a message followed within a few lines by a kill (or a lease
   release) that is not in the safe form. Fix the hit, or list it in SCAN_NOT_IN_CLASS with the reason.
 
-Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run
 `python3 -I tests/test_guard_logs_survive_closed_pipe.py` after adding or changing a shell guard that logs before
 it kills (about 30 s; needs bash, curl, xargs, pgrep and ps).
 """

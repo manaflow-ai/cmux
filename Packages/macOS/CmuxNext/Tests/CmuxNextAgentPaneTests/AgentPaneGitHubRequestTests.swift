@@ -67,6 +67,27 @@ struct AgentPaneGitHubRequestTests {
         #expect((none["value"] as? [String: Any])?["reason"] as? String == "unreachable")
     }
 
+    @Test func statusSaysWhyConnectIsNeededAgain() async {
+        let cases: [(CloudGitHubPicker.Status, String, String)] = [
+            (.needsReauth(detail: "the GitHub App was uninstalled"), "needs_reauth", "the GitHub App was uninstalled"),
+            (.needsReauth(detail: nil), "needs_reauth", AgentPaneModel.gitHubReauthMessage),
+            (.linking, "linking", AgentPaneModel.gitHubConnectPendingMessage),
+            (.error, "error", AgentPaneModel.gitHubConnectionErrorMessage),
+            (.linkRefused(reason: nil), "link_refused", AgentPaneModel.gitHubLinkExpiredMessage),
+            (.linkRefused(reason: "Only an owner can connect GitHub."), "link_refused", "Only an owner can connect GitHub."),
+        ]
+        for (status, problem, message) in cases {
+            let reply = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: status)) { false }
+            let value = reply["value"] as? [String: Any]
+            #expect(value?["state"] as? String == "not_connected")
+            #expect(value?["problem"] as? String == problem)
+            #expect(value?["message"] as? String == message)
+        }
+        let plain = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .notConnected)) { false }
+        #expect((plain["value"] as? [String: Any])?["problem"] is NSNull)
+        #expect((plain["value"] as? [String: Any])?["message"] is NSNull)
+    }
+
     /// Unavailable says why, so the picker can still offer Connect GitHub (sign in first, or not set up here).
     @Test(arguments: [(.signedOut, "signed_out"), (.notConfigured, "not_configured"), (.unreachable, "unreachable")] as [(CloudGitHubPicker.Unavailable, String)])
     func unavailableStatusSaysWhy(reason: CloudGitHubPicker.Unavailable, text: String) async {

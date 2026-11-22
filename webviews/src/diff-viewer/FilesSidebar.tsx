@@ -38,6 +38,7 @@ import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
 import { useSyncedRef } from "./useSyncedRef";
+import { diffChromeRows, FILE_TREE_ITEM_HEIGHT, useDiffDensityScale } from "./density";
 
 export function FilesSidebarBackdrop({
   label,
@@ -132,6 +133,7 @@ export function FilesSidebar({
 }) {
   const filter = state.fileFilter;
   const filterActive = isDiffFileFilterActive(filter);
+  const itemHeight = diffChromeRows(useDiffDensityScale()).treeItem;
   useFileFilterFocus(state.fileSearchOpen, state.fileSearchRequest);
   // Viewed marks by tree path so the tree row decorations can look them up.
   const viewedStateByPath = new Map<string, ViewedFileState>();
@@ -219,7 +221,10 @@ export function FilesSidebar({
       </div>
       <div id="file-list">
         {treeSource && (visibleItemCount > 0 || !filterActive) ? (
+          // A new row height is a new tree: its virtualizer takes the height once (diff-viewer/density.ts).
           <PierreFileTree
+            key={itemHeight}
+            itemHeight={itemHeight}
             label={label}
             onActivateItem={onActivateItem}
             onSelectItem={onSelectItem}
@@ -249,6 +254,7 @@ export function FilesSidebar({
 }
 
 function PierreFileTree({
+  itemHeight,
   label,
   onActivateItem,
   onSelectItem,
@@ -257,6 +263,8 @@ function PierreFileTree({
   source,
   viewedStateByPath,
 }: {
+  /** A row's height at the app density (diff-viewer/density.ts). */
+  itemHeight: number;
   label: DiffViewerLabelResolver;
   /** A plain click (or Enter/Space) on a file row: the shared file activation. */
   onActivateItem: (itemId: string) => void;
@@ -313,10 +321,10 @@ function PierreFileTree({
     id: "cmux-diff-file-tree",
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
-    initialVisibleRowCount: getInitialFileTreeRowCount(),
+    initialVisibleRowCount: getInitialFileTreeRowCount(itemHeight),
     // The sidebar's own filter field (FilesSidebar) is the one search; the
-    // rows are the classic viewer's 29 px (screenshot 5.20.26).
-    itemHeight: FILE_TREE_ITEM_HEIGHT,
+    // rows are the classic viewer's 29 px (screenshot 5.20.26) at the default density.
+    itemHeight,
     overscan: 12,
     preparedInput: initialPreparedInput,
     search: false,
@@ -545,15 +553,14 @@ function usePierreFileTreeSelection(
   }, [model, selectedPath, syncing]);
 }
 
-const FILE_TREE_ITEM_HEIGHT = 29;
 const FILE_TREE_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
 
-export function getInitialFileTreeRowCount(): number {
+export function getInitialFileTreeRowCount(itemHeight = FILE_TREE_ITEM_HEIGHT): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
     return 25;
   }
-  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / FILE_TREE_ITEM_HEIGHT)));
+  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / itemHeight)));
 }
 
 const CHANGE_TITLE_KEYS = {
