@@ -1,0 +1,119 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "jump-pill-end",
+   "entry": "agent-pane.jump-place",
+   "variant": "pill-end",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "jump-pill-start",
+   "entry": "agent-pane.jump-place",
+   "variant": "pill-start",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "jump-pill-quiet",
+   "entry": "agent-pane.jump-place",
+   "variant": "pill-quiet",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "jump-pill-middle",
+   "entry": "agent-pane.jump-place",
+   "variant": "pill-middle",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "jump-pill-end-128",
+   "entry": "agent-pane.jump-place",
+   "variant": "pill-end-128",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "jump-end",
+   "entry": "agent-pane.jump-place",
+   "variant": "end",
+   "frame": "pane",
+   "width": 900,
+   "height": 640,
+   "clip": ".acpmux-dock",
+   "margin": 64
+  },
+  {
+   "name": "count-before",
+   "entry": "agent-pane.composer-hat-count",
+   "variant": "before",
+   "width": 760,
+   "height": 220,
+   "clip": ".acpmux-tray-pull",
+   "margin": 40
+  },
+  {
+   "name": "count-three-digits",
+   "entry": "agent-pane.composer-hat-count",
+   "variant": "three-digits",
+   "width": 760,
+   "height": 220,
+   "clip": ".acpmux-tray-pull",
+   "margin": 40
+  },
+  {
+   "name": "count-thousand",
+   "entry": "agent-pane.composer-hat-count",
+   "variant": "thousand",
+   "width": 760,
+   "height": 220,
+   "clip": ".acpmux-tray-pull",
+   "margin": 40
+  },
+  {
+   "name": "count-ten-thousand",
+   "entry": "agent-pane.composer-hat-count",
+   "variant": "ten-thousand",
+   "width": 760,
+   "height": 220,
+   "clip": ".acpmux-tray-pull",
+   "margin": 40
+  },
+  {
+   "name": "count-at-the-end",
+   "entry": "agent-pane.composer-hat-count",
+   "variant": "at-the-end",
+   "width": 760,
+   "height": 220,
+   "clip": ".acpmux-tray-pull",
+   "margin": 40
+  }
+ ]
+}
