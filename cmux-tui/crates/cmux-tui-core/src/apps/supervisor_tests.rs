@@ -1322,6 +1322,8 @@ mod provider_changed;
 mod provider_channel;
 #[path = "supervisor_safe_mode_tests.rs"]
 mod safe_mode;
+#[path = "supervisor_safe_mode_bisect_tests.rs"]
+mod safe_mode_bisect;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
 #[path = "supervisor_status_item_tests.rs"]

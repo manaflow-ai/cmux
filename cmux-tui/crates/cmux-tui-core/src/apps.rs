@@ -92,6 +92,8 @@ mod runs;
 #[cfg(unix)]
 mod safe_mode;
 #[cfg(unix)]
+mod safe_mode_bisect;
+#[cfg(unix)]
 mod server_external;
 #[cfg(unix)]
 mod server_tmp;
@@ -142,6 +144,8 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 pub(crate) use provider::{ProviderClaim, admit_origin, hosting_app_connection};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
+#[cfg(unix)]
+pub(crate) use safe_mode_bisect::bisect_step_runs_extensions;
 #[cfg(unix)]
 pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
