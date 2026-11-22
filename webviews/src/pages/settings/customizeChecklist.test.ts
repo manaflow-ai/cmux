@@ -190,5 +190,11 @@ test("a line under a title fits 60 characters: the words, else their first sente
   const long = `A first sentence that fits. ${"then much more ".repeat(6)}`;
   expect(shortLine(long)).toBe("A first sentence that fits.");
   expect(shortLine("word ".repeat(20))).toBe("");
+  expect(
+    shortLine(
+      "A quiet, near-black agent-editor look: a cool sidebar of repositories, a bordered prompt, steel-blue Run.",
+    ),
+  ).toBe("A quiet, near-black agent-editor look");
+  expect(shortLine(`Dense and calm — ${"a long list of things ".repeat(5)}`)).toBe("Dense and calm");
   expect(shortLine("é".repeat(60))).toBe("é".repeat(60));
 });

@@ -74,12 +74,16 @@ export const SHORT_LINE = 60;
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-/** `words` when they fit one short line, else their first sentence when that fits, else empty. */
+/** `words` when they fit one short line, else their first sentence when that fits, else the part
+ * before its first colon, semicolon or dash when that fits ("A quiet, near-black agent-editor look"
+ * of a look's tagline), else empty. The whole words show on hover. */
 export function shortLine(words: string): string {
   const trimmed = words.trim();
   if (fits(trimmed)) return trimmed;
   const sentence = firstSentence(trimmed);
-  return fits(sentence) ? sentence : "";
+  if (fits(sentence)) return sentence;
+  const clause = /^(.+?)\s*(?:[:;]|\s[—–-]\s)/u.exec(sentence)?.[1]?.trim() ?? "";
+  return clause && fits(clause) ? clause : "";
 }
 
 function fits(words: string): boolean {

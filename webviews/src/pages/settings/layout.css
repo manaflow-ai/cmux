@@ -1313,8 +1313,8 @@
   transition: transform var(--motion-focus);
 }
 
-.checklist-toggle-all[aria-expanded="true"] svg {
-  transform: rotate(90deg);
+.checklist-toggle-all[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
 }
 
 .checklist-items {

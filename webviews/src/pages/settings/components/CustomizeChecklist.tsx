@@ -207,7 +207,7 @@ function ChecklistRow({
 }) {
   const labelId = useId();
   const locked = item.locked !== null;
-  const help = item.locked ?? (item.installs ? t("settingsPage.customizeChecklist.installHint") : item.help);
+  const help = item.locked ?? (item.help || (item.installs ? t("settingsPage.customizeChecklist.installHint") : ""));
   const hover = item.detail && item.detail !== help ? item.detail : undefined;
   if (layout === "chips" || layout === "menu") {
     return (
