@@ -33,6 +33,7 @@ fn session(profile: EncodeProfile) -> MediaSession {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        rtt_tail_probe: false,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
