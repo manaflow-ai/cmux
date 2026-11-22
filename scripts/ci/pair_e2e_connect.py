@@ -82,7 +82,11 @@ def connect_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, out, 
                      "cached_row_ms": (steps.get("workspace_row_cached") or (None,))[0],
                      "steps": {k: v[0] for k, v in steps.items()}, "timed_out": hit is None})
         if i == 0:
-            phone_shot("connect-cold-1")
+            seen = lines_since(phone_log, since)
+            timing = [line for line in seen if " timing " in f" {line}" or "timing " in line]
+            note(f"- connect leg, first cold launch: {len(seen)} phone log lines, {len(timing)} timing lines, "
+                 f"launch steps {sorted(steps)}; last timing lines: {[t[-140:] for t in timing[-4:]]}; "
+                 f"{phone_shot('connect-cold-1')}")
     for i in range(n):
         subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True, timeout=60)
         time.sleep(BACKGROUND_S)
