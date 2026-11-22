@@ -188,11 +188,11 @@ public final class TerminalFeed {
     private var linkWaiters: [Int: CheckedContinuation<Bool, Never>] = [:]
     private var nextLinkWaiter = 0
     /// How long an answer or a reply waits for a redialed link before it says
-    /// "not connected": the keyboard's hold (`DaemonTerminalSession.inputHoldLimit`),
+    /// "not connected": the keyboard's hold (`DaemonTerminalSession.inputHoldLimit`, 10 s),
     /// so a tap made while the app is coming back from the background goes
     /// through instead of failing (Leo, 2026-11-22: "shit shouldnt somehow
     /// instantly dissipate after i navigate away for like one second").
-    var linkWait: Duration = .seconds(DaemonTerminalSession.inputHoldLimit)
+    var linkWait: Duration = .seconds(10)
 
     public init(store: FeedStore) {
         self.store = store
@@ -357,6 +357,9 @@ public final class TerminalFeed {
         let ready = await withCheckedContinuation { linkWaiters[id] = $0 }
         return ready && linkReady(after: old)
     }
+
+    /// Some answer or reply waits for a redialed link (tests).
+    var waitsForLink: Bool { !linkWaiters.isEmpty }
 
     private func resumeLinkWaiter(_ id: Int, _ ready: Bool) {
         linkWaiters.removeValue(forKey: id)?.resume(returning: ready)

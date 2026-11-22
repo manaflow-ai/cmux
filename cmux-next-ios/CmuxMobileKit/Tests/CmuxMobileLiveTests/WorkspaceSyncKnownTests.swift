@@ -68,7 +68,7 @@ import Testing
 /// A daemon behind its Mac lane: `list-workspaces` answers `unchanged` to a
 /// current `known` when it advertises `list-workspaces-known-v1`, and refuses
 /// `known` (as an older lane does) when it does not.
-private final class KnownDaemonChannel: LinkChannel, @unchecked Sendable {
+final class KnownDaemonChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let advertisesKnown: Bool
     private let rows: String
