@@ -142,8 +142,74 @@ async fn repo_sync_head_lets_only_a_self_gating_start_through() {
     let after = tokio::time::timeout(Duration::from_secs(2), &mut other).await.unwrap().unwrap();
     assert!(after.is_some());
     tokio::time::timeout(Duration::from_secs(2), &mut write).await.unwrap().unwrap();
-    assert!(super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::ClaudeStdio));
-    assert!(!super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::Acp));
+    let profile =
+        |value: Value| -> crate::config::HarnessProfile { serde_json::from_value(value).unwrap() };
+    let claude = profile(json!({"argv": ["claude"], "kind": "claude-stdio"}));
+    let acp = profile(json!({"argv": ["/usr/bin/env", "python3", "agent.py"]}));
+    let codex = profile(json!({"argv": ["codex", "app-server"]}));
+    let adapter = profile(json!({"argv": ["codex-acp"]}));
+    let remote_codex = profile(json!({
+        "argv": ["codex", "app-server"],
+        "env": {(crate::agent::REMOTE_ENV_POLICY_KEY): "1"}
+    }));
+    assert!(super::super::repo_sync::gates_its_tools(&claude));
+    assert!(!super::super::repo_sync::gates_its_tools(&acp));
+    assert!(super::super::repo_sync::gates_its_tools(&codex), "app-server may get the hook");
+    assert!(!super::super::repo_sync::gates_its_tools(&adapter), "an ACP adapter gets none");
+    assert!(!super::super::repo_sync::gates_its_tools(&remote_codex), "nor a sandboxed chain");
+}
+
+/// A `codex app-server` started with the repository hook (`codex_repo_gate.rs`) gets its prompt
+/// at the head, as Claude Code does; one started without it waits for the whole checkout, and
+/// a start that went ahead at the head by its profile waits after it (`start_waits_for_all`).
+/// Judged from the argv the child started with, not the profile's kind.
+#[tokio::test]
+async fn repo_sync_head_lets_a_hook_gated_codex_through_and_holds_one_without() {
+    for gated in [true, false] {
+        let (dir, hub, session) = fixture();
+        let cwd = session.meta().cwd;
+        // A stand-in `codex` that never answers: no prompt reaches it in this test.
+        let codex = dir.path().join("codex");
+        std::fs::write(&codex, "#!/bin/sh\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&codex, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let mut argv = vec![codex.to_string_lossy().into_owned()];
+        if gated {
+            let command = crate::codex_repo_gate::hook_command("/opt/cmux/bin/acpmux", &[]);
+            argv.extend(crate::codex_repo_gate::hook_flags(&command).unwrap());
+        }
+        argv.push("app-server".into());
+        let profile: crate::config::HarnessProfile =
+            serde_json::from_value(json!({ "argv": argv })).unwrap();
+        // Started before the sync begins: its argv is the one above, as given.
+        let (inbound, _rx) = tokio::sync::mpsc::channel(16);
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+        let child =
+            crate::agent::ChildAgent::spawn("codex", &profile, &cwd, inbound, tap).await.unwrap();
+        assert_eq!(child.codex_repo_gated, gated);
+        assert_eq!(super::super::repo_sync::child_gates_its_tools(&child), gated);
+        assert!(super::super::repo_sync::gates_its_tools(&profile));
+        assert_eq!(super::super::repo_sync::start_waits_for_all(true, &profile, &child), !gated);
+        assert!(!super::super::repo_sync::start_waits_for_all(false, &profile, &child));
+        *session.child.lock().await = Some(child.clone());
+        let mut sync = Sync::begin(&cwd).unwrap();
+        sync.head_ready();
+        let stops = session.stops.load(Ordering::SeqCst);
+        let prompt = hub.child_for_since(&session, stops);
+        tokio::pin!(prompt);
+        let early = tokio::time::timeout(Duration::from_millis(300), &mut prompt).await;
+        if gated {
+            let handed = early.expect("a hook-gated Codex gets its prompt at the head").unwrap();
+            assert!(Arc::ptr_eq(&handed, &child));
+        } else {
+            assert!(early.is_err(), "a Codex without the hook waits past the head");
+            sync.complete().unwrap();
+            let handed =
+                tokio::time::timeout(Duration::from_secs(2), &mut prompt).await.unwrap().unwrap();
+            assert!(Arc::ptr_eq(&handed, &child));
+        }
+        child.kill().await;
+    }
 }
 
 /// Review F1 (cmux#38084, 4514531c49c): a reload can make the profile Claude's without
