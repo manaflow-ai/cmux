@@ -88,7 +88,9 @@ const PROPERTIES = ["--popup-settled-width", "--popup-settled-floor", "--popup-s
 /** Settles `element` for as long as it is mounted; the answer stops it and gives its box back. */
 export function settlePopup(element: HTMLElement): () => void {
   const view = element.ownerDocument.defaultView;
-  if (!view || typeof view.ResizeObserver !== "function") return () => {};
+  // A window with no layout (a test DOM without frames or a ResizeObserver) has no box to hold.
+  if (!view || typeof view.ResizeObserver !== "function" || typeof view.requestAnimationFrame !== "function")
+    return () => {};
   let frame = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let freeUntil = 0;

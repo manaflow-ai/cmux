@@ -243,6 +243,14 @@ test("a results or own popup is never settled", () => {
   }
 });
 
+test("a window with no frames (a test DOM) is left alone", () => {
+  (view as { requestAnimationFrame?: unknown }).requestAnimationFrame = undefined;
+  const { element, stop } = open();
+  expect(view.added).toBe(0);
+  expect(element.attributes.size).toBe(0);
+  stop();
+});
+
 test("a popup that is not drawn is not settled", () => {
   const { element } = open((node) => {
     node.box = { width: 0, height: 0 };
