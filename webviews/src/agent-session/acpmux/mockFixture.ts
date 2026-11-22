@@ -461,7 +461,7 @@ export const mockSessions: MockSession[] = [
             "```sh",
             "cd webviews && bun install --frozen-lockfile",
             "bun test src/agent-session/acpmux/conversation/",
-            "vp check --no-fmt --no-lint",
+            "vp check",
             "```",
           ].join("\n"),
           count: 3,
