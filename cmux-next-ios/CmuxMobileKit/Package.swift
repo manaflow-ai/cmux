@@ -227,6 +227,9 @@ let package = Package(
             "CmuxMobileScreenSharing",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
+            // ScreenVideoViewPresentTests: the stream's video view and libwebrtc's frames.
+            .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
+            .product(name: "WebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
         ]),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel", .product(name: "CMUXAuthCore", package: "CMUXAuthCore")]),
         .testTarget(name: "CmuxMobileAuthTests", dependencies: [
