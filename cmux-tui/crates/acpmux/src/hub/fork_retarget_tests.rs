@@ -492,7 +492,9 @@ async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
         hub.cancel(&chat).await.unwrap();
         let _ = turn.await;
         assert_eq!(forked_from(&hub, &fork).as_deref(), Some("transcript"), "{step}");
-        // The model its own agent runs, as the agent says, not as acpmux's meta does.
+        // Its first prompt carries the chat's transcript; then the model its own agent runs, as
+        // the agent says, not as acpmux's meta does.
+        hub.prompt(&fork, vec![json!({"type":"text", "text": step})], "test", false).await.unwrap();
         let before = replies(&hub, &fork).len();
         let ask = vec![json!({"type":"text", "text": "picked-model"})];
         hub.prompt(&fork, ask, "test", false).await.unwrap();
@@ -555,5 +557,17 @@ async fn a_switch_keeps_the_chats_permission_mode() {
     assert_eq!(fork.meta().harness, "lister");
     let mode = crate::web_modes::mode_of(&fork.meta());
     assert_ne!(mode.as_deref(), Some("bypassPermissions"), "a fork of an asking chat");
+    // Nor did its start try that mode (a refused try is only recorded on the fork).
+    let tried: Vec<Value> = hub
+        .events(&fork.id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "mode" || e.kind == "start_default_skipped")
+        .map(|e| e.msg.clone())
+        .collect();
+    assert!(
+        !tried.iter().any(|m| m["modeId"] == "bypassPermissions"),
+        "a fork of an asking chat tried full access: {tried:?}"
+    );
     hub.shutdown_all().await;
 }
