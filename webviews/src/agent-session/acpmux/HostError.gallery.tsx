@@ -53,7 +53,7 @@ function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean
   return (
     <div className="acpmux-dock" style={{ width: "100%" }}>
       {[0.9, 0.7, 0.5].map((width) => (
-        <p key={width} style={{ margin: "0 18px 8px", opacity: 0.7, width: `${width * 70}%` }}>
+        <p key={width} style={{ margin: "0 16px 8px", opacity: 0.7, width: `${width * 70}%` }}>
           A line of the chat above the composer
         </p>
       ))}
@@ -61,7 +61,7 @@ function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean
       <div
         style={{
           height: 44,
-          margin: "0 18px",
+          margin: "0 16px",
           border: "1px solid color-mix(in srgb, currentColor 18%, transparent)",
           borderRadius: 12,
         }}
