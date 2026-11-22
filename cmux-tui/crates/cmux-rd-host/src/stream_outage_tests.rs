@@ -156,6 +156,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let forced = Arc::new(Mutex::new(Vec::new()));
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 2_000,

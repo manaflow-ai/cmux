@@ -463,6 +463,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "cloud-acpmux-v1",
             "needs-you-v1",
             "appearance-v1",
+            "pair-requests-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -1826,4 +1827,150 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
         assert!(text.lines().any(|line| line.starts_with("total")), "{text}");
     }
     server.abort();
+}
+
+// ---- Answering a pairing request from another paired device (src/pair_requests.rs) ----
+
+/// `auth` as `device` (not the fixture's phone), signed by its own identity key.
+async fn auth_device(
+    link: &cmux_mobile_link::Link,
+    fixture: &Fixture,
+    device: &str,
+    keys: &PhoneKeys,
+) -> Channel {
+    let mut channel = link.open("auth", open_auth_args(keys)).await.unwrap();
+    let challenge = json_frame(channel.recv().await);
+    let message = challenge_message(
+        &fixture.mac_id,
+        device,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    channel
+}
+
+/// One `pair-requests` request: its answer and the close code.
+async fn pair_requests(
+    link: &cmux_mobile_link::Link,
+    args: serde_json::Value,
+) -> (serde_json::Value, String) {
+    let mut channel = link.open("pair-requests", args).await.unwrap();
+    let (bytes, code) = drain(&mut channel).await;
+    (serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null), code)
+}
+
+/// Leo, 2026-11-22: "ok surely we dont need to be bottled this hard by a click". A probe phone of
+/// the same account waits for its pairing; the person's phone, already paired with this Mac,
+/// lists it and allows it over its own link, and the Mac pairs it with no gesture on the Mac. A
+/// device of another account never reaches the Mac, a token alone opens nothing, and an answer
+/// with nothing waiting says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_paired_device_of_the_same_account_approves_a_waiting_request() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let trust = fixture.trust.as_ref().unwrap();
+    let base_url = fixture._server.base_url.clone();
+
+    // The person's phone, paired already.
+    let leo = phone_keys();
+    trust.send_replace(Some(trusting(&fixture, &leo)));
+    let leo_link = connect(&fixture, TransportKind::WireGuard).await.expect("dial").link;
+    let mut channel = auth(&leo_link, &fixture, &leo, &leo.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+
+    // Nothing waits yet.
+    let (answer, code) = pair_requests(&leo_link, serde_json::json!({"action": "list"})).await;
+    assert_eq!((answer, code.as_str()), (serde_json::json!({"requests": []}), "eof"));
+    let (_, code) = pair_requests(
+        &leo_link,
+        serde_json::json!({"action": "answer", "deviceId": "nobody", "fingerprint": "abcdef01", "allow": true}),
+    )
+    .await;
+    assert_eq!(code, "no_waiting_request");
+
+    // A probe phone of the same account asks to pair and waits.
+    let probe_id = uuid::Uuid::new_v4().to_string();
+    let probe_client = SignalingClient::connect(&base_url, "user:alice", "team", &probe_id).await.unwrap();
+    let probe_link = cmux_mobile_link::dial::connect(
+        &probe_client,
+        &fixture.mac_id,
+        TransportKind::WireGuard,
+        &options(),
+        LinkConfig::default(),
+    )
+    .await
+    .expect("dial")
+    .link;
+    // Before its own `auth` passed, the probe opens nothing, this service included.
+    let (_, code) = pair_requests(&probe_link, serde_json::json!({"action": "list"})).await;
+    assert_eq!(code, "unpaired");
+    let probe = phone_keys();
+    let mut probe_auth = auth_device(&probe_link, &fixture, &probe_id, &probe).await;
+    assert_eq!(json_frame(probe_auth.recv().await), serde_json::json!({"pending": true}));
+    assert!(matches!(
+        fixture.events.as_ref().unwrap().lock().await.recv().await,
+        Some(Event::PairRequest { phone_device_id, .. }) if phone_device_id == probe_id
+    ));
+
+    // The person's phone lists it with the fingerprint the Mac's prompt shows, and allows it.
+    let (answer, code) = pair_requests(&leo_link, serde_json::json!({"action": "list"})).await;
+    assert_eq!(code, "eof");
+    let listed = &answer["requests"][0];
+    assert_eq!(listed["deviceId"], probe_id.as_str());
+    assert_eq!(listed["kind"], "phone");
+    let fingerprint = listed["fingerprint"].as_str().unwrap().to_owned();
+    assert_eq!(fingerprint, cmux_mobile_host::pair_requests::fingerprint(&probe.approval_hex));
+    let (answer, code) = pair_requests(
+        &leo_link,
+        serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": &fingerprint[..8], "allow": true}),
+    )
+    .await;
+    assert_eq!((answer, code.as_str()), (serde_json::json!({"ok": true}), "eof"));
+    assert_eq!(
+        fixture.events.as_ref().unwrap().lock().await.recv().await,
+        Some(Event::PairAnswer {
+            phone_device_id: probe_id.clone(),
+            identity_key: probe.identity_hex.clone(),
+            approval_key: probe.approval_hex.clone(),
+            allow: true,
+            by_device_id: fixture.phone_id.clone(),
+        })
+    );
+    // The app approves it as the person's Allow would: the probe's waiting `auth` passes.
+    let mut both = trusting(&fixture, &leo);
+    both.devices.push(TrustedDevice {
+        id: probe_id.clone(),
+        identity_key: probe.identity_hex.clone(),
+        approval_key: probe.approval_hex.clone(),
+        ..Default::default()
+    });
+    trust.send_replace(Some(both));
+    assert_eq!(json_frame(probe_auth.recv().await), serde_json::json!({"ok": true}));
+
+    // Once answered, nothing waits: a second answer is a clear error.
+    let (_, code) = pair_requests(
+        &leo_link,
+        serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": fingerprint, "allow": true}),
+    )
+    .await;
+    assert_eq!(code, "no_waiting_request");
+
+    // A device of another account never gets a link to this Mac at all.
+    let mallory =
+        SignalingClient::connect(&base_url, "user:mallory", "team", &uuid::Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+    let quick = DialOptions { timeout: Duration::from_secs(5), ..options() };
+    let refused = cmux_mobile_link::dial::connect(
+        &mallory,
+        &fixture.mac_id,
+        TransportKind::WireGuard,
+        &quick,
+        LinkConfig::default(),
+    )
+    .await;
+    assert!(refused.is_err(), "another account's device reached the Mac");
 }
