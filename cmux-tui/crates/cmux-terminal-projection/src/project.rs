@@ -733,9 +733,13 @@ impl View {
                 && col > at_col
                 && at_col >= row_width
                 && col - at_col <= 8
-                && self.phone_style.is_some_and(Style::is_invisible_when_blank)
+                && self
+                    .phone_style
+                    .is_some_and(|style| style.is_invisible_when_blank() && style.link == 0)
             {
                 // Past the row's end, as the host's own echo of a space does.
+                // (Not in a link: a space written in one is a linked cell,
+                // and the host's blanks there are not.)
                 out.extend(std::iter::repeat_n(b' ', col - at_col));
                 self.phone_cursor = (row, col);
             } else if self.phone_cursor != (row, col) {
