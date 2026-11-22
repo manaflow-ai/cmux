@@ -49,7 +49,7 @@ cmux server uninstall
 cmux server uninstall ssh://alice@build.example.com
 ```
 
-logs shows the service's log (the last 100 lines; --lines N or -n N for more, --follow or -f to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. Every command takes --json.
+logs shows the service's log (the last 100 lines; --lines N or -n N for more, --follow or -f to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. cmux daemon stop --if-idle stops the running server only when nothing uses it (no terminal is starting, being reattached or running, and no other client is connected); otherwise it keeps running, says what uses it and exits 1. Every command takes --json.
 
 cmux server install prints each file it writes and each command it runs. It does not touch a cmux-server.service or com.cmux.server plist that cmux did not write, or that was changed after cmux wrote it, or that systemd loads from another place (a package, /etc, a transient unit): install stops with an error and uninstall leaves it as it is. When it cannot ask systemd where the unit comes from, it changes nothing. On macOS the service log folder and file are readable only by you. It also stops when ~/.local/bin or the service folder can be written by other accounts.
 
