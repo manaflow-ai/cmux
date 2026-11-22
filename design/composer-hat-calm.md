@@ -71,6 +71,10 @@ These numbers in the hat remain, and each one is bounded:
 
 - **Kind counts** ("3 subagents running · 2 commands") change only when an item starts or ends. Only their changed
   digits roll (`steadyCounts`).
+- **The header's words and "+N more"** (the newest names, each kind's count) are held 1.5 s, as the step is
+  (`Dwelt`/`useDwell`). Twenty subagents joining in a burst used to be twenty changes in 1.3 s; now it is one.
+  `feel-composer-hat.test.ts` holds this on `agent-pane.composer-hat-head`'s `calm` variant: a line stays up at
+  least 1500 ms, at most 0.67 swaps a second, no width changes.
 - **Workflow agent counts** ("2/5 agents") change once per agent, not per call.
 - **Elapsed time** ticks once a second in tabular figures (`Elapsed`). Its width changes only where the format grows
   (59s -> 1m 0s), at most once a minute.
