@@ -20,8 +20,11 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
-    is exempt only when all changed files are isolated tests that cannot feed its bundle;
+    Vite or a browser, or spawns a process. Two loads are not such gaps: a computed require
+    of `require.resolve("<npm package>")` (it loads from node_modules, which bun.lock and
+    package.json pin, while package.json links no repo folder), and the content-pinned
+    frame-table reader (frameOwners.ts imports chunks/frame-sites.js beside a release
+    bundle's page, which no test has unless it builds the bundle itself);
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
@@ -73,12 +76,20 @@ UNTRACKED_OUTSIDE_SRC = re.compile(r"readFile|readdir|createServer\(|requireBrow
 TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 # An asset imported with a query (`./fixture.md?raw`, `./clip.webp?url`): an edge to the asset itself.
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
+# A computed require of a bare npm package (`require(require.resolve("scheduler", { paths: [from] }))`):
+# it resolves inside node_modules, an input bun.lock and package.json pin. No `./`, `/`, `cmux:` or alias.
+PACKAGE_REQUIRE = re.compile(
+    r"""\brequire\(\s*require\.resolve\(\s*["'](?:@[a-z0-9][\w.-]*/)?[a-z0-9][\w.-]*(?:/[\w.-]+)*["']"""
+    r"""\s*(?:,\s*\{[^{}()]*\})?\s*\)\s*\)""")
+# A package.json dependency on a repo folder: a bare name then resolves to files the lockfile does not pin.
+LOCAL_PACKAGE = re.compile(r""":\s*"(?:file|link|workspace|portal):|:\s*"\.{0,2}/""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
-# This reader loads only the generated bundle's site table. A standalone test
-# file cannot change that table. Pin the reviewed reader: any edit restores the
-# unresolved fallback until its inputs have been reviewed again. Production
-# changes still select every consumer, as do tests imported by production code.
+# This reader's one computed import loads the generated site table beside a release bundle's
+# page (`new URL("chunks/frame-sites.js", document.baseURI)`). A test that imports it has no such
+# file (the import fails and the reader returns null) unless it builds the bundle, which spawns a
+# process and runs on its own. So it is no gap for its importers. Pin the reviewed reader: any edit
+# restores the unresolved fallback until its inputs have been reviewed again.
 GENERATED_READERS = {
     WEB + "src/agent-session/acpmux/frameOwners.ts":
         "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
@@ -100,32 +111,19 @@ class Selector:
         for target, importers in self.graph.importers.items():
             for source in importers:
                 self.imports.setdefault(source, set()).add(target)
-        untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
-                     or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
-                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
-        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
-        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
+        package = root / WEB / "package.json"
+        packages_pinned = not (package.exists() and LOCAL_PACKAGE.search(package.read_text(errors="replace")))
+        untracked = set()
+        for f, text in self.text.items():
+            if packages_pinned:
+                text = PACKAGE_REQUIRE.sub("", text)
+            if UNTRACKED.search(text) or (not f.startswith(WEB + "src/") or f in self.graph.tests) \
+                    and UNTRACKED_OUTSIDE_SRC.search(text):
+                untracked.add(f)
+        pinned = {f for f, digest in GENERATED_READERS.items() if f in self.text
+                  and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - pinned)}
         self.preload = self.closure(PRELOAD)
-
-    def isolated_test(self, path: str) -> bool:
-        """A test cannot feed a bundle if every reverse edge stays in test files.
-
-        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
-        Follow all reverse edges, including test -> helper -> production.
-        """
-        if path not in self.graph.tests:
-            return False
-        seen, frontier = set(), [path]
-        while frontier:
-            source = frontier.pop()
-            if source in seen:
-                continue
-            seen.add(source)
-            if source not in self.graph.tests:
-                return False
-            frontier.extend(self.graph.importers.get(source, ()))
-        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -178,8 +176,7 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
-        return out | self.always | generated, ""
+        return out | self.always, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:

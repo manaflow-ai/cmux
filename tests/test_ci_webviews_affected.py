@@ -10,10 +10,12 @@ in a non-code file).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,30 +194,84 @@ class SelectTest(unittest.TestCase):
                 selected, _ = wa.Selector(self.root).select(["webviews/src/other.ts"])
                 self.assertIn("webviews/test/tools.test.ts", selected)
 
-    def test_generated_table_reader_is_not_an_input_of_an_isolated_test(self) -> None:
-        reader = "webviews/src/agent-session/acpmux/frameOwners.ts"
-        destination = self.root / reader
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes((ROOT / reader).read_bytes())
-        (self.root / "webviews/test/frames.test.ts").write_text(
-            'import { browserOwnersEnv } from "../src/agent-session/acpmux/frameOwners";\n')
+    def add(self, files: dict[str, str | bytes]) -> None:
+        for path, text in files.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(text, bytes):
+                (self.root / path).write_bytes(text)
+            else:
+                (self.root / path).write_text(text)
         git(self.root, "add", "-A")
-        selector = wa.Selector(self.root)
-        self.assertTrue(selector.generated, "review the generated reader after its content changes")
-        selected, _ = selector.select(["webviews/test/leaf.test.ts"])
-        self.assertNotIn("webviews/test/frames.test.ts", selected)
-        for changed in ("webviews/src/leaf.ts", "unrelated/tool.py", reader):
+        git(self.root, "commit", "-qm", "fixture")
+
+    READER = "webviews/src/agent-session/acpmux/frameOwners.ts"
+    # The two loads that once put a test in the always-run set: the frame-table reader, through a
+    # production module (as chatPerfCapture.ts imports it), and the scheduler a DOM teardown helper
+    # requires by package name (test/support/domTeardown.ts).
+    def add_reader_and_teardown(self) -> None:
+        self.add({
+            self.READER: (ROOT / self.READER).read_bytes(),
+            "webviews/src/perf.ts": 'import { startFrameOwners } from "./agent-session/acpmux/frameOwners";\n'
+                                    'export const perf = startFrameOwners;\n',
+            "webviews/test/perf.test.ts": 'import { perf } from "../src/perf";\n',
+            "webviews/src/teardown.ts": 'import { createRequire } from "node:module";\n'
+                                        'const require = createRequire(import.meta.url);\n'
+                                        'const from = require.resolve("react-dom/package.json");\n'
+                                        'export const s = () => require(require.resolve("scheduler", { paths: [from] }));\n',
+            "webviews/test/teardown.test.ts": 'import { s } from "../src/teardown";\n',
+        })
+
+    def test_representative_diffs_select_before_and_after_counts(self) -> None:
+        """Before (both loads counted as gaps): the reader's importers and the package require ran always.
+
+        On feat-cmux-next at 19b23cb414e4 (3,161 test files) a component edit (ui/Input.tsx) went from
+        2,723 to 1,364, a strings edit (viewer-empty/strings.ts) from 2,723 to 1,271, a frameOwners.ts edit
+        from 2,723 to 2,582 (its 1,940 importers) and a test-only edit from 2,108 to 1,272."""
+        self.add_reader_and_teardown()
+        cases = {  # diff: (count before, tests after)
+            "webviews/src/leaf.ts": (7, with_always("webviews/test/leaf.test.ts")),
+            "webviews/src/strings.ts": (7, with_always("webviews/test/strings.test.ts")),
+            # Its real importers still run: an edit can break them.
+            self.READER: (6, with_always("webviews/test/perf.test.ts")),
+        }
+        for changed, (before, after) in cases.items():
             with self.subTest(changed=changed):
-                selected, _ = selector.select([changed])
-                self.assertIn("webviews/test/frames.test.ts", selected)
-        # A production import of the test makes it a possible bundle input.
-        (self.root / "webviews/src/leaf.ts").write_text('import "../test/leaf.test";\n')
-        selected, _ = wa.Selector(self.root).select(["webviews/test/leaf.test.ts"])
-        self.assertIn("webviews/test/frames.test.ts", selected)
-        # An unreviewed reader edit fails open, even for test-only changes.
-        destination.write_text(destination.read_text() + '\nimport(runtimePath);\n')
-        selected, _ = wa.Selector(self.root).select(["webviews/test/other.test.ts"])
-        self.assertIn("webviews/test/frames.test.ts", selected)
+                selected, _ = wa.Selector(self.root).select([changed])
+                self.assertEqual(sorted(selected), after)
+                with mock.patch.object(wa, "GENERATED_READERS", {}), \
+                        mock.patch.object(wa, "PACKAGE_REQUIRE", re.compile(r"(?!)")):
+                    old, _ = wa.Selector(self.root).select([changed])
+                self.assertEqual((len(old), len(selected)), (before, len(after)))
+                self.assertLessEqual(set(selected), old)
+
+    def test_the_frame_table_reader_is_pinned_and_an_edit_fails_open(self) -> None:
+        self.add_reader_and_teardown()
+        self.assertNotIn("webviews/test/perf.test.ts", wa.Selector(self.root).select(["unrelated/tool.py"])[0],
+                         "review the reader again after its content changes, then update its digest")
+        reader = self.root / self.READER
+        reader.write_text(reader.read_text() + "\nimport(runtimePath);\n")
+        self.assertIn("webviews/test/perf.test.ts", wa.Selector(self.root).select(["unrelated/tool.py"])[0])
+
+    def test_a_package_require_is_no_gap_but_a_computed_or_local_one_is(self) -> None:
+        self.add_reader_and_teardown()
+        for expression in ('require(require.resolve("scheduler"))', 'require(require.resolve("@scope/pkg/sub"))',
+                           "require( require.resolve( 'react-dom/client', { paths: [from] } ) )"):
+            with self.subTest(expression=expression):
+                self.add({"webviews/src/teardown.ts": f"export const s = () => {expression};\n"})
+                self.assertNotIn("webviews/test/teardown.test.ts",
+                                 wa.Selector(self.root).select(["unrelated/tool.py"])[0])
+        for expression in ('require(require.resolve("./local"))', 'require(require.resolve("../x/y"))',
+                           'require(require.resolve(name))', 'require(require.resolve("/abs/mod"))',
+                           'require(require.resolve("cmux:alias"))', 'require(require.resolve(`${name}`))',
+                           'require(require.resolve("scheduler") + suffix)', 'require(path)'):
+            with self.subTest(expression=expression):
+                self.add({"webviews/src/teardown.ts": f"export const s = () => {expression};\n"})
+                self.assertIn("webviews/test/teardown.test.ts",
+                              wa.Selector(self.root).select(["unrelated/tool.py"])[0])
+        # A dependency on a repo folder: a bare name can resolve to files bun.lock does not pin.
+        self.add({"webviews/src/teardown.ts": 'export const s = () => require(require.resolve("scheduler"));\n',
+                  "webviews/package.json": '{"dependencies": {"scheduler": "file:../vendor/scheduler"}}\n'})
+        self.assertIn("webviews/test/teardown.test.ts", wa.Selector(self.root).select(["unrelated/tool.py"])[0])
 
     def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
