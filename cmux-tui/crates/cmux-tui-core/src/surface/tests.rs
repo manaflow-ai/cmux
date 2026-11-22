@@ -22,6 +22,8 @@ mod lifecycle;
 mod local_resize_order;
 mod lock_order;
 #[cfg(unix)]
+mod mirror_output_bytes;
+#[cfg(unix)]
 mod output_publications;
 mod render_geometry;
 #[cfg(unix)]
