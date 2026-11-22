@@ -193,7 +193,7 @@ impl NoLink {
 /// Connects to the place `connect` names: the Cloud machine, or a `remote exec` route.
 fn connect(runtime: &tokio::runtime::Runtime, connect: &[String]) -> Result<Link, NoLink> {
     let route = route_word(connect);
-    if spill_cloud::is_cloud(route) {
+    if spill_cloud::is_cloud(connect, route) {
         let (name, session) = spill_cloud::open(runtime, route).map_err(NoLink::Cloud)?;
         return Ok(Link { name, client: session.client.clone(), carried: Carried::Cloud(session) });
     }

@@ -16,12 +16,10 @@ use crate::carrier::workspace::{WorkspaceSession, dial_workspace};
 /// How long the carrier dial (ticket, relay, handshake) may take.
 const DIAL_DEADLINE: Duration = Duration::from_secs(60);
 
-/// Whether `route` (the positional ROUTE, if any) names the Cloud place.
-pub(super) fn is_cloud(route: Option<&str>) -> bool {
-    match route {
-        None => true,
-        Some(route) => route == "cloud" || route.starts_with("cloud:"),
-    }
+/// Whether the connect words name the Cloud place: none at all, or ROUTE
+/// `cloud` / `cloud:MACHINE`.
+pub(super) fn is_cloud(connect: &[String], route: Option<&str>) -> bool {
+    connect.is_empty() || route.is_some_and(|route| route == "cloud" || route.starts_with("cloud:"))
 }
 
 /// The machine `cloud:NAME` names, `None` for plain `cloud` or no ROUTE.
