@@ -218,7 +218,11 @@ test("a restored started chat's mode chip never goes or turns into the placehold
     { label: "selected, summary reset (opening)", summary: undefined },
     { label: "attach detail", summary: detail("bypassPermissions"), connection: "attached" },
     // acpmux drops `modes` first from a reply too big to send (hub/paging.rs).
-    { label: "a later detail without modes", summary: { ...detail("bypassPermissions"), modes: null }, connection: "session changed" },
+    {
+      label: "a later detail without modes",
+      summary: { ...detail("bypassPermissions"), modes: null },
+      connection: "session changed",
+    },
   ]);
   // The first frame names the chat's mode.
   expect(seen[0]?.shown).toBe("Bypass permissions");
