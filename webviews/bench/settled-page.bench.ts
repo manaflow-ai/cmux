@@ -650,6 +650,11 @@ try {
       if (scenario === "chat_switch") {
         context = await newContext();
         page = await context.newPage();
+        if (process.env.DIAG === "1") {
+          page.on("console", (m) => m.type() === "error" && console.log(`  PAGE console.error ${m.text().slice(0, 400)}`));
+          page.on("pageerror", (e) => console.log(`  PAGE error ${String(e.stack ?? e).slice(0, 600)}`));
+          page.on("framenavigated", (f) => console.log(`  PAGE navigated ${f.url().slice(0, 100)}`));
+        }
         await page.goto(urlFor(A));
         await waitPainted(page, markOf(A));
         await settleIdle(page);
@@ -726,6 +731,7 @@ try {
           rootOpacity: document.getElementById("root")?.style.opacity ?? null,
           bodyBytes: document.body.innerHTML.length,
           scrollH: document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? -1,
+          body: document.body.innerHTML.slice(0, 300),
         }));
         console.log(`  DIAG ${scenario}.${arm} copyBytes ${copy.body.length} scrollTop ${copy.scrollTop} bound ${boundMs.toFixed(1)} ${JSON.stringify(d)}`);
       }
