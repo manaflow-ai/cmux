@@ -103,14 +103,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// SwiftUI's keyboard inset moved. From then on the stack follows the
     /// keyboard's notifications (inside their animation) and, while a drag
     /// dismisses the keyboard, its drawn frame every display frame.
-    ///
-    /// Also the path on every runtime: pinned to the guide, UIKit moved the
-    /// guide on every frame of the keyboard's animation and this transcript
-    /// laid out the whole page each time (27 main-thread iterations of 4 ms and
-    /// more per show, against 3 for the terminal, which follows the
-    /// notification in one animation; KeyboardMotionBenchUITests with
-    /// `-cmux-mobile-input-latency`, step 160f1e7c).
-    private static var layoutGuideStalls = true
+    private static var layoutGuideStalls = false
     private var lastOffsetY: CGFloat = 0
     /// The jump button's rule (clamped distance, hysteresis; see
     /// `JumpToBottomVisibility`).
