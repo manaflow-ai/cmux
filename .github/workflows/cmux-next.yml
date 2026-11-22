@@ -4045,10 +4045,26 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) planner reuse::$RUN_URL passed on the trusted feat-cmux-next push (${SHA:0:12})"
           echo "Planner reused $RUN_URL: it passed on \`${SHA:0:12}\` with the measured input closure (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
+      # A persistent pool runner keeps this job's whole target between its jobs and gives each source
+      # whose bytes are unchanged its recorded mtime back, so cargo rebuilds only the crates a change
+      # reaches and their dependents (scripts/ci/pool-warm-target.sh). Elsewhere it does nothing.
+      # The warm target's own test, where cargo is: unchanged bytes stay fresh, a changed crate and its
+      # dependents rebuild, an unrecorded job leaves nothing to trust (a three-crate workspace, ~5 s).
+      - name: Test the warm cargo target
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/pool-warm-target.test.sh
+
+      - name: Link this runner's warm cargo target
+        id: warm
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo
+
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
+      # Skipped when the warm target above is linked.
       # Why: docs/ci/cmux-next-workflow-notes.md#note-210
       - name: Cache cargo build
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -4069,6 +4085,13 @@ jobs:
           # fixit-compile (scripts/ci/oops/fixit_compile.py, ci-oops 0a) wraps the cargo build: the head its patch is for.
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+
+      # After every cargo step, pass or fail, never on cancel: the source manifest the next job on this
+      # runner restores mtimes from. A job that ends before it leaves none (restore consumed it).
+      - name: Record this runner's warm cargo target
+        if: ${{ !cancelled() && steps.warm.outputs.linked == 'true' }}
+        continue-on-error: true
+        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
