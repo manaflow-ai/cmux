@@ -59,6 +59,8 @@ POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+)\})")
 WHOLE_TREE_LIST = re.compile(r"""["']ls-files["']\s*(?:,\s*["']-[\w=-]+["']\s*)*[\])]"""
                              r"""|\bgit(?:\s+-C\s+\S+)?\s+ls-files(?:\s+-[\w=-]+)*\s*(?:$|[|;&)>])""", re.M)
 WORKSPACE_PATH = re.compile(r"^\$\{?GITHUB_WORKSPACE(?::-[^}]*)?\}?/(.+)$")
+# The same path inside a longer value: the API call log's BASH_ENV is one $( ) that echoes the checkout's file.
+WORKSPACE_PATH_IN = re.compile(r"\$\{?GITHUB_WORKSPACE(?::-[^}]*)?\}?/([^\s\"';)]+)")
 
 
 @dataclass
@@ -96,7 +98,7 @@ def env_files(repo: Repo, *envs) -> list[str]:
     for env in envs:
         for value in mapping(env).values():
             text = str(value).strip()
-            match = WORKSPACE_PATH.match(text)
+            match = WORKSPACE_PATH.match(text) or WORKSPACE_PATH_IN.search(text)
             rel = match.group(1) if match else text
             if repo.is_file(rel):
                 out.append(rel)
