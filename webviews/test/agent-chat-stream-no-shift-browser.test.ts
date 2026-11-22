@@ -27,6 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import type { BoxShift } from "../src/gallery/shift";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { installBoxTracker } from "./support/boxTrackerPage";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -257,15 +258,18 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect().bottom);
   /// The sent prompt's row: its top against the transcript's top (null when it is not drawn).
   const promptTop = (page: Page, text: string) =>
-    page.evaluate((text) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((each) =>
-        each.textContent?.includes(text),
-      );
-      return row
-        ? Math.round((row.getBoundingClientRect().top - scroller.getBoundingClientRect().top) * 10) / 10
-        : null;
-    }, text);
+    page.evaluate(
+      ({ text, rowSelector }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const row = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].find((each) =>
+          each.textContent?.includes(text),
+        );
+        return row
+          ? Math.round((row.getBoundingClientRect().top - scroller.getBoundingClientRect().top) * 10) / 10
+          : null;
+      },
+      { text, rowSelector: TRANSCRIPT_ROW },
+    );
 
   for (const [engine] of engines)
     describe(engine, () => {
