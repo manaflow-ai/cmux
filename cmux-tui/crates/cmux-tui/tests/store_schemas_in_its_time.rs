@@ -13,6 +13,14 @@
 //! cmux-tui-core directly, with an end time that is past or far ahead and
 //! with the text of `--within-ms`: the executable cannot show those with no
 //! wait.
+//!
+//! A call that starts at zero each time gains only what the file cache
+//! keeps. So a caller can ask for a place (`--place ""`): the `not_ready`
+//! answer then has one more part, `place`, a text that the caller gives back
+//! with `--place` at its next call. That call goes on after the sessions
+//! that the calls before it read. The rows on the place use an end time of
+//! 0 ms, with which a call reads exactly one session that it did not read
+//! before, and a last call with no end time, as the app's rule has it.
 
 #![cfg(unix)]
 
@@ -83,6 +91,46 @@ fn call(folder: &Path, arguments: &[&str]) -> (Option<i32>, Value, String) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let answer = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
     (output.status.code(), answer, String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
+/// A session folder `name` in the state root of `folder`, with a registry
+/// file whose stored schema number is `number`.
+fn session(folder: &Path, name: &str, number: i64) {
+    let session = sessions_of(folder).join(name);
+    fs::create_dir_all(&session).unwrap();
+    let store = Connection::open(session.join(REGISTRY_FILE)).unwrap();
+    store
+        .execute_batch(&format!(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta (key, value) VALUES ('schema_version', '{number}');"
+        ))
+        .unwrap();
+}
+
+/// Writes `number` as the stored schema number of the session `name`.
+fn set_number(folder: &Path, name: &str, number: i64) {
+    let store = Connection::open(sessions_of(folder).join(name).join(REGISTRY_FILE)).unwrap();
+    let rows = store
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [number.to_string()])
+        .unwrap();
+    assert_eq!(rows, 1, "the session {name} has no stored schema number");
+}
+
+/// The 2 counts of a `not_ready` answer: the sessions of the root and the
+/// sessions read. `None` when the answer is not of that form.
+fn counts_of(answer: &Value) -> Option<(u64, u64)> {
+    let not_ready = answer.get("not_ready")?;
+    Some((not_ready.get("sessions")?.as_u64()?, not_ready.get("sessions_read")?.as_u64()?))
+}
+
+/// The place of a `not_ready` answer: the text that the next call gives
+/// back with `--place`.
+fn place_of(answer: &Value) -> String {
+    answer
+        .pointer("/not_ready/place")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("the answer has no place: {answer}"))
+        .to_string()
 }
 
 /// The fixture is what the check reads: with no end time it gives the number.
@@ -207,4 +255,185 @@ fn a_check_with_a_past_end_time_stops_and_one_with_a_far_end_time_reads_each_ses
         stored_until(&sessions, Some(start + Duration::from_secs(3600))).unwrap(),
         Stored::Schemas(numbers)
     );
+}
+
+/// A call with the place of the call before it goes on after the sessions
+/// that were read: its count of sessions read is the count of all calls so
+/// far, where a call with no place reads the first session again. The last
+/// call has the place and no end time, and gives the numbers.
+#[test]
+fn a_call_with_the_place_goes_on_after_the_sessions_read_before() {
+    let root = state_root(3, 15);
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&first), Some((3, 1)), "{first}");
+    let (code, second, stderr) =
+        check(root.path(), &["--within-ms", "0", "--place", &place_of(&first)]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&second), Some((3, 2)), "{second}");
+    let (code, last, stderr) = check(root.path(), &["--place", &place_of(&second)]);
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+}
+
+/// A call with a place and an end time that it does not reach gives the
+/// numbers, as a call with no end time does. So does a first call that asks
+/// for a place and reads each session.
+#[test]
+fn a_call_with_the_place_that_ends_in_its_time_gives_the_numbers() {
+    let root = state_root_of(&[13, 15, 14]);
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let (code, answer, stderr) =
+        check(root.path(), &["--within-ms", "60000", "--place", &place_of(&first)]);
+    assert_eq!((code, answer), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+    let (code, answer, stderr) = check(root.path(), &["--within-ms", "60000", "--place", ""]);
+    assert_eq!((code, answer), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+}
+
+/// The calls of one check take longer together than one call. A store that
+/// an earlier call read can get a newer number before the last call ends:
+/// the call that gives the numbers reads that store again.
+#[test]
+fn a_store_that_changes_after_its_read_is_read_again_before_the_numbers() {
+    let root = state_root_of(&[13, 14, 14]);
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&first), Some((3, 1)), "{first}");
+    set_number(root.path(), "session-0", 16);
+    let (code, last, stderr) = check(root.path(), &["--place", &place_of(&first)]);
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 16 })), "stderr: {stderr}");
+}
+
+/// A session that starts after the first call, with a name that sorts
+/// before the place, is read by the call that gives the numbers.
+#[test]
+fn a_session_that_is_new_and_sorts_before_the_place_is_read() {
+    let root = tempfile::tempdir().unwrap();
+    for name in ["session-1", "session-2", "session-3"] {
+        session(root.path(), name, 14);
+    }
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&first), Some((3, 1)), "{first}");
+    session(root.path(), "session-0", 17);
+    let (code, last, stderr) = check(root.path(), &["--place", &place_of(&first)]);
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 17 })), "stderr: {stderr}");
+}
+
+/// A place that names a folder that is no longer there is no error: the
+/// call starts at the next name. The number that an earlier call found in
+/// the folder that is gone stays in the numbers: the check can refuse a
+/// rollback for it, and it never lets one pass for it.
+#[test]
+fn a_place_that_names_a_folder_that_is_gone_starts_at_the_next_name() {
+    let root = state_root_of(&[15, 13, 14]);
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let place = place_of(&first);
+    fs::remove_dir_all(sessions_of(root.path()).join("session-0")).unwrap();
+    let (code, second, stderr) = check(root.path(), &["--within-ms", "0", "--place", &place]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&second), Some((2, 1)), "{second}");
+    let (code, last, stderr) = check(root.path(), &["--place", &place]);
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+}
+
+/// A caller that asks for no place gets the answer of before, with no part
+/// more, and its next call starts at the first session again.
+#[test]
+fn a_call_with_no_place_answers_as_before_and_starts_at_the_first_session_again() {
+    let root = state_root(3, 15);
+    for turn in 1..=2 {
+        let (code, answer, stderr) = check(root.path(), &["--within-ms", "0"]);
+        assert_eq!(
+            (code, answer),
+            (Some(0), json!({ "not_ready": { "sessions": 3, "sessions_read": 1 } })),
+            "call {turn}, stderr: {stderr}"
+        );
+    }
+}
+
+/// A place that is not a place of this check is the usage error: exit 1 and
+/// no answer, never a check from the first session with what the caller
+/// sent. The error does not print what the caller sent.
+#[test]
+fn a_wrong_form_of_the_place_is_the_usage_error_and_is_not_printed() {
+    const MARK: &str = "place-mark-5d1e";
+    let root = state_root(1, 15);
+    let forms: [&[&str]; 7] = [
+        &["--stored", "--place"],
+        &["--stored", "--place", MARK],
+        &["--stored", "--place", r#"{"after":"place-mark-5d1e"}"#],
+        &[
+            "--stored",
+            "--place",
+            r#"{"after":"place-mark-5d1e","found":{"workspace_registry":"x"},"since_ms":1}"#,
+        ],
+        &["--stored", "--place", r#"{"after":"place-mark-5d1e","found":{},"since_ms":1,"more":1}"#],
+        &["--stored", "--place", "", "--within-ms", "5"],
+        &["--place", ""],
+    ];
+    for form in forms {
+        let (code, answer, stderr) = call(root.path(), form);
+        assert_eq!((code, answer), (Some(1), Value::Null), "{form:?}, stderr: {stderr}");
+        assert!(stderr.contains("usage: cmux-tui __store-schemas"), "{form:?}, stderr: {stderr}");
+        assert!(!stderr.contains(MARK), "{form:?}, stderr: {stderr}");
+    }
+}
+
+/// The place names a session folder, and a session folder's name is a
+/// session's id. It goes from the check to its caller and back only: it is
+/// in the answer, and it is in no line of stderr and in no file that the
+/// check writes.
+#[test]
+fn a_place_is_in_the_answer_and_in_no_other_line_or_file_of_the_check() {
+    const MARK: &str = "mark-7c2e";
+    let root = tempfile::tempdir().unwrap();
+    for name in ["mark-7c2e-a", "mark-7c2e-b", "mark-7c2e-c"] {
+        session(root.path(), name, 15);
+    }
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let place = place_of(&first);
+    assert!(place.contains(MARK), "the place does not name the session: {place}");
+    assert!(!stderr.contains(MARK), "stderr: {stderr}");
+    let (code, second, stderr) = check(root.path(), &["--within-ms", "0", "--place", &place]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains(MARK), "stderr: {stderr}");
+    let (code, last, stderr) = check(root.path(), &["--place", &place_of(&second)]);
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+    assert!(!stderr.contains(MARK), "stderr: {stderr}");
+    // Each file of the test folder itself (the config and the log of the
+    // calls): the session folders are below `sessions`, a folder.
+    for entry in fs::read_dir(root.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            let text = String::from_utf8_lossy(&fs::read(&path).unwrap()).into_owned();
+            assert!(!text.contains(MARK), "{} names the session", path.display());
+        }
+    }
+}
+
+/// The place holds the start time of the first call. A place whose start
+/// time is after the start of this call is no place: the call starts at the
+/// first session, with a start time of its own.
+#[test]
+fn a_place_whose_start_time_is_after_this_call_is_no_place() {
+    const FAR: u64 = 9_000_000_000_000_000;
+    let root = state_root(3, 15);
+    let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let (code, second, stderr) =
+        check(root.path(), &["--within-ms", "0", "--place", &place_of(&first)]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&second), Some((3, 2)), "{second}");
+    let mut place: Value = serde_json::from_str(&place_of(&second)).unwrap();
+    place["since_ms"] = json!(FAR);
+    let (code, again, stderr) =
+        check(root.path(), &["--within-ms", "0", "--place", &place.to_string()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&again), Some((3, 1)), "{again}");
+    let place: Value = serde_json::from_str(&place_of(&again)).unwrap();
+    assert_eq!(place["after"], json!("session-0"), "{place}");
+    assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
 }
