@@ -1134,17 +1134,11 @@ final class PendingAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// Nothing to send to yet: the draft comes back with why.
-    func send(_ intent: AgentClientIntent) {
-        let reason = "Connecting to \(summary.macName)… Send again once the chat loads."
-        let event: AgentSessionEvent
-        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
-            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
-        } else {
-            event = .clientError(reason)
-        }
-        for continuation in continuations { continuation.yield(event) }
-    }
+    /// Nothing to send to yet, and nothing to say about it: the chat draws a message at once and
+    /// the store built on the chat's real source sends it (``AgentSessionDirectory/invalidate(id:macID:)``
+    /// carries it over); one the Mac never gets in time says "Not sent" on its own bubble
+    /// (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... i want it to just work").
+    func send(_ intent: AgentClientIntent) {}
 }
 
 /// An agent tab with no acpmux session yet: a new chat on the Mac that has

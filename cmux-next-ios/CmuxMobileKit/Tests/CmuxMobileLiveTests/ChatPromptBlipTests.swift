@@ -97,7 +97,7 @@ import Testing
         #expect(store.returnedDraft == nil)
     }
 
-    @Test func aMessageHeldPastTheWindowComesBackWithWhatHappened() async throws {
+    @Test func aMessageHeldPastTheWindowIsMarkedNotSentWhereItWasDrawn() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
         defer { withExtendedLifetime(hub) {} }
@@ -105,9 +105,11 @@ import Testing
         await hub.bind(nil)
         store.send(prompt: "run the tests")
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        await settle { store.turns.last?.localSend == .notSent }
+        // The message stays where it was drawn, marked on its own row; no toast, no draft back.
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
+        #expect(store.returnedDraft == nil)
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.

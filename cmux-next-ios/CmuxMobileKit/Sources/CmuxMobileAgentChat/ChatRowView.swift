@@ -155,6 +155,8 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
+        case .notSent:
+            NotSentLine(turnID: row.turnID, store: store)
         case .failed(_, let errorText):
             let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
             let turn = store.turns.last { $0.id == row.turnID }
@@ -246,4 +248,27 @@ enum ChatShare {
         top.present(sheet, animated: true)
     }
 }
+/// A message that could not reach the Mac within ``AgentChatStore/sendDeadline``: one quiet line
+/// under its bubble, in the chat's own secondary ink (no toast, no banner, no spinner). A tap sends
+/// it again under the same id, so the Mac runs it once.
+struct NotSentLine: View {
+    let turnID: String
+    let store: AgentChatStore
+
+    var body: some View {
+        Button {
+            store.sendAgain(turnID: turnID)
+        } label: {
+            Text("Not sent · Tap to send again")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 18)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityIdentifier("agentChat.notSent")
+    }
+}
+
 #endif

@@ -85,7 +85,7 @@ import Testing
         let store = AgentChatStore(source: source)
         #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
-        #expect(store.loadingText == "Connecting to Mac…")
+        #expect(store.loadingText == "Loading chat…", "never \"Connecting to Mac…\" (Leo 2026-11-22)")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {
