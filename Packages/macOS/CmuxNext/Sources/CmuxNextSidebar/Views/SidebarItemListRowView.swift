@@ -64,7 +64,7 @@ final class SidebarItemListRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = archived ? Palette.sidebarTitle.withAlphaComponent(SidebarStyle.archivedAlpha) : Palette.sidebarTitle
+            title.textColor = SidebarStyle.nameInk(.title, archived: archived)
             paintFill(isSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil)
         }
     }

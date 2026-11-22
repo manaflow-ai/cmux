@@ -354,7 +354,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // text contrast on every state above and the buttons' fills.
             let ink = background.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
-            count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+            count.textColor = ink // the name's ink on the fill, smaller: one ink per fill (Leo 2026-10-27)
             glyph.symbolInk = ink
             pin.contentTintColor = ink
             chevron.contentTintColor = ink
@@ -393,7 +393,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fill = paint.fill
         let ink = paint.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
-        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        count.textColor = ink
         glyph.symbolInk = ink
         pin.contentTintColor = ink
         chevron.contentTintColor = ink
@@ -430,8 +430,10 @@ final class GroupHeaderRowView: SidebarRowView {
                               look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)? = nil) {
         let alpha: CGFloat = archived ? SidebarStyle.archivedAlpha : 1
         let quiet = tokens.textSecondary.nsColor.withAlphaComponent(alpha)
-        name.textColor = folder ? tokens.textPrimary.nsColor.withAlphaComponent(alpha) : quiet
-        count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        // Text in the sidebar's three inks (`SidebarStyle.TextInk`): a folder's name as a workspace title's, a
+        // section's in the secondary, the count in the tertiary; an archived name drops to the tertiary.
+        name.textColor = SidebarStyle.nameInk(folder ? .title : .secondary, archived: archived)
+        count.textColor = SidebarStyle.TextInk.tertiary.color
         if folder, !tint.isNone, let look {
             let line = tint.lineRGB(palette: look.palette).withAlpha(1)
             glyph.symbolInk = ThemeTokens.readable(line, over: tokens.sidebarBackground.withAlpha(1), minimum: ThemeTokens.minimumMarkContrast)
@@ -444,7 +446,7 @@ final class GroupHeaderRowView: SidebarRowView {
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
         pinButton.tintOverride = quiet
-        paintMachine(ink: quiet)
+        paintMachine(ink: quiet, words: SidebarStyle.TextInk.tertiary.color)
         ChromeHover.paint(pill, nil, animated: false)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -471,7 +473,7 @@ final class GroupHeaderRowView: SidebarRowView {
             ? ThemeTokens.readable(line.withAlpha(1), over: background.shown, minimum: ThemeTokens.minimumTextContrast)
             : background.ink).nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
-        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        count.textColor = ink
         glyph.symbolInk = ink
         let quiet = tokens.textSecondary.nsColor
         pin.contentTintColor = quiet
@@ -479,7 +481,7 @@ final class GroupHeaderRowView: SidebarRowView {
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
         pinButton.tintOverride = quiet
-        paintMachine(ink: quiet)
+        paintMachine(ink: quiet, words: SidebarStyle.TextInk.tertiary.color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dot.isHidden = tint.isNone
@@ -740,9 +742,9 @@ extension GroupHeaderRowView {
     }
 
     // theme-scoped: called only inside performWithTheme
-    fileprivate func paintMachine(ink: NSColor) {
+    fileprivate func paintMachine(ink: NSColor, words: NSColor? = nil) {
         machineMark.contentTintColor = ink
-        machineWords.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        machineWords.textColor = words ?? ink
         let color: NSColor? = switch machineTone {
         case .success: Palette.success
         case .attention: Palette.attention
