@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -168,6 +169,77 @@ class StepsFinish(unittest.TestCase):
             code, output = run_ci_guards.run_step(step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
         self.assertEqual(code, 3)
         self.assertIn("nope", output)
+
+
+class LongStepsAreSharded(unittest.TestCase):
+    SAMPLE = textwrap.dedent("""
+        import unittest
+
+        class A(unittest.TestCase):
+            def test_one(self): pass
+            def test_two(self): pass
+            def test_three(self): pass
+
+        class B(unittest.TestCase):
+            def test_four(self): pass
+            def test_five(self): self.assertEqual(SHARED, "module code ran")
+
+        SHARED = "module code ran"
+
+        if __name__ == "__main__":
+            unittest.main()
+        """)
+
+    def test_every_sharded_step_is_one_test_file_in_the_fast_set(self) -> None:
+        units = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
+        fast = {s.name: s for u in units if u.group in run_ci_guards.FAST_GROUPS for s in u.steps}
+        for name, count in run_ci_guards.SHARDED_STEPS.items():
+            self.assertIn(name, fast)
+            shards = run_ci_guards.shards(fast[name])
+            self.assertEqual(len(shards), count, f"{name!r} is no longer one `python3 tests/X.py` command")
+            self.assertEqual({s.name for s in shards}, {name})
+
+    def test_the_shards_together_run_every_test_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "test_sample.py"
+            path.write_text(self.SAMPLE, encoding="utf-8")
+            ran = []
+            for index in range(3):
+                completed = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/ci/unittest_shard.py"), str(index), "3", str(path)],
+                    capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                ran.append(int(re.search(r"Ran (\d+) test", completed.stderr).group(1)))
+            self.assertEqual(ran, [2, 2, 1])
+
+    def test_a_failing_shard_fails_the_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "test_sample.py"
+            path.write_text(self.SAMPLE.replace("def test_four(self): pass",
+                                                "def test_four(self): self.fail('shard red')"), encoding="utf-8")
+            codes = [
+                subprocess.run([sys.executable, str(ROOT / "scripts/ci/unittest_shard.py"), str(i), "2", str(path)],
+                               capture_output=True, text=True, timeout=60).returncode
+                for i in range(2)
+            ]
+        self.assertEqual(sorted(codes), [0, 1])
+
+    def test_shard_results_join_into_one_step(self) -> None:
+        name = next(iter(run_ci_guards.SHARDED_STEPS))
+        unit = run_ci_guards.Unit(job="workflow-guard-tests", group="ci", steps=[])
+        step = run_ci_guards.Step(name=name, run="x", env={}, working_directory=None)
+        other = run_ci_guards.Step(name="another step", run="y", env={}, working_directory=None)
+        results = [
+            run_ci_guards.StepResult(unit, step, True, 10.0, ""),
+            run_ci_guards.StepResult(unit, other, True, 1.0, ""),
+            run_ci_guards.StepResult(unit, step, False, 30.0, "shard red"),
+            run_ci_guards.StepResult(unit, step, True, 20.0, ""),
+        ]
+        joined = run_ci_guards.join_shards(results)
+        self.assertEqual([(r.step.name, r.ok, r.seconds) for r in joined],
+                         [(name, False, 30.0), ("another step", True, 1.0)])
+        self.assertIn("shard red", joined[0].output)
 
 
 class PortableSubstitutes(unittest.TestCase):

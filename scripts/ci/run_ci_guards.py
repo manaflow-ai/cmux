@@ -85,6 +85,16 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
+# Steps whose one test file runs far longer than any other guard step, split into this many
+# shards (scripts/ci/unittest_shard.py) that run on separate workers. Main's fast guards were
+# cancelled at their 5 minute timeout with the suite at 273 s (job 137065773591); measured alone,
+# test_gh_merge_green.py takes 160 s of it and test_ci_pr_media_privacy.py 42 s. A sharded step
+# keeps its name, so results, --step and the base comparison read it as one step.
+SHARDED_STEPS = {
+    "Validate main-fix merge evidence": 6,
+    "Validate the PR media privacy gate": 2,
+}
+SHARDABLE_RUN = re.compile(r"python3 (tests/[A-Za-z0-9_]+\.py)")
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
@@ -269,6 +279,37 @@ def is_stateful(unit: Unit) -> bool:
         or "GITHUB_PATH" in step.run
         for step in unit.steps
     )
+
+
+def shards(step: Step) -> list[Step]:
+    """A SHARDED_STEPS step as its shards; any other step, or one whose run is no longer one test file, as is."""
+    count = SHARDED_STEPS.get(step.name, 1)
+    match = SHARDABLE_RUN.fullmatch(step.run.strip())
+    if count <= 1 or not match or not (ROOT / "scripts/ci/unittest_shard.py").exists():
+        return [step]
+    return [
+        dataclasses.replace(step, run=f"python3 scripts/ci/unittest_shard.py {index} {count} {match.group(1)}")
+        for index in range(count)
+    ]
+
+
+def join_shards(results: list[StepResult]) -> list[StepResult]:
+    """One result per sharded step: it fails if any shard failed, and takes the slowest shard's time."""
+    joined: list[StepResult] = []
+    first: dict[tuple[str, str], int] = {}
+    for result in results:
+        key = (result.unit.label, result.step.name)
+        if result.step.name not in SHARDED_STEPS or key not in first:
+            if result.step.name in SHARDED_STEPS:
+                first[key] = len(joined)
+            joined.append(result)
+            continue
+        earlier = joined[first[key]]
+        ok = None if earlier.ok is None and result.ok is None else bool(earlier.ok is not False and result.ok is not False)
+        output = "\n".join(r.output for r in (earlier, result) if r.ok is False)
+        joined[first[key]] = dataclasses.replace(
+            earlier, ok=ok, seconds=max(earlier.seconds, result.seconds), output=output or earlier.output)
+    return joined
 
 
 def skipped_here(step: Step) -> bool:
@@ -481,7 +522,8 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)
+             | set(SHARDED_STEPS)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
@@ -545,8 +587,10 @@ def main(argv: list[str]) -> int:
         if is_stateful(unit):
             tasks.append((unit, unit.steps))
         else:
-            tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
+            tasks.extend((unit, [shard]) for step in unit.steps for shard in shards(step))
+    # Sequential groups and the shards of the longest steps start first, so none of them is the
+    # last task still running after every other worker has gone idle.
+    tasks.sort(key=lambda task: (-len(task[1]), task[1][0].name not in SHARDED_STEPS))
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
@@ -566,6 +610,7 @@ def main(argv: list[str]) -> int:
         return 130
     pool.shutdown()
     seconds = time.monotonic() - started
+    results = join_shards(results)
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)

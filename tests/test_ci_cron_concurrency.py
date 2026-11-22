@@ -73,7 +73,8 @@ class RepositoryTests(unittest.TestCase):
 
     def test_every_allowance_still_names_a_file(self):
         names = {w.name for w in self.workflows}
-        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
+        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.CANCEL_ON_SCHEDULE_IDEMPOTENT,
+                      cc.TRIVIAL_NO_SUPERSEDE):
             self.assertEqual(sorted(set(table) - names), [])
         for name, _owner in [*cc.EXCLUDED_SHARED, *cc.EXCLUDED_CANCEL]:
             self.assertIn(name, names)
@@ -134,6 +135,18 @@ class RuleTests(unittest.TestCase):
               sweep: {runs-on: ubuntu-24.04, steps: [{run: x}]}
             """)
         [problem] = cc.cron_findings(workflow)
+        self.assertIn("cut a running scheduled run short", problem)
+
+    def test_only_a_listed_idempotent_sweep_may_cancel_a_running_one(self):
+        text = """
+            on:
+              schedule: [{cron: "*/10 * * * *"}]
+            concurrency: {group: sweep, cancel-in-progress: true}
+            jobs:
+              sweep: {runs-on: ubuntu-24.04, timeout-minutes: 9, steps: [{run: x}]}
+            """
+        self.assertEqual(cc.cron_findings(write(self.root, "ci-shed-superseded-runs.yml", text)), [])
+        [problem] = cc.cron_findings(write(self.root, "ci-other-sweep.yml", text))
         self.assertIn("cut a running scheduled run short", problem)
 
     def test_dispatches_with_inputs_may_keep_their_own_group(self):

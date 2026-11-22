@@ -27,7 +27,10 @@ behind itself after an outage. The fix has three parts.
    `cancel-in-progress` is false, so a running sweep is never cut short. GitHub keeps at most one
    pending run per group and replaces an older pending run with a newer one, so it does the dedupe.
    A `workflow_dispatch` with its own inputs may keep its own key. Only the scheduled and
-   `workflow_run` values are checked.
+   `workflow_run` values are checked. GitHub holds the group for a run whose job still waits for its
+   runner label, so one stuck sweep stops every later one. An idempotent sweep whose job timeout is
+   under its tick may cancel in progress instead; it is listed in `CANCEL_ON_SCHEDULE_IDEMPOTENT`
+   with its reason (the superseded-run shed).
 2. **Some workflows handle one source run each.** In those, each `workflow_run` run rescues,
    retries or guards one specific source run, so a shared group would drop that run's work. They
    are listed in `PER_SOURCE_RUN`, each with its reason (the owned-pool and hosted-queue rescues,
