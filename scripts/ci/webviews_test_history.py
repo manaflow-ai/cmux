@@ -27,6 +27,11 @@
                                          [--only FILES] [--root DIR]
         print, one a line, shard I's share (of K) of the files BASE_REDS names, kept to the FILES list (the
         change's affected files) and to files under DIR; react-apps-base-early runs them on the merge parent
+    webviews_test_history.py passed-before OUT_DIR --repo R --branch B --shard I --run-id ID
+        write to OUT_DIR the newest PASSED_ARTIFACT list (OUT_DIR/commit, the merge commit it passed at, and
+        OUT_DIR/files) that shard I uploaded on pull request branch B in a run other than ID: the files that passed
+        at the pull request's previous head, which a newer head's shard need not run again when its change cannot
+        reach them (ci-web.yml). Two requests, the list and the download; any failure writes nothing
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
@@ -321,12 +326,19 @@ def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[
 
 
 def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
-    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs).
+
+    A file red on the base as a whole (its bare name: it timed out or failed without naming a test there) covers every
+    red its head run names: the head's retry alone could only pass a file the base fails too. Shard 1 of run
+    44987019885 had 51 red files and 5 skipped; 29 of the other 46 were red on the base push by file name only (the
+    gallery files, accent-glass-invariants-2 and control-contrast-12, among them) and the head named their tests. A wrong
+    guess still moves no verdict: react-apps-base-check replays the file on the base and re-runs alone on the head any
+    red it would charge to the change."""
     by_file: dict[str, list[str]] = {}
     for name, ok in head.items():
         if not ok:
             by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
-    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+    return sorted(file for file, names in by_file.items() if file in reds or all(name in reds for name in names))
 
 
 EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
@@ -623,6 +635,57 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
     return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})", True
 
 
+# A pull request shard's passes, uploaded as they come (also when a newer head cancels its run), for the same shard at
+# the next head. An artifact, not a cache: a cache a pull request saves is read by that ref alone and fills the store
+# (tests/test_ci_no_run_scoped_cache_keys.py).
+PASSED_ARTIFACT = "react-apps-passed-shard"
+PASSED_PAGE = 100  # the newest uploads of one shard's name, every pull request's: about two hours of runs
+
+
+def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, get=_get) -> str:
+    """Write the newest list shard SHARD uploaded on BRANCH in a run other than RUN_ID to OUT (commit, files); say what
+    was read. Only this repository's runs: a fork's branch may share the name. Any failure writes nothing."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    name = f"{PASSED_ARTIFACT}{shard}"
+    query = urllib.parse.urlencode({"name": name, "per_page": PASSED_PAGE})
+    token = os.environ.get("GITHUB_TOKEN")
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return f"listing the {name} artifacts answered {status}"
+        listing = json.loads(body)
+        best = None
+        items = listing.get("artifacts") if isinstance(listing, dict) else None
+        for item in items if isinstance(items, list) else []:
+            run = item.get("workflow_run") if isinstance(item, dict) and isinstance(item.get("workflow_run"), dict) else {}
+            if (item.get("name") != name or item.get("expired") or run.get("head_branch") != branch
+                    or run.get("id") == run_id or not run.get("repository_id")
+                    or run.get("head_repository_id") != run.get("repository_id")):
+                continue
+            if best is None or str(item.get("created_at") or "") > str(best.get("created_at") or ""):
+                best = item
+        if best is None:
+            return f"no {name} artifact from an earlier run on {branch}"
+        status, headers, body = get(str(best.get("archive_download_url") or ""), token)
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get("Location") or headers.get("location") or ""
+            status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+        if status != 200 or len(body) > MAX_BYTES:
+            return f"downloading {name} {best.get('id')} answered {status}"
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            commit = archive.read("commit").decode().strip()
+            files = archive.read("files").decode()
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        return f"reading the {name} artifact failed: {error}"
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return f"{name} {best.get('id')} names no commit"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "files").write_text(files, encoding="utf-8")
+    (out / "commit").write_text(commit + "\n", encoding="utf-8")
+    run = best.get("workflow_run") or {}
+    return f"{name} {best.get('id')} from run {run.get('id')} at {commit[:12]}: {len(files.splitlines())} files"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -683,6 +746,12 @@ def main(argv: list[str]) -> int:
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    pb = sub.add_parser("passed-before")
+    pb.add_argument("out")
+    pb.add_argument("--repo", required=True)
+    pb.add_argument("--branch", required=True)
+    pb.add_argument("--shard", type=int, required=True)
+    pb.add_argument("--run-id", type=int, required=True)
     st = sub.add_parser("stuck")
     st.add_argument("history")
     st.add_argument("--runs", type=int, default=STUCK_RUNS)
@@ -701,6 +770,9 @@ def main(argv: list[str]) -> int:
             with open(args.summary, "a", encoding="utf-8") as handle:
                 handle.write(summary)
         return 1 if args.fail and found else 0
+    if args.command == "passed-before":
+        print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
+        return 0
     if args.command == "fetch":
         found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
