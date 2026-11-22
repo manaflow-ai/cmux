@@ -66,6 +66,7 @@
 // prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
 // newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
+// FIXTURE=replay REPLAY=FILE serves a recorded (sanitized) chat instead, a coordinator's notices and all.
 // FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
 // settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
@@ -94,6 +95,7 @@ import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -181,9 +183,47 @@ if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whol
 /// src/agent-session/acpmux/sim/scenarios.ts `longRun`): thoughts, 2-6 tool calls, a progress message,
 /// background shells, notices from another lane and a compaction now and then, then a one-line reply. Every
 /// finished turn folds under its "Worked for" line. plain (the default) is papercutChat's one-reply turns.
+/// FIXTURE=replay REPLAY=FILE: a recorded chat's records (an NDJSON file, `.gz` too, as `chat-sim.ts --sanitize`
+/// writes one), served as the daemon would; TURNS is then only a label.
 const FIXTURE = process.env.FIXTURE ?? "plain";
-if (FIXTURE !== "plain" && FIXTURE !== "work") throw new Error("FIXTURE must be plain or work");
-const LATEST = FIXTURE === "work" ? `Turn ${TURNS} done.` : `Answer ${TURNS}:`;
+if (FIXTURE !== "plain" && FIXTURE !== "work" && FIXTURE !== "replay")
+  throw new Error("FIXTURE must be plain, work or replay");
+const replayed =
+  FIXTURE === "replay"
+    ? (() => {
+        const file = process.env.REPLAY;
+        if (!file) throw new Error("FIXTURE=replay needs REPLAY=FILE");
+        const bytes = fs.readFileSync(file);
+        // gunzipSync gives a Uint8Array, whose toString is its bytes as numbers.
+        const text = new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+        return parseRecords(text);
+      })()
+    : [];
+/// The newest reply's first words, which a replayed chat's frames wait for as the others wait for `Answer N:`.
+function replayLatest(records: readonly { kind: string; msg: unknown }[]): string {
+  let at = -1;
+  records.forEach((record, index) => {
+    if (record.kind === "user_message") at = index;
+  });
+  let text = "";
+  for (const record of records.slice(at + 1)) {
+    if (record.kind !== "agent_message_chunk") continue;
+    const params = (record.msg as { params?: { _meta?: { acpmux?: { subagent?: string } }; update?: any } }).params;
+    if (params?._meta?.acpmux?.subagent) continue;
+    text += String(params?.update?.content?.text ?? "");
+  }
+  const words = text
+    .trim()
+    .split("\n")[0]!
+    .replace(/[*_`#>]/g, "")
+    .trim()
+    .slice(0, 24)
+    .trim();
+  if (!words) throw new Error("the replayed chat's last turn has no reply to wait for");
+  return words;
+}
+const LATEST =
+  FIXTURE === "work" ? `Turn ${TURNS} done.` : FIXTURE === "replay" ? replayLatest(replayed) : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
@@ -249,11 +289,14 @@ const plain = papercutEvents({
   session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
-if (FIXTURE === "work" && (RUNNING || CONTENT !== "plain")) throw new Error("FIXTURE=work takes no RUNNING or CONTENT");
-const worked = FIXTURE === "work" ? longRun(TURNS).events.map((event) => ({ ...event, sessionId: PAPERCUT_CHAT })) : [];
-const events = FIXTURE === "work" ? worked : plain.events;
+if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
+  throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
+const worked = (
+  FIXTURE === "work" ? longRun(TURNS).events : FIXTURE === "replay" ? replayed : []
+).map((event) => ({ ...event, sessionId: PAPERCUT_CHAT }));
+const events = FIXTURE === "plain" ? plain.events : worked;
 const session =
-  FIXTURE === "work"
+  FIXTURE !== "plain"
     ? {
         ...plain.session,
         status: "ready",
@@ -264,8 +307,25 @@ const session =
     : plain.session;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
-const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
-  newestPage(events, { limit, beforeSeq, maxBytes });
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
+  newestPage(
+    Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events,
+    { limit, beforeSeq, maxBytes },
+  );
+/// A turn's prompt as acpmux reads it (server/requests/turn_opener.rs `starts_turn`): not a steer.
+const startsTurn = (event: { dir?: string; kind?: string; msg?: unknown }) =>
+  event.dir === "mux" && event.kind === "user_message" && (event.msg as { steer?: unknown })?.steer !== true;
+/// The prompt of the turn an attach page starts inside (turn_opener.rs `turn_opener`): the attach
+/// answers it with the page, so a page that starts mid-turn draws under its prompt from the first frame.
+function turnOpener(page: readonly (typeof events)[number][], hasMore: boolean): unknown {
+  const first = page[0];
+  if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return null;
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const event = events[at]!;
+    if (event.seq < first.seq && startsTurn(event)) return event;
+  }
+  return null;
+}
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
 /// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
 /// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
@@ -292,7 +352,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
+      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore, turnOpener: turnOpener(page, hasMore) };
     }
     case "_acpmux/events": {
       // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its text.
@@ -304,7 +364,13 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
+        // `kinds` as acpmux reads it (paging.rs EventFilter): the pane's own opener read asks for prompts alone.
+        const { page, hasMore } = newest(
+          Number(params.limit ?? 400),
+          Number(params.beforeSeq),
+          params.maxBytes,
+          params.kinds,
+        );
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
