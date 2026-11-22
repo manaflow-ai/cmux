@@ -66,6 +66,9 @@
 // prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
 // newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
+// FIXTURE=replay REPLAY=FILE serves a recorded (sanitized) chat instead, a coordinator's notices and all.
+// FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
+// settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
@@ -90,7 +93,11 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
-import { restartSettled } from "./restartSettled";
+import { goneRows, restartSettled } from "./restartSettled";
+import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -174,7 +181,55 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
-const LATEST = `Answer ${TURNS}:`;
+/// FIXTURE=work: each finished turn works first, as an agent's does (the chat simulator's long run,
+/// src/agent-session/acpmux/sim/scenarios.ts `longRun`): thoughts, 2-6 tool calls, a progress message,
+/// background shells, notices from another lane and a compaction now and then, then a one-line reply. Every
+/// finished turn folds under its "Worked for" line. plain (the default) is papercutChat's one-reply turns.
+/// FIXTURE=replay REPLAY=FILE: a recorded chat's records (an NDJSON file, `.gz` too, as `chat-sim.ts --sanitize`
+/// writes one), served as the daemon would; TURNS is then only a label.
+const FIXTURE = process.env.FIXTURE ?? "plain";
+if (FIXTURE !== "plain" && FIXTURE !== "work" && FIXTURE !== "replay")
+  throw new Error("FIXTURE must be plain, work or replay");
+const replayed =
+  FIXTURE === "replay"
+    ? (() => {
+        const file = process.env.REPLAY;
+        if (!file) throw new Error("FIXTURE=replay needs REPLAY=FILE");
+        const bytes = fs.readFileSync(file);
+        // gunzipSync gives a Uint8Array, whose toString is its bytes as numbers.
+        const text = new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+        return parseRecords(text);
+      })()
+    : [];
+/// The newest reply's first words, which a replayed chat's frames wait for as the others wait for `Answer N:`.
+function replayLatest(records: readonly { kind: string; msg: unknown }[]): string {
+  let at = -1;
+  records.forEach((record, index) => {
+    if (record.kind === "user_message") at = index;
+  });
+  // The turn's last message, which stays drawn: the ones before it can fold under its "Worked for".
+  let text = "";
+  let message: unknown;
+  for (const record of records.slice(at + 1)) {
+    if (record.kind !== "agent_message_chunk") continue;
+    const params = (record.msg as { params?: { _meta?: { acpmux?: { subagent?: string } }; update?: any } }).params;
+    if (params?._meta?.acpmux?.subagent) continue;
+    if (params?.update?.messageId !== message) text = "";
+    message = params?.update?.messageId;
+    text += String(params?.update?.content?.text ?? "");
+  }
+  const words = text
+    .trim()
+    .split("\n")[0]!
+    .replace(/[*_`#>]/g, "")
+    .trim()
+    .slice(0, 24)
+    .trim();
+  if (!words) throw new Error("the replayed chat's last turn has no reply to wait for");
+  return words;
+}
+const LATEST =
+  FIXTURE === "work" ? `Turn ${TURNS} done.` : FIXTURE === "replay" ? replayLatest(replayed) : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
@@ -234,29 +289,78 @@ const REPORTED = {
     },
   ],
 };
-const { events, session } = papercutEvents({
+const plain = papercutEvents({
   turns: TURNS,
   running: RUNNING,
   session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
+if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
+  throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
+const worked = (FIXTURE === "work" ? longRun(TURNS).events : FIXTURE === "replay" ? replayed : []).map((event) => ({
+  ...event,
+  sessionId: PAPERCUT_CHAT,
+}));
+const events = FIXTURE === "plain" ? plain.events : worked;
+const session =
+  FIXTURE !== "plain"
+    ? {
+        ...plain.session,
+        status: "ready",
+        turnCount: TURNS,
+        updatedAt: worked.at(-1)?.at ?? plain.session.updatedAt,
+        lastSeq: worked.length,
+      }
+    : plain.session;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
-const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
-  newestPage(events, { limit, beforeSeq, maxBytes });
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+    limit,
+    beforeSeq,
+    maxBytes,
+  });
+/// A turn's prompt as acpmux reads it (server/requests/turn_opener.rs `starts_turn`): not a steer.
+const startsTurn = (event: { dir?: string; kind?: string; msg?: unknown }) =>
+  event.dir === "mux" && event.kind === "user_message" && (event.msg as { steer?: unknown })?.steer !== true;
+/// The prompt of the turn an attach page starts inside (turn_opener.rs `turn_opener`): the attach
+/// answers it with the page, so a page that starts mid-turn draws under its prompt from the first frame.
+function turnOpener(page: readonly (typeof events)[number][], hasMore: boolean): unknown {
+  const first = page[0];
+  if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return null;
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const event = events[at]!;
+    if (event.seq < first.seq && startsTurn(event)) return event;
+  }
+  return null;
+}
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
-/// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
-/// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
-/// needs no turn opener.
-const KEPT_EVENTS = 400;
-const keptTail = {
-  events: newest(KEPT_EVENTS).page,
-  summary: session,
-  historyExhausted: events.length <= KEPT_EVENTS,
-  queue: [],
-  configSeq: 0,
-  usageFromSeq: 0,
-};
+/// back by `tailFromHost`), made the way the page makes it: the attach page it read (the newest records
+/// within `OPEN_PAGE_BYTES`, direct.ts `sendAttach`), its newest `KEPT_EVENTS` messages (`keptEvents`),
+/// the prompt of the turn the kept page starts inside (direct.ts `currentTail`), and the host's byte
+/// bound (`hostTailOf`). A kept page without that prompt draws its turn's work unfolded, which the
+/// real page never does, so a stand-in without it measures a reload that does not happen.
+const OPEN_PAGE_BYTES = 128 * 1024;
+const keptTail = (() => {
+  const opened = newest(400, Infinity, OPEN_PAGE_BYTES);
+  const kept = keptEvents(opened.page as EventRecord[]);
+  const first = kept[0];
+  const opener =
+    first && !startsTurn(first)
+      ? ((kept.length < opened.page.length
+          ? [...opened.page.slice(0, opened.page.length - kept.length)].reverse().find(startsTurn)
+          : undefined) ?? turnOpener(opened.page, opened.hasMore))
+      : undefined;
+  return hostTailOf({
+    events: kept,
+    summary: session,
+    turnOpener: (opener ?? undefined) as EventRecord | undefined,
+    historyExhausted: !opened.hasMore && kept.length === opened.page.length,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  });
+})();
 
 const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
   switch (method) {
@@ -270,7 +374,13 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
+      return {
+        session,
+        lastSeq: events.at(-1)?.seq ?? 0,
+        events: page,
+        hasMore,
+        turnOpener: turnOpener(page, hasMore),
+      };
     }
     case "_acpmux/events": {
       // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its text.
@@ -282,7 +392,13 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
+        // `kinds` as acpmux reads it (paging.rs EventFilter): the pane's own opener read asks for prompts alone.
+        const { page, hasMore } = newest(
+          Number(params.limit ?? 400),
+          Number(params.beforeSeq),
+          params.maxBytes,
+          params.kinds,
+        );
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
@@ -1431,6 +1547,11 @@ try {
       attachMs: split.attach,
       shifts: median(settled.map((one) => one.shifts)),
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
+      fixture: FIXTURE,
+      cpu: CPU,
+      goneRows: median(settled.map((one) => one.goneRows)),
+      goneFrames: median(settled.map((one) => one.goneFrames)),
+      goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
       settledEach: settled.map((one) => one.settledMs),
     };
@@ -1459,7 +1580,9 @@ try {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
+        const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
+          const gone = frame.rows.filter((row) => !final.has(row.id));
           const bottom = frame.rows.at(-1);
           const layer = frame.copyShown ? "copy" : frame.rootHidden ? "hid " : "live";
           const marks = `${blanks.has(at) ? "B" : " "}${shifts.has(at) ? "S" : " "}`;
@@ -1472,6 +1595,14 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              ...(gone.length
+                ? [
+                    `gone later ${gone.length}: ${gone
+                      .map((row) => row.id)
+                      .slice(0, 6)
+                      .join(" ")}`,
+                  ]
+                : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );
@@ -1514,6 +1645,8 @@ try {
       })),
       median: medians,
       max: maxima,
+      // Rows a frame showed that the settled chat does not (restartSettled.ts `goneRows`), per round.
+      gone: rounds.map((r) => goneRows(r.frames)),
     };
     const row = mode.replace("-", "_");
     for (const [metric, key, unit] of [
