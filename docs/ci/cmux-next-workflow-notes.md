@@ -196,8 +196,17 @@ compiled the nearest commit (scripts/ci/dev_landing_place.py with FRESH_LABEL, p
 runner listing: a host with any busy runner is occupied (whatever holds its host lock runs there); a
 pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
 its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
-record. Otherwise the shared DEV slot label, then the side label, at once: it never waits. With nothing
-owned idle it prints no route and the compile keeps macos-placement's. A warm host compiles in about
+record. Otherwise an idle nightly slot (NIGHTLY_LABEL, from vars.CI_DEV_COMPILE_NIGHTLY_RUNNER, default
+glaeda-nightly-std-xcode-26.6, picked as nightly_build_runner.owned_route() picks the nightly's own): the
+runner hook ranks the DEV daily compile nightly-tier, and Leo's rule is "Nightlies come first on the fleet".
+Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
+hands that label's queue out oldest first, so an idle side runner in the one listing is no place in line,
+and the compile joins the tail behind every PR job there (run 44941204257, 2026-11-21: 76 min on
+glaeda-side-std-xcode-26.6 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first
+on the fleet"). With nothing owned idle it overflows to a moving Blacksmith macOS label, else waits on the DEV
+slot, else prints no route and the compile keeps macos-placement's. It places every attempt, not only the
+first: a re-run (the owned-pool rescue's after a refusal) is placed again instead of falling to the side
+label's tail. A warm host compiles in about
 130 s of xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
 vars.CMUX_NEXT_DEV_COMPILE_AFFINITY=0 turns it off.
 It runs only when cmux-scheme-compile will (the same tree condition), so it never waits for a skipped compile.
