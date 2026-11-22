@@ -171,7 +171,7 @@ import {
   rowHolds,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse, LiveLinePulseContext } from "./conversation/liveLinePulse";
 import { ArrowDown } from "./conversation/icons";
 import { Slot } from "../../slots/Slot";
@@ -613,7 +613,8 @@ const RowFrame = React.memo(function RowFrame({
   // at once (conversation/entranceClock.ts). Messages keep their own send clock.
   useLayoutEffect(() => {
     if (!entering || messageEntering || !ref.current) return undefined;
-    markRecapEntrance(ref.current);
+    // Only the recap card has an entrance to mark: no other entering row reads the DOM for it.
+    if (row.kind === NEXT_STEP) markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
   }, []);
