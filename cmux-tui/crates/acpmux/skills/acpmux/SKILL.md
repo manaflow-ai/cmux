@@ -170,6 +170,8 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
+
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
@@ -492,6 +494,7 @@ acpmux chats search flaky test --harness codex --folder ~/wt/cmux
 acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
 acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
 acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux board                                   # this machine's branches, read-only (`--json` for scripts)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
 acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
