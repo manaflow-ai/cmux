@@ -64,8 +64,12 @@ package final class HibernationSnapshots {
         case file(URL)
     }
 
+    /// A store's own directory is named this, then its process id, then a UUID.
+    private nonisolated static let directoryPrefix = "cmux-hibernation-snapshots-"
+
     /// `directory` nil: a new directory of its own in the temporary directory, removed when the store goes.
-    /// Keys name tabs of this launch only, so no file is read again after a relaunch.
+    /// Keys name tabs of this launch only, so no file is read again after a relaunch; the directory of a
+    /// launch that quit or crashed is removed by the next launch's first write (`removeDeadStores`).
     package init(capacityBytes: Int = 512 << 20, directory: URL? = nil) {
         self.capacityBytes = capacityBytes
         if let directory {
@@ -73,7 +77,7 @@ package final class HibernationSnapshots {
             ownDirectory = nil
         } else {
             let made = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-hibernation-snapshots-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("\(Self.directoryPrefix)\(getpid())-\(UUID().uuidString)", isDirectory: true)
             self.directory = made
             ownDirectory = made
         }
@@ -201,7 +205,19 @@ package final class HibernationSnapshots {
     private nonisolated static func writeFile(_ data: Data, to url: URL, in directory: URL) -> Bool {
         if (try? data.blockingWrite(to: url)) != nil { return true }
         try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+        removeDeadStores(beside: directory)
         return (try? data.blockingWrite(to: url)) != nil
+    }
+
+    /// Removes the directories of stores whose process is gone (an app that quit or crashed never ran
+    /// `deinit`), so pictures on disk do not pile up launch over launch. Once per store, with its first write.
+    private nonisolated static func removeDeadStores(beside directory: URL) {
+        let parent = directory.deletingLastPathComponent()
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: parent.path)) ?? [] where name.hasPrefix(directoryPrefix) {
+            guard let pid = pid_t(name.dropFirst(directoryPrefix.count).prefix { $0.isNumber }), pid > 0, pid != getpid(),
+                  kill(pid, 0) != 0, errno == ESRCH else { continue }
+            deleteFile(parent.appendingPathComponent(name, isDirectory: true))
+        }
     }
 
     /// Deletes a picture's file, or the store's directory (off the main thread).
