@@ -876,7 +876,7 @@ pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<
 /// the default size first (its outline is the one `ext dev` prints), then every other size the
 /// manifest declares, each in a place that takes it (New Tab unless the widget goes only in the sidebar, which holds small and medium).
 /// Any other interface mounts once, with no context.
-fn probe_contexts(manifest: &Value, interface: &str) -> Vec<Value> {
+pub(super) fn probe_contexts(manifest: &Value, interface: &str) -> Vec<Value> {
     if interface != "cmux.widget/1" {
         return vec![json!({})];
     }
