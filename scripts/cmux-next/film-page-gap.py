@@ -12,7 +12,7 @@ Each movie frame shows until the next one, so a gap frame counts the display ref
 frame, at --hz).
 
 Needs ffmpeg on PATH (the frames are decoded to raw RGB) and numpy. Usage:
-  film-page-gap.py [--hz 120] [--min-px 6] [--json OUT] FILM.mov [...]
+  film-page-gap.py [--hz 120] [--min-px 6] [--json OUT] [--max-gap-refreshes N] FILM.mov [...]
 Prints one line per film: gap refreshes, gap movie frames, the first and last gap time after the film's first change.
 """
 import argparse, json, os, subprocess, sys
@@ -102,6 +102,7 @@ def main():
     parser.add_argument("--min-px", type=int, default=6)
     parser.add_argument("--scale", type=int, default=2, help="decode at 1/scale of the movie's size")
     parser.add_argument("--json")
+    parser.add_argument("--max-gap-refreshes", type=int, help="exit 1 when any film has more gap refreshes than this")
     parser.add_argument("films", nargs="+")
     opts = parser.parse_args()
     results = [judge(movie, opts.hz, opts.min_px, opts.scale) for movie in opts.films]
@@ -109,6 +110,11 @@ def main():
         print(json.dumps(result), flush=True)
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
+    if opts.max_gap_refreshes is not None:
+        over = [r["film"] for r in results if r["gap_refreshes"] > opts.max_gap_refreshes]
+        print(f"RESULT {'FAIL' if over else 'PASS'}: {len(over)} of {len(results)} films over {opts.max_gap_refreshes} gap refreshes"
+              + (f" ({', '.join(over)})" if over else ""), flush=True)
+        return 1 if over else 0
 
 
 if __name__ == "__main__":

@@ -26,9 +26,14 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case sizeState(TerminalSizeState, selfParticipant: String?)
     /// Rows of the Mac's history older than the mirror's oldest row: the
     /// attach's `vt-state` left them out (`history_rows_omitted`,
-    /// `attach-replay-history-rows-v1`); 0 for a whole replay. (A `resized`
-    /// replay, always whole, says so with ``resetMirror(alternate:)``.)
+    /// `attach-replay-history-rows-v1`); 0 for a whole replay. A `resized`
+    /// replay is whole (``resetMirror(alternate:)`` says so) unless it names
+    /// the rows it left out (`attach-replay-history-window-v1`), which follow it.
     case historyRowsOmitted(Int)
+    /// History rows between the mirror's window and the Mac's screen, left
+    /// out of the attach's `vt-state` (`history_rows_skipped`,
+    /// `attach-replay-history-window-v1`); 0 when its rows reach the screen.
+    case historyRowsSkipped(Int)
     /// An `agent-cli-frame` (`agent-cli-hybrid-v1`) was drawn: its stream and frame, which a
     /// reattach names to resume from it; `resumed` when it applied on the screen the mirror
     /// already held (a resume after a drop), so the attach keeps that screen.
@@ -86,6 +91,7 @@ struct DaemonTerminalEventParser: Sendable {
             // A latest-screen-first replay names the older rows it left out;
             // any other replay holds the whole history.
             out.append(.historyRowsOmitted(max(0, object["history_rows_omitted"] as? Int ?? 0)))
+            out.append(.historyRowsSkipped(max(0, object["history_rows_skipped"] as? Int ?? 0)))
             // The attach's replay rebuilds the whole screen: its final
             // alternate screen state goes first, then its bytes, like a
             // `resized` replay. A reattach to a TUI that is still running
@@ -122,6 +128,10 @@ struct DaemonTerminalEventParser: Sendable {
                 .compactMap { $0.flatMap { Data(base64Encoded: $0) } }.filter { !$0.isEmpty }
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.resetMirror(alternate: detector.isActive))
+            // The viewer's own window of the reflowed history, not all of it.
+            if let omitted = object["history_rows_omitted"] as? Int {
+                out.append(.historyRowsOmitted(max(0, omitted)))
+            }
             out.append(contentsOf: chunks.map { .output($0) })
         case "agent-cli-frame":
             // An agent CLI's screen as the cells that changed (`agent-cli-hybrid-v1`), drawn
