@@ -81,7 +81,7 @@ import { liftInlineImages } from "./inlineImages";
 import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
-import { isBehindSend, settleAllBehindSend } from "./composer/sendBehind";
+import { isBehindSend, sendBehind, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
   peerConnectedFromStatus,
@@ -12387,6 +12387,7 @@ export class AcpmuxDirectClient {
       this.optimisticPromptTexts.set(promptId, text);
     }
     if (sessionId) this.emit();
+    const standIns = attachments.filter(isBehindSend).map((chip) => chip.id);
     const { attachments: settled, error } = await settleAllBehindSend(attachments);
     const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
     if (error === undefined && (here || !sessionId)) return settled;
@@ -12396,7 +12397,12 @@ export class AcpmuxDirectClient {
       // A file failed: the row fails with the host's words, kept as not sent like any other failed
       // prompt (its delivery record gives it Edit, Remove, Details and Retry, and a reload keeps it).
       this.queue = this.queue.filter((entry) => entry.id !== promptId);
-      this.failAheadRow(sessionId, { promptId, input, attachments: settled, at }, error!);
+      // The row still names the file that failed, and a Retry here fails again with the host's words
+      // rather than sending the prompt without it: the person drops the file again from Edit.
+      const went = new Map(settled.map((chip) => [chip.id, chip]));
+      for (const id of standIns) if (!went.has(id)) sendBehind(id, Promise.resolve({ error: error! }));
+      const kept = shown.map((chip) => went.get(chip.id) ?? chip);
+      this.failAheadRow(sessionId, { promptId, input, attachments: kept, at }, error!);
       return undefined;
     }
     // The chat left the screen while its files went: the prompt waits there as not sent.
