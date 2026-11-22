@@ -274,8 +274,9 @@ success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 
 # DRILL, NOT FOR A MERGE: the rollback ask drill (tests/rollback_ask_drill.rs) prints each
-# part's result (its `ask drill:` lines) also when it passes, and its states of 800 and of
-# 2,000 real sessions take minutes to make; a test that the runner ends cannot delete its folder.
+# part's result (its `ask drill:` lines) also when it passes, and its states of 800, of 2,000
+# and of 5,000 real sessions take minutes to make; a test that the runner ends cannot delete its
+# folder.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui::rollback_ask_drill)'
 success-output = "final"

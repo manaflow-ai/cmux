@@ -21,7 +21,8 @@
 //! `CMUX_TUI_HOST_EXE_DIR` puts that copy in the state's folder: it is
 //! deleted with the state, and nothing is written below the user's home.
 //!
-//! The parts, for 800 sessions and then for 2,000 sessions:
+//! The parts, for 800 sessions, then for 2,000 sessions, then for 5,000
+//! sessions:
 //! (i)  on a new state: ONE `__store-schemas --stored` call with no end time
 //!      and with no stop at the app's 10 s (this test ends it at 240 s): its
 //!      time;
@@ -51,7 +52,13 @@
 //! Each line starts with `ask drill:`. The test fails in 2 cases: a state
 //! of 800 sessions is not made by a cause that is not a guard; or one of the
 //! test's own file or process calls gives an error (each `unwrap`). A state
-//! of 2,000 sessions that is not made is the line `NOT RUN` for that size.
+//! of 2,000 or of 5,000 sessions that is not made is the line `NOT RUN` for
+//! that size.
+//!
+//! Why 5,000 sessions: the app's rule can gain only where ONE plain call
+//! needs the app's 10 s or more. One run on a Mac gave 1.9 s for 800
+//! sessions and 5.0 s for 2,000 sessions, so those 2 sizes do not measure
+//! that case.
 //!
 //! What a line can have: counts, times, exit codes, the result of a delete
 //! (an error of the system with no path), and a text of the CLI or of the
@@ -89,10 +96,10 @@ const MAX_STORED_CALLS: usize = 6;
 const PREFIX: &str = "cmux-ask-drill-";
 /// A folder of this test that is older is a folder that a test left.
 const OLD: Duration = Duration::from_secs(3600);
-/// No state fills the disk of the machine: 4 GB of copies is the limit.
-const DISK_LIMIT: u64 = 4_000_000_000;
+/// No state fills the disk of the machine: 10 GB of copies is the limit.
+const DISK_LIMIT: u64 = 10_000_000_000;
 /// The disk guard's forecast of one session's bytes: with it, a state of
-/// 2,000 sessions is the 4 GB of `DISK_LIMIT`.
+/// 5,000 sessions is the 10 GB of `DISK_LIMIT`.
 const FORECAST_SESSION_BYTES: u64 = 2_000_000;
 /// The disk guard's margin: the free bytes that stay for the machine.
 const DISK_MARGIN: u64 = 10_000_000_000;
@@ -711,5 +718,6 @@ fn rollback_ask_drill_at_a_base_commit() {
     delete_old_folders();
     let first = size(began, 800);
     size(began, 2000);
+    size(began, 5000);
     assert!(first.is_none(), "a state of 800 sessions was not made: {first:?}");
 }
