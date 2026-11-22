@@ -1340,6 +1340,9 @@ mod rollback_tolerance;
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
 
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
+
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;
 
