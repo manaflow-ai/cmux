@@ -58029,6 +58029,494 @@
     },
     {
       "accepts" : [
+        "bubbles",
+        "flat",
+        "card"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.bubbles",
+            "text" : "Bubbles"
+          },
+          "value" : "bubbles"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.flat",
+            "text" : "Flat Rows"
+          },
+          "value" : "flat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.card",
+            "text" : "Cards"
+          },
+          "value" : "card"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bubbles",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.layout.messages.help",
+        "text" : "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.layout.messages",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "layout",
+        "look",
+        "messages",
+        "bubbles",
+        "flat",
+        "cards",
+        "prompt"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "layout",
+        "messages"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.layout.messages"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.layout.messages",
+        "text" : "Message Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "rounded",
+        "pill",
+        "square"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.rounded",
+            "text" : "Rounded"
+          },
+          "value" : "rounded"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.pill",
+            "text" : "Pill"
+          },
+          "value" : "pill"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.square",
+            "text" : "Square"
+          },
+          "value" : "square"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "rounded",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.layout.composer.help",
+        "text" : "The message box's outline: rounded, a pill, or square and docked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.layout.composer",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "layout",
+        "look",
+        "composer",
+        "message box",
+        "pill",
+        "square",
+        "rounded",
+        "shape"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "layout",
+        "composer"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.layout.composer"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.layout.composer",
+        "text" : "Message Box Shape"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "full",
+        "quiet"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chatLayout.quiet",
+            "text" : "Quiet"
+          },
+          "value" : "quiet"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.layout.header.help",
+        "text" : "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.layout.header",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "layout",
+        "look",
+        "header",
+        "toolbar",
+        "quiet",
+        "hide",
+        "chrome"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "layout",
+        "header"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.layout.header"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.layout.header",
+        "text" : "Chat Header"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
