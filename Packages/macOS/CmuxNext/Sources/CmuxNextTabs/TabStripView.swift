@@ -42,7 +42,7 @@ public final class TabStripView: NSView {
     public var dragsWindowFromEmptySpace = true
     /// Optional primary-click menu; nil keeps direct creation. Chevron and context clicks use their own menu.
     public var primaryNewTabMenuProvider: (() -> NSMenu?)?
-    /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
+    /// The + button's tooltip ("New Tab"); nil: none.
     public var newTabToolTip: String? {
         get { newTabButton.themedToolTip }
         set { newTabButton.themedToolTip = newValue }
@@ -56,7 +56,6 @@ public final class TabStripView: NSView {
     public var opensNewTabMenuOnPress = false {
         didSet {
             newTabButton.showsChevron = opensNewTabMenuOnPress
-            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
             applyTokens(animated: false)
         }
     }

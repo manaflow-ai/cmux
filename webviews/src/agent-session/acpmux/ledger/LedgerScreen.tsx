@@ -51,6 +51,7 @@ import { isOlderDaemon } from "../queue/queueModel";
 import { UNKNOWN } from "../usageStats";
 import "./ledger.css";
 import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How rows read (gallery `agent-pane.costs`): `bars` a label over a share bar with the cost at the
 /// end (shipped), `table` a column per measure, `stacked` the bar beneath a two-line label.
@@ -465,16 +466,23 @@ const Line = memo(function Line({
     look === "table" ? (
       <>
         {/* The tooltip keeps the cache counts where a narrow page drops their columns. */}
-        <span
-          className="cst-label"
-          title={`${label}\n${t("ledger.row.cache", {
-            read: formatCount(totals.cacheReadTokens, locale),
-            write: formatCount(totals.cacheWriteTokens, locale),
-          })} · ${fromCache}`}
+        <WithFacts
+          facts={[
+            {
+              value: `${label}\n${t("ledger.row.cache", {
+                read: formatCount(totals.cacheReadTokens, locale),
+                write: formatCount(totals.cacheWriteTokens, locale),
+              })} · ${fromCache}`,
+            },
+          ]}
         >
-          {label}
-        </span>
-        <span className="cst-num" title={source}>
+          {(facts) => (
+            <span {...facts} className="cst-label">
+              {label}
+            </span>
+          )}
+        </WithFacts>
+        <span className="cst-num">
           {cost}
           <SourceMark source={line.source} />
         </span>
@@ -500,7 +508,7 @@ const Line = memo(function Line({
           <span className="cst-label">{label}</span>
           <span className="cst-detail">{line.detail ? `${line.detail} · ${meta}` : meta}</span>
         </span>
-        <span className="cst-cost" title={source}>
+        <span className="cst-cost">
           {cost}
           <SourceMark source={line.source} />
         </span>
