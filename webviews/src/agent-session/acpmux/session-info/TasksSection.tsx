@@ -90,7 +90,7 @@ export function TasksSection({
         className="acpmux-session-info-task acpmux-session-info-task--command"
         data-state={command.state}
         data-enter={enters ? "top" : undefined}
-        title={why && t(why)}
+        aria-description={why && t(why)}
         onAnimationEnd={
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
         }
@@ -142,7 +142,7 @@ export function TasksSection({
         className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
         data-kind={entry.item.kind}
         data-state={entry.status.state}
-        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+        aria-description={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
       >
         {shows ? (
           <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
