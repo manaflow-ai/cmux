@@ -120,7 +120,7 @@ fn watch(mux: &std::sync::Weak<Mux>, inner: &Inner) -> std::io::Result<()> {
     }
     connection.unbounded()?;
     loop {
-        let mut line = match connection.read() {
+        let line = match connection.read() {
             Ok(line) => line,
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error),
