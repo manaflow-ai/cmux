@@ -50,8 +50,8 @@ pub use machine_pipe::{
     MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
 };
 pub use relay::{
-    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
+    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
     register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };

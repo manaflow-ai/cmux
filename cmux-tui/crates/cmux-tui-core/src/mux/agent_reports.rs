@@ -445,15 +445,21 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         let notified = joined.map(|(post, staged)| {
-            let ring = self.install_feed_post(post, &staged.notification, staged.numeric_id);
-            (staged, ring)
+            let installed = self.install_feed_post(post, &staged.notification, staged.numeric_id);
+            (staged, installed)
         });
         drop(registry);
         drop(sequence_guard);
         // The notification's events come before the report's, as before.
-        if let Some((staged, ring)) = notified {
+        if let Some((staged, (ring, shown_by))) = notified {
             let (notification, id) = (&staged.notification, staged.numeric_id);
-            self.announce_notification(notification, id, ring, notified_session);
+            self.announce_notification(
+                notification,
+                id,
+                ring,
+                notified_session,
+                shown_by.as_deref(),
+            );
             self.prune_evicted_notification_reads();
         }
         let agent = AgentRecord {
