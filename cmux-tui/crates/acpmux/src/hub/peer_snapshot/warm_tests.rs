@@ -265,9 +265,12 @@ fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
 
 /// Process CPU time (user and system) so far.
 fn cpu_time() -> Duration {
-    // SAFETY: getrusage fills the struct it is given.
-    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    // SAFETY: an all-zero rusage is valid, and getrusage only fills the struct it is given.
+    let usage = unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+        usage
+    };
     let tv = |t: libc::timeval| Duration::new(t.tv_sec as u64, t.tv_usec as u32 * 1000);
     tv(usage.ru_utime) + tv(usage.ru_stime)
 }
