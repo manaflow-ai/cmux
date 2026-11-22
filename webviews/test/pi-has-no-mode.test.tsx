@@ -165,7 +165,7 @@ function harnessesReply() {
 type Summary = Record<string, unknown>;
 
 /// Renders the composer's chips for `summary` with acpmux's harness list.
-async function render(summary: Summary) {
+async function render(summary: Summary, harnesses: unknown = harnessesReply()) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -180,7 +180,7 @@ async function render(summary: Summary) {
     isWorking: false,
     queue: [],
     canLoadOlder: false,
-    catalog: normalizeCatalog(harnessesReply()),
+    catalog: normalizeCatalog(harnesses),
     summary,
   } as unknown as Snapshot;
   root ??= createRoot(host);
@@ -252,7 +252,10 @@ test("a running Pi chat publishes no modes: its thinking levels are its Thinking
   const pi = await published("pi", PI_MODES, PI_OPTIONS);
   expect(pi?.modes).toBeUndefined();
   // Its thinking levels stay, as the option the effort chip draws.
-  expect((pi?.configOptions as { id: string }[]).map((option) => option.id)).toEqual(["model", "thought_level"]);
+  expect(((pi?.configOptions ?? []) as { id: string }[]).map((option) => option.id)).toEqual([
+    "model",
+    "thought_level",
+  ]);
   const claude = await published("claude", CLAUDE_MODES, CLAUDE_OPTIONS);
   expect(claude?.modes).toEqual(CLAUDE_MODES);
 });
@@ -292,4 +295,39 @@ test("a harness whose own modes arrive with config options keeps them (Claude Co
   ];
   expect(permissionModes(codex, collaboration)).toBe(codex);
   expect(permissionModes(PI_MODES, PI_OPTIONS)).toBeUndefined();
+});
+
+/// `_acpmux/harnesses` on a Mac that never ran these agents, before their startup probes answer
+/// (or after one failed): no row says what its chats report.
+function nothingReported() {
+  const reply = harnessesReply();
+  const harnesses = reply.harnesses as Record<string, Record<string, unknown>>;
+  for (const row of Object.values(harnesses)) delete row.reported;
+  harnesses.opencode = { name: "OpenCode", family: "opencode", models: [{ id: "m", name: "M" }] };
+  return reply;
+}
+
+test("the first New Tab on Pi, on a Mac that never ran Pi, draws no Mode chip", async () => {
+  // Nothing says Pi has a permission mode: no chat of it, no probe answer, no family menu.
+  await render({ sessionId: "", harness: "pi", turnCount: 0 }, nothingReported());
+  expect(modelChip()).not.toBeNull();
+  expect(accessChip()).toBeNull();
+  expect(host.textContent ?? "").not.toContain("Mode");
+});
+
+test("a harness acpmux reports modes for holds its Mode chip's place before any chat of it", async () => {
+  // Claude Code: its family's own menu, reported or not.
+  await render({ sessionId: "", harness: "claude", turnCount: 0 }, nothingReported());
+  expect(accessChip()).not.toBeNull();
+  // OpenCode, once its probe reported its modes (build, plan), with no config options.
+  const reply = nothingReported();
+  (reply.harnesses as Record<string, Record<string, unknown>>).opencode.reported = {
+    modes: [
+      { id: "build", name: "Build" },
+      { id: "plan", name: "Plan" },
+    ],
+    configOptions: [],
+  };
+  await render({ sessionId: "", harness: "opencode", turnCount: 0 }, reply);
+  expect(accessChip()).not.toBeNull();
 });

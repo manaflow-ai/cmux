@@ -1,9 +1,13 @@
-//! The Computer Use worker on Linux and Windows: the daemon starts the
-//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode, keeps
-//! it running while Computer Use is on, and hands agents (acpmux's bridge)
-//! its endpoint through the `computer-use-endpoint` command
-//! (`server/computer_use_command.rs`). On macOS the signed cmux Remote host
-//! runs the worker instead (`remote_host.rs`); this supervisor is idle there.
+//! The Computer Use worker: on Linux and Windows the daemon starts the
+//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode; on
+//! macOS, in a build that embeds no cmux Remote (Release and NIGHTLY), the
+//! Screen Sharing helper `cmux-screen-sharing __computer-use-worker`, which
+//! holds the grants (`computer_use_host/macos.rs`). It keeps the worker
+//! running while Computer Use is on, and hands agents (acpmux's bridge) its
+//! endpoint through the `computer-use-endpoint` command
+//! (`server/computer_use_command.rs`). A macOS build that embeds cmux Remote
+//! (a DEV build) runs the worker in cmux Remote (`remote_host.rs`) instead,
+//! and this supervisor stays unconfigured there.
 //!
 //! - Start: on the first endpoint request (never at daemon start, so a
 //!   machine nobody automates runs no worker). The worker gets a fresh 32-byte
@@ -22,8 +26,6 @@
 //! - Questions (`ask`) go to the cmux app when one is attached (a
 //!   notification, answered through `computer-use-approvals` `answer`);
 //!   otherwise they are answered `unavailable` at once.
-
-#![cfg_attr(target_os = "macos", allow(dead_code))]
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -45,11 +47,20 @@ mod platform;
 #[cfg(windows)]
 #[path = "computer_use_host/windows.rs"]
 pub(crate) mod platform;
+#[cfg(target_os = "macos")]
+#[path = "computer_use_host/macos.rs"]
+pub(crate) mod platform;
 
 /// Advertised by `identify` once the `computer-use-*` commands exist.
 pub(crate) const COMPUTER_USE_CAPABILITY: &str = "computer-use-v1";
 /// The worker's hidden mode (cmux-tui `computer_use_worker.rs`).
 pub const WORKER_MODE: &str = "__computer-use-worker";
+/// `1` in the worker's environment: the worker takes away its own right to
+/// gain privileges (Linux `PR_SET_NO_NEW_PRIVS`), so neither it nor an app it
+/// starts can run sudo or another setuid program. A machine's desktop starter
+/// sets it (a cmux Cloud VM, whose agents must not install software through
+/// Computer Use, `computer_use_host/linux.rs`).
+pub const NO_NEW_PRIVS_ENV: &str = "CMUX_CU_NO_NEW_PRIVS";
 /// How long `computer-use-endpoint` waits for a starting worker.
 pub(crate) const ENDPOINT_WAIT: Duration = Duration::from_secs(10);
 /// A worker that ran at least this long restarts at the first backoff delay.
@@ -601,15 +612,21 @@ fn current_policy(mux: &Arc<crate::mux::Mux>) -> (PolicyConfig, config::Source, 
 }
 
 impl crate::mux::Mux {
-    /// Lets this daemon (Linux, Windows) run the Computer Use worker for the
-    /// daemon on `daemon_socket`, with durable state beside the daemon's own.
-    #[cfg(any(target_os = "linux", windows))]
+    /// Lets this daemon (Linux, Windows, and macOS without cmux Remote) run
+    /// the Computer Use worker for the daemon on `daemon_socket`, with durable
+    /// state beside the daemon's own.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub(crate) fn configure_computer_use(self: &Arc<Self>, daemon_socket: &Path) {
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        // macOS: the file itself, never a link it was started by, so the app
+        // bundle that carries the Screen Sharing helper is found.
+        #[cfg(target_os = "macos")]
+        let Ok(exe) = cmux_link::app_caller::own_executable() else { return };
+        #[cfg(not(target_os = "macos"))]
         let Ok(exe) = std::env::current_exe() else { return };
         let launcher: Arc<dyn Launcher> = Arc::new(platform::NativeLauncher::new(exe));
         self.configure_computer_use_with(paths_for(daemon_socket, &state_root), launcher);

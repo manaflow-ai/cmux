@@ -8,6 +8,50 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group draws. Folders shows plain folders; Sections shows plain headings."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.folder.rawValue, SettingsText.keyed("settings.choice.groupBackgroundFolder", "Folders")),
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupPalettePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
+                kind: .choice([
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupGradientPath,
                 section: .appearance,
                 group: group,
