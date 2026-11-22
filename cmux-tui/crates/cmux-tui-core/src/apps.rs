@@ -67,9 +67,9 @@ pub(crate) fn person_locale() -> &'static str {
 }
 
 #[cfg(unix)]
-mod meters;
-#[cfg(unix)]
 mod mcp_tools;
+#[cfg(unix)]
+mod meters;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
