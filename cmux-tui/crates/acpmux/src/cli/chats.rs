@@ -6,6 +6,9 @@
 //! - `search WORDS…`: `_acpmux/chats_search`, the chats whose prompts or
 //!   answers hold every word, each with the newest such message's snippet.
 //! - `roots`: `_acpmux/chat_roots`, with the refused roots and their reasons.
+//! - `import-preview FOLDER`: `_acpmux/chat_import_preview`, what importing the
+//!   folder's recent chats would bring: how each resumes, what it leaves out,
+//!   and which are already imported. Nothing is imported or changed.
 //! - `open KEY [--cwd DIR]`: `_acpmux/chat_open`. An `adopt` plan creates the
 //!   daemon session (`session/new` with the plan's params) and attaches to
 //!   it. A `terminal` or `readOnly` plan is printed: `cmux chats open`
@@ -75,6 +78,14 @@ pub enum ChatsCmd {
     },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
+    /// What importing FOLDER's recent chats would bring; imports nothing.
+    ImportPreview {
+        /// The project folder (absolute) the chats were recorded in.
+        folder: PathBuf,
+        /// The most chats to preview.
+        #[arg(long, short = 'n', default_value_t = 50)]
+        limit: usize,
+    },
 }
 
 /// What opening a chat comes to, after the daemon planned it.
@@ -257,6 +268,17 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
                 print_json(&view);
             } else {
                 print!("{}", roots_text(&view));
+            }
+            Ok(())
+        }
+        ChatsCmd::ImportPreview { folder, limit } => {
+            let folder = std::path::absolute(&folder).unwrap_or(folder);
+            let params = json!({"project": folder, "limit": limit});
+            let preview = client.request("_acpmux/chat_import_preview", params).await?;
+            if json_out {
+                print_json(&preview);
+            } else {
+                print!("{}", import_preview_text(&preview));
             }
             Ok(())
         }
@@ -483,6 +505,49 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
     }
 }
 
+/// `chats import-preview`'s text: a summary line, then a row per chat with how it resumes,
+/// its state and each omission's reason on its own indented line.
+pub(crate) fn import_preview_text(preview: &Value) -> String {
+    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let n =
+        |k: &str| preview.pointer(&format!("/summary/{k}")).and_then(Value::as_u64).unwrap_or(0);
+    let mut out = String::new();
+    if preview.get("enabled").and_then(Value::as_bool) == Some(false) {
+        return "the chat index is off\n".to_owned();
+    }
+    out.push_str(&format!(
+        "{} chats on {}: {} ready, {} already imported, {} need attention ({} resume natively, {} in a terminal, {} read only)\n",
+        n("chats"),
+        text(preview, "host"),
+        n("ready"),
+        n("alreadyImported"),
+        n("needsAttention"),
+        n("native"),
+        n("terminal"),
+        n("readOnly"),
+    ));
+    for row in preview.get("rows").and_then(Value::as_array).into_iter().flatten() {
+        let source = row.get("source").cloned().unwrap_or(Value::Null);
+        let title = row.get("title").and_then(Value::as_str).unwrap_or("(untitled)");
+        out.push_str(&format!(
+            "{}  {}  {}  {}  {}\n",
+            text(row, "state"),
+            text(row, "resume"),
+            text(&source, "harness"),
+            text(row, "key"),
+            title,
+        ));
+        for omission in row.get("omissions").and_then(Value::as_array).into_iter().flatten() {
+            out.push_str(&format!(
+                "    {}: {}\n",
+                text(omission, "code"),
+                text(omission, "detail")
+            ));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,5 +566,28 @@ mod tests {
         );
         let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
         assert_eq!(search_text(&none), "no chat says that\n");
+    }
+
+    #[test]
+    fn import_preview_text_says_how_each_chat_resumes_and_what_it_leaves_out() {
+        let preview = json!({"ready": true, "enabled": true, "host": "mac-1",
+        "summary": {"chats": 2, "ready": 1, "alreadyImported": 0, "needsAttention": 1,
+                    "native": 1, "terminal": 0, "readOnly": 1},
+        "rows": [
+            {"key": "claude-code:a", "title": "Fix it", "state": "ready", "resume": "native",
+             "source": {"harness": "claude-code"}, "omissions": []},
+            {"key": "cursor-agent:b", "title": null, "state": "needsAttention", "resume": "readOnly",
+             "source": {"harness": "cursor-agent"},
+             "omissions": [{"code": "unreadable", "detail": "Permission denied"}]},
+        ]});
+        assert_eq!(
+            import_preview_text(&preview),
+            "2 chats on mac-1: 1 ready, 0 already imported, 1 need attention \
+             (1 resume natively, 0 in a terminal, 1 read only)\n\
+             ready  native  claude-code  claude-code:a  Fix it\n\
+             needsAttention  readOnly  cursor-agent  cursor-agent:b  (untitled)\n\
+             \x20   unreadable: Permission denied\n"
+        );
+        assert_eq!(import_preview_text(&json!({"enabled": false})), "the chat index is off\n");
     }
 }

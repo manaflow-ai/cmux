@@ -242,6 +242,7 @@ export interface AcpmuxRequests {
   "_acpmux/chats_search": { params: unknown; result: unknown };
   "_acpmux/chat_fork": { params: unknown; result: unknown };
   "_acpmux/chat_projects": { params: unknown; result: unknown };
+  "_acpmux/chat_import_preview": { params: unknown; result: unknown };
   "_acpmux/chats_window": { params: unknown; result: unknown };
   "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
@@ -647,6 +648,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chats_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_fork", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_projects", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_import_preview", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_lagged", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_window", kind: "request", acp: false, typed: false },

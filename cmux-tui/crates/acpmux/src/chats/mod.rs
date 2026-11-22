@@ -17,6 +17,7 @@ pub(crate) mod brand;
 mod follow;
 #[cfg(target_os = "macos")]
 mod fsevents;
+pub mod import_preview;
 mod open;
 mod query;
 mod resolve;
@@ -215,6 +216,39 @@ impl ChatService {
             state.index.newest_first().filter(|chat| query.matches(chat)).collect();
         let start = query.cursor.start(&matching);
         Some(matching.get(start..).unwrap_or_default().iter().map(|c| (*c).clone()).collect())
+    }
+
+    /// `_acpmux/chat_import_preview`'s chats: those named by `keys` (in that order, unknown ones
+    /// left out), else those recorded in `project`, newest first; at most `limit`. None while
+    /// chats are off.
+    pub fn import_candidates(
+        &self,
+        project: Option<&str>,
+        keys: &[ChatKey],
+        limit: usize,
+    ) -> Option<Vec<IndexedChat>> {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return None;
+        }
+        if !keys.is_empty() {
+            return Some(
+                keys.iter().filter_map(|key| state.index.get(key)).take(limit).cloned().collect(),
+            );
+        }
+        let project = project.map(|p| p.trim_end_matches('/'));
+        Some(
+            state
+                .index
+                .newest_first()
+                .filter(|chat| {
+                    let cwd = chat.entry.cwd.as_deref().map(|c| c.trim_end_matches('/'));
+                    project.is_some() && cwd == project
+                })
+                .take(limit)
+                .cloned()
+                .collect(),
+        )
     }
 
     /// The rows of a client's window (`_acpmux/chats_window`), read under the index lock: none

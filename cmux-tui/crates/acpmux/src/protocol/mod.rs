@@ -431,6 +431,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_projects", Request),
+        untyped("_acpmux/chat_import_preview", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
         // A client's window over the chat index (`server/chat_windows.rs`).
