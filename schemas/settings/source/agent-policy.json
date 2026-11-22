@@ -501,6 +501,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Team pricing is a person-facing preview of decided billing terms; only the person turns it on.",
+      "keys": [
+        "experiments.teamPricingPreview"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [

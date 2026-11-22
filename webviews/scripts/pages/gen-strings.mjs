@@ -123,7 +123,18 @@ export const PAGES = {
     catalogs: [
       {
         file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
-        keys: () => schemaKeys("schemas/settings/settings-schema.json"),
+        keys: (all) => [
+          ...new Set([
+            ...schemaKeys("schemas/settings/settings-schema.json"),
+            ...all.filter((key) =>
+              [
+                "settings.teamPricingPreview.title",
+                "settings.teamPricingPreview.included",
+                "settings.teamPricingPreview.overage",
+              ].includes(key),
+            ),
+          ]),
+        ],
       },
       {
         file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,

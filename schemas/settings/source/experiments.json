@@ -161,6 +161,34 @@
             "tool",
             "card"
           ]
+        },
+        {
+          "key": "experiments.teamPricingPreview",
+          "note": "Team plan margins first slice from cmuxterm-hq plans/team-plan/margins.md: when enabled, Settings > Accounts > Teams shows the decided $25 included usage per seat and model overage at provider list price plus 10%, including the $100 to $108 and $160 to $168 examples. Preview only; no billing writes, caps, machine pausing or provider-cost figures. Off by default; off keeps today's team details.",
+          "title": {
+            "key": "settings.teamPricingPreview.title",
+            "text": "Team Pricing Preview"
+          },
+          "help": {
+            "key": "settings.teamPricingPreview.included",
+            "text": "$25 included usage per seat."
+          },
+          "summary": {
+            "key": "settings.teamPricingPreview.overage",
+            "text": "Model overage is shown at provider list price plus 10%."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "team",
+            "pricing",
+            "margin",
+            "overage",
+            "usage"
+          ]
         }
       ]
     }

@@ -8,6 +8,8 @@ extension SettingsSchema {
         "labs.liveTree": .userOnly,
         // Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.
         "experiments.chatWidgets": .userOnly,
+        // Team pricing is a person-facing preview of decided billing terms; only the person turns it on.
+        "experiments.teamPricingPreview": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.

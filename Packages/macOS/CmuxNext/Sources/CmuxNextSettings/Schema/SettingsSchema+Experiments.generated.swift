@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.teamPricingPreview`: Team plan margins first slice from cmuxterm-hq plans/team-plan/margins.md: when enabled, Settings > Accounts > Teams shows the decided $25 included usage per seat and model overage at provider list price plus 10%, including the $100 to $108 and $160 to $168 examples. Preview only; no billing writes, caps, machine pausing or provider-cost figures. Off by default; off keeps today's team details.
+    public nonisolated static let teamPricingPreviewPath = ["experiments", "teamPricingPreview"]
+    public nonisolated static let teamPricingPreviewDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,17 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.teamPricingPreviewPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.teamPricingPreview.title", "Team Pricing Preview"),
+                help: SettingsText.keyed("settings.teamPricingPreview.included", "$25 included usage per seat."),
+                summary: SettingsText.keyed("settings.teamPricingPreview.overage", "Model overage is shown at provider list price plus 10%."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.teamPricingPreviewDefault),
+                keywords: ["experiments", "experimental", "prototype", "team", "pricing", "margin", "overage", "usage"]
             ),
         ]
     }

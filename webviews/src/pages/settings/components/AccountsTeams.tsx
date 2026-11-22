@@ -5,6 +5,7 @@
 // or Delete); the page draws it and forwards `team.*` gestures. A typed name lives in the form's
 // own state until it is submitted.
 import { useState, type KeyboardEvent } from "react";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
@@ -16,6 +17,7 @@ import type {
   AccountsTeamList,
   AccountsTeamRow,
 } from "../ops";
+import { t } from "../strings";
 
 export function TeamsGroup({ list }: { list: AccountsTeamList }) {
   const store = useStore();
@@ -156,6 +158,7 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
           ))}
         </dl>
       )}
+      <TeamPricingPreview />
       {detail.members.length > 0 && (
         <div className="accounts-team-list" data-team-members="">
           <div className="row-title">{detail.membersTitle}</div>
@@ -227,6 +230,26 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
         </div>
       )}
     </div>
+  );
+}
+
+function TeamPricingPreview() {
+  const on = useExperimentSwitch("teamPricingPreview");
+  if (!on) return null;
+  return (
+    <section className="accounts-team-list" data-team-pricing-preview="">
+      <div className="row-title">{t("settings.teamPricingPreview.title")}</div>
+      <div className="row-help">{t("settings.teamPricingPreview.included")}</div>
+      <div className="row-help">{t("settings.teamPricingPreview.overage")}</div>
+      <div className="accounts-facts">
+        <div className="accounts-fact" data-team-pricing-example="overage">
+          <span className="row-help">$100 → $108</span>
+        </div>
+        <div className="accounts-fact" data-team-pricing-example="seat">
+          <span className="row-help">$160 → $168</span>
+        </div>
+      </div>
+    </section>
   );
 }
 
