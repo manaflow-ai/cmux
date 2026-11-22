@@ -298,7 +298,9 @@ pub fn peer_of<'a>(machine: &SshMachine, peers: &'a [Peer]) -> Option<&'a str> {
 // CLI planning and output decoding are separate from the legacy Cloud target model.
 #[path = "targets/ssh_move.rs"]
 mod ssh_move;
-pub use ssh_move::{SshMove, SshMoveCall, SshMoveResult, ssh_move, ssh_move_result};
+pub use ssh_move::{
+    SshMove, SshMoveCall, SshMoveResult, SshMoveRun, ssh_move, ssh_move_result, ssh_move_run,
+};
 
 #[cfg(test)]
 mod tests;
