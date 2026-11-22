@@ -230,6 +230,7 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
 fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
+        "terminal_id": record.terminal_id.as_str(),
         "state": record.state.as_str(),
         "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),

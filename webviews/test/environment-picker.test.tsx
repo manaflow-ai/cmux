@@ -413,8 +413,8 @@ test("Machines…: every machine, This Mac first, numbered ⌥⌘1–9, defaulti
     "build-cloud",
     "cloud-1",
   ]);
-  // This Mac's own name is its row's tooltip.
-  expect(shown[0]!.querySelector(".acpmux-env-row")!.getAttribute("title")).toBe("cosmic-gray");
+  // This Mac's own name is its row's description for screen readers; the row shows its words, so no tooltip.
+  expect(shown[0]!.querySelector(".acpmux-env-row")!.getAttribute("aria-description")).toBe("cosmic-gray");
   // The machine that is not connected takes no shortcut.
   expect(shown.map((row) => row.querySelector(".acpmux-env-key")?.textContent)).toEqual([
     "⌥⌘1",
@@ -457,7 +457,7 @@ test("a Cloud machine is never This Mac's row, and This Mac keeps this Mac's nam
       local.map((row) => row.querySelector(".acpmux-menu-label")?.textContent),
       host,
     ).toEqual([t("composer.thisMac")]);
-    expect(local[0]!.querySelector(".acpmux-env-row")!.getAttribute("title"), host).toBe(tooltip);
+    expect(local[0]!.querySelector(".acpmux-env-row")!.getAttribute("aria-description"), host).toBe(tooltip);
     // The Cloud machine is one of the other machines, after This Mac and Cloud, and the chat's pick.
     const sandpiper = machineRows().find((row) => rowText(row).startsWith("kind-aqua-sandpiper"))!;
     expect(sandpiper.querySelector(".acpmux-env-row")!.getAttribute("data-kind"), host).toBe("cloud");
@@ -614,7 +614,8 @@ test("a move the app would refuse is greyed with its reason and a pick runs noth
   expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(reason);
   const drawn = row.querySelector(".acpmux-env-row") ?? row;
   expect(drawn.getAttribute("aria-disabled")).toBe("true");
-  expect(drawn.getAttribute("title")).toBe(reason);
+  // The reason shows under the row, so the row has no tooltip.
+  expect(drawn.getAttribute("title")).toBeNull();
   await act(async () => row.click());
   expect(calls).toEqual([]);
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();

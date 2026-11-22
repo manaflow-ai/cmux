@@ -625,7 +625,7 @@ export function Thinking({
           {parts.count}
         </span>
         {parts.error && (
-          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+          <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
               ·
             </span>
@@ -713,6 +713,7 @@ export function Thinking({
             )}
           </output>
           {elapsed && (
+            // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.
             <span className={own ? "cv-worked__own" : "cv-worked__time"} title={turnTitle}>
               {elapsed}
             </span>
