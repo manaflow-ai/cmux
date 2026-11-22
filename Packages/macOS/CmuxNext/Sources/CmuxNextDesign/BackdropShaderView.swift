@@ -187,6 +187,7 @@ public final class BackdropShaderView: NSView {
         let target = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
         let previous = lastPointer.map { SIMD2(Float($0.x * drawableScale.width), Float($0.y * drawableScale.height)) } ?? target
         lastPointer = pointer
+        uniforms.pointer = target
         if uniforms.mouse == .zero { uniforms.mouse = target }
         let ease = Float(1 - exp(-elapsed * 9))
         uniforms.mouse += (target - uniforms.mouse) * ease
@@ -242,6 +243,7 @@ public final class BackdropShaderView: NSView {
         if lastPointer == nil, let pointer = pointerOverride ?? windowPointer() {
             lastPointer = pointer
             uniforms.mouse = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
+            uniforms.pointer = uniforms.mouse
         }
         if !draw() { stillPending = true }
     }

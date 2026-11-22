@@ -40,9 +40,10 @@ import Testing
     }
 
     @Test func theUniformsMatchTheShaderLayout() {
-        // float2, float2, 4 floats, then float4[4] at 32: 96 bytes in Metal.
-        #expect(MemoryLayout<BackdropShaderUniforms>.stride == 96)
+        // float2, float2, 4 floats, float4[4] at 32, then float2, float2 at 96: 112 bytes in Metal.
+        #expect(MemoryLayout<BackdropShaderUniforms>.stride == 112)
         #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.rings) == 32)
+        #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.pointer) == 96)
     }
 
     /// Slow dark gradients band in an 8-bit drawable; every shader's last step is the 1-step
@@ -173,6 +174,31 @@ import Testing
         let total = view.currentUniforms.time - start
         let ramp = Float(BackdropShaderView.resumeRampSeconds)
         #expect(abs(total - (ramp / 2 + Float(2.0 / 30))) < 0.02, "the eased clock does not resume where it held")
+    }
+
+    /// ask-4b6ce9c1aa (Leo: "it doesnt actually follow the cursor"): the eased pointer lags a moving
+    /// cursor by about 0.11 s, so a glow drawn there trails it. `pointer` is the cursor this frame,
+    /// and Block Matrix centers its glow and core on it, keeping the eased one only for its trail.
+    @Test func blockMatrixCentersOnThePointerThisFrameNotTheEasedOne() throws {
+        let h = make(.shader(.matrix))
+        defer { h.close() }
+        let view = h.shader
+        let scale = Float(view.pixelSize.width / view.bounds.width)
+        view.pointerOverride = CGPoint(x: 10, y: 10)
+        view.advance(by: 1 / 60)
+        view.pointerOverride = CGPoint(x: 300, y: 180)
+        view.advance(by: 1 / 60)
+        let moved = view.currentUniforms
+        #expect(abs(moved.pointer.x - 300 * scale) < 0.5 && abs(moved.pointer.y - 180 * scale) < 0.5,
+                "the unsmoothed pointer is not where the cursor is this frame")
+        #expect(moved.mouse.x < moved.pointer.x - 50 * scale, "the eased pointer no longer lags: the trail is gone")
+        let source = BackdropShaderSource.source
+        let start = try #require(source.range(of: "static float bmField("))
+        let end = try #require(source.range(of: "fragment float4 wp_matrix(")).upperBound
+        let rest = source[end...]
+        let matrix = String(source[start.lowerBound..<end]) + String(rest[..<(rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex)])
+        #expect(matrix.contains("float2 p = u.pointer / pitch;") && matrix.contains("bmGauss(x - u.pointer / pitch"),
+                "Block Matrix centers its glow on the eased pointer: it trails the cursor")
     }
 
     @Test func clicksSendRingsAndTheOldestIsReplaced() {

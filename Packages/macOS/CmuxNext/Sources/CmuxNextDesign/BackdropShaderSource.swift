@@ -24,6 +24,8 @@ nonisolated enum BackdropShaderSource {
         float dark;      // 1 in the dark appearance
         float pad;
         float4 rings[4]; // a click: xy where, z when (shader time), w 1 while live
+        float2 pointer;  // the pointer as it is this frame, not smoothed, in pixels from the bottom left
+        float2 pad2;
     };
 
     struct VOut { float4 pos [[position]]; };
@@ -334,9 +336,17 @@ nonisolated enum BackdropShaderSource {
 
     // The light at x (in dots): the pointer, the drifting lights and the rings, clamped to 0...1.
     static float bmField(float2 x, float2 grid, float pitch, constant Uniforms& u) {
+        // Centered on the pointer as it is this frame, never the eased one, so the glow stays
+        // under the cursor at any speed (ask-4b6ce9c1aa: "it doesnt actually follow the cursor").
+        // The eased pointer lags it by about 0.11 s: a dim, short trail there and a fainter, wider
+        // afterglow further back, so dots it leaves fade out instead of switching off.
         float r = 11.0 * (1.0 + 0.25 * u.energy);
-        float2 p = u.mouse / pitch;
-        float f = 0.5 * (bmGauss(x - p, r) + bmFlat(x - p, r)) * (0.85 + 0.15 * u.energy);
+        float2 p = u.pointer / pitch;
+        float2 back = p - u.mouse / pitch;
+        float backLen = length(back);
+        if (backLen > r * 1.5) back *= r * 1.5 / backLen;
+        float f = 0.5 * (bmGauss(x - p, r) + bmFlat(x - p, r)) * (0.85 + 0.15 * u.energy)
+            + 0.2 * bmGauss(x - (p - back), r * 1.2) + 0.08 * bmGauss(x - (p - 2.5 * back), r * 1.5);
         // Each slot, once per period of 3.5 to 5.5 seconds, picks a new spot, eases in, holds and
         // eases out; about one slot per 450 dots, so the density holds at any window size.
         int count = int(clamp(round(grid.x * grid.y / 450.0), 2.0, 12.0));
@@ -386,7 +396,7 @@ nonisolated enum BackdropShaderSource {
         float q = 0.5 * (bmSteps(bmField(ca, grid, pitch, u)) + bmSteps(bmField(cb, grid, pitch, u)));
         float fine = bmField(x, grid, pitch, u);
         // A hot core right under the pointer, smooth and not stepped: the brightest, largest dots.
-        float core = bmGauss(x - u.mouse / pitch, 6.6);
+        float core = bmGauss(x - u.pointer / pitch, 6.6);
         float lit = clamp(0.7 * q + 0.3 * core + 0.15 * q * fine, 0.0, 1.0);
         // A faint, even matrix everywhere; a lit dot is brighter and larger.
         float level = 0.08 + 0.92 * pow(lit, 0.75);
@@ -410,9 +420,12 @@ nonisolated struct BackdropShaderUniforms: Equatable, Sendable {
     var dark: Float = 0
     var pad: Float = 0
     var rings: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = (.zero, .zero, .zero, .zero)
+    /// The pointer this frame, not smoothed: a light meant to sit under the cursor reads this.
+    var pointer: SIMD2<Float> = .zero
+    var pad2: SIMD2<Float> = .zero
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.resolution == rhs.resolution && lhs.mouse == rhs.mouse && lhs.time == rhs.time && lhs.energy == rhs.energy
+        lhs.resolution == rhs.resolution && lhs.mouse == rhs.mouse && lhs.pointer == rhs.pointer && lhs.time == rhs.time && lhs.energy == rhs.energy
             && lhs.dark == rhs.dark && lhs.rings.0 == rhs.rings.0 && lhs.rings.1 == rhs.rings.1
             && lhs.rings.2 == rhs.rings.2 && lhs.rings.3 == rhs.rings.3
     }
