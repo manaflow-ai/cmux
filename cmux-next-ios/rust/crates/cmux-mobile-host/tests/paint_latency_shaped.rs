@@ -1,4 +1,4 @@
-//! Mac redraw to iPhone receive over a shaped link (cmux-fault's `good-wifi`, `lte`, `lossy-3`):
+//! Mac redraw to iPhone receive over a shaped link (cmux-fault's `good-wifi`, `lte`, `lossy-3`, `lossy-10`):
 //! the Mac side stamps a streaming agent CLI's redraws as hostd's splice does
 //! (`paint_latency::stamp_line`, then `send_marked`), a phone link reads them through the shaper,
 //! probes the clock and sends its paint report on `phone-frames`, and hostd's own join prints
@@ -132,7 +132,7 @@ async fn run(profile: &str, lines: u64, every: Duration) -> (paint_latency::Summ
 #[ignore = "a measurement (about a minute): --ignored --nocapture prints the table"]
 async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
     let mut rows = Vec::new();
-    for profile in ["good-wifi", "lte", "lossy-3"] {
+    for profile in ["good-wifi", "lte", "lossy-3", "lossy-10"] {
         let (summary, truth) = run(profile, 500, Duration::from_millis(16)).await;
         let mac = summary.mac.expect("mac part");
         let estimated = summary.wire.expect("wire part");
