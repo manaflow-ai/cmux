@@ -33,6 +33,10 @@
 //! (`open_delivery.rs`), so without this each restart put the same message in the app again.
 
 use super::{Hub, PromptOptions, Session};
+
+/// A bridged chat the account's rate limit stopped holds what is sent to it until the reset.
+#[path = "bridge_hold.rs"]
+pub(super) mod hold;
 use crate::claude_peers::Unreached;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
@@ -65,6 +69,9 @@ pub(super) struct Pending {
     shown: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
+    /// The prompts a rate-limit hold folded into this delivery (`bridge_hold.rs`): each one's
+    /// kept delivery answers with this one's turn.
+    riders: Vec<String>,
 }
 
 #[derive(Default)]
@@ -112,6 +119,7 @@ impl Deliveries {
             shown: false,
             order: self.next,
             turn,
+            riders: Vec::new(),
         };
         self.by_uuid.insert(uuid, pending);
         while self.by_uuid.len() > KEPT {
@@ -163,8 +171,14 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, St
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
-    if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
-        p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    let all = deliveries();
+    let Some((_, p)) = all.of_prompt(session_id, prompt_id) else { return };
+    p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    // The prompts a rate-limit hold folded into this one went in the same turn.
+    for rider in &p.riders {
+        if let Some((_, r)) = all.of_prompt(session_id, rider) {
+            r.turn.send_replace(Some(Ok(turn_id.to_owned())));
+        }
     }
 }
 
@@ -303,12 +317,15 @@ impl Hub {
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
         let claude = matches!(target, Target::Claude { .. });
+        let name = reply_name(opts);
+        let routable = name.as_deref().is_some_and(|n| self.reply_routable(n));
         let wire = with_reply_hint(
             &text,
-            reply_name(opts).as_deref(),
+            name.as_deref(),
             harness.as_deref(),
             unverified,
             claude,
+            routable,
         );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
@@ -328,13 +345,27 @@ impl Hub {
         if let Err(e) = checked {
             return Some(Err(e));
         }
+        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
+        // The app's last turn stopped on the account's rate limit: kept until the reset, then
+        // sent with the others the hold kept as one message (`bridge_hold.rs`).
+        match hold::park(&session.id, &prompt_id, &text, &wire, &sender) {
+            Some(Ok((rx, until))) => {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(
+                        json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "state": "held", "bridged": true, "rateLimitedUntil": until}),
+                    );
+                }
+                return Some(hold::held_answer(&session.id, &prompt_id, rx, until).await);
+            }
+            Some(Err(rx)) => return Some(resent(session, &prompt_id, rx, opts).await),
+            None => {}
+        }
         // Claimed under one lock: two sends of one id never both go.
         let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire);
         let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
-        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
@@ -358,6 +389,19 @@ impl Hub {
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
+    }
+
+    /// Whether `acpmux send NAME` can deliver to `name`, so a reply hint may name it: a
+    /// qualified `HOST/NAME` (as relays and peers stamp a session) goes to that host; a bare
+    /// name only when it names a session here or on a peer now (in memory, no network). A
+    /// program's label (`merge-audit`) or a relay's bare machine name (`lane-vm-2`)
+    /// names none, and `acpmux send` to it fails with `no_session`.
+    pub(super) fn reply_routable(&self, name: &str) -> bool {
+        let name = name.trim();
+        if let Some((host, rest)) = name.split_once('/') {
+            return !host.is_empty() && !rest.is_empty();
+        }
+        !name.is_empty() && (self.resolve(name).is_ok() || self.resolve_remote(name).is_some())
     }
 
     /// Where a prompt to bridged chat `session` goes now: its app's inbox or thread, while that
@@ -479,12 +523,18 @@ impl Hub {
 /// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
 /// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
 /// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
+///
+/// The answer command is printed only for a sender `acpmux send` can deliver to (`routable`,
+/// `Hub::reply_routable`). Another (a program's label, a relay's bare machine name) gets no
+/// command, since it would fail with `no_session`, but says nothing reads a reply (Leo,
+/// 2026-11-21: "it's our product bug or smth those need to get fixed").
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
     claude: bool,
+    routable: bool,
 ) -> String {
     let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
         return text.to_owned();
@@ -497,6 +547,16 @@ fn with_reply_hint(
     } else {
         super::prompt_attribution::agent_line(&who)
     };
+    if !routable {
+        let no_inbox = format!(
+            "{agent} has no inbox acpmux can deliver to, so nothing reads a reply: act on it yourself, or tell whoever coordinates you"
+        );
+        if claude {
+            let line = line.trim_end_matches(':');
+            return format!("{line}. {no_inbox}:\n{text}");
+        }
+        return format!("{line}\n{text}\n\n[{no_inbox}.]");
+    }
     if claude {
         let line = line.trim_end_matches(':');
         return format!(

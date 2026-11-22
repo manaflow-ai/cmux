@@ -103,14 +103,14 @@ extension SidebarBridge {
         // Also observed: Labs (the App Store item shows only with it on), the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
         // the workspaces tiles and top rows name. The selected item comes from the one selection.
         sectionsPass = SidebarSectionsPass(model: model, hold: hold, read: { () -> Inputs in
-            _ = (apps.apps, ChiefSidebar.shared.status)
+            _ = (apps.apps, ChiefSidebar.shared.status, DesignSettings.shared.appLanguage) // the language: titles are read below
             return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
                     Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture(), settings?.snapshot.showsAppStore == true)
         }, values: { (inputs: Inputs) in
             let (layout, unread, homeUnread, shortcuts, workspaces, picture, showsStore) = inputs
             // `model.layout` is written with the rows it projects (SidebarBridge.show).
             let infos = Self.itemInfo(for: SidebarRows.visibleLayout(layout), registered: { registry.action(for: $0) != nil },
-                                      unread: unread, homeUnread: homeUnread,
+                                      unread: unread, homeUnread: homeUnread, showsStore: showsStore,
                                       app: SidebarAppItemInfo(client: apps, showsStore: showsStore).info, shortcut: { shortcuts[$0] },
                                       workspace: { workspaces[$0] }, chiefFavicon: pictures.favicon(still: picture, image: picture.flatMap(uploads.image(at:))))
             return (infos, AppPresence(apps.apps).suppressed)
@@ -131,10 +131,10 @@ extension SidebarBridge {
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
     /// picture `chiefFavicon` (its worn upload's, ``ChiefSidebarPictures``), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
-    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
+    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL). `showsStore` false hides the App Store.
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          unread: Int = 0,
-                         homeUnread: Int = 0,
+                         homeUnread: Int = 0, showsStore: Bool = true,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
@@ -150,7 +150,7 @@ extension SidebarBridge {
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
-                var info = builtIn.defaultInfo
+                var info = builtIn.defaultInfo(showsStore: showsStore)
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {

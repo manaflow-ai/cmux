@@ -227,6 +227,15 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready.
+    /// - Parameter showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false.
+    public func defaultInfo(showsStore: Bool) -> SidebarItemInfo {
+        var info = defaultInfo
+        if self == .appStore, !showsStore { info.isHidden = true }
+        return info
+    }
 }
 
 extension SidebarItemInfo {

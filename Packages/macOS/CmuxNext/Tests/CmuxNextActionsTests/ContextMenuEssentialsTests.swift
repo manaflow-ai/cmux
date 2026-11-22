@@ -64,12 +64,14 @@ struct ContextMenuEssentialsTests {
     /// menus ... there's no link to workspace, which is, I mean, that seems pretty important". The
     /// workspace, tab and pane menus each have one Copy ▸ at their top level, just above More, whose
     /// first row is the right-clicked object's link, then its ID, then the other identifiers. (#27709 put the
-    /// workspace's ID and link in More > Copy; they move up with the rest.)
+    /// workspace's ID and link in More > Copy; they move up with the rest.) Copy Cloud Session Link (#40159)
+    /// is in the workspace and tab folders; the app leaves it out of a local target's menu
+    /// (CloudTeamMenuRowsTests), and this bare registry binds no Cloud feature, so it shows here.
     @Test(arguments: [
         (ActionMenuContext.workspaceRow, ActionTargetKind.workspace,
-         ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"]),
-        (.tab, .tab, ["palette.copySurfaceLink", "palette.copySurfaceID", "palette.copyPaneLink", "palette.copyPaneID",
-                      "palette.copyIdentifiers", "agentChat.copyIdentifier", "tab.screenshot"]),
+         ["palette.copyWorkspaceLink", "palette.copyWorkspaceID", "cloud.team.copyLink"]),
+        (.tab, .tab, ["palette.copySurfaceLink", "palette.copySurfaceID", "palette.copyPaneLink", "cloud.team.copyLink",
+                      "palette.copyPaneID", "palette.copyIdentifiers", "agentChat.copyIdentifier", "tab.screenshot"]),
         (.pane, .pane, ["palette.copyPaneLink", "palette.copyPaneID", "pane.screenshot"]),
     ] as [(ActionMenuContext, ActionTargetKind, [String])])
     func eachObjectMenuHasOneCopyFolderLinkFirst(context: ActionMenuContext, kind: ActionTargetKind, expected: [String]) throws {
@@ -95,7 +97,8 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let more = try #require(menu.items.first { $0.title == "More" }?.submenu)
         let copy = try #require(more.items.first { $0.title == MenuFolder.copy.title }?.submenu)
-        #expect(allActions(copy) == ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"])
+        // Copy Cloud Session Link shows on a Cloud workspace only (CloudTeamMenuRowsTests); unbound here, it shows.
+        #expect(allActions(copy).filter { $0 != "cloud.team.copyLink" } == ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"])
     }
 
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings

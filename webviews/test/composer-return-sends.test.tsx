@@ -36,6 +36,7 @@ const keys = [
   "InputEvent",
   "createImageBitmap",
   "OffscreenCanvas",
+  "cmuxExperiments",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -92,6 +93,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  delete scope.cmuxExperiments;
 });
 
 afterAll(async () => {
@@ -231,8 +233,46 @@ const lines = (field: HTMLElement) =>
 
 test("Return sends what is typed", async () => {
   const { field, sent } = await composer(chat(), "What is Spotlight?");
+  expect(host.querySelector(".acpmux-outcome-ask")).toBeNull();
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "What is Spotlight?", steer: false }], proceeded: false });
+});
+
+async function fillOutcome(value: string) {
+  const field = host.querySelector<HTMLTextAreaElement>(".acpmux-outcome-ask textarea")!;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  return field;
+}
+
+test("opt-in sends the outcome and clears it after the send is accepted", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { field, sent } = await composer(chat(), "Fix the parser");
+  const outcome = await fillOutcome("the parser tests pass");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "Fix the parser\n\nDone when:\nthe parser tests pass", steer: false }]);
+  expect(outcome.value).toBe("");
+});
+
+test("an agent command leaves the optional outcome for the next ask", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { field, sent } = await composer(chat({ commands: [{ name: "compact", description: "Compact" }] }), "/compact");
+  const outcome = await fillOutcome("the parser tests pass");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "/compact", steer: false }]);
+  expect(outcome.value).toBe("the parser tests pass");
+});
+
+test("Return in the outcome field leaves multiline and IME input to the textarea", async () => {
+  scope.cmuxExperiments = { "outcome-ask": "on" };
+  const { sent } = await composer(chat(), "Fix the parser");
+  const outcome = await fillOutcome("the parser tests pass");
+  expect(await dispatch(outcome, key({ key: "Enter", keyCode: 13 }))).toBe(true);
+  expect(await dispatch(outcome, key({ key: "Enter", keyCode: 229, isComposing: true }))).toBe(true);
+  expect(sent).toEqual([]);
 });
 
 const refuseCommand = (command: CmuxCommand, args?: string) => {
