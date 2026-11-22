@@ -74,7 +74,7 @@ public final class LaunchShell {
         mark("launch_shell.plan_start")
         var plan = CmuxLaunchShellPlan()
         let read = build.withCString { build in support.path.withCString { supportDir in
-            withOptionalCString(appSupport?.path) { appSupport in withOptionalCString(session) { session in
+            (appSupport?.path).withOptionalCString { appSupport in session.withOptionalCString { session in
                 displays.withUnsafeBufferPointer { displays in
                     var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count,
                                                  support_dir: supportDir, app_support: appSupport, daemon_session: session)
@@ -409,8 +409,10 @@ public struct LaunchShellReplay {
     }
 }
 
-/// `body` gets the string's C form for the call, or NULL for nil.
-private func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
-    guard let string else { return body(nil) }
-    return string.withCString { body($0) }
+extension Optional where Wrapped == String {
+    /// `body` gets the string's C form for the call, or NULL for nil.
+    fileprivate func withOptionalCString<R>(_ body: (UnsafePointer<CChar>?) -> R) -> R {
+        guard let self else { return body(nil) }
+        return self.withCString { body($0) }
+    }
 }
