@@ -27,11 +27,11 @@ class AppThreads(unittest.TestCase):
 
 
 class PageActivity(unittest.TestCase):
-    def test_shown_cmux_pages_get_the_probe_and_metrics_per_second(self):
+    def test_cmux_pages_get_the_probe_and_metrics_per_second(self):
         import json
         idle_cpu.time.sleep, sleep = (lambda s: None), idle_cpu.time.sleep
         try:
-            calls, task = [], iter([1.0, 3.0])
+            calls, task = [], iter([1.0, 5.0, 3.0, 5.0])
 
             def call(method, params=None):
                 calls.append((method, (params or {}).get("method")))
@@ -49,7 +49,8 @@ class PageActivity(unittest.TestCase):
             pages = idle_cpu.page_activity(call, seconds=10)
         finally:
             idle_cpu.time.sleep = sleep
-        self.assertEqual([p["browser"] for p in pages], [2])  # hidden and web pages are not probed
+        self.assertEqual([p["browser"] for p in pages], [2, 3])  # hidden cmux pages too; web pages are not probed
+        self.assertTrue(pages[1]["hidden"])
         self.assertEqual(pages[0]["animation_count"], 1)
         self.assertEqual(pages[0]["metrics_per_s"], {"TaskDuration": 0.2})
         self.assertIn(("debug.cef_page_devtools", "Performance.disable"), calls)

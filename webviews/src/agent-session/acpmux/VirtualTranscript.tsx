@@ -207,6 +207,7 @@ import {
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
+import "./jumpPlace.css";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
@@ -1456,7 +1457,7 @@ export function JumpToLatest({
         data-focus-ring="none"
         style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
         aria-label={label}
-        // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
+        // tooltip-allow: the arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
         title={label}
         // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
         inert={!shown}
@@ -1504,6 +1505,7 @@ export function JumpUp({
       data-focus-ring="none"
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
+      // tooltip-allow: an arrow, with its label only in the labeled look.
       title={label}
       inert={!shown}
       onClick={onJump}

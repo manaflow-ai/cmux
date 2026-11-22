@@ -53,7 +53,7 @@ const timeLabel = (at: number) =>
 const previewText = (value: string) =>
   value.split(/(\S{40,})/).map((token, index) =>
     index % 2 === 1 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
-      <span key={index} title={token}>
+      <span key={index}>
         <span aria-hidden="true">{middleEllipsis(token)}</span>
         <span className="acpmux-minimap__full-token">{token}</span>
       </span>
@@ -424,7 +424,6 @@ export const PreviewCard = React.forwardRef<
               href={href}
               rel="noreferrer"
               target="_blank"
-              title={href}
               onKeyDown={scrollKey}
             >
               {middleEllipsis(linkLabel(href))}
