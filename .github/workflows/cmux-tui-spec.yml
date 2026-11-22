@@ -25,6 +25,8 @@ on:
       - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
+      - "scripts/ci/cargo-lib-tests-at-once.sh"
+      - "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
       # The router's own files (affected_jobs.py SELF): a change to them runs every routed job.
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
@@ -43,6 +45,7 @@ on:
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/build-identity/vectors.json"
+      - "schemas/defaults/cmux-next.json"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
@@ -54,6 +57,7 @@ on:
       - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
@@ -503,6 +507,11 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The test step's library runner: a three-crate workspace, about 10 s.
+      - name: Test the library test runner
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/cargo-lib-tests-at-once.test.sh
+
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -578,7 +587,11 @@ jobs:
           run_all() {
             cargo test "${suites[@]}" --no-run 2>&1 || return 1
             local libs=0 tests=0
-            cargo test "${pkgs[@]}" --lib --no-fail-fast > "$RUNNER_TEMP/acpmux-tests-lib.log" 2>&1 &
+            # Each package's library binary runs at once with the others (RFD 0016, one shard per
+            # workspace member group): `cargo test --lib` ran acpmux's (~431 s) and then
+            # acpmux-book's (~208 s). The log reads as cargo prints it, one binary after another.
+            ../scripts/ci/cargo-lib-tests-at-once.sh "$RUNNER_TEMP/acpmux-tests-lib" "${pkgs[@]}" \
+              > "$RUNNER_TEMP/acpmux-tests-lib.log" 2>&1 &
             local lib_pid=$!
             cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast 2>&1 || tests=$?
             wait "$lib_pid" || libs=$?
