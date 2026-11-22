@@ -87,7 +87,7 @@ test("one phrase says how many subagents there are and what is still going", asy
   expect(await label(["running"])).toBe("1 subagent running");
   expect(await label(["running", "running", "running"])).toBe("3 subagents running");
   expect(await label(["running", "completed"])).toBe("2 subagents, 1 running");
-  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 running, 1 failed");
+  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 failed, 1 running");
   expect(await label(["completed", "completed"])).toBe("2 subagents done");
   expect(await label(["completed", "failed"])).toBe("2 subagents, 1 failed, 1 done");
 });

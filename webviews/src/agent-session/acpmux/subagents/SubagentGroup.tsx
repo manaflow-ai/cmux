@@ -14,6 +14,7 @@ import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
+import { subagentCountParts } from "../session-info/subagentsSectionModel";
 import { subagentDisplayName } from "./subsessions";
 import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
@@ -69,12 +70,7 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
-  const states = [
-    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
-    failed > 0 && t("summary.subagents.failed", { n: failed }),
-    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
-    runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
-  ].filter((part): part is string => typeof part === "string");
+  const states = subagentCountParts({ failed, running: runningCount, stopped, done: runningCount === 0 ? done : 0 }, t);
   const total = t("subagents.count", { n });
   if (states.length === 0) return total;
   const list = intl.ListFormat(language, { type: "unit", style: "short" }).format(states);

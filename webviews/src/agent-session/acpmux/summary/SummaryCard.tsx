@@ -18,6 +18,7 @@ import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
+import { subagentCountParts } from "../session-info/subagentsSectionModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import type { ResumeActions } from "../subagents/ResumeControl";
@@ -245,14 +246,17 @@ export function SummaryCard({
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
   const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
-  const counts = [
-    waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
-    runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
-  ].filter(Boolean);
+  const counts = subagentCountParts(
+    {
+      waiting: waitingCount,
+      failed: count("failed"),
+      running: runningCount,
+      stopped: count("stopped"),
+      done: count("done"),
+    },
+    t,
+    { after: { running: [runningCommands > 0 && t("turn.working.commands", { n: runningCommands })] } },
+  );
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";

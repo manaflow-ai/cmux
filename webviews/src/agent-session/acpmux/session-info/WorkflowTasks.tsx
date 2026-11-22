@@ -43,6 +43,7 @@ import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
 import { WindowedRows } from "./WindowedRows";
+import { subagentCountParts } from "./subagentsSectionModel";
 import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
@@ -119,14 +120,12 @@ export function WorkflowTasks({
   );
 }
 
-/// "1 running · 2 queued · 3 done": each count that is not zero.
+/// "1 failed · 1 running · 2 queued · 3 done": each count that is not zero, in the shared order.
 function countLine(t: Translate, counts: Tally): string[] {
-  return [
-    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
-    counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
-    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
-    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
-  ].filter((part): part is string => typeof part === "string");
+  return subagentCountParts(
+    { failed: counts.failed, running: counts.running, queued: counts.queued, done: counts.done },
+    t,
+  );
 }
 
 const tokensLabel = (t: Translate, tokens: number) =>

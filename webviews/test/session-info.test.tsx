@@ -1268,7 +1268,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
     root.render(<SessionInfo agents={agents} onOpenSubagent={(id) => shown.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
+  expect(meta(subagents)).toBe("1 failed · 3 running · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
   expect(subagents.querySelector(".acpmux-session-info-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
@@ -1371,7 +1371,7 @@ test("the chats the agent started are listed under Subagents, counted with them,
     );
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
+  expect(meta(subagents)).toBe("1 waiting · 1 failed · 3 running · 2 done");
   // Running: the chat waiting on the person first, then the subagent and the running chats.
   expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
