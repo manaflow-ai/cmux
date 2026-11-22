@@ -2596,6 +2596,8 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cloud-rd-link-readback.yml readback: runs-on[0]",
         "cloud-chat-proof.yml proof-staging: runs-on[0]",
         "cloud-chat-proof.yml proof-prod: runs-on[0]",
+        # The staging agent account signs in on an ephemeral VM (#49943), as cloud-rd-link-readback.
+        "cmux-next-pair-e2e-vm.yml pair-e2e: runs-on[0]",
         "cmux-next-dev-daily.yml sign: runs-on[0]",
         "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
         "cmux-next-dev-daily.yml verify: runs-on[0]",
