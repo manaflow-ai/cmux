@@ -39,6 +39,8 @@ public final class RemoteMachinesSidebarExperiment {
                 sidebar?.peerStateChanged(peer: peer, state: state)
             }
         }
+        // main-hop-allow: ObservationStream is MainActor-isolated; this hop only watches the Labs setting and
+        // binds or stops the per-window sidebar, with no transport or frame work inside the observer.
         observation = Task { @MainActor [weak self] in
             guard let self else { return }
             for await on in ObservationStream({ self.enabled() }) {
