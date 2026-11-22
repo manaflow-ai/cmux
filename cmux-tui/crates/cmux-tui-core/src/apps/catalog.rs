@@ -358,10 +358,15 @@ struct LayerIndex {
     layers: Vec<LayerRow>,
 }
 
+/// The layers `layers.json` names, top first: (expected app id, folder).
+type Layers = Vec<(String, PathBuf)>;
+/// The rows refused, each with why: (file, reason).
+type Refused = Vec<(PathBuf, String)>;
+
 /// The layers `layers.json` in `root` names, top first: (expected app id,
 /// folder). A row whose folder is not a plain `setup-...` name in `root`,
 /// or whose app is not `local/<folder>`, is refused with why.
-fn setup_layers(root: &Path) -> (Vec<(String, PathBuf)>, Vec<(PathBuf, String)>) {
+fn setup_layers(root: &Path) -> (Layers, Refused) {
     let file = root.join(SETUP_LAYERS_INDEX);
     let Ok(text) = std::fs::read_to_string(&file) else { return (Vec::new(), Vec::new()) };
     let index: LayerIndex = match serde_json::from_str(&text) {
