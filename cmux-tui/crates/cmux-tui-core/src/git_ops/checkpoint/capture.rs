@@ -663,13 +663,13 @@ mod index_lock_tests {
     #[test]
     fn a_capture_waits_for_a_short_lived_index_lock() {
         let (dir, lock) = held_lock("short");
-        let held = lock.clone();
-        let release = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(200));
-            std::fs::remove_file(held).unwrap();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                assert!(std::fs::remove_file(&lock).is_ok());
+            });
+            assert_eq!(wait_for_index_lock(&lock, Duration::from_secs(5)), Ok(()));
         });
-        assert_eq!(wait_for_index_lock(&lock, Duration::from_secs(5)), Ok(()));
-        release.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 

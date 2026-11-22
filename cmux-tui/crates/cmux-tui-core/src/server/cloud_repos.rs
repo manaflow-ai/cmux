@@ -100,15 +100,13 @@ pub(super) fn try_handle(
 #[test]
 fn a_full_worker_pool_is_waited_for_instead_of_refused() {
     let workers = Arc::new(AtomicUsize::new(2));
-    let release = {
-        let workers = workers.clone();
-        std::thread::spawn(move || {
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
             std::thread::sleep(std::time::Duration::from_millis(200));
             workers.fetch_sub(1, Ordering::AcqRel);
-        })
-    };
-    assert!(take_slot(&workers, 2, std::time::Duration::from_secs(5)));
-    release.join().unwrap();
+        });
+        assert!(take_slot(&workers, 2, std::time::Duration::from_secs(5)));
+    });
     assert_eq!(workers.load(Ordering::Acquire), 2);
     assert!(!take_slot(&workers, 2, std::time::Duration::from_millis(150)));
 }
