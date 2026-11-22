@@ -339,14 +339,14 @@ fn clear(home: &Path, pid: u32) -> Result<Vec<&'static str>, String> {
     }
     let mut removed = Vec::new();
     let socket = home.join("acpmux.sock");
-    if is_socket(&socket) && std::fs::remove_file(&socket).is_ok() {
+    if is_socket(&socket) && crate::home_fs::remove_file(&socket).is_ok() {
         removed.push("acpmux.sock");
     }
     let pid_file = home.join("daemon.pid");
     let recorded = std::fs::read_to_string(&pid_file).ok().and_then(|t| parse_pid(&t));
     if pid_file.exists()
         && recorded.is_none_or(|p| p == pid)
-        && std::fs::remove_file(&pid_file).is_ok()
+        && crate::home_fs::remove_file(&pid_file).is_ok()
     {
         removed.push("daemon.pid");
     }
