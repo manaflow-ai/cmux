@@ -24,7 +24,20 @@ it from missing a test:
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
     Vite or a browser, or spawns a process. Two reviewed loads that read nothing a test controls
-    (RUNTIME_LOADS) are exempt at their pinned content;
+    (RUNTIME_LOADS) are exempt at their pinned content. A prose "import (" inside a line-opening
+    doc comment is not a dynamic import;
+  - three kinds of browser test leave the always-run set through an edge the graph follows
+    (CI_WEBVIEWS_GALLERY_EDGES=0 or CI_WEBVIEWS_NARROW_SELECTION=0 keeps them always-run):
+    a gallery stage test (galleryFrame("<id>") on the gallery's Vite config) depends on the
+    gallery files that define each entry id it spells; a sweep test (one call of a reviewed
+    SWEEP_HELPERS helper with literal options) on every gallery entry file; a Vite page test
+    (VITE_PAGES) on its config and every HTML page's module scripts under that root. Each also
+    depends on the gallery's frame, config and pane stylesheet (GALLERY_ROOTS), and on the
+    gallery zone: any webviews non-code file, any webviews file nothing imports, and the files
+    outside webviews/ the gallery server reads (GALLERY_OUTSIDE, the fixture roots) select
+    them all. The harness that loads them (GALLERY_HARNESS) and the sweep helpers are pinned
+    by sha256; one edit turns the edges off until it is reviewed again. A test that reads,
+    spawns, routes, opens another URL or computes an option stays always-run;
   - an input every test loads (EVERY_TEST: webviews/package.json, bun.lock, bunfig, tsconfig,
     the React Compiler config, the preload bunfig loads before every file and what it imports,
     the runner scripts, this file, ci-web.yml) selects everything. A vite config, a webviews
@@ -149,7 +162,7 @@ GALLERY_OUTSIDE = re.compile(r"^(Resources/|Packages/macOS/CmuxNext/Sources/Cmux
 # reads files, spawns or imports what no graph follows. Their reads are the zone above (webviews/ non-graph files,
 # GALLERY_OUTSIDE, the gallery files themselves), or home-folder and dev-only routes the gallery config leaves out.
 # Pinned like RUNTIME_LOADS: an edit to one puts every gallery stage test back in the always-run set (the edit
-# selects them all anyway) until the pin is renewed (`webviews_affected.py --pins`).
+# selects them all anyway) until the pin is renewed (a reviewer recomputes its sha256).
 GALLERY_HARNESS = {
     "webviews/dev-server/agentGitHost.ts": "33a6bae12270443476a0a86432534b9593801edc59c3913131906acba020a449",
     "webviews/dev-server/diffHost.ts": "04fa1052aa2bb63296dbc89e82a31c2bd3590f04238be054a3b64f8c75a94bca",
@@ -220,6 +233,21 @@ VITE_PAGES = {
 }
 HTML_SCRIPT = re.compile(r"""<script\b([^>]*)>([\s\S]*?)</script>""", re.I)
 # Static imports: the graph's edges, so their specifiers (a ../src/ path) are no page URL.
+# Sweep helpers: each opens every gallery entry (split into parts at run time), so a test that only calls one with
+# literal options depends on every entry file, the gallery harness and the files the helper reads: baselines under
+# webviews/, in the gallery zone. Reviewed and pinned like the harness.
+SWEEP_HELPERS = {
+    WEB + "test/support/controlContrast.ts": "18f8ddffd37bec82e625f05eac4c6881416563284d407a851743110ba3b95b07",
+    WEB + "test/support/accentGlassInvariants.ts": "7469d4111b81e47bf16ce255edf42e41e1f929f14131e6800dc932a6622b4b41",
+    WEB + "test/support/galleryControlSurfaces.ts": "df1ece3db5d18cfea966dc529bb156e1a4304e276963bb65fac306be6a67223c",
+    WEB + "test/support/controlContrastScan.ts": "7c5586b29d354347f14f0ae35b4d28d4d3b0b53362121b087453ddac53ecce79",
+    WEB + "test/support/accentGlassScan.ts": "7dfafa128407921195974f42bee32a240e5e168ef1ae289fd575114c2e8cdfa5",
+    WEB + "test/support/stageBrowser.ts": "6cb7b5ec94e3360ba6412da77989118ac64efbd27703caa39acbb5b0b0842a9b",
+}
+# A sweep test's text without comments and static imports: one call with literal options, nothing else.
+_SWEEP_CALL = r"""[\w$]+\(\s*\{\s*(?:[\w$]+\s*:\s*(?:"[^"\\\n]*"|\d+)\s*,?\s*)*\}\s*\)"""
+SWEEP_TEXT = re.compile(rf"""\s*await\s+(?:{_SWEEP_CALL}|requireBrowserLane\(\s*"[^"\\\n]*"\s*,\s*\(\)\s*=>\s*{_SWEEP_CALL}\s*\))\s*;?\s*""")
+
 STATIC_IMPORT = re.compile(r"""^\s*(?:import|export)\b[^;]*?\bfrom\s*["'][^"']+["'];?|^\s*import\s*["'][^"']+["'];?""", re.M)
 STAGE_ALLOWED = re.compile(r"playwright|[\"']vite[\"']|requireBrowserLane|createServer\(|(?:node:)?fs(?:/promises)?[\"']")
 STRING_LITERAL = re.compile(r"""["']([a-z0-9][a-z0-9.-]*)["']""")
@@ -241,7 +269,7 @@ class Selector:
         for target, importers in self.graph.importers.items():
             for source in importers:
                 self.imports.setdefault(source, set()).add(target)
-        untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
+        untracked = {f for f, text in self.text.items() if outside_doc(UNTRACKED, text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
         reviewed = {f for f, digest in RUNTIME_LOADS.items() if NARROW and f in self.text
                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
@@ -253,6 +281,7 @@ class Selector:
             for target in (*GALLERY_ROOTS, *entries):
                 self.imports.setdefault(test, set()).add(target)
                 self.graph.importers.setdefault(target, set()).add(test)
+        self.css_texts: dict[str, str] | None = None
         self.gallery_outside = [root.rstrip("/") + "/" for root in self.fixture_roots()]
 
     def pinned(self, pins: dict[str, str]) -> bool:
@@ -282,9 +311,18 @@ class Selector:
                     ids.setdefault(entry, set()).add(f)
         out: dict[str, set[str]] = {}
         pages: dict[str, set[str] | None] = {}
+        sweep: set[str] | None = None
         for test in sorted(self.always):
             helpers = (self.closure(test) & untracked) - harness - {test}
             if any(f.startswith(WEB + "src/") for f in helpers):
+                continue
+            if helpers and helpers <= set(SWEEP_HELPERS):
+                if sweep is None:
+                    sweep = self.sweep_edges(ids, untracked - harness - set(SWEEP_HELPERS))
+                body = STATIC_IMPORT.sub("", JS_COMMENTS.sub("", self.text[test]))
+                configs = set(re.findall(r"vite\.config[\w.-]*", body))
+                if sweep and SWEEP_TEXT.fullmatch(body) and configs <= {GALLERY_CONFIG.removeprefix(WEB)}:
+                    out[test] = sweep
                 continue
             text = self.stage_text(test)
             if text is None or "galleryFrame(" not in text:
@@ -314,6 +352,15 @@ class Selector:
             if not (reach & untracked) - harness:
                 out[test] = entries
         return out
+
+    def sweep_edges(self, ids: dict[str, set[str]], untracked: set[str]) -> set[str]:
+        """Every gallery entry file and the sweep helpers, or nothing when the helpers' pins or an entry's reach fail."""
+        if not self.pinned(SWEEP_HELPERS):
+            return set()
+        entries = set().union(*ids.values())
+        if any(self.closure(e) & untracked for e in entries):
+            return set()
+        return entries | set(SWEEP_HELPERS)
 
     def page_edges(self, config: str, untracked: set[str]) -> set[str] | None:
         """The config and every HTML page's module scripts under its root, or None when one cannot be followed."""
@@ -385,8 +432,21 @@ class Selector:
         if not self.gallery:
             return False
         if f.startswith(WEB):
+            if f.endswith(".css") and self.css_imported(f):
+                return False  # only its importers load it: the graph's edge, as for any test
             return not f.endswith(ft.EXTENSIONS) or not f.startswith(WEB + "src/") and not self.reaching(f)
         return bool(GALLERY_OUTSIDE.search(f)) or any(f.startswith(r) for r in self.gallery_outside)
+
+    def css_imported(self, f: str) -> bool:
+        """Whether a stylesheet reaches a page only through the modules that import it: a module imports it and no
+        other webviews stylesheet or HTML page names it (an @import, a <link>)."""
+        if not self.graph.importers.get(f):
+            return False
+        if self.css_texts is None:
+            self.css_texts = {g: (self.root / g).read_text(encoding="utf-8", errors="replace")
+                              for g in self.graph.known if g.endswith((".css", ".html")) and "/node_modules/" not in g}
+        name = Path(f).name
+        return not any(name in text for g, text in self.css_texts.items() if g != f)
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -494,6 +554,19 @@ class Selector:
                 return None, f"no rule maps {f}"
             out |= named
         return out | self.always, ""
+
+
+# A doc comment that opens a line: prose such as "the last import (ImportStepModel)" is not a dynamic import. A
+# match that starts inside one is skipped; one that starts in code (`from /* note */ "x"`) still counts.
+DOC_COMMENT = re.compile(r"^[ \t]*/\*\*[\s\S]*?\*/", re.M)
+
+
+def outside_doc(pattern: re.Pattern[str], text: str) -> bool:
+    """Whether pattern matches text somewhere other than inside a line-opening doc comment (always, unless narrow)."""
+    if not NARROW:
+        return bool(pattern.search(text))
+    docs = [m.span() for m in DOC_COMMENT.finditer(text)] if "/**" in text else []
+    return any(not any(a <= m.start() < b for a, b in docs) for m in pattern.finditer(text))
 
 
 def call_args(text: str, name: str) -> list[str]:

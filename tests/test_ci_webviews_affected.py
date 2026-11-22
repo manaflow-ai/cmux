@@ -320,6 +320,122 @@ class SelectTest(unittest.TestCase):
 
 
 
+STAGE = """import { chromium } from "playwright";
+import { createServer } from "vite";
+import { galleryFrame } from "./support/galleryFrame";
+const server = await createServer({ configFile: "vite.config.gallery-dev.ts" });
+const page = await (await chromium.launch()).newPage();
+await page.goto(`http://x${galleryFrame("button-basic")}`);
+"""
+GALLERY = {
+    "webviews/vite.config.gallery-dev.ts": 'import { defineConfig } from "vite";\nexport default defineConfig({});\n',
+    "webviews/src/gallery/frame/main.ts": 'import { shell } from "../shell";\nexport const frame = shell;\n',
+    "webviews/src/gallery/shell.ts": "export const shell = 1;\n",
+    "webviews/scripts/agent-pane/bundle.mjs": 'import fs from "node:fs";\nexport const bundle = fs;\n',
+    "webviews/src/agent-session/acpmux/dev.tsx": "export const dev = 1;\n",
+    "webviews/test/support/galleryFrame.ts": 'import fs from "node:fs";\nexport const galleryFrame = (id: string) => id;\n',
+    "webviews/src/ui/button.tsx": 'import "./button.css";\nexport const Button = 1;\n',
+    "webviews/src/ui/button.css": ".button {}\n",
+    "webviews/src/ui/button.gallery.tsx": 'import { Button } from "./button";\nexport default [{\n  id: "button-basic",\n  Button,\n}];\n',
+    "webviews/src/ui/card.tsx": "export const Card = 1;\n",
+    "webviews/src/ui/card.gallery.tsx": 'import { Card } from "./card";\nexport default [{\n  id: "card-basic",\n  Card,\n}];\n',
+    "webviews/test/button-stage.test.ts": STAGE,
+    "webviews/test/reads-stage.test.ts": STAGE.replace('import { chromium }', 'import { readFileSync } from "node:fs";\nimport { chromium }')
+    + 'readFileSync("baseline.txt");\n',
+    "webviews/test/support/sweep.ts": 'import { chromium } from "playwright";\nexport async function sweep(o: object) { return [o, chromium]; }\n',
+    "webviews/test/sweep-1.test.ts": '// Part 1 of 2.\nimport { sweep } from "./support/sweep";\n\nawait sweep({\n  part: 1,\n  parts: 2,\n});\n',
+    "webviews/test/sweep-env.test.ts": 'import { sweep } from "./support/sweep";\n\nawait sweep({ part: process.env.PART });\n',
+    "webviews/vite.config.pane.mjs": 'import { defineConfig } from "vite";\nexport default defineConfig({ root: "src/pane" });\n',
+    "webviews/src/pane/index.html": '<script type="module" src="./main.ts"></script>\n',
+    "webviews/src/pane/main.ts": 'import { Card } from "../ui/card";\nexport const pane = Card;\n',
+    "webviews/test/pane-page.test.ts": 'import { chromium } from "playwright";\nimport { createServer } from "vite";\n'
+    'const server = await createServer({ configFile: "vite.config.pane.mjs" });\nconst url = "http://x/";\n'
+    "const page = await (await chromium.launch()).newPage();\nawait page.goto(url);\n",
+    "webviews/src/ops.ts": "/** The last import (RowState) of a profile. */\nexport const ops = 1;\n",
+    "webviews/test/ops.test.ts": 'import { ops } from "../src/ops";\n',
+    "schemas/theme/colors.json": "{}\n",
+}
+HARNESS = ("webviews/vite.config.gallery-dev.ts", "webviews/scripts/agent-pane/bundle.mjs",
+           "webviews/test/support/galleryFrame.ts", "webviews/vite.config.pane.mjs")
+EDGED = {"webviews/test/button-stage.test.ts", "webviews/test/sweep-1.test.ts", "webviews/test/pane-page.test.ts"}
+
+
+class GalleryEdgesTest(unittest.TestCase):
+    """Stage, sweep and page tests leave the always-run set only through edges the selector follows."""
+
+    def setUp(self) -> None:
+        import hashlib  # noqa: PLC0415
+        self.root = Path(tempfile.mkdtemp())
+        git(self.root, "init", "-q")
+        for path, text in {**TREE, **GALLERY}.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text)
+        git(self.root, "add", "-A")
+        pin = lambda f: hashlib.sha256((self.root / f).read_bytes()).hexdigest()  # noqa: E731
+        self.saved = (wa.GALLERY_HARNESS, wa.SWEEP_HELPERS, wa.VITE_PAGES, wa.GALLERY_EDGES)
+        wa.GALLERY_HARNESS = {f: pin(f) for f in HARNESS}
+        wa.SWEEP_HELPERS = {"webviews/test/support/sweep.ts": pin("webviews/test/support/sweep.ts")}
+        wa.VITE_PAGES = {"webviews/vite.config.pane.mjs": "webviews/src/pane"}
+
+    def tearDown(self) -> None:
+        wa.GALLERY_HARNESS, wa.SWEEP_HELPERS, wa.VITE_PAGES, wa.GALLERY_EDGES = self.saved
+
+    def selected(self, selector: wa.Selector, path: str) -> set[str]:
+        found, _ = selector.select([path])
+        return set(found or ())
+
+    def test_stage_sweep_and_page_tests_leave_the_always_set(self) -> None:
+        selector = wa.Selector(self.root)
+        self.assertEqual(set(selector.gallery), EDGED)
+        self.assertTrue(EDGED.isdisjoint(selector.always))
+        for kept in ("webviews/test/reads-stage.test.ts", "webviews/test/sweep-env.test.ts"):
+            self.assertIn(kept, selector.always, "a read or a computed option keeps a test always-run")
+        self.assertEqual(self.selected(selector, "webviews/src/leaf.ts") & EDGED, set())
+
+    def test_a_stage_runs_for_its_entry_the_frame_and_the_zone(self) -> None:
+        selector = wa.Selector(self.root)
+        stage = "webviews/test/button-stage.test.ts"
+        self.assertIn(stage, self.selected(selector, "webviews/src/ui/button.tsx"))
+        self.assertNotIn(stage, self.selected(selector, "webviews/src/ui/card.tsx"))
+        self.assertIn("webviews/test/pane-page.test.ts", self.selected(selector, "webviews/src/ui/card.tsx"))
+        for path in ("webviews/src/gallery/shell.ts", "webviews/test/baseline.txt", "schemas/theme/colors.json"):
+            with self.subTest(path=path):
+                self.assertTrue(EDGED <= self.selected(selector, path))
+
+    def test_an_imported_stylesheet_selects_its_importers_not_every_stage(self) -> None:
+        selected = self.selected(wa.Selector(self.root), "webviews/src/ui/button.css")
+        self.assertIn("webviews/test/button-stage.test.ts", selected)
+        self.assertNotIn("webviews/test/pane-page.test.ts", selected)
+        (self.root / "webviews/src/ui/theme.css").write_text('@import "./button.css";\n')
+        git(self.root, "add", "-A")
+        self.assertTrue(EDGED <= self.selected(wa.Selector(self.root), "webviews/src/ui/button.css"),
+                        "a stylesheet another one @imports stays in the zone")
+
+    def test_a_sweep_runs_for_every_entry(self) -> None:
+        selector = wa.Selector(self.root)
+        for path in ("webviews/src/ui/button.tsx", "webviews/src/ui/card.tsx", "webviews/test/support/sweep.ts"):
+            with self.subTest(path=path):
+                self.assertIn("webviews/test/sweep-1.test.ts", self.selected(selector, path))
+
+    def test_an_edited_pin_or_the_switch_restores_the_always_set(self) -> None:
+        (self.root / "webviews/scripts/agent-pane/bundle.mjs").write_text('import fs from "node:fs";\nfs.readdirSync(".");\n')
+        self.assertEqual(wa.Selector(self.root).gallery, {})
+        (self.root / "webviews/scripts/agent-pane/bundle.mjs").write_text(GALLERY["webviews/scripts/agent-pane/bundle.mjs"])
+        (self.root / "webviews/test/support/sweep.ts").write_text(GALLERY["webviews/test/support/sweep.ts"] + "// edited\n")
+        self.assertNotIn("webviews/test/sweep-1.test.ts", wa.Selector(self.root).gallery)
+        wa.GALLERY_EDGES = False
+        self.assertTrue(EDGED <= wa.Selector(self.root).always)
+
+    def test_a_doc_comment_naming_an_import_is_not_a_dynamic_import(self) -> None:
+        self.assertNotIn("webviews/test/ops.test.ts", wa.Selector(self.root).always)
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, '/** note */\nimport fs from "node:fs";\n'))
+        wa.NARROW = False
+        try:
+            self.assertTrue(wa.outside_doc(wa.UNTRACKED, GALLERY["webviews/src/ops.ts"]))
+        finally:
+            wa.NARROW = True
+
+
 class PullRequestShardsTest(unittest.TestCase):
     """scripts/ci/webviews_pr_shards.py: a pull request runs shard 1 and each shard that holds a test its change
     touches (edits, or imports a changed webviews file); never the always-run set alone; every shard for a build
