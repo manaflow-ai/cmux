@@ -143,7 +143,7 @@ impl Patience {
     pub async fn run_async<T, E, F, Fut>(mut self, mut attempt: F) -> Result<T, E>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, Attempt<E>>>,
+        Fut: Future<Output = Result<T, Attempt<E>>>,
     {
         loop {
             let (error, retry_after) = match attempt().await {
