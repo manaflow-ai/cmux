@@ -17,10 +17,19 @@ import UIKit
         var height: CGFloat = 60
     }
 
+    /// Height a row takes on by itself, outside any update of the list (a row whose content changes
+    /// with state the item does not carry, as a Chief's typing bubble): the cell sizes itself again
+    /// with no update, no reconfigure.
+    @Observable final class Live {
+        var extra: [Int: CGFloat] = [:]
+    }
+
     struct RowView: View {
         let row: Row
+        let live: Live
         var body: some View {
-            Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: row.height, maxHeight: row.height, alignment: .leading)
+            let height = row.height + (live.extra[row.id] ?? 0)
+            Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
         }
     }
 
@@ -40,18 +49,22 @@ import UIKit
         let holder: UIView
         let controller: PagedListController<Row, RowView>
         let seen = Seen()
+        let live = Live()
         var rows: [Row]
         var list: UICollectionView { controller.collectionView }
 
-        init(rows: [Row] = (0 ..< 200).map { Row(id: $0) }, direction: PagedListDirection = .down, animatesNewest: Bool = false) {
+        init(rows: [Row] = (0 ..< 200).map { Row(id: $0) }, direction: PagedListDirection = .down, animatesNewest: Bool = false,
+             cachesHeights: Bool = true) {
             self.rows = rows
             window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
             let root = UIViewController()
             window.rootViewController = root
             holder = UIView(frame: CGRect(x: 0, y: 200, width: 402, height: 420))
             root.view.addSubview(holder)
-            controller = PagedListController(direction: direction, row: { RowView(row: $0) }, edgeView: { _, _ in AnyView(EmptyView()) })
+            let live = live
+            controller = PagedListController(direction: direction, row: { RowView(row: $0, live: live) }, edgeView: { _, _ in AnyView(EmptyView()) })
             controller.animatesNewest = animatesNewest
+            controller.cachesHeights = cachesHeights
             let probe = PagedListProbe()
             let seen = seen
             probe.frameShift = { seen.shifts.append($0) }
@@ -104,6 +117,11 @@ import UIKit
         func top(of item: Int) -> CGFloat? {
             guard let attributes = list.layoutAttributesForItem(at: IndexPath(item: item, section: 0)) else { return nil }
             return list.convert(attributes.frame.origin, to: nil).y
+        }
+
+        /// How far the list is from its newest end (the bottom of an `.up` list).
+        var distanceToNewest: CGFloat {
+            list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height - list.contentOffset.y
         }
 
         /// The item index of the row with `id` now.
@@ -251,6 +269,68 @@ import UIKit
         #expect(!host.seen.drawn.isEmpty, "the drawn measure took no sample")
         #expect(host.seen.worst <= 0.5, "frame shift while following tall arrivals: \(host.seen.shifts.filter { abs($0) > 0.5 })")
         #expect(host.seen.drawnWorst <= 0.5, "drawn shift while following tall arrivals: \(host.seen.drawn.filter { abs($0) > 0.5 })")
+    }
+
+    /// The follow spring alone: rows arrive below the newest row and the list slides to them, with
+    /// nothing on screen changing. The slide is the list's own move, explained frame by frame, so
+    /// neither measure may read anything (the drawn measure reads presentation layers: a slide it
+    /// saw lagging the offset would read here).
+    @Test func theFollowSlideAloneDrawsNoShift() throws {
+        let host = Host(direction: .up, animatesNewest: true)
+        defer { host.close() }
+        host.scrollToNewest()
+        host.seen.clear()
+        let start = host.list.contentOffset.y
+        let count = host.list.numberOfItems(inSection: 0)
+        for step in 0 ..< 12 {
+            host.apply({ $0.append(Row(id: 30_000 + step)) }, settling: false)
+            host.turn()
+        }
+        host.settle()
+        #expect(host.list.numberOfItems(inSection: 0) == count + 12, "the arrivals did not land")
+        #expect(host.list.contentOffset.y - start > 600, "the list did not slide to its new rows: moved \(host.list.contentOffset.y - start) pt")
+        #expect(!host.seen.drawn.isEmpty, "the drawn measure took no sample")
+        #expect(host.seen.worst <= 0.5, "frame shift on a plain slide: \(host.seen.shifts.filter { abs($0) > 0.5 })")
+        #expect(host.seen.drawnWorst <= 0.5, "drawn shift on a plain slide: \(host.seen.drawn.filter { abs($0) > 0.5 })")
+    }
+
+    /// The follow-path flash (cheap-probe rep 5baccd69, frame #97: `o+78` then `m_+22`, the newest
+    /// row drawn 22 pt off the slide): while the spring slides an `.up` list to rows arriving below,
+    /// a row on screen above the newest one sizes itself again with no update (its content changed
+    /// with state the item does not carry). Only rows above the reader's top edge were corrected, and
+    /// the list keeps its newest row on the bottom edge only once the slide ends, so for that frame
+    /// every row under the grown one drew lower. Rows on screen keep the newest row's bottom still,
+    /// as Messages does: a row that grows pushes the rows above it up.
+    @Test func aRowOnScreenSizingItselfWhileTheListSlidesKeepsTheNewestRowStill() throws {
+        let host = Host(direction: .up, animatesNewest: true, cachesHeights: false)
+        defer { host.close() }
+        host.scrollToNewest()
+        host.seen.clear()
+        var grown: [(id: Int, to: CGFloat)] = []
+        var midSlide = 0
+        for step in 0 ..< 12 {
+            host.apply({ $0.append(Row(id: 40_000 + step)) }, settling: false)
+            host.turn()
+            // A row in the middle of the screen, above the newest row: it grows (or shrinks back)
+            // between updates, mid-slide.
+            let visible = host.list.indexPathsForVisibleItems.map(\.item).sorted()
+            guard visible.count > 4 else { continue }
+            let id = host.rows[visible[visible.count / 2]].id
+            let extra: CGFloat = (host.live.extra[id] ?? 0) == 0 ? 22 : 0
+            if host.distanceToNewest > 1 { midSlide += 1 }
+            host.live.extra[id] = extra
+            grown.append((id, 60 + extra))
+            host.turn()
+        }
+        host.settle()
+        #expect(grown.count >= 8, "only \(grown.count) rows were resized")
+        #expect(midSlide >= 4, "only \(midSlide) of the resizes came while the list was sliding")
+        // The resize landed: the last row resized measures what it was given.
+        if let last = grown.last, let item = host.item(of: last.id) {
+            #expect(abs(host.height(of: item) - last.to) < 0.5, "row \(last.id) measured \(host.height(of: item)) pt, not \(last.to): the resize did not land")
+        }
+        #expect(host.seen.worst <= 0.5, "frame shift while a row resized mid-slide: \(host.seen.shifts.filter { abs($0) > 0.5 })")
+        #expect(host.seen.drawnWorst <= 0.5, "drawn shift while a row resized mid-slide: \(host.seen.drawn.filter { abs($0) > 0.5 })")
     }
 
     // MARK: The frame-shift probe
