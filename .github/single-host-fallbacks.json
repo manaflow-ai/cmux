@@ -190,6 +190,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_OVERFLOW_LINUX": {
+      "fallback": "cmux-linux, the owned Linux pool label the runs-on expression falls back to when the variable is unset",
+      "after_minutes": 5
+    },
     "LINUX_POOL_OVERFLOW_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
