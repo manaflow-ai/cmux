@@ -39,6 +39,23 @@ public struct SettingsDeepLink: Equatable, Sendable {
         return "#/settings/appearance" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
     }
 
+    /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
+    /// anchor opens its section.
+    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
+    /// it opens Settings on the default page (the page hides the category the same way).
+    public static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
+        if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            guard descriptor.section != .development || devBuild else { return nil }
+            return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
+        }
+        guard let section, section != .development || devBuild else { return nil }
+        return "#/settings/\(section.rawValue)"
+    }
+
+    /// Settings > Customize (App menu > Customizations' last row); a page without that category opens
+    /// its default one (`categoryOf` in webviews/src/pages/settings/categories.ts).
+    public static let customizeRoute = "#/settings/customize"
+
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }

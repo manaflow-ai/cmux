@@ -190,6 +190,49 @@ pub fn ssh_move_result(stdout: &str, stderr: &str, status: i32) -> SshMoveResult
     }
 }
 
+/// What one move means for the person: the session the tab opens, the one running/dirty-work
+/// question, or why it failed. `dry_run` is the request's own flag.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SshMoveRun {
+    Moved { session: String },
+    NeedsConfirmation { code: String, dirty: Option<bool> },
+    Failed { message: String },
+}
+
+/// Reads `result` of the call the app ran (its [`SshMoveCall`] `moved` and `destination`). Auto opens only the host and session the move
+/// reported; a local move opens the bare session id; a named one, `host/id`, or the call's route
+/// when an older daemon reports no session id.
+pub fn ssh_move_run(
+    moved_route: &str,
+    destination: &str,
+    dry_run: bool,
+    result: &SshMoveResult,
+) -> SshMoveRun {
+    if let (true, Some(code)) = (result.needs_confirmation, &result.error_code) {
+        let dirty = result.preflight.as_ref().and_then(|p| p.dirty);
+        return SshMoveRun::NeedsConfirmation { code: code.clone(), dirty };
+    }
+    if result.error.is_some() || !(result.moved || (dry_run && result.ready)) {
+        return SshMoveRun::Failed { message: result.error.clone().unwrap_or_default() };
+    }
+    let moved = |session: String| SshMoveRun::Moved { session };
+    if dry_run {
+        return moved(moved_route.to_owned());
+    }
+    let host = result.host.as_deref().filter(|h| !h.is_empty());
+    let id = result.target_session_id.as_deref().filter(|id| !id.is_empty());
+    match (destination, host, id) {
+        ("auto", Some(host), Some(id)) => moved(format!("{host}/{id}")),
+        ("auto", _, _) => {
+            SshMoveRun::Failed { message: "Move did not report its destination.".to_owned() }
+        }
+        ("local", _, Some(id)) | (_, None, Some(id)) => moved(id.to_owned()),
+        (_, Some(host), Some(id)) => moved(format!("{host}/{id}")),
+        (_, _, None) => moved(moved_route.to_owned()),
+    }
+}
+
 fn stderr_error(stderr: &str) -> String {
     let last =
         stderr.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default();

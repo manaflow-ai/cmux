@@ -69,6 +69,33 @@ import Testing
         #expect(sent.map(\.params) == [#"{"text":"a"}"#], "sent in the task's first turn, as before")
     }
 
+    /// `CEFTab.startDevTools` (a Chromium page's setup, sent in one turn): a small call ahead of a large one goes in
+    /// the caller's turn, the large one is encoded off the main actor, the calls reach Chromium in the order they
+    /// were started, and each awaiter gets its own call's answer.
+    @Test func callsStartedInOneTurnKeepTheirOrderAndALargeOneEncodesOffTheMainActor() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let order = ["Page.enable", "Page.addScriptToEvaluateOnNewDocument", "Runtime.enable"]
+        let answers = [
+            tab.startDevTools(method: order[0], params: [:]),
+            tab.startDevTools(method: order[1], params: ["source": Self.script, "runImmediately": true]),
+            tab.startDevTools(method: order[2], params: [:]),
+        ]
+        #expect(Recorder.sent(Set(order)).map(\.method) == [order[0]], "the small call ahead goes in the caller's turn")
+        let longest = await rig.longestMainActorJob { Recorder.sent(Set(order)).count == 3 }
+        #expect(Recorder.sent(Set(order)).map(\.method) == order, "in the order started")
+        #expect(Recorder.calls.suffix(3).map(\.method) == order)
+        #expect(longest < Self.budget, "\(Self.script.utf8.count >> 20) MB of script held the main actor \(longest) (budget \(Self.budget))")
+        let last = try #require(Recorder.lastMessage)
+        for (offset, message) in (last - 2...last).enumerated() {
+            rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: message, success: true, json: #"{"n":\#(offset)}"#))
+        }
+        var results: [String] = []
+        for answer in answers { results.append(try await answer()) }
+        #expect(results == [#"{"n":0}"#, #"{"n":1}"#, #"{"n":2}"#])
+    }
+
     /// An agent's `browser screenshot` (`CEFTab.snapshot`): the answer is a viewport PNG as base64, megabytes for a
     /// Retina window; its base64 and PNG decode must not run on the main actor.
     @Test func aLargeScreenshotAnswerIsDecodedOffTheMainActor() async throws {
