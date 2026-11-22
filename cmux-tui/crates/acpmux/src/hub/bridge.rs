@@ -635,7 +635,7 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let claude = matches!(target, Target::Claude { .. });
+        let claude = matches!(target, Route::Inbox(Target::Claude { .. }));
         let name = reply_name(opts);
         let routable = name.as_deref().is_some_and(|n| self.reply_routable(n));
         let wire = with_reply_hint(
@@ -666,8 +666,13 @@ impl Hub {
         }
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         // The app's last turn stopped on the account's rate limit: kept until the reset, then
-        // sent with the others the hold kept as one message (`bridge_hold.rs`).
-        match hold::park(&session.id, &prompt_id, &text, &wire, &sender) {
+        // sent with the others the hold kept as one message (`bridge_hold.rs`). The hold resumes
+        // through the inbox, so a prompt typed into a terminal with none is never parked.
+        let parked = match target {
+            Route::Inbox(_) => hold::park(&session.id, &prompt_id, &text, &wire, &sender),
+            Route::Typed(_) => None,
+        };
+        match parked {
             Some(Ok((rx, until))) => {
                 if let Some(f) = opts.on_accepted.take() {
                     f(
