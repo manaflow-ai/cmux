@@ -822,36 +822,59 @@ class TokenRows {
   }
 }
 
-type ReaderRoom = { followed: boolean; left?: true; kept?: { room: number; prompt: string | undefined } };
+/// `kept.end`: where the kept room ends, measured from the top of the prompt it is kept under (`tail`
+/// below): the rows that come under the prompt fill the room instead of pushing it down.
+type ReaderRoom = {
+  followed: boolean;
+  left?: true;
+  kept?: { room: number; prompt: string | undefined; end: number };
+};
 
 /// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`): followed,
 /// the stack's room (`followedRoom`), or more where the reader came back down to room held while they were
 /// scrolled up; scrolled up, the room held (`held`).
-function roomUnderRows(
+/// The kept room is space the rows already had, so the turn's rows fill it as they come: its end stays where
+/// it was drawn (`end`, from the prompt's top) and each row that arrives takes its height out of it, so
+/// nothing the reader sees moves, and once the rows reach the stack's room it is gone. Kept as a fixed
+/// height, it stayed under the live line for the rest of the turn while every row arrived above it (Leo,
+/// 2026-11-22: "for some reason there's also a ton of space at the bottom? idk if it was accounting maybe
+/// for tool calls in a long steered with attachment situation").
+/// `tail`: the rows' height from the newest prompt's top (the whole content without one) to the rows' end.
+export function roomUnderRows(
   { room: held, reader }: { room: number; reader: ReaderRoom },
-  pass: { following: boolean; sessionSwitched: boolean; followedRoom: number; prompt: string | undefined },
+  pass: {
+    following: boolean;
+    sessionSwitched: boolean;
+    followedRoom: number;
+    prompt: string | undefined;
+    tail: number;
+  },
 ): { room: number; kept: ReaderRoom["kept"] } {
   if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
   if (!pass.following) return { room: held, kept: undefined };
-  const kept = !reader.followed
+  const end = !reader.followed
     ? reader.left && held > pass.followedRoom + 0.5
-      ? { room: held, prompt: pass.prompt }
+      ? pass.tail + held
       : undefined
     : reader.kept?.prompt === pass.prompt
-      ? reader.kept
+      ? reader.kept?.end
       : undefined;
-  // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
-  return { room: kept ? Math.max(pass.followedRoom, kept.room) : pass.followedRoom, kept };
+  const left = end === undefined ? 0 : end - pass.tail;
+  // Filled down to the stack's room: nothing is kept any longer.
+  if (end === undefined || left <= pass.followedRoom + 0.5)
+    // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
+    return { room: pass.followedRoom, kept: undefined };
+  return { room: left, kept: { room: left, prompt: pass.prompt, end } };
 }
 
-/// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
+/// The newest prompt's row index (a user row that is no line), or -1: the turn the room the reader
 /// came back to is kept for (`heldRoom.reader`). Reads back from the end to that prompt only.
-function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
+function newestPromptIndex(rows: readonly AcpmuxRow[]): number {
   for (let index = rows.length - 1; index >= 0; index--) {
     const row = rows[index]!;
-    if (row.kind === "user" && !isLineRow(row)) return row.id;
+    if (row.kind === "user" && !isLineRow(row)) return index;
   }
-  return undefined;
+  return -1;
 }
 
 /// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
@@ -4736,12 +4759,14 @@ function TranscriptView({
   // last row (`heldRoom.reader`) instead of being cut to the stack's while they look at it. A send or Jump
   // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
-  const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
+  const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
+  const keptPrompt = keptAt >= 0 ? rows[keptAt]!.id : undefined;
   const { room, kept: readerKept } = roomUnderRows(heldRoom.current, {
     following,
     sessionSwitched,
     followedRoom,
     prompt: keptPrompt,
+    tail: measured.layout.totalHeight - (keptAt >= 0 ? (measured.layout.tops[keptAt] ?? 0) : 0) + tailGap,
   });
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
