@@ -8874,19 +8874,36 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 :root[data-transcript-timestamps="always"] :is(.cv-user__time, .cv-turn-time) {
   opacity: 1;
 }
+/* At rest is a flag on the footer row, read by its children through a style query: a `:has()` rule that
+   ended in `> :not(.cv-user__time)` put "every descendant" in Chromium's one invalidation set for all
+   non-subject `:has()` rules, so each DOM change under the pane or the composer restyled the whole pane
+   (a send: 16 forced recalcs of about 2,200 elements each, a tall draft's composer collapse late by about
+   a second at 4x CPU; Leo, 2026-11-22: "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO
+   FUCKING LONG"; docs/handbook/pane-level-has-restyles-every-row.md). The children's rules keep the old
+   selectors without the `:has()`, so their specificity is what it was. */
 :root[data-transcript-timestamps="always"]
   .cv-user:not(:hover, :focus-within, :has([data-popup-open]))
   .cv-user__actions:not(.cv-user__actions--versions)
-  .cv-message-footer-row
-  > :not(.cv-user__time) {
-  opacity: 0;
-}
+  .cv-message-footer-row,
 :root[data-transcript-timestamps="always"]
   .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open]))
   .cv-reply-actions:not(:focus-within)
-  .cv-message-footer-row
-  > :not(.cv-turn-time) {
-  opacity: 0;
+  .cv-message-footer-row {
+  --cv-footer-row-rest: 1;
+}
+@container style(--cv-footer-row-rest: 1) {
+  :root[data-transcript-timestamps="always"]
+    .cv-user:not(:hover, :focus-within)
+    .cv-user__actions:not(.cv-user__actions--versions)
+    .cv-message-footer-row
+    > :not(.cv-user__time),
+  :root[data-transcript-timestamps="always"]
+    .acpmux-assistant:not(:hover, :focus-visible)
+    .cv-reply-actions:not(:focus-within)
+    .cv-message-footer-row
+    > :not(.cv-turn-time) {
+    opacity: 0;
+  }
 }
 /* timestamps off: no time, its space kept so the buttons never move. A waiting prompt's state is
    not a time and stays. */
