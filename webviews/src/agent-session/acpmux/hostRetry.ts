@@ -214,22 +214,20 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
   return { waitedMs: waited, at };
 }
 
-/// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
+/// The quiet chip the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
 /// fixes itself"): "Restoring sessions… m:ss" once the host says acpmux has been restoring its chats
-/// for RECONNECT_LINE_AFTER_MS, else "Reconnecting…" once a lost connection has been coming back that long. Past
-/// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
-/// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
-/// a refusal said at once, such as another build's acpmux on the socket) is never covered by
-/// "Reconnecting…": the person needs its Restart now, not after the deadline. The restore line
-/// stays, since the host says it only while acpmux restores, and a refusal without it ends it.
+/// for RECONNECT_LINE_AFTER_MS, else "Reconnecting…" once a lost connection or a handshake waiting for
+/// acpmux has lasted that long, for as long as it lasts. There is no waiting line with a clock or a
+/// Restart after it any more (Leo, 2026-11-22: "this is unactionable. who the fuck is going to click
+/// restart on the agent service"), so the chip never hands over to one. A failure the pane already
+/// says (`failureShown`: a refusal said at once, such as another build's acpmux on the socket) is
+/// never covered by "Reconnecting…": the person needs its Restart now. The restore chip stays, since
+/// the host says it only while acpmux restores, and a refusal without it ends it.
 export function hostRecoveryLine(state: {
   relinkingSince?: number;
   restoring?: HostRestoring;
   failureShown?: boolean;
-  /// When the wait the waiting line counts began (HostWaitingLine `since`), if one runs. That line
-  /// takes over only once its own wait reaches the deadline, which starts at the first handshake after
-  /// the drop, a moment after `relinkingSince`: "Reconnecting…" stays until then, so no frame between
-  /// the two lines draws neither (the line went for a second at the 25 s mark and came back).
+  /// When the handshake in flight began waiting for acpmux, if one waits.
   waitingSince?: number;
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
@@ -239,15 +237,14 @@ export function hostRecoveryLine(state: {
     // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
     return waitedMs < RECONNECT_LINE_AFTER_MS ? undefined : { kind: "restoring", waitedMs };
   }
-  if (relinkingSince === undefined || failureShown) return undefined;
-  const waited = now - relinkingSince;
-  if (waited < RECONNECT_LINE_AFTER_MS) return undefined;
-  // Only a wait that began while this line showed hands over from it: a handshake started after the
-  // deadline brings no "Reconnecting…" back.
-  const handsOver =
-    waitingSince !== undefined &&
-    waitingSince - relinkingSince < HOST_ERROR_DEADLINE_MS &&
-    now - waitingSince < HOST_ERROR_DEADLINE_MS;
-  if (waited >= HOST_ERROR_DEADLINE_MS && !handsOver) return undefined;
+  if (failureShown) return undefined;
+  const since = earliest(relinkingSince, waitingSince);
+  if (since === undefined || now - since < RECONNECT_LINE_AFTER_MS) return undefined;
   return { kind: "reconnecting" };
+}
+
+function earliest(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return Math.min(a, b);
 }

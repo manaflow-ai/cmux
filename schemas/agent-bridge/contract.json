@@ -3,7 +3,6 @@
   "ops": {
     "account.add": "account.add",
     "acpmux.restart": "acpmux.restart",
-    "acpmux.restartStuck": "acpmux.restartStuck",
     "action.run": "action.run",
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",

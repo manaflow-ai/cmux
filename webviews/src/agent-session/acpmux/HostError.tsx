@@ -1,7 +1,7 @@
 import { type ReactNode, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
-import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -163,7 +163,7 @@ export function ConnectionChip({
 }
 
 /// Where the pane's host line lives: a zero-height box above the composer that is in the dock in every
-/// state, so what it holds (a chip, a Restart or Retry line) is positioned over the transcript's
+/// state, so what it holds (a chip, a Restart acpmux or Retry line) is positioned over the transcript's
 /// end instead of taking a row of its own and pushing the messages up (styles.css `.acpmux-host-slot`).
 export function HostLineSlot({ children }: { children?: ReactNode }) {
   return (
@@ -178,51 +178,6 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
 function ReconnectingLine({ variant }: { variant?: ConnectionChipVariant }) {
   const t = useT();
   return <ConnectionChip kind="reconnecting" words={t("host.reconnecting")} variant={variant} />;
-}
-
-/// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
-/// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
-/// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
-/// Restart agent service, a
-/// quiet text button after the time (optional, never a filled button), stops that daemon (its
-/// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
-/// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
-/// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
-/// One host line shows at a time and the newest state wins: until this line shows, `otherwise`
-/// (the line of an earlier failed handshake) stays; once it shows, it replaces that line.
-export function HostWaitingLine({
-  since,
-  restarting,
-  onRestart,
-  otherwise = null,
-  now: fixedNow,
-}: {
-  since: number;
-  restarting?: boolean;
-  /// Restart agent service; none when the host cannot restart what this wait waits on.
-  onRestart?(): void;
-  otherwise?: ReactNode;
-  /// A fixed clock for the gallery; the pane passes none and the line counts each second.
-  now?: number;
-}) {
-  const t = useT();
-  const ticking = useNow(fixedNow === undefined);
-  const waited = (fixedNow ?? ticking) - since;
-  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
-  return (
-    <output className="acpmux-host-line-group" data-host-waiting>
-      <div className="acpmux-host-line">
-        <p className="acpmux-host-line-message">
-          <ClockedWords text={t("host.waitingService", { time: SLOT })} time={waitedText(waited)} />
-        </p>
-        {onRestart && (
-          <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
-            {t(restarting ? "host.restartingService" : "host.restartService")}
-          </button>
-        )}
-      </div>
-    </output>
-  );
 }
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
@@ -245,7 +200,7 @@ export function HostRecoveringLine({
   restoring?: HostRestoring;
   /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
   failureShown?: boolean;
-  /// When the waiting line's wait began (its `since`): "Reconnecting…" stays until that line shows.
+  /// When the handshake in flight began waiting for acpmux: a long wait is the same quiet chip.
   waitingSince?: number;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
