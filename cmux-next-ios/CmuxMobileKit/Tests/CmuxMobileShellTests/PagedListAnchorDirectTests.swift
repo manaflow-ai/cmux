@@ -231,6 +231,35 @@ import UIKit
         #expect(host.seen.drawnWorst <= 0.5, "drawn shift while following: \(host.seen.drawn.filter { abs($0) > 0.5 })")
     }
 
+    /// The same follow, with every arriving row far taller than the list's estimate, so each comes
+    /// in at the estimated height and self-sizes on its way into view while the spring slides (a
+    /// restore correcting for a size change the slide already absorbed: `U-118` then `r+170`).
+    @Test func followingTheNewestRowsAsTallArrivalsSizeThemselvesDrawsNoShift() throws {
+        let host = Host(direction: .up, animatesNewest: true)
+        defer { host.close() }
+        host.scrollToNewest()
+        host.seen.clear()
+        let count = host.list.numberOfItems(inSection: 0)
+        var removed = 0
+        for step in 0 ..< 24 {
+            let visible = host.list.indexPathsForVisibleItems.map(\.item).sorted()
+            let above = visible.count > 3 ? host.rows[visible[visible.count / 3]].id : nil
+            host.apply({ rows in
+                rows.append(Row(id: 20_000 + step, height: step % 2 == 0 ? 170 : 118))
+                if step % 3 == 0, let above { rows.removeAll { $0.id == above } }
+            }, settling: false)
+            if step % 3 == 0, above != nil { removed += 1 }
+        }
+        host.settle()
+        #expect(host.list.numberOfItems(inSection: 0) == count + 24 - removed,
+                "the changes did not land: \(host.list.numberOfItems(inSection: 0)) rows, expected \(count + 24 - removed)")
+        let last = host.list.numberOfItems(inSection: 0) - 1
+        #expect(abs(host.height(of: last) - 118) < 0.5, "the newest row measured \(host.height(of: last)) pt, not 118")
+        #expect(!host.seen.drawn.isEmpty, "the drawn measure took no sample")
+        #expect(host.seen.worst <= 0.5, "frame shift while following tall arrivals: \(host.seen.shifts.filter { abs($0) > 0.5 })")
+        #expect(host.seen.drawnWorst <= 0.5, "drawn shift while following tall arrivals: \(host.seen.drawn.filter { abs($0) > 0.5 })")
+    }
+
     // MARK: The frame-shift probe
 
     /// A row inserted next to the reader in the frame everything moves 10 pt: the move counts in full
