@@ -7,6 +7,7 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -71,6 +72,12 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// The viewer's bitrate cap in kbit/s (`a=cmux-rd-max-kbps`; src/serve_wish.rs).
+    #[serde(default)]
+    max_kbps: Option<u32>,
+    /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
+    #[serde(default)]
+    cursor: Option<bool>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -359,10 +366,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
-        Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
-        }
+    match crate::desktop::displays(&display) {
+        Ok((sizes, current, ids)) => say(AppLine {
+            displays: Some(sizes),
+            current: Some(current),
+            display_ids: (!ids.is_empty()).then_some(ids),
+            ..AppLine::default()
+        }),
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -484,7 +494,8 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
@@ -534,11 +545,17 @@ fn serve_session(
     let encode_profile = session_profile(opts, setup)?;
     let max_fps = encode_profile.stream_fps(max_fps);
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
-    let max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
+    let start_kbps = crate::serve_wish::start_kbps(
+        opts.num_or(
+            "start-kbps",
+            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+        )?,
+        max_kbps,
+    );
     let cfg = SessionCfg {
         display,
         max_fps,
@@ -556,6 +573,7 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        show_cursor,
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
