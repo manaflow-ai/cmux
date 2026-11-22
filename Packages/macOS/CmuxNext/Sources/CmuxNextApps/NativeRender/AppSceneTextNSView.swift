@@ -10,6 +10,8 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
+        // Its own layer: a content transition rolls or crossfades the label alone.
+        label.wantsLayer = true
         addSubview(label)
     }
 

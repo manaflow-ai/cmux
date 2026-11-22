@@ -306,3 +306,27 @@ fn gesture_tokens_are_per_app_single_use_for_mutations_and_expire() {
         assert!(table.known_ops().iter().any(|known| known == op), "{op} is not in scopes.json");
     }
 }
+
+/// What plays: `media.get` reads with `media:read`; `media.control` (play, pause, skip,
+/// seek) needs `media:control` and a tap, never `media:read` alone.
+#[test]
+fn cmux_next_media_reads_with_media_read_and_controls_only_with_media_control_and_a_tap() {
+    let table = ScopeTable::get();
+    assert_eq!(
+        table.check("media.get", &json!({}), &grant(&["media:read"])),
+        Decision::Allow(OpClass::Read),
+    );
+    assert!(!needs_gesture("media.get"));
+    let next = json!({"command": "next"});
+    assert_eq!(
+        table.check("media.control", &next, &grant(&["media:control"])),
+        Decision::Allow(OpClass::Mutation),
+    );
+    for scopes in [vec![], vec!["media:read"], vec!["actions:run"]] {
+        assert!(matches!(
+            table.check("media.control", &next, &grant(&scopes)),
+            Decision::ScopeMissing(_),
+        ));
+    }
+    assert!(needs_gesture("media.control"), "media.control needs a tap");
+}
