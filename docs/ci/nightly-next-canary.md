@@ -59,6 +59,14 @@ over the last 24 h. It writes the build's verdict to
 | `pending` | No session yet, or too few and too young for a pass. |
 | `unknown` | Sentry could not be read; the file says why. |
 
+An `unknown` because Sentry was not read means the gate is blind: it can never
+pull a build. Job `blind` then opens one issue, "nightly-next health gate is
+blind: Sentry is not read" (an open one is never repeated), and ends the run
+red until a tick reads Sentry again. It refuses and pulls nothing. From
+2026-11-19 to 2026-11-22 every verdict was `unknown` (Sentry HTTP 403: the
+`SENTRY_AUTH_TOKEN` lacks `org:read` and `event:read`) while every run stayed
+green.
+
 A `fail` of the newest build pulls it through `nightly-next-rollback.yml` with
 `bad_build` and `if_newest` set to it, so a build published meanwhile is never
 pulled, and the pull starts the fix-forward like any other. Detection is one
