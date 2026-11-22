@@ -1,0 +1,178 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "now-turn",
+      "entry": "ui.failure-card",
+      "variant": "now-turn",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "now-host",
+      "entry": "ui.failure-card",
+      "variant": "now-host",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "now-signin",
+      "entry": "ui.failure-card",
+      "variant": "now-signin",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "now-start",
+      "entry": "ui.failure-card",
+      "variant": "now-start",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "a-turn",
+      "entry": "ui.failure-card",
+      "variant": "a-turn",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "a-host",
+      "entry": "ui.failure-card",
+      "variant": "a-host",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "a-signin",
+      "entry": "ui.failure-card",
+      "variant": "a-signin",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "a-start",
+      "entry": "ui.failure-card",
+      "variant": "a-start",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "b-turn",
+      "entry": "ui.failure-card",
+      "variant": "b-turn",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "b-host",
+      "entry": "ui.failure-card",
+      "variant": "b-host",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "b-signin",
+      "entry": "ui.failure-card",
+      "variant": "b-signin",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "b-start",
+      "entry": "ui.failure-card",
+      "variant": "b-start",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "c-turn",
+      "entry": "ui.failure-card",
+      "variant": "c-turn",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "c-host",
+      "entry": "ui.failure-card",
+      "variant": "c-host",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "c-signin",
+      "entry": "ui.failure-card",
+      "variant": "c-signin",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "c-start",
+      "entry": "ui.failure-card",
+      "variant": "c-start",
+      "width": 560,
+      "height": 160,
+      "widthName": "normal",
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    {
+      "name": "c-turn-open",
+      "entry": "ui.failure-card",
+      "variant": "c-turn-open",
+      "width": 560,
+      "height": 200,
+      "clip": "[data-gallery-capture]",
+      "margin": 16
+    },
+    { "name": "app-health", "entry": "ui.app-health", "variant": "footer-page-repairing", "width": 420, "height": 200 }
+  ]
+}
