@@ -141,3 +141,68 @@ fn two_machines_with_one_name_stay_two_once_both_name_their_machine() {
     let ids: Vec<_> = listing(&this("me"), &devices).others.into_iter().map(|m| m.id).collect();
     assert_eq!(ids, ["a", "b", "phone"]);
 }
+
+fn ready(connection: &str) -> DiscoveryInput {
+    DiscoveryInput {
+        status: "ready".into(),
+        connection: connection.into(),
+        ..DiscoveryInput::default()
+    }
+}
+
+#[test]
+fn a_registered_hub_whose_list_was_never_read_is_finding_not_none() {
+    // Leo, 2026-11-19 (ask-6a79af928f): `ready` comes at registration, before the list is read.
+    for connection in ["connecting", "connected", "disconnected"] {
+        assert_eq!(discovery(&ready(connection)), Discovery::Finding, "{connection}");
+    }
+    assert_eq!(
+        discovery(&DiscoveryInput { status: "starting".into(), ..DiscoveryInput::default() }),
+        Discovery::Finding
+    );
+}
+
+#[test]
+fn none_only_after_a_read_succeeded() {
+    assert_eq!(discovery(&DiscoveryInput { listed: true, ..ready("connected") }), Discovery::None);
+    assert_eq!(
+        discovery(&DiscoveryInput { listed: true, shown: 2, ..ready("connected") }),
+        Discovery::List
+    );
+}
+
+#[test]
+fn a_failed_read_says_why_even_after_an_earlier_read() {
+    let input =
+        DiscoveryInput { listed: true, list_error: Some("HTTP 500".into()), ..ready("connected") };
+    assert_eq!(
+        discovery(&input),
+        Discovery::Failed { reason: FailReason::List, detail: Some("HTTP 500".into()) }
+    );
+}
+
+#[test]
+fn a_hub_or_socket_that_fails_is_a_reason_not_none() {
+    let hub = DiscoveryInput {
+        status: "failed".into(),
+        status_detail: Some("offline".into()),
+        ..DiscoveryInput::default()
+    };
+    assert_eq!(
+        discovery(&hub),
+        Discovery::Failed { reason: FailReason::Hub, detail: Some("offline".into()) }
+    );
+    let socket =
+        DiscoveryInput { connection_detail: Some("timed out".into()), ..ready("reconnecting") };
+    assert_eq!(
+        discovery(&socket),
+        Discovery::Failed { reason: FailReason::Connection, detail: Some("timed out".into()) }
+    );
+    for (connection, reason) in [
+        ("replaced", FailReason::Replaced),
+        ("removed", FailReason::Removed),
+        ("signedOut", FailReason::SignedOut),
+    ] {
+        assert_eq!(discovery(&ready(connection)), Discovery::Failed { reason, detail: None });
+    }
+}
