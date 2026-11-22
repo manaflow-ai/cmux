@@ -20,14 +20,16 @@ use crate::wire::{
 };
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
+use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::input::InputSender;
+use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
 use cmux_rd_proto::control::StreamKind;
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, HEADER_LEN, MAX_ARRIVALS,
-    MAX_DATAGRAM_VPC,
+    Arrival, ClockPong, DatagramHeader, DatagramKind, Feedback, FrameTimes, InputEvent, HEADER_LEN,
+    MAX_ARRIVALS, MAX_DATAGRAM_VPC,
 };
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
@@ -232,6 +234,12 @@ struct Viewer {
     #[cfg(target_os = "linux")]
     presenter: Option<crate::present::Presenter>,
     present_errors: u64,
+    /// Every frame's stage times (D8), from the host's `FrameTimes` and this viewer.
+    ledger: StageLedger,
+    /// The stream the host's video shards arrive on, for the ledger's release and decode stamps.
+    video_stream: u16,
+    /// The session clock (C8), once the welcome lists cap `clock`.
+    clock: Option<ClockEstimator>,
     /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
     /// host started with the same `--codec`, and the picture it decodes into.
     #[cfg(any(feature = "vp9", feature = "av1"))]
@@ -287,6 +295,8 @@ impl Viewer {
             if let Some((_, last)) = self.last_rx.iter().find(|(f, _)| *f == frame.frame) {
                 self.shard_to_release_ms.push(now.saturating_sub(*last) as f64 / 1e6);
             }
+            let stream = self.video_stream;
+            self.ledger.on_released(stream, frame.frame, frame.last_shard_us, frame.released_us);
             self.released_since_feedback = true;
             self.frames += 1;
             if let Some(file) = self.record.as_mut() {
@@ -301,6 +311,7 @@ impl Viewer {
                 match decoded {
                     Ok(Some(picture)) => {
                         self.decoded_frames += 1;
+                        self.ledger.on_decoded(stream, frame.frame, t1 / 1000);
                         if let Some(log) = self.eval_decode.as_mut() {
                             log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                         }
@@ -335,6 +346,7 @@ impl Viewer {
                 match decoded {
                     Ok(true) => {
                         self.decoded_frames += 1;
+                        self.ledger.on_decoded(stream, frame.frame, t1 / 1000);
                         if let Some(log) = self.eval_decode.as_mut() {
                             log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                         }
@@ -377,6 +389,7 @@ impl Viewer {
                             }
                         }
                         self.decoded_frames += 1;
+                        self.ledger.on_decoded(stream, frame.frame, t1 / 1000);
                         if let Some(log) = self.eval_decode.as_mut() {
                             log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                         }
@@ -417,6 +430,8 @@ impl Viewer {
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
                 self.bytes += d.len() as u64;
+                self.ledger.on_shard(h.stream, h.frame, d.len(), now / 1000);
+                self.video_stream = h.stream;
                 self.arrivals.push(Arrival {
                     transport_seq: h.transport_seq,
                     arrival_us: (now / 1000) as u32,
@@ -445,6 +460,16 @@ impl Viewer {
                 };
                 for datagram in resends {
                     let _ = self.send_datagram(&datagram);
+                }
+            }
+            DatagramKind::FrameTimes => {
+                if let Ok(times) = FrameTimes::decode(payload) {
+                    self.ledger.on_host(h.stream, h.frame, times);
+                }
+            }
+            DatagramKind::ClockPong => {
+                if let (Some(clock), Ok(pong)) = (self.clock.as_mut(), ClockPong::decode(payload)) {
+                    clock.on_pong(&pong, now / 1000);
                 }
             }
             DatagramKind::InputAck if payload.len() >= 4 => {
@@ -495,7 +520,15 @@ impl Viewer {
                 Control::Welcome { max_datagram, .. } => {
                     // Upstream datagrams use the size the host agreed to.
                     self.max_datagram = max_datagram;
-                    self.welcome = Some(serde_json::from_slice(&payload)?)
+                    let welcome: serde_json::Value = serde_json::from_slice(&payload)?;
+                    // An older host refuses the probe kinds: ping only when it lists `clock`.
+                    let lists = |cap: &str| {
+                        welcome["caps"].as_array().is_some_and(|c| c.iter().any(|v| v == cap))
+                    };
+                    if lists(caps::CLOCK) {
+                        self.clock.get_or_insert_with(ClockEstimator::new);
+                    }
+                    self.welcome = Some(welcome);
                 }
                 Control::Refused { reason } | Control::Ended { reason } => {
                     self.ended.get_or_insert(reason);
@@ -516,8 +549,43 @@ impl Viewer {
         let frames = self.reassembler.tick(now / 1000);
         self.on_frames(frames, now);
         self.maybe_feedback()?;
+        self.send_clock_ping()?;
         self.send_input()?;
         Ok(())
+    }
+
+    /// The clock probe due now, if the session clock runs (cap `clock`).
+    fn send_clock_ping(&mut self) -> Res<()> {
+        let Some(ping) = self.clock.as_mut().and_then(|c| c.ping(now_ns() / 1000)) else {
+            return Ok(());
+        };
+        let mut d = Vec::with_capacity(HEADER_LEN + 32);
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::ClockPing,
+            stream: 0,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        }
+        .encode_into(&mut d);
+        d.extend_from_slice(&ping.encode());
+        self.send_datagram(&d)?;
+        Ok(())
+    }
+
+    /// The run's stage ledger (`cmux.rd-stage-ledger/1`) on the host's clock. The bench
+    /// decodes but draws nothing on glass, so Present (and Total, which ends there) stay
+    /// empty with that reason; `display_to_decoded` is the bench's end-to-end row.
+    fn stage_ledger(&self) -> serde_json::Value {
+        const NO_GLASS: &str =
+            "cmux-rd bench decodes but has no on-glass present time; the app's drawable presented time fills it";
+        let offset = self.clock.as_ref().and_then(ClockEstimator::estimate).map(|e| e.offset_us);
+        let json =
+            self.ledger.summary(offset, &[("Present", NO_GLASS), ("Total", NO_GLASS)]).to_json();
+        serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
     }
 
     /// Sends the keys typed into the `--present` window to the host, as the app's viewer does.
@@ -859,6 +927,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
         present_errors: 0,
+        ledger: StageLedger::new(),
+        video_stream: 0,
+        clock: None,
     };
     #[cfg(not(target_os = "linux"))]
     if opts.get("present").is_some() {
@@ -890,10 +961,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
         // Upstream media needs both caps (rd change C4).
-        caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
-        } else {
-            Vec::new()
+        caps: {
+            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            if upstream.is_some() {
+                offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
+            }
+            offered
         },
     })?;
     v.io.send_control(&Control::Start {
@@ -1052,6 +1125,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
+        "stage_ledger": v.stage_ledger(),
         "ended": v.ended,
     });
     println!("{report}");
@@ -1144,6 +1218,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
+        "stage_ledger": v.stage_ledger(),
         "ended": v.ended,
     });
     println!("{report}");
@@ -1216,6 +1291,8 @@ fn link_io() -> Res<ViewerIo> {
         turn: Vec::new(),
         relay_only: false,
     })?;
+    // A host that dies without a close ends this viewer instead of freezing it.
+    net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
