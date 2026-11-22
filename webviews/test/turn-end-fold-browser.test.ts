@@ -354,18 +354,24 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // the prompt coming down and the answer going up together.
       expect(after.prompt - before.prompt).toBeGreaterThan(8);
       expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
+      // Since the exit lead (#48554) and the asides staying out of the fold, the prompt's own move is
+      // about 12 px; a 2 px margin at each end left a 8 px window one dropped frame on a loaded
+      // runner could cut to two frames. Every frame drawn part way counts.
       const between = folding.filter(
-        (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
+        (sample) => sample.prompt > before.prompt + 0.5 && sample.prompt < after.prompt - 0.5,
       ).length;
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
       expect(Math.max(...steps)).toBeLessThan((after.prompt - before.prompt) * 0.75);
-      // The work the fold takes away fades over several frames where it was, never gone in one. A
-      // copy is gone by COPY_GONE_AT (0.6) of the fold's progress on the settle curve
-      // (turnEndFold.ts; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), which reaches it in the
-      // fold's first three frames at 60 Hz: two frames draw it part-faded (0.52, then 0.17).
+      // Exit before move (#48554, conversation/exitLead.ts; Leo, 2026-11-21: "we must hide text faster
+      // and sooner"): the work the fold takes away fades where it was over the 40 ms lead, on the house
+      // ease-out, and nothing moves until it is gone. Never gone in one frame: at least one frame draws
+      // it part-faded (0.41, then 0.04 at 60 Hz), and the prompt holds its place on every frame that
+      // still draws any of it.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
-      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(2);
+      expect(folding.filter((sample) => sample.work > 0 && sample.work < 0.95).length).toBeGreaterThanOrEqual(1);
+      for (const sample of folding.filter((sample) => sample.work > 0))
+        expect(Math.abs(sample.prompt - before.prompt)).toBeLessThanOrEqual(1);
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);
