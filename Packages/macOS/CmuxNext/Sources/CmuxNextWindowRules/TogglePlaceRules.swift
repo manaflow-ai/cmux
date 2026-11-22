@@ -5,9 +5,15 @@ import Foundation
 /// The match of the chat's prompts against the terminal's rows is Rust's (cmux-window-rules
 /// `tabs::place`); ``TerminalChatPlacing`` reads both faces and moves the one about to show.
 ///
-/// Its own namespace, not nested in ``WindowRules``: that type is over its size budget
-/// (scripts/cmux-next/check-no-godfiles.sh counts a type's extensions in its module).
-public nonisolated enum TogglePlaceRules {
+/// Its own type over the ``WindowRules`` it calls, not an extension of it: that type is over its
+/// size budget (scripts/cmux-next/check-no-godfiles.sh counts a type's extensions in its module).
+public nonisolated struct TogglePlaceRules: Sendable {
+    let rules: WindowRules
+
+    public init(rules: WindowRules = WindowRules()) {
+        self.rules = rules
+    }
+
     public nonisolated struct ToTerminalPlace: Encodable, Equatable, Sendable {
         public var prompts: [String]
         /// The prompt whose turn the chat has in view; nil at its latest message.
@@ -81,11 +87,11 @@ public nonisolated enum TogglePlaceRules {
         }
     }
 
-    public static func terminalPlace(_ facts: ToTerminalPlace, rules: WindowRules) -> TerminalPlace? {
+    public func terminalPlace(_ facts: ToTerminalPlace) -> TerminalPlace? {
         rules.call("window_tabs_terminal_place", facts, as: TerminalPlace.self)
     }
 
-    public static func chatPlace(_ facts: ToChatPlace, rules: WindowRules) -> ChatPlace? {
+    public func chatPlace(_ facts: ToChatPlace) -> ChatPlace? {
         rules.call("window_tabs_chat_place", facts, as: ChatPlace.self)
     }
 }
