@@ -390,7 +390,7 @@ export function startBoxTracker(
     const samples = sampleBoxes(doc, targetsNow(), [...(options.extra?.() ?? []), ...media]);
     const declared = [
       ...(options.declared?.() ?? []),
-      ...open.map(({ key, event, scope, once, by }) => ({ key: -key, event, scope, once, by })),
+      ...open.map(({ key, event, scope, once, strict, by }) => ({ key: -key, event, scope, once, strict, by })),
     ];
     judged.push({ samples, declared });
     // A play that sets `cmuxMotionTrace` on its window logs each judged frame (undeclared-run.sh TRACE=1).

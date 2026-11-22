@@ -50,7 +50,7 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
     const samples = sampleBoxes(doc, targets, [...doc.querySelectorAll(MEDIA_SELECTOR)]);
     frames.push({
       samples,
-      declared: open.map(({ key, event, scope, once, by }) => ({ key, event, scope, once, by })),
+      declared: open.map(({ key, event, scope, once, strict, by }) => ({ key, event, scope, once, strict, by })),
     });
   };
 

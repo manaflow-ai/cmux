@@ -13,7 +13,8 @@
     "menu": "A menu, popover or picker opens or closes. Only the popup and its rows move.",
     "reorder": "The person or the model moves an item to a new place in a list (a drag, a pin, a move to top). The moved rows and the rows between the old and new place move once.",
     "status": "A row's status changes (working, waiting, done, unread). Nothing moves: badges and marks have reserved slots.",
-    "enter": "An element enters (mounts) or leaves. Its own box is not judged until it rests; nothing else may move because of it unless another event is declared."
+    "enter": "An element enters (mounts) or leaves. Its own box is not judged until it rests; nothing else may move because of it unless another event is declared.",
+    "turn-end": "An agent's turn ends: its work folds into one \"Worked for\" line and the turn's own closing rows take their places. Only the fold's own box and what it holds may move, once, on the house settle curve. No row above it moves, no row below it is pushed or pulled, and nothing outside the turn moves at all; when the view does not follow the end, nothing on screen moves. Leo, 2026-11-22: \"WHEN A TURN BY AN AGENT END / STOP ADDING FUCKING DINGLEBERRIES OF TOOL CALLS AND BULLSHIT THAT SHIFTS POORLY. IF IT NEEDS TO SHIFT, IT SHIFTS MOTHERFUCKING GRACEFULLY.\""
   },
   "sizes": {
     "pretext": "Measured from its text before paint (Pretext with the named font, model.ts layout), so a row mounts at its final height.",
@@ -27,14 +28,14 @@
       "platform": "web",
       "selector": "[data-row-id]",
       "size": "pretext",
-      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth"]
+      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth", "turn-end"]
     },
     {
       "id": "chat-media",
       "platform": "web",
       "selector": ".cv-img, .cv-media, .cv-image-placeholder, .cv-user__inline-image, .cv-user__video, .cv-video-frames__frame",
       "size": "record",
-      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth"]
+      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth", "turn-end"]
     },
     {
       "id": "composer",
