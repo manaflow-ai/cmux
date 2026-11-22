@@ -98,10 +98,6 @@
       "kind": "check",
       "why": "advisory tab-switch timing on display Macs runs once per in-scope merge, not per pull request (#48493)"
     },
-    "cmux-next-tip-test-compile.yml": {
-      "kind": "check",
-      "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
-    },
     "cmux-next-web-bundle-publish.yml": {
       "kind": "publish",
       "why": "publishes the web bundle from the base"

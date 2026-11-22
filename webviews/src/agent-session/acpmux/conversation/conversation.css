@@ -6035,6 +6035,26 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
+/* A failed turn's mark (TurnRows.tsx `endMark`, G04) in the failure ink (failedTurnMark.experiment.ts):
+   its own 24 square in the 32 footer line, the buttons' size, after them, so it never moves them. */
+.cv-turn-actions .cv-turn-end-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--cv-footer-button);
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.cv-turn-actions .cv-turn-end-mark--failed {
+  color: var(--agent-status-failure);
+}
+.cv-turn-actions .cv-turn-end-mark--word {
+  padding-inline: calc(var(--ds-space-1) * 0.5);
+}
 .cv-iconbtn.cv-turn-continue:disabled,
 .cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
@@ -8681,6 +8701,16 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+/* A chat widget under a tool call (ToolWidget.tsx): an installed extension's scene, on the tool row's
+   text column like the row's other cards, framed by a hairline so it reads as the extension's and not
+   cmux's own text. The scene draws with the sections' renderer, so its rows and type match them. */
+.cv-tool-widget {
+  margin: 4px 0 8px var(--cv-tool-text-inset);
+  max-inline-size: 420px;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
 }
 
 /* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for
