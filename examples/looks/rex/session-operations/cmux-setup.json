@@ -1,0 +1,10 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/rex-session-operations",
+  "name": "Workspace shortcuts",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "Cycle between grouped workspaces, return to the last used workspace, rename, or close from a focused terminal.",
+  "cmuxProfile": 1,
+  "settings": {}
+}
