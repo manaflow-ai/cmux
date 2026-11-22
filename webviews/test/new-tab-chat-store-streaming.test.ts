@@ -214,3 +214,54 @@ test("Prioritize Chat Input on: the first list goes at once, later ones from the
     flushIdle();
   }
 });
+
+// The cost Prioritize Chat Input moves: the time the store takes outside the idle lane each frame
+// (inside the task that received a snapshot, or its write window's timer: tasks a key or a transcript
+// frame waits behind), 3,000 chats with 40 streaming, one snapshot every 50 ms for 10 s, both arms in
+// one run. Prints p50, p95 and max per arm, and the idle lane's own time; the gate is that with the
+// switch on no write happens outside the idle lane once the store holds a list.
+test("Prioritize Chat Input: the store's cost outside the idle lane, off against on", async () => {
+  jest.useFakeTimers();
+  const lists = streamingLists();
+  const proto = window.Storage.prototype;
+  const setItem = proto.setItem;
+  const measure = async (on: boolean) => {
+    window.localStorage.clear();
+    const { store, flushIdle, off } = await chatListArm(on);
+    store.reloadChatStoreForTests();
+    let inIdle = false;
+    let writesOutside = 0;
+    proto.setItem = function (this: Storage, key: string, value: string) {
+      if (key === store.CHAT_STORE_KEY_FOR_TESTS && !inIdle) writesOutside += 1;
+      setItem.call(this, key, value);
+    };
+    const costs: number[] = [];
+    let idleMs = 0;
+    try {
+      for (const [frame, list] of lists.entries()) {
+        const start = performance.now();
+        store.publishSessions(connected(list), T0 + (frame + 1) * FRAME_MS);
+        jest.advanceTimersByTime(FRAME_MS);
+        costs.push(performance.now() - start);
+        inIdle = true;
+        const idleStart = performance.now();
+        flushIdle();
+        idleMs += performance.now() - idleStart;
+        inIdle = false;
+      }
+    } finally {
+      proto.setItem = setItem;
+      off();
+    }
+    const sorted = costs.slice(1).sort((a, b) => a - b);
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!.toFixed(3);
+    console.log(
+      `chat store outside the idle lane, ${on ? "on " : "off"}: p50=${at(0.5)} ms p95=${at(0.95)} ms max=${at(1)} ms writes=${writesOutside}; idle lane total=${idleMs.toFixed(1)} ms`,
+    );
+    store.reloadChatStoreForTests();
+    return writesOutside;
+  };
+  expect(await measure(false)).toBeGreaterThan(10);
+  // On: only the first list (an empty store) is written outside the idle lane.
+  expect(await measure(true)).toBe(1);
+});
