@@ -31,10 +31,46 @@ export function outOfView(element: Element, scroller: Element): boolean {
   return misses(element.getBoundingClientRect(), scroller.getBoundingClientRect());
 }
 
-/// Finishes each of `animations` that has a finite end and is still to play.
+/// The properties a motion may have for it to be finished here: paint only. A motion that sizes or
+/// places a box (a height, a padding, a margin) out of the view still moves what is in it when the
+/// view is pinned to the bottom, so ending it at once would step the rows in view; those belong to
+/// the anchor pass and their owners (fold.ts `foldOffScreen`).
+const PAINT = new Set([
+  "opacity",
+  "transform",
+  "translate",
+  "scale",
+  "rotate",
+  "clip-path",
+  "filter",
+  "color",
+  "background-color",
+  "background-position",
+  "border-color",
+  "box-shadow",
+  "outline-color",
+  "text-decoration-color",
+  "fill",
+  "stroke",
+  "visibility",
+]);
+const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+function paintsOnly(animation: Animation): boolean {
+  const transition = (animation as Animation & { transitionProperty?: string }).transitionProperty;
+  if (typeof transition === "string") return PAINT.has(transition);
+  const effect = animation.effect as KeyframeEffect | null;
+  const frames = effect?.getKeyframes?.() ?? [];
+  for (const frame of frames)
+    for (const name of Object.keys(frame))
+      if (!["offset", "computedOffset", "easing", "composite"].includes(name) && !PAINT.has(kebab(name))) return false;
+  return true;
+}
+
+/// Finishes each of `animations` that has a finite end, is still to play and paints only.
 function finishAll(animations: readonly Animation[]): void {
   for (const animation of animations) {
     if (animation.playState === "finished" || animation.playState === "idle") continue;
+    if (!paintsOnly(animation)) continue;
     const end = animation.effect?.getComputedTiming?.().endTime;
     if (end === undefined || !Number.isFinite(Number(end))) continue;
     try {
