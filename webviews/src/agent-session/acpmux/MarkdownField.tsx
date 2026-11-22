@@ -402,24 +402,35 @@ function endUndoStep(view: EditorView) {
   if (!view.isDestroyed) view.dispatch(closeHistory(view.state.tr));
 }
 
+/** The paste whose edits are one undo step now (`beginPasteStep`), and the timer that ends it. */
+type PasteStep = { event: Event | undefined; timer: ReturnType<typeof setTimeout> | undefined };
+
 /** A paste as one undo step of its own (https://github.com/manaflow-ai/cmux/issues/49644): three
  * screenshots pasted one after another went out on one ⌘Z, because the history joins adjacent edits
  * made within its group delay and each pasted node lands right after the one before it. The group
- * ends before the paste and again once its event is done (a microtask: ProseMirror inserts a paste
- * it is left after the handlers return), so neither the words typed before it nor the next paste or
- * key joins it. `open` is set for that event, so the edits it makes (text and attachments together)
- * stay one step. `joins` set: the paste goes in where a chip was just taken out for it (Edit in
- * Prompt), and joins that removal's step, so one undo brings the chip back. */
-function beginPasteStep(view: EditorView, open: { current: boolean }, joins: { current: boolean }) {
-  if (open.current) return;
-  open.current = true;
+ * ends before the paste and again once its event is done, so neither the words typed before it nor
+ * the next paste or key joins it. Every edit made for `event` (ProseMirror's insert after the
+ * handlers return, and the composer's document listener that places the paste's attachments) joins
+ * its step: it ends on a timer, a task later, not in a microtask, which a browser runs between one
+ * native listener and the next (Greptile review). A key (`endPasteStep`) or another paste ends it
+ * sooner. `joins` set: the paste goes in where a chip was just taken out for it (Edit in Prompt),
+ * and joins that removal's step, so one undo brings the chip back. */
+function beginPasteStep(view: EditorView, step: PasteStep, event: Event, joins: { current: boolean }) {
+  if (step.event === event) return;
+  if (step.event) endPasteStep(view, step);
+  step.event = event;
   if (joins.current) joins.current = false;
   else endUndoStep(view);
-  queueMicrotask(() => {
-    open.current = false;
-    joins.current = false;
-    endUndoStep(view);
-  });
+  step.timer = setTimeout(() => endPasteStep(view, step), 0);
+}
+
+/** Ends the open paste's undo step (`beginPasteStep`), if one is open. */
+function endPasteStep(view: EditorView, step: PasteStep) {
+  if (!step.event) return;
+  step.event = undefined;
+  clearTimeout(step.timer);
+  step.timer = undefined;
+  endUndoStep(view);
 }
 
 /** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
@@ -772,8 +783,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
   const plainPasteAt = useRef(-Infinity);
-  // Set during a paste event: its edits are its one undo step (`beginPasteStep`).
-  const inPasteStep = useRef(false);
+  // The paste event whose edits are one undo step now (`beginPasteStep`).
+  const pasteStep = useRef<PasteStep>({ event: undefined, timer: undefined });
   // Set when a chip's node went out for what takes its place (`removeInline` with `caret`: Edit in
   // Prompt, Keep as .txt): the next insert is in the same undo step, so an undo brings the chip back.
   const joinsStep = useRef(false);
@@ -1020,6 +1031,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             props: {
               handleDOMEvents: {
                 keydown: (_view, event) => {
+                  // A key ends the paste before it: what it types is a step of its own.
+                  endPasteStep(_view, pasteStep.current);
+                  joinsStep.current = false;
                   returnTaken = false;
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
@@ -1175,7 +1189,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // in gets the space every pasted link gets.
                   const pasteFrom = editorView.state.selection.from;
                   joinsStep.current = false;
-                  beginPasteStep(editorView, inPasteStep, joinsStep);
+                  beginPasteStep(editorView, pasteStep.current, event, joinsStep);
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
                     spaceAfterPastedLink(editorView, pasteFrom);
@@ -1221,7 +1235,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               },
               handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
               handlePaste: (editorView, event, slice) => {
-                beginPasteStep(editorView, inPasteStep, joinsStep);
+                beginPasteStep(editorView, pasteStep.current, event, joinsStep);
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
@@ -1740,7 +1754,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           // undo step of their own too: one ⌘Z takes out the last ones, never the ones before them
           // or the words typed before them (https://github.com/manaflow-ai/cmux/issues/49644).
           // "restore" makes no step.
-          if (at === "restore" || inPasteStep.current) return insertInline(current, ids, replace, at);
+          if (at === "restore" || pasteStep.current.event) return insertInline(current, ids, replace, at);
           if (joinsStep.current) joinsStep.current = false;
           else endUndoStep(current);
           const went = insertInline(current, ids, replace, at);

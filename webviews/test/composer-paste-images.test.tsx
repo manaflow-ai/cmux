@@ -1378,3 +1378,22 @@ test("each paste of text is its own undo step, apart from the typing around it",
   }
   expect(redone).toEqual(["a ", "a one ", "a one two", "a one two!"]);
 });
+
+// Greptile review of https://github.com/manaflow-ai/cmux/pull/49685: a browser runs microtasks between
+// one native paste listener and the next, so the composer's document listener can place a paste's
+// attachment after a microtask the editor's own listener queued. It is still that paste's step: one
+// undo takes the text and the attachment together.
+test("an attachment a paste places after a microtask is in that paste's one undo step", async () => {
+  await openComposer([]);
+  await act(async () => markdownField().insertTyped("look "));
+  await act(async () => {
+    markdownField().pasteText("here ");
+    await Promise.resolve();
+    await Promise.resolve();
+    markdownField().insertInline(["later-placed"]);
+  });
+  expect(markdownField().inlineIds()).toContain("later-placed");
+  await act(async () => markdownField().undo());
+  expect(markdownField().plainText()).toBe("look ");
+  expect(markdownField().inlineIds() ?? []).not.toContain("later-placed");
+});
