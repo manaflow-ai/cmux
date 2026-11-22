@@ -411,9 +411,9 @@ fn arrow_image() -> Option<CFTypeRef> {
             // The context is y up; ARROW is y down.
             let (x, y) = (x, SIZE - y);
             if i == 0 {
-                CGContextMoveToPoint(ctx, x, y)
+                CGContextMoveToPoint(ctx, x, y);
             } else {
-                CGContextAddLineToPoint(ctx, x, y)
+                CGContextAddLineToPoint(ctx, x, y);
             }
         }
         CGContextClosePath(ctx);
