@@ -166,6 +166,12 @@ GALLERY_HARNESS = {
     "webviews/reactCompiler.mjs": "cf69080f14637c1d71ef8defe0b2373072c85ac554eb0e766f628783a396f38d",
     "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs": "3d0b42f53ce581e23083ffeacbdfcce6850563096dacf272e029265abc5e6302",
     "webviews/scripts/agent-pane/bundle.mjs": "80df1e8d2725dc64b9733c5244a1f1ea4b262f56a3618115e31c095878d43804",
+    "webviews/scripts/agent-pane/frameSites.mjs": "c9bf51c01da0196c88d0044e5ae06f82eece1a17ba911d3e259ca0479ce4e913",
+    "webviews/scripts/agent-pane/jsonParsePlugin.mjs": "42cfa8b6f0fb61a98a49ccbb3644c20e7ca7fc75964578d19a0033ade435086e",
+    "webviews/scripts/agent-pane/katexStylePlugin.mjs": "ac55c5b747f9baa4db25e2a23d4407d336c390499f7f93bdff7c2e453540f9c2",
+    "webviews/scripts/agent-pane/reactCompilerPlugin.mjs": "a293c15161984bf6d32a14b865b9859ce46a85fac68c5f20ee93763af21a508d",
+    "webviews/scripts/agent-pane/tailwindCompile.mjs": "6a78ccc7e85c6c923c353687765af998adafc94dd5482b0d5b32e8f1c9342d08",
+    "webviews/scripts/pages/gen-design-scale.mjs": "9517347ab61f62caab339a713616586dfdeb24f9ed588e9e1be7610410ef4618",
     "webviews/scripts/bundle-metafile.mjs": "831962bec2e77c7b0fd92c3a058e4513d3c995b0e6d82981ce8c52389cda4840",
     "webviews/scripts/gallery/entries.ts": "43ae4eb980d25a0745ebc95a70c23a99a51dc464a8c910c8ca350f7ff7be58ea",
     "webviews/scripts/packed-shiki-data.mjs": "334a89d6ac88c7f2b7704aa80687ff946329d408b029042ba61278932d41e88b",
@@ -178,21 +184,44 @@ GALLERY_HARNESS = {
     "webviews/test/support/galleryFrame.ts": "1f9eb44639c07f42cd34050c8a02454537c52be5152f778904f8a9ed7d0ab3c0",
     "webviews/test/support/requireBrowserLane.ts": "150ec45c9b3aeb1e9781442bbfc85f44ec5ff65e06babe0c429da4efe94a3890",
     "webviews/test/support/systemChrome.ts": "0507f6cb924086aa87d15a541c3bec4387e0ecddf70544e6d2505e3d56b9961b",
+    "webviews/vite.config.acpmux-pane.mjs": "b693a61ac81f7bdd2a2fd23c7852d1fab11cfaf18fcee75f9a7eae21b0f345c3",
+    "webviews/vite.config.settings-page.mjs": "2f522df32899cae1068eef1085ad3309fdeebf08cf9b38d35875c67d74f8b077",
+    "webviews/scripts/agent-pane/paneLocales.mjs": "9cc8c34c48d1da374160cf266a19134cd32f67c593e0a803753fa6d356202093",
+    "webviews/scripts/pages/split-strings.mjs": "58c8e95e8abcc440e30a36fdb4ab44da20cc203a4c7f5f2a6dd20b063930de5b",
     "webviews/vite.config.ts": "c8404cad884ee737f7ebb7813a703c5118a73f9e99328e82e4383bc6200a7647",
 }
 # galleryFrame.ts's own test for the file that defines an entry id (galleryEntryPath).
-GALLERY_ID_LINE = r'^\s*id:\s*"{}",?\s*$'
+GALLERY_ID_LINE = re.compile(r'^\s*id:\s*"([^"\n]+)",?\s*$', re.M)
 GALLERY_FILE = re.compile(r"\.gallery\.tsx?$")
 # What a stage test's own text may do beyond the import graph: launch a browser, start the gallery's Vite server,
 # write (never read) files. Anything else (a read, a spawn, another page, a script or file handed to the page)
 # keeps it always-run.
 STAGE_FS_IMPORT = re.compile(r"""\bimport\s*(\{[^}]*\})?\s*(?:from\s*)?["'](?:node:)?fs(?:/promises)?["']""")
 STAGE_FS_WRITES = {"writeFile", "writeFileSync", "mkdir", "mkdirSync", "mkdtemp", "mkdtempSync", "rm", "rmSync"}
-STAGE_REFUSED = re.compile(
-    r"\.html\b|\baddScriptTag\b|\baddStyleTag\b|\baddInitScript\(\s*\{|\.route\(|\brouteFromHAR\b|\bsetInputFiles\b"
-    r"|\bgoto\(\s*[\"'`](?!about:blank)|readFile|readdir|existsSync|statSync|Bun\.file|spawn|exec[A-Z(]"
+_STAGE_REFUSED = (
+    r"\b(?:addScriptTag|addStyleTag|addInitScript)\(\s*\{[^}]*\bpath\s*:|\.route\(|\brouteFromHAR\b|\bsetInputFiles\b"
+    # A page or module URL no edge covers: a file URL, a source path, a Vite internal.
+    r"|file:/|[\"'`/]src/|/@(?:fs|id|vite)/"
+    r"|readFile|readdir|existsSync|statSync|Bun\.file|\bspawn|(?<![.\w])exec(?:Sync|File)?\("
     # An entry id built at run time: `agent-pane.${x}` or "agent-pane." + x.
     r"|[\"'`][a-z0-9-]+\.(?:\$\{|[\"']\s*\+)")
+# A Vite page test may open any page its server has (all are edges); a gallery stage test only galleryFrame() stages,
+# so it also may not name an HTML page or build a bare server root URL (the shell: every gallery file).
+PAGE_REFUSED = re.compile(_STAGE_REFUSED)
+STAGE_REFUSED = re.compile(r"\.html\b|(?:127\.0\.0\.1|localhost):\$\{[\w.()!]+\}/?[\"'`](?!\s*\+\s*galleryFrame\()|"
+                           + _STAGE_REFUSED)
+# Vite page tests: a browser test that starts Vite with one of these reviewed configs and drives its pages. The
+# edge is the config's closure plus every HTML page under the config's root and its module scripts' closures: an
+# over-approximation of what the test opens. (vite.config.ts serves every page under webviews/,
+# among them modules that glob fixtures: not here yet.)
+VITE_PAGES = {
+    WEB + "vite.config.acpmux-pane.mjs": WEB + "src/agent-session/acpmux",
+    WEB + "vite.config.settings-page.mjs": WEB + "src/pages/settings",
+}
+HTML_SCRIPT = re.compile(r"""<script\b([^>]*)>([\s\S]*?)</script>""", re.I)
+# Static imports: the graph's edges, so their specifiers (a ../src/ path) are no page URL.
+STATIC_IMPORT = re.compile(r"""^\s*(?:import|export)\b[^;]*?\bfrom\s*["'][^"']+["'];?|^\s*import\s*["'][^"']+["'];?""", re.M)
+STAGE_ALLOWED = re.compile(r"playwright|[\"']vite[\"']|requireBrowserLane|createServer\(|(?:node:)?fs(?:/promises)?[\"']")
 STRING_LITERAL = re.compile(r"""["']([a-z0-9][a-z0-9.-]*)["']""")
 JS_COMMENTS = re.compile(r"/\*[\s\S]*?\*/|(?<![:\"'`\\])//[^\n]*")
 
@@ -245,50 +274,111 @@ class Selector:
         base = set().union(*(self.closure(r) for r in GALLERY_ROOTS))
         if (base & untracked) - harness:
             return {}
-        galleries = {f: t for f, t in self.text.items() if f.startswith(WEB + "src/") and GALLERY_FILE.search(f)}
+        # Entry id to the gallery files with galleryEntryPath's `id: "<id>"` line (more than one: it throws).
+        ids: dict[str, set[str]] = {}
+        for f, text in self.text.items():
+            if f.startswith(WEB + "src/") and GALLERY_FILE.search(f):
+                for entry in GALLERY_ID_LINE.findall(text):
+                    ids.setdefault(entry, set()).add(f)
         out: dict[str, set[str]] = {}
+        pages: dict[str, set[str] | None] = {}
         for test in sorted(self.always):
-            entries = self.stage_entries(test, galleries)
-            if entries is None:
+            helpers = (self.closure(test) & untracked) - harness - {test}
+            if any(f.startswith(WEB + "src/") for f in helpers):
                 continue
-            reach = self.closure(test) | base | set().union(*(self.closure(e) for e in entries))
-            if not (reach & untracked) - harness - {test}:
+            text = self.stage_text(test)
+            if text is None or "galleryFrame(" not in text:
+                named = set(re.findall(r"vite\.config[\w.-]*", JS_COMMENTS.sub("", self.text[test])))
+                config = WEB + next(iter(named)) if len(named) == 1 else ""
+                if config not in VITE_PAGES or "createServer(" not in self.text[test]:
+                    continue
+                if self.stage_text(test, config) is None or any(self.stage_text(f, config) is None for f in helpers):
+                    continue
+                if config not in pages:
+                    pages[config] = self.page_edges(config, untracked - harness)
+                if pages[config] is not None:
+                    out[test] = pages[config]
+                continue
+            if any(self.stage_text(f) is None for f in helpers):
+                continue
+            # Every entry id the test or its own helpers (outside src/) spell: an over-approximation of what it opens.
+            literals = set(STRING_LITERAL.findall(text))
+            for f in self.closure(test) - {test} - harness - base:
+                if not f.startswith(WEB + "src/") and f in self.text:
+                    literals |= set(STRING_LITERAL.findall(JS_COMMENTS.sub("", self.text[f])))
+            found = [ids[lit] for lit in literals if lit in ids]
+            if not found or any(len(files) > 1 for files in found):
+                continue
+            entries = set().union(*found)
+            reach = set().union(*(self.closure(e) for e in entries))
+            if not (reach & untracked) - harness:
                 out[test] = entries
         return out
 
-    def stage_entries(self, test: str, galleries: dict[str, str]) -> set[str] | None:
-        """The gallery files a stage test opens, or None when its text does anything else no edge covers."""
-        text = JS_COMMENTS.sub("", self.text[test])
-        if "galleryFrame(" not in text and "warmGalleryFrame(" not in text or STAGE_REFUSED.search(text):
+    def page_edges(self, config: str, untracked: set[str]) -> set[str] | None:
+        """The config and every HTML page's module scripts under its root, or None when one cannot be followed."""
+        root = VITE_PAGES[config]
+        out = {config}
+        for page in sorted(f for f in self.graph.known if f.endswith(".html") and f.startswith(root + "/")
+                           and "/node_modules/" not in f):
+            html = (self.root / page).read_text(encoding="utf-8", errors="replace")
+            for attrs, body in HTML_SCRIPT.findall(html):
+                src = re.search(r"""\bsrc\s*=\s*["']([^"']+)["']""", attrs)
+                if not src:
+                    if "type" in attrs and "module" in attrs and re.search(r"\bimport\b", body):
+                        return None  # an inline module's imports: not followed
+                    continue
+                spec = src.group(1).split("?")[0]
+                if re.match(r"\w+:|//", spec):
+                    continue  # another origin: not a file
+                target = (os.path.normpath(root + spec) if spec.startswith("/")
+                          else os.path.normpath(os.path.join(os.path.dirname(page), spec)))
+                if target not in self.graph.known:
+                    return None
+                out.add(target)
+        reach = set().union(*(self.closure(f) for f in out))
+        return None if reach & untracked else out
+
+    def stage_text(self, f: str, config: str = GALLERY_CONFIG) -> str | None:
+        """A stage test's or its helper's text without comments and static imports, or None when it does what no
+        edge covers: reads files, spawns, imports a computed path, serves another Vite config or opens a page other
+        than a gallery stage. Launching a browser, starting the gallery's Vite server and writing files are fine."""
+        text = STATIC_IMPORT.sub("", JS_COMMENTS.sub("", self.text[f]))
+        gallery = config == GALLERY_CONFIG
+        if (STAGE_REFUSED if gallery else PAGE_REFUSED).search(text):
             return None
-        if "createServer" in text and (GALLERY_CONFIG.removeprefix(WEB) not in text
-                                       or len(set(re.findall(r"vite\.config[\w.-]*", text))) != 1):
+        if gallery and any(not self.frame_url(arg, text) for arg in call_args(text, "goto")):
             return None
-        for m in STAGE_FS_IMPORT.finditer(text):
+        if "createServer" in text and set(re.findall(r"vite\.config[\w.-]*", text)) != {config.removeprefix(WEB)}:
+            return None
+        raw = JS_COMMENTS.sub("", self.text[f])
+        for m in STAGE_FS_IMPORT.finditer(raw):
             names = {n.split(" as ")[0].strip() for n in (m.group(1) or "").strip("{}").split(",") if n.strip()}
             if not m.group(1) or not names <= STAGE_FS_WRITES:
                 return None
-        allowed = re.compile(r"playwright|[\"']vite[\"']|requireBrowserLane|createServer\(|(?:node:)?fs(?:/promises)?[\"']")
-        for m in [*UNTRACKED.finditer(text), *UNTRACKED_OUTSIDE_SRC.finditer(text)]:
-            if not allowed.search(m.group(0)) and not re.fullmatch(r"import\s*\(\s*", m.group(0)):
+        for m in [*UNTRACKED.finditer(raw), *UNTRACKED_OUTSIDE_SRC.finditer(raw)]:
+            if not STAGE_ALLOWED.search(m.group(0)) and not re.fullmatch(r"import\s*\(\s*", m.group(0)):
                 return None
         if re.search(r"\bimport\s*\(\s*(?![\"']vite[\"'])", text):
             return None  # a dynamic import other than Vite's own
-        # Every entry id the test or its own helpers (outside src/) spell: the over-approximation of what it opens.
-        literals = set(STRING_LITERAL.findall(text))
-        for f in self.closure(test) - {test}:
-            if not f.startswith(WEB + "src/") and f in self.text:
-                literals |= set(STRING_LITERAL.findall(JS_COMMENTS.sub("", self.text[f])))
-        entries: set[str] = set()
-        for literal in literals:
-            if "." not in literal:
-                continue
-            line = re.compile(GALLERY_ID_LINE.format(re.escape(literal)), re.M)
-            files = [f for f, t in galleries.items() if line.search(t)]
-            if len(files) > 1:
-                return None  # galleryEntryPath throws; the run decides
-            entries.update(files)
-        return entries or None
+        return text
+
+    @staticmethod
+    def frame_url(arg: str, text: str) -> bool:
+        """Whether a page.goto argument opens a gallery stage: a galleryFrame() URL, a name holding one, or a call
+        of a function the test defines around galleryFrame(). STAGE_REFUSED has already turned away every other
+        way the test could spell a URL."""
+        arg = arg.strip()
+        if "galleryFrame(" in arg or arg.startswith(('"about:blank"', "'about:blank'")):
+            return True
+        if re.fullmatch(r"[\w$.]+(\s*,[\s\S]*)?", arg):
+            return True
+        call = re.match(r"([\w$]+)\(", arg)
+        if not call:
+            return False
+        name = re.escape(call.group(1))
+        definition = re.search(rf"(?:function\s+{name}\s*\(|\b{name}\s*=\s*(?:async\s*)?\()", text)
+        return bool(definition) and "galleryFrame(" in text[definition.end():definition.end() + 600]
 
     def in_gallery_zone(self, f: str) -> bool:
         """Whether a changed path can reach a gallery stage other than through the import graph."""
@@ -404,6 +494,18 @@ class Selector:
                 return None, f"no rule maps {f}"
             out |= named
         return out | self.always, ""
+
+
+def call_args(text: str, name: str) -> list[str]:
+    """The argument text of every `name(...)` call (balanced parentheses)."""
+    out = []
+    for m in re.finditer(rf"\b{name}\(", text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        out.append(text[m.end():i - 1])
+    return out
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:
