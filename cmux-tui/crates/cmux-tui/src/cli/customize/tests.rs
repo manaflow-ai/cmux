@@ -419,6 +419,43 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
 }
 
 #[test]
+fn use_takes_a_recipe_by_name_and_a_saved_profile_of_that_name_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run =
+        |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat).ok().unwrap();
+
+    // No `recipes` first: the name alone finds the recipe, theme file included.
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 1_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("\"ukiyo-e\""), "{settings}");
+    run(Request::Discard, 2_000);
+
+    // A saved profile called the same wins over the recipe.
+    run(Request::Save { name: "ukiyo-e".to_owned(), note: "mine".to_owned() }, 3_000);
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 4_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(!settings.contains("themeFile"), "{settings}");
+    run(Request::Discard, 5_000);
+
+    // Neither a profile nor a recipe: the profile error stands.
+    assert!(
+        execute(
+            &customize,
+            Request::Use { source: "no-such-look".to_owned(), watch: false },
+            "cli",
+            6_000,
+            &super::ask::NoChat
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     let tried = |source: Option<&str>, ms: u64| {
         Ok(Request::Try { source: source.map(str::to_owned), duration_ms: ms })

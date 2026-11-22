@@ -686,7 +686,12 @@ impl Supervisor {
         if !install {
             self.deploy_remove(&p.app);
         }
-        self.set_result(&p.app)
+        let placed = if install { self.place_installed_widget(&p.app) } else { None };
+        let mut result = self.set_result(&p.app)?;
+        if let (Some(placed), Some(object)) = (placed, result.as_object_mut()) {
+            object.insert("widget".into(), placed);
+        }
+        Ok(result)
     }
 
     /// `cmux.apps.install`, with an optional `deploy {target}` (install =
