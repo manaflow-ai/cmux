@@ -129,10 +129,21 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.navPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.nav", "Sidebar Nav Rows"),
+                help: SettingsText.keyed("settings.sidebar.nav.help", "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."),
+                kind: .stringList,
+                default: .array(SidebarSectionsSetting.navDefault.map { .string($0) }),
+                keywords: ["sidebar", "nav", "navigation", "actions", "new chat", "search", "pull requests", "look"]
+            ).hiddenFromSettingsPage("action ids; cmux.json, setups and theme files only"),
+            SettingDescriptor(
                 SidebarSectionsSetting.showSpacesPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.showSpaces.help", "Spaces show once you have more than one. New Space is in the command palette."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showSpacesDefault),
                 keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]
@@ -236,6 +247,21 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.minimalDefault),
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
+            ),
+            SettingDescriptor(
+                SidebarLookPreset.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.look", "Sidebar Look"),
+                help: SettingsText.keyed("settings.sidebar.look.help", "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."),
+                kind: .choice([
+                    SettingChoice("cmux", SettingsText.keyed("settings.choice.sidebarLookCmux", "cmux")),
+                    SettingChoice("claude", SettingsText.keyed("settings.choice.sidebarLookClaude", "Claude")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.sidebarLookCodex", "Codex")),
+                    SettingChoice("studio", SettingsText.keyed("settings.choice.sidebarLookStudio", "Studio")),
+                ]),
+                default: .string(SidebarLookPreset.fallback),
+                keywords: ["sidebar", "look", "preset", "style", "claude", "codex", "studio", "like", "app"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.stylePath,
@@ -350,31 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
                 keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws. Sections shows plain headings instead."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
             ),
         ]
     }
