@@ -1140,6 +1140,9 @@ fn percentile(samples: &[Option<Duration>], p: f64) -> String {
     let mut ms: Vec<f64> =
         samples.iter().map(|d| d.map_or(f64::INFINITY, |d| d.as_secs_f64() * 1000.0)).collect();
     ms.sort_by(f64::total_cmp);
+    if ms.is_empty() {
+        return "n/a".into();
+    }
     let at = ((ms.len() as f64 - 1.0) * p).round() as usize;
     let value = ms[at];
     if value.is_finite() { format!("{:.1} s", value / 1000.0) } else { "none".into() }
@@ -1230,6 +1233,8 @@ async fn blackout_matrix() {
 /// writing [`STREAM_ROWS_PER_SECOND`] rows, the phone echoing a frame every
 /// 100 ms). Survival: the 8, 10, 30 and 60 s blackouts under the stream.
 /// Idle cost: one idle minute each, shaped, scaled to an hour.
+/// `DURESS_SURVIVE_ONLY=1` runs only the survival part, and
+/// `DURESS_SURVIVE_IDLE=1` runs it without the stream.
 /// `DURESS_PROFILES=lte cargo test -p cmux-mobile-link --test roaming duress_matrix -- --ignored --nocapture`
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore = "timed matrix (about 9 minutes a profile): run by hand for the PR's numbers"]
@@ -1237,18 +1242,28 @@ async fn duress_matrix() {
     const RUNS: u32 = 20;
     let window = Duration::from_secs(40);
     let names = std::env::var("DURESS_PROFILES").unwrap_or_else(|_| "lte,lossy-3,lossy-10".into());
+    // `DURESS_SURVIVE_ONLY=1`: only the survival runs.
+    let survive_only = std::env::var_os("DURESS_SURVIVE_ONLY").is_some();
+    // `DURESS_SURVIVE_IDLE=1`: the survival runs without the stream.
+    let survive_stream = std::env::var_os("DURESS_SURVIVE_IDLE").is_none();
     for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
         let profile = (name != "none").then(|| LinkProfile::named(name));
         eprintln!("DURESS profile={name} {profile:?}");
         set_link_profile(profile, 0x4934_2000);
-        for (label, config) in [("before", base_config()), ("after", LinkConfig::default())] {
+        let configs = if survive_only {
+            vec![]
+        } else {
+            vec![("before", base_config()), ("after", LinkConfig::default())]
+        };
+        for (label, config) in configs {
             for side in [DarkSide::Phone, DarkSide::Mac] {
                 for load in [Load::Idle, Load::Stream] {
                     let runs = (0..RUNS).map(|i| {
                         let phase = Duration::from_millis(15_000 * u64::from(i) / u64::from(RUNS));
                         tokio::spawn(detect(config.clone(), side, load, phase, window, true))
                     });
-                    // A run whose dial failed under the profile counts, not aborts.
+                    // A run that never set up (no dial, or no ping round trip in 20 s) under
+                    // the profile counts, not aborts.
                     let mut results = Vec::new();
                     let mut failed = 0;
                     for run in runs.collect::<Vec<_>>() {
@@ -1262,7 +1277,7 @@ async fn duress_matrix() {
                     let false_suspects: u32 = results.iter().map(|r| r.false_suspects).sum();
                     let rows = results.iter().map(|r| r.rows).min().unwrap_or(0);
                     eprintln!(
-                        "DETECT profile={name} {label} dark={side:?} {load:?}: phone p50={} p95={} max={} | mac p50={} p95={} max={} | false_suspects={false_suspects} over {:.0} s up | min_rows={rows} | runs={} dial_failed={failed}",
+                        "DETECT profile={name} {label} dark={side:?} {load:?}: phone p50={} p95={} max={} | mac p50={} p95={} max={} | false_suspects={false_suspects} over {:.0} s up | min_rows={rows} | runs={} setup_failed={failed} (no dial or no first ping round trip in 20 s)",
                         percentile(&phone, 0.5),
                         percentile(&phone, 0.95),
                         percentile(&phone, 1.0),
@@ -1278,14 +1293,16 @@ async fn duress_matrix() {
         let mut runs = Vec::new();
         for (label, config) in [("before", base_config()), ("after", LinkConfig::default())] {
             for secs in [8u64, 10, 30, 60] {
-                let duress = Duress { shaped: true, stream: true };
+                let duress = Duress { shaped: true, stream: survive_stream };
                 let run = blackout_with(config.clone(), Duration::from_secs(secs), false, duress);
                 runs.push((label, secs, tokio::spawn(run)));
             }
         }
         for (label, secs, run) in runs {
             let Ok(run) = run.await else {
-                eprintln!("SURVIVE profile={name} {label} {secs}s: the dial failed");
+                eprintln!(
+                    "SURVIVE profile={name} {label} {secs}s: setup failed (no dial or no first ping round trip)"
+                );
                 continue;
             };
             let ms = |d: Option<Duration>| d.map_or("none".to_owned(), |d| d.as_millis().to_string());
@@ -1304,6 +1321,9 @@ async fn duress_matrix() {
                 run.rows,
                 run.sessions,
             );
+        }
+        if survive_only {
+            continue;
         }
         let before = idle_minute_with(base_config(), false, base_config(), true).await;
         let after = idle_minute_with(LinkConfig::default(), false, LinkConfig::default(), true).await;
