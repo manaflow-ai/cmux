@@ -17,7 +17,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  z-index: -1;
+  z-index: var(--layer-backdrop);
   background: linear-gradient(
     100deg,
     color-mix(in oklab, var(--agent-ansi-6, #3cc) 14%, transparent),
@@ -49,8 +49,8 @@
   padding: 2px 4px 2px 8px;
   border-radius: 8px;
   color: var(--agent-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
 }
 .acpmux-auto-arrival[data-went="cloud"] {
@@ -65,11 +65,9 @@
 .acpmux-auto-arrival-dismiss { flex: none; width: 20px; height: 20px; padding: 0; justify-content: center; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Orbit: one slow turn every 6 s while Auto is picked, quicker on hover and while deciding. */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="orbit"] .acpmux-auto-orbit { animation: acpmux-auto-spin 6s linear infinite; }
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-orbit,
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-auto-orbit,
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival[data-went="deciding"] .acpmux-auto-orbit { animation: acpmux-auto-spin 1.6s linear infinite; }
+  /* Orbit: the dots go round at every spinner's one period while Auto is picked, on hover and
+     while deciding (cmux-spin, pages/shared/desktop.css). */
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is([data-auto-look="orbit"], .acpmux-location-button:hover, .acpmux-menu-item:is(:hover, [data-highlighted]), .acpmux-auto-arrival[data-went="deciding"]) .acpmux-auto-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
   /* Constellation: the small spark breathes; the big one twinkles once on hover. */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="constellation"] .acpmux-auto-spark-small { animation: acpmux-auto-breathe 2.8s ease-in-out infinite; }
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-spark,
@@ -84,7 +82,6 @@
   /* The arrival line comes in once, by opacity only (no layout change). */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival { animation: acpmux-auto-arrive 280ms var(--agent-ease-out, ease-out) 1; }
 }
-@keyframes acpmux-auto-spin { to { transform: rotate(360deg); } }
 @keyframes acpmux-auto-breathe {
   0%, 100% { opacity: 0.45; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1.1); }

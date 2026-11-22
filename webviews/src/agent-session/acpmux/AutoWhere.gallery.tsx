@@ -120,7 +120,7 @@ export default componentEntry<Props>({
   anchors: [{ selector: ".auto-where-board" }],
   variants: {
     orbit: {
-      note: "Ships. Orbit: your chat as a still centre and three machine-coloured dots going round it, one turn in 6 s while Auto is picked, quicker on hover and while deciding.",
+      note: "Ships. Orbit: your chat as a still centre and three machine-coloured dots going round it at every spinner's one period while Auto is picked, on hover and while deciding.",
       props: { look: "orbit" },
     },
     constellation: {

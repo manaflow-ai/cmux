@@ -14,7 +14,7 @@
 .auto-env-chips,
 .auto-env-menus { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .auto-env-cell { margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.auto-env-cell figcaption { font-size: 10px; color: var(--agent-muted); letter-spacing: 0.02em; }
+.auto-env-cell figcaption { font-size: var(--text-caption); color: var(--agent-muted); letter-spacing: 0.02em; }
 /* The menu as its popup draws it (a Popover's positioner carries these in the app). */
 .auto-env-board {
   --acpmux-base: var(--agent-accent-text, Canvas);
@@ -28,9 +28,6 @@
   max-height: none;
   padding: 4px;
   background: var(--acpmux-menu-bg);
-  box-shadow:
-    0 0 0 0.5px color-mix(in srgb, var(--agent-text) 22%, transparent),
-    0 8px 24px color-mix(in srgb, #000 18%, transparent);
 }
 
 /* The hover state, held for the board (the pointer can rest on one cell only). */
@@ -65,10 +62,9 @@
 
 /* ---- Orbit: machine-coloured dots going round your chat. ---- */
 .auto-env-icon[data-look="orbit"] .auto-env-orbit { transform-origin: 8px 8px; }
-[data-auto-look="orbit"] .auto-env-orbit { animation: auto-env-spin 6s linear infinite; }
+[data-auto-look="orbit"] .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
 .acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-orbit,
-.acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-orbit { animation: auto-env-spin 1.6s linear infinite; }
-@keyframes auto-env-spin { to { transform: rotate(360deg); } }
+.acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
 /* The hint names a place: in that place's colour family, still muted. */
 [data-auto-look="orbit"] .auto-env-hint { color: color-mix(in oklab, var(--agent-ansi-4, var(--agent-muted)) 55%, var(--agent-muted)); }
 
@@ -79,7 +75,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  z-index: -1;
+  z-index: var(--layer-backdrop);
   background: linear-gradient(
     100deg,
     color-mix(in oklab, var(--agent-ansi-6, #3cc) 14%, transparent),
