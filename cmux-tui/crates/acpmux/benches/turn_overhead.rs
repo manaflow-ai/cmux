@@ -39,7 +39,9 @@
 //!
 //! `cargo bench -p acpmux [--features hub-carrier] --bench turn_overhead -- [--route local|relay]
 //! [--turns 100] [--warmup 5] [--attaches 20] [--summary FILE] [--json FILE] [--daemon PATH]
-//! [--no-render]`. `--summary` appends the Markdown table (CI's `$GITHUB_STEP_SUMMARY`); `--json`
+//! [--no-render] [--think MS]`. `--think` pauses after each turn, as a person reading the reply
+//! would: a cost that shows only in back-to-back turns (queued prompts) is then gone. `--summary`
+//! appends the Markdown table (CI's `$GITHUB_STEP_SUMMARY`); `--json`
 //! writes the rows cmux-bench reads (`scripts/bench/benches/agent_turn.py` for the local route,
 //! `cloud_turn.py` for the relay's); `--daemon` runs another acpmux build (a base, for a before
 //! and after from this same harness).
@@ -139,6 +141,8 @@ struct Args {
     json: Option<PathBuf>,
     daemon: Option<PathBuf>,
     render: bool,
+    /// A pause after each turn, as a person reading the reply before the next prompt.
+    think: Duration,
 }
 
 impl Args {
@@ -152,6 +156,7 @@ impl Args {
             json: None,
             daemon: None,
             render: true,
+            think: Duration::ZERO,
         };
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -171,6 +176,7 @@ impl Args {
                 "--json" => args.json = Some(value().into()),
                 "--daemon" => args.daemon = Some(value().into()),
                 "--no-render" => args.render = false,
+                "--think" => args.think = Duration::from_millis(value().parse().unwrap()),
                 // `cargo bench` passes `--bench`.
                 "--bench" => {}
                 other => panic!("unknown argument {other}"),
@@ -539,6 +545,9 @@ async fn bench(args: &Args) -> Run {
         let turn = one_turn(&mut rpc, pane.as_mut(), &way, &chat, round).await;
         if round >= args.warmup {
             turns.push(turn);
+        }
+        if !args.think.is_zero() {
+            tokio::time::sleep(args.think).await;
         }
     }
     drop(pane);
