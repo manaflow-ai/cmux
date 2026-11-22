@@ -47,9 +47,6 @@ class SharedBuildSpaceTests(unittest.TestCase):
         self.assertIn('./scripts/reload.sh --tag "$mac_tag"', sh)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class HostStateDirectoryTests(unittest.TestCase):
     """The restart leg finds hostd's state folder where the Mac writes it: under the account namespace's
@@ -74,3 +71,7 @@ class HostStateDirectoryTests(unittest.TestCase):
             top = os.path.join(support, "cmux-mobile-host")
             os.makedirs(top)
             self.assertEqual(pair.host_state_directory(support), top)
+
+
+if __name__ == "__main__":
+    unittest.main()
