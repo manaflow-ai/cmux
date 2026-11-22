@@ -58,3 +58,42 @@ UI bench runs, so every bench can be read idle and under duress from the same ha
 Each bench keeps its own numbers (frame p50/p95/max, hitches, main-thread stalls, TTI, key echo).
 `MobileDuress` adds one `[duress]` log line a second (bytes and records delivered, CPU load achieved) and
 a `debug.duress` accessibility label, so the summary can show the load actually applied.
+
+## Scenarios: the situations seen on a phone, one command each
+
+`cmux-tui/crates/cmux-duress/scenarios/*.toml` holds named, seeded cases (a 1 s background, a TURN path
+that resets every 60-100 s, a TUI scrolled while it streams, keyboard resize churn, blank favicons and
+previews, a theme switch mid-stream). From `cmux-tui/`:
+
+```text
+cargo run --release -p cmux-duress -- scenario list
+cargo run --release -p cmux-duress -- scenario run resume-after-1s    # or: all
+cargo run --release -p cmux-duress -- scenario run resume-after-1s --sim
+```
+
+`run` replays the case headless on Linux through the phone's Rust paths (ghostty-vt, the hybrid/lean
+projection, `claude::render`) on a virtual 60 Hz clock, prints PASS/FAIL per check and p50/p95/max per
+metric on stderr, and one JSON line on stdout (scenario, seed, commit, each metric with `source:
+"headless"`, the checks, and the sim step's args under `sim`). It exits 1 when a check fails. `--sim`
+prints `scripts/ci/cmux-next-ios-sim.sh test ui=... duress=...` for the same case in the app. On a lane VM:
+`cmux-ci test --route fleet -- bash -c 'cd cmux-tui && cargo run --release -p cmux-duress -- scenario run all'`.
+
+### Adding a scenario
+
+One file, no code and no rebuild (the folder is read at run time):
+
+1. Copy the closest file in `scenarios/` to `scenarios/NAME.toml` (the stem is the name).
+2. Set `spec` (the load, `PRESET[,knob=value...]`; its `seed` seeds the scenario's draws too), then the
+   events: `pause {at_ms, ms}`, `path_reset {every_ms = [lo, hi], stall_ms}`, `resize {every_ms, rows}`,
+   `scroll {every_ms, rows, steps_each_way}`, `theme {every_ms, themes}`, `echo {every_ms}`. A `[link]`
+   table is a `cmux-fault` link profile written out (the `link-profiles.json` row's fields) when no
+   builtin row fits. `path = "projection"` with a `[tui]` table runs a full-screen TUI on a Mac terminal
+   through the lean frames to the phone, each stage its own metric.
+3. Add `[[check]]`s: `metric`, `stat` (p50, p95, max, min, n, sum; max by default), `max` and/or `min`.
+   Run it once with no checks' bounds tight to read the metric names, then set the bounds.
+4. Name the numbers' sources in `sources` (the lane file, PR and line each constant came from) and the
+   app side in `[sim]` (`ui` suites, `duress` when it differs from `spec`, `step` once the fleet has one).
+5. A case with no Rust path: `headless = false` and `headless_reason`, with only `[sim]`. Never a headless
+   check that does not exercise what the case is about.
+
+`cargo test -p cmux-duress` parses every file in the folder, so a broken file fails CI.
