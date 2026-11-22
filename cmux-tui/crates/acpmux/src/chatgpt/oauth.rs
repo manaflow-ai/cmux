@@ -489,7 +489,7 @@ impl Client {
 }
 
 /// Writes the account's record and its `chatgpt-plan` route; the route id.
-fn save(
+pub(super) fn save(
     places: &Places,
     reauth: Option<String>,
     client_id: &str,
