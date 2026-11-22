@@ -2014,6 +2014,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-install-check"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
@@ -2656,6 +2664,7 @@ dependencies = [
  "cmux-git",
  "cmux-holder",
  "cmux-host",
+ "cmux-install-check",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-link",

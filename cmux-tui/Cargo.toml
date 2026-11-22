@@ -87,6 +87,7 @@ members = [
     "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
@@ -222,6 +223,7 @@ default-members = [
     "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
@@ -342,6 +344,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
