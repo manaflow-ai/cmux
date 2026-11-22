@@ -21,7 +21,30 @@
             "key": "settings.agentPane.display.width.help",
             "text": "The widest the chat's column gets. On a wider pane the chat stays centered."
           },
-          "kind": "number",
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "narrow",
+              "title": {
+                "key": "settings.choice.width.narrow",
+                "text": "Narrow"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.editor.medium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "wide",
+              "title": {
+                "key": "settings.choice.width.wide",
+                "text": "Wide"
+              }
+            }
+          ],
           "range": {
             "min": 480,
             "max": 4000,
@@ -1086,6 +1109,94 @@
           ]
         },
         {
+          "key": "agentPane.display.transcriptLook",
+          "note": "A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.",
+          "title": {
+            "key": "settings.agentPane.display.transcriptLook",
+            "text": "Transcript Look"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptLook.help",
+            "text": "How messages, cards and spacing look."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": null,
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": null,
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": null,
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "style",
+            "preset",
+            "claude",
+            "codex",
+            "studio",
+            "bubble",
+            "density",
+            "spacing"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptTokens",
+          "note": "Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).",
+          "title": {
+            "key": "settings.agentPane.display.transcriptTokens",
+            "text": "Transcript Look Tokens"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptTokens.help",
+            "text": "Token values that override the transcript look."
+          },
+          "kind": "text",
+          "default": {},
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "token",
+            "theme",
+            "bubble",
+            "radius",
+            "spacing"
+          ],
+          "page_hidden": "an object of look tokens, edited in cmux-next.json or a theme file"
+        },
+        {
           "key": "agentPane.display.promptCoach",
           "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
           "title": {
@@ -1444,6 +1555,131 @@
             "side",
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.show",
+          "name": "railShow",
+          "note": "What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: \"why cant you see an agents'? why cant you filter it? customize it immediately?\"). The rail's right-click menu and its head control write it too, so every rail changes at once.",
+          "title": {
+            "key": "settings.agentPane.display.rail.show",
+            "text": "Prompt Rail Shows"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.show.help",
+            "text": "Right-click the rail to change it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "prompts",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.prompts",
+                "text": "All Messages"
+              }
+            },
+            {
+              "value": "mine",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.mine",
+                "text": "My Messages"
+              }
+            },
+            {
+              "value": "received",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.received",
+                "text": "Agent Messages"
+              }
+            },
+            {
+              "value": "replies",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.replies",
+                "text": "Agent Replies"
+              }
+            },
+            {
+              "value": "everything",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.everything",
+                "text": "Messages and Replies"
+              }
+            },
+            {
+              "value": "errors",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.errors",
+                "text": "Turns with Errors"
+              }
+            },
+            {
+              "value": "edits",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.edits",
+                "text": "Turns with Edits"
+              }
+            },
+            {
+              "value": "tools",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.tools",
+                "text": "Turns with Tool Calls"
+              }
+            },
+            {
+              "value": "subagents",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.subagents",
+                "text": "Turns with Subagents"
+              }
+            }
+          ],
+          "default": "prompts",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "rail",
+            "minimap",
+            "prompts",
+            "ticks",
+            "scroll",
+            "filter",
+            "replies",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.control",
+          "name": "railControl",
+          "note": "A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.",
+          "title": {
+            "key": "settings.agentPane.display.rail.control",
+            "text": "Prompt Rail Button"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.control.help",
+            "text": "Shows what the rail lists above it while you point at it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "rail",
+            "minimap",
+            "filter",
+            "button",
+            "control",
+            "replies"
           ]
         },
         {

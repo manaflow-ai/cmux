@@ -24,4 +24,16 @@ extension SettingsPageLayout {
             return Category(spec: spec, groups: groups)
         }
     }
+
+    /// `#/settings/CATEGORY?focus=card.NAME` for an `openSettings` `setting: card.NAME` whose card sits
+    /// in a category no section opens (no alias: Settings > Customize, which the App Store's Customize
+    /// cmux… card opens with `card.customizeChecklist`), else nil: `SettingsAnchor`'s section route.
+    public static func pageOnlyCardRoute(_ setting: String?) -> String? {
+        guard let setting, setting.hasPrefix("card."),
+              let card = Card(rawValue: String(setting.dropFirst("card.".count))),
+              let category = sidebarSections.flatMap(\.categories)
+                  .first(where: { $0.lead.contains(card) || $0.trail.contains(card) }),
+              category.aliases.isEmpty else { return nil }
+        return "#/settings/\(category.id)?focus=\(setting)"
+    }
 }

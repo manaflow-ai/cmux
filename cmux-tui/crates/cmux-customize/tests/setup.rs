@@ -43,6 +43,21 @@ impl Home {
 
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"density\": \"compact\" },\n  \"actions\": { \"mine\": { \"type\": \"command\", \"command\": \"ls\" } }\n}\n";
 
+#[test]
+fn inactive_archive_profile_applies_seven_days() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/looks/claude-code/inactive-archive/cmux-setup.json");
+    let profile = customize.load_profile(file.to_str().unwrap()).unwrap();
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    let settings = home.settings();
+    assert_eq!(settings["agents"]["chats"]["archiveInactive"], "7d");
+    assert_eq!(settings["appearance"]["density"], "compact");
+}
+
 /// The sample setup (ext-in-git-notes/sample-setup): a theme, one action,
 /// one extension.
 fn sample_repo(root: &Path) -> PathBuf {
