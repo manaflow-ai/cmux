@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 672,
+  "count": 670,
   "sections": [
     {
       "id": "general",
@@ -17,18 +17,6 @@
             "inline",
             "strip",
             "both"
-          ]
-        },
-        {
-          "key": "agentPane.composerLook",
-          "title": "Composer Look",
-          "help": "Where the mode, model and effort sit: under the box or inside it.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Agent Chat",
-          "values": [
-            "auto",
-            "studio"
           ]
         },
         {
@@ -104,18 +92,6 @@
             "always",
             "collapsed",
             "never"
-          ]
-        },
-        {
-          "key": "agentPane.emptyChatComposerPosition",
-          "title": "Empty Chat Message Box",
-          "help": "Where the message box sits in a chat with no messages yet.",
-          "kind": "choice",
-          "default": "bottom",
-          "group": "Agent Chat",
-          "values": [
-            "bottom",
-            "center"
           ]
         },
         {
@@ -2370,20 +2346,6 @@
           }
         },
         {
-          "key": "agentPane.display.transcriptLook",
-          "title": "Transcript Look",
-          "help": "How messages, cards and spacing look.",
-          "kind": "choice",
-          "default": "cmux",
-          "group": "Agent Chat",
-          "values": [
-            "cmux",
-            "claude",
-            "codex",
-            "studio"
-          ]
-        },
-        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -4561,6 +4523,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showAutomaticSessions",
+          "title": "Show Automatic Sessions",
+          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5945,7 +5915,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 6,
+          "default": 8,
           "group": "Address Bar",
           "range": {
             "min": 3,
