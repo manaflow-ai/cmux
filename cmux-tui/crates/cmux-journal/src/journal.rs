@@ -44,6 +44,9 @@ pub struct JournalStats {
 
 pub(crate) struct State {
     pub(crate) pending: Vec<u8>,
+    /// Bytes (headers included) of the records [`Journal::reserve`] admitted and not appended
+    /// yet: they count toward [`Config::max_pending_bytes`] as if they were in `pending`.
+    pub(crate) reserved: usize,
     pub(crate) pending_last: Lsn,
     pub(crate) pending_records: u64,
     pub(crate) pending_ack: bool,
@@ -91,8 +94,9 @@ impl State {
             return Err(AppendError::Closed);
         }
         if limited
-            && !self.pending.is_empty()
-            && self.pending.len().saturating_add(size) > config.max_pending_bytes
+            && !(self.pending.is_empty() && self.reserved == 0)
+            && self.pending.len().saturating_add(self.reserved).saturating_add(size)
+                > config.max_pending_bytes
         {
             return Err(AppendError::Backlog);
         }
@@ -109,6 +113,8 @@ enum Admit {
     Kept,
     /// [`Journal::append_control`]: never refused for the queue's size.
     Control,
+    /// [`Reserved::append`]: admitted at its [`Journal::reserve`], whose room it takes.
+    Reserved { size: usize, kept: bool },
 }
 
 /// Why an append was refused. None of them waits for the disk.
@@ -243,6 +249,7 @@ impl Journal {
             config,
             state: Mutex::new(State {
                 pending: Vec::new(),
+                reserved: 0,
                 pending_last: 0,
                 pending_records: 0,
                 pending_ack: false,
@@ -320,7 +327,7 @@ impl Journal {
         payload: &[u8],
         admit: Admit,
     ) -> Result<Lsn, AppendError> {
-        let limited = admit != Admit::Control;
+        let limited = matches!(admit, Admit::Limited | Admit::Kept);
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(AppendError::TooLarge);
         }
@@ -328,6 +335,10 @@ impl Journal {
         let crc = format::payload_crc(payload);
         let mut state = self.shared.lock();
         let size = format::record_len(payload.len());
+        if let Admit::Reserved { size: room, .. } = admit {
+            // The room goes back whether the append is taken or refused (closed).
+            state.reserved = state.reserved.saturating_sub(room);
+        }
         state.admits(&self.shared.config, size, limited)?;
         let lsn = state.stats.next_lsn;
         state.stats.next_lsn = lsn.saturating_add(1);
@@ -336,12 +347,30 @@ impl Journal {
         state.pending_last = lsn;
         state.pending_records = state.pending_records.saturating_add(1);
         state.pending_ack |= class == Class::Ack;
-        state.pending_kept |= admit == Admit::Kept;
+        state.pending_kept |= matches!(admit, Admit::Kept | Admit::Reserved { kept: true, .. });
         drop(state);
         if was_empty {
             self.shared.wake.notify_one();
         }
         Ok(lsn)
+    }
+
+    /// Room in the queue for one record of a `payload_len`-byte payload, refused as
+    /// [`Journal::append`] would refuse it now. The room counts toward
+    /// [`Config::max_pending_bytes`] until [`Reserved::append`] takes it (or the reservation
+    /// drops), so a reserved append is never refused for the queue's size: a caller can reserve,
+    /// do its own work (acpmux writes the record's line to a chat's log), then append, with no
+    /// lock of its own held across all of its appends. Only [`AppendError::Closed`] refuses it
+    /// after the reservation (the writer stopped in between).
+    pub fn reserve(&self, payload_len: usize) -> Result<Reserved<'_>, AppendError> {
+        if payload_len > MAX_PAYLOAD_LEN {
+            return Err(AppendError::TooLarge);
+        }
+        let size = format::record_len(payload_len);
+        let mut state = self.shared.lock();
+        state.admits(&self.shared.config, size, true)?;
+        state.reserved = state.reserved.saturating_add(size);
+        Ok(Reserved { journal: self, size, payload_len })
     }
 
     /// Whether [`Journal::append`] of a `payload_len`-byte payload would be refused now, and why.
@@ -584,5 +613,50 @@ impl Drop for Journal {
     /// pending, then ends. Call [`Journal::seal`] first for a shutdown that must keep everything.
     fn drop(&mut self) {
         self.hand_over();
+    }
+}
+
+/// Room for one record in a [`Journal`]'s queue ([`Journal::reserve`]): taken by its append,
+/// given back when it drops unused.
+#[must_use = "the room is given back when the reservation drops"]
+pub struct Reserved<'a> {
+    journal: &'a Journal,
+    /// The record's size, header included.
+    size: usize,
+    /// The payload length the room was reserved for: a longer payload is admitted as a plain
+    /// append would be.
+    payload_len: usize,
+}
+
+impl Reserved<'_> {
+    /// [`Journal::append`] in the reserved room.
+    pub fn append(self, kind: u16, class: Class, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.take(kind, class, payload, false)
+    }
+
+    /// [`Journal::append_kept`] in the reserved room.
+    pub fn append_kept(self, kind: u16, payload: &[u8]) -> Result<Lsn, AppendError> {
+        self.take(kind, Class::Stream, payload, true)
+    }
+
+    fn take(self, kind: u16, class: Class, payload: &[u8], kept: bool) -> Result<Lsn, AppendError> {
+        let this = std::mem::ManuallyDrop::new(self);
+        let admit = if payload.len() <= this.payload_len {
+            Admit::Reserved { size: this.size, kept }
+        } else {
+            // Not what was reserved: the room goes back and the append is checked as usual.
+            let mut state = this.journal.shared.lock();
+            state.reserved = state.reserved.saturating_sub(this.size);
+            drop(state);
+            if kept { Admit::Kept } else { Admit::Limited }
+        };
+        this.journal.append_admitted(kind, class, payload, admit)
+    }
+}
+
+impl Drop for Reserved<'_> {
+    fn drop(&mut self) {
+        let mut state = self.journal.shared.lock();
+        state.reserved = state.reserved.saturating_sub(self.size);
     }
 }
