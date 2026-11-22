@@ -2658,6 +2658,7 @@ dependencies = [
  "cmux-git",
  "cmux-holder",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-link",

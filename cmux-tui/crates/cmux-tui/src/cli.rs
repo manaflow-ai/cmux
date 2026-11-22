@@ -325,6 +325,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "rpc",
     "remote-exec",
     "remote-cp",
+    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -751,6 +752,13 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     let skip =
         usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
+/// `cmux share screens|start|stop|move …` (and `share list --screens`) as acpmux's
+/// `share-host` words; None for the other `share` commands, which are the app's chat links.
+#[cfg(unix)]
+pub(crate) fn share_screen_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    share_cli::screen_verb(raw_args).map(|words| words.into_iter().map(Into::into).collect())
 }
 
 /// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
