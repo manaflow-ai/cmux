@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextWindowRules
 import Foundation
 import Testing
 
@@ -15,6 +16,24 @@ struct FileOpenEditorNoWindowTests {
         var opened: [(file: URL, app: URL)] = []
         func application() -> URL? { app }
         func open(_ url: URL, withApplicationAt app: URL) { opened.append((url, app)) }
+    }
+
+    @Test func editorLocationPreservesTheFileAndLine() throws {
+        let file = URL(fileURLWithPath: "/tmp/space #100%/résumé.swift")
+        let editors = [
+            "com.microsoft.VSCode": "vscode", "com.todesktop.230313mzl4w4u92": "cursor",
+            "com.exafunction.windsurf": "windsurf", "dev.zed.Zed": "zed",
+        ]
+        for (bundleID, scheme) in editors {
+            let url = WindowRules.editorLocation(for: file, line: 42, bundleID: bundleID)
+            let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            #expect(parts.scheme == scheme)
+            #expect(parts.host == "file")
+            #expect(parts.path == file.path + ":42")
+            #expect(parts.fragment == nil)
+        }
+        #expect(WindowRules.editorLocation(for: file, line: 42, bundleID: "com.apple.TextEdit") == file)
+        #expect(WindowRules.editorLocation(for: file, line: nil, bundleID: "dev.zed.Zed") == file)
     }
 
     @Test func theCLIOpensAFileInTheEditorWithNoWindowOpen() throws {

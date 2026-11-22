@@ -57,8 +57,11 @@ nonisolated extension AcpmuxPaneMethods {
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
         // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
         // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // `afterSeq`: a reconnect that holds the chat's rows asks only the records after them
+        // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
+        // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),
@@ -155,7 +158,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
-        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
         "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
