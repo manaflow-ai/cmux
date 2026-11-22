@@ -11,7 +11,7 @@
 // expected behaviours are for all. idek."
 import type { EventRecord } from "../direct";
 import { SCENARIOS } from "./scenarios";
-import { sim, type SimBuilder, type SimScenario } from "./script";
+import { sim, type SimBuilder, type SimScenario, SIM_SESSION } from "./script";
 import type { IntegrityRule } from "./integrity";
 
 export type Axis = "stream" | "transport" | "view" | "timing" | "markdown" | "status";
@@ -649,6 +649,153 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     harness: "elsewhere",
     heldBy:
       "lane/chat-received-as-activity (ST-02) browser gallery case; replay: chat-sim --replay <b0e9114e> --from 5330100 --to 5330880",
+  },
+  // Leo, 2026-11-22 08:25Z: "ok, well. this happened again. you need to help decide what goes on in this case and
+  // perfect it." A pause inside a message is never a boundary; each case pauses inside `**bold**` (or `code`) and
+  // then something that is not a step of the agent's lands, and the message must stay one bubble, its span whole,
+  // no fold inside its text.
+  {
+    id: "SE-40",
+    axis: "stream",
+    title: "Pause (5 s, then 20 s) inside **bold** and inside `code`",
+    expected:
+      "One bubble; both spans close in it; no Worked for or fold between the halves; the live line keeps Working for.",
+    owner: own.split,
+    harness: "sim",
+    make: turn("se-40", "5 s inside bold, 20 s inside code", (b) => {
+      const text = `${BOLD} Run \`bun test api --filter retry\` to see it.`;
+      const bold = text.indexOf("paths:") + 3;
+      const code = text.indexOf("--filter");
+      b.say(text.slice(0, bold), { messageId: "m1", segment: "m1.1.1" });
+      b.say(text.slice(bold, code), { messageId: "m1", segment: "m1.1.1", after: 5_000 });
+      b.say(text.slice(code), { messageId: "m1", segment: "m1.1.1", after: 20_000 });
+      b.turnEnd();
+    }),
+  },
+  {
+    id: "SE-41",
+    axis: "stream",
+    title: "Pause inside **bold**, then the socket drops and reconnects",
+    expected: "The reply resumes in the same bubble; the bold span closes in it; nothing is drawn twice.",
+    owner: own.split,
+    harness: "live",
+    live: {
+      records: turn("se-41", "a pause inside bold and a reconnect", (b) => {
+        msg(b, BOLD, "m1", { split: [BOLD.indexOf("paths:") + 3], pauseAt: 1, pauseMs: 12_000 });
+        b.turnEnd();
+      }),
+      steps: (events) => {
+        const cut = events.findIndex((event) => event.kind === "agent_message_chunk") + 1;
+        return [{ push: cut }, { advance: 6_000 }, { drop: true }, { advance: 6_000 }, { push: events.length }];
+      },
+    },
+  },
+  {
+    id: "SE-42",
+    axis: "stream",
+    title:
+      "Pause inside **bold** in a background turn; it ends and a queued prompt starts mid-message (false turn end)",
+    expected:
+      "The rest of the message joins its bubble above the prompt (acpmux keeps its segment across the turn change); the span closes in it; the prompt and its answer follow.",
+    owner: own.split,
+    harness: "sim",
+    make: () => {
+      const b = sim("se-42", "a queued prompt ends a background turn inside bold, after a pause");
+      b.prompt("Start the fork tests.");
+      b.say("Started.", { messageId: "m0", segment: "turn-1.1.1" });
+      b.turnEnd();
+      b.record("mux", "background_turn", { id: "bg-1", state: "started", trigger: "task_notification" }, 5_000);
+      const cut = BOLD.indexOf("paths:") + 3;
+      b.say(BOLD.slice(0, cut), { messageId: "m1", segment: "-.bg.1" });
+      b.wait(9_000);
+      b.record(
+        "mux",
+        "background_turn",
+        { id: "bg-1", state: "ended", reason: "prompt", trigger: "task_notification" },
+        20,
+      );
+      b.prompt("Also check Codex.", 5);
+      // acpmux keeps one message's segment across the turn change (hub/stream.rs `before_agent_update`).
+      b.say(BOLD.slice(cut), { messageId: "m1", segment: "-.bg.1", after: 20 });
+      b.say(P2, { messageId: "m2", segment: "turn-2.bg.1", after: 2_000 });
+      return b.turnEnd().build();
+    },
+  },
+  {
+    id: "SE-43",
+    axis: "stream",
+    title: "Pause inside **bold**, then a background task's notification lands mid-message",
+    expected:
+      "The task's line draws below the reply; the reply's rest stays in its bubble above it; the span closes in it.",
+    owner: own.split,
+    harness: "sim",
+    make: turn("se-43", "a background shell ends inside bold, after a pause", (b) => {
+      b.background("bun run watch", { ms: 1 });
+      const cut = BOLD.indexOf("paths:") + 3;
+      b.say(BOLD.slice(0, cut), { messageId: "m1", segment: "m1.1.1" });
+      b.wait(8_000);
+      b.backgroundEnds();
+      b.say(BOLD.slice(cut), { messageId: "m1", segment: "m1.1.1", after: 200 });
+      b.turnEnd();
+    }),
+  },
+  {
+    // Leo's 1157: a subagent the pane had not seen sends its first records between two paragraphs of the session's
+    // own reply. Its new group row ended the reply's row, so the rest opened a second row (and a refold drew it again).
+    id: "SE-44",
+    axis: "stream",
+    title: "A new subagent's first records land between two paragraphs of a reply",
+    expected:
+      "The group draws; the reply stays one bubble with each paragraph once (a subagent is no step of the session's).",
+    owner: own.split,
+    harness: "sim",
+    make: turn("se-44", "a new subagent's group mid-reply", (b) => {
+      const agent = `${SIM_SESSION}/toolu_late`;
+      b.say(`${P1}\n\n`, { messageId: "m1", segment: "m1.1.1" });
+      b.record(
+        "in",
+        "agent_thought_chunk",
+        {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            _meta: { acpmux: { subagent: agent } },
+            sessionId: agent,
+            update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Reading the lane log." } },
+          },
+        },
+        300,
+        "subagent thought",
+      );
+      b.record(
+        "in",
+        "subagent_progress",
+        {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            _meta: {
+              acpmux: {
+                subagents: [{ id: agent, agentId: "a-late", name: "Late lane", state: "running", background: true }],
+              },
+            },
+            sessionId: SIM_SESSION,
+            update: {
+              sessionUpdate: "subagent_progress",
+              subagentSessionId: agent,
+              action: "Read",
+              elapsedMs: 900,
+              tokens: 80,
+              toolUses: 1,
+            },
+          },
+        },
+        100,
+        "subagent progress",
+      );
+      b.say(P2, { messageId: "m1", segment: "m1.1.1", after: 6_000 });
+      b.turnEnd();
+    }),
   },
   // Status and activity rows (Leo 08:29-08:30Z)
   {

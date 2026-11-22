@@ -506,6 +506,8 @@ mod turn_attestation;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
+#[cfg(test)]
+mod reply_segment_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;

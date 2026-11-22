@@ -143,10 +143,15 @@ impl StreamState {
         boot: &str,
     ) -> String {
         let key = turn.unwrap_or("-");
-        // A turn the agent started on its own has no prompt to end the last one's.
+        // One message is one segment, whatever turn it is read in: a prompt that ends a background
+        // turn mid-message, or a turn that starts under it, names the same reply, and a new segment
+        // drew its rest as a second bubble cut mid-sentence (Leo, 2026-11-22: "ok, well. this
+        // happened again. you need to help decide what goes on in this case and perfect it.").
+        // Chunks with no messageId still start again at a turn change: a turn the agent started on
+        // its own has no prompt to end the last one's.
         if let Some(open) = &self.reply_segment
             && id == self.segment_message.as_deref()
-            && self.segment_turn.as_deref() == Some(key)
+            && (id.is_some() || self.segment_turn.as_deref() == Some(key))
         {
             return open.clone();
         }
