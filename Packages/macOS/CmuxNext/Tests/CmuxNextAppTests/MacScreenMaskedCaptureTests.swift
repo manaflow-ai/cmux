@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextRemoteView
 import CmuxNextScreenshots
 import CmuxNextTestSupport
+import CmuxScreenKit
 import CmuxTheme
 import Foundation
 import Testing
