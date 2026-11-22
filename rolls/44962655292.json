@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44962655292",
+  "recorded_at": "2026-11-22T00:10:59Z",
+  "reason": "cmux-tui 9d9419a91089 changes the image's cmux-tui (pinned b97aeae7892e)",
+  "dry_run": false,
+  "cmux_tui": "9d9419a910893124840146f09d2048ca2b728a23",
+  "fixes": [
+    {
+      "sha": "9d9419a910893124840146f09d2048ca2b728a23",
+      "mergedAt": "2026-11-21T23:09:18+00:00",
+      "subject": "acpmux: the hub carrier serves beside the cmux link; --via-machine takes a machine name; a dial to a carrier that is off says so (#48942)"
+    },
+    {
+      "sha": "73722d4b18bb81d8900d3f84d51159a9e598a824",
+      "mergedAt": "2026-11-21T22:53:08+00:00",
+      "subject": "acpmux: record the sidebar mirror stream again (taskList); hibernate-together test reads stop order (#49041)"
+    },
+    {
+      "sha": "580d4f9ef6c514c5ed9d17816c765e41f28073ea",
+      "mergedAt": "2026-11-21T14:50:43-08:00",
+      "subject": "fix(rd-host): the clipboard's refusal counts reach the session log; its offer check builds with serve"
+    },
+    {
+      "sha": "3e9e865ba783a25ce913d5eec5195997e057ab81",
+      "mergedAt": "2026-11-21T22:47:49+00:00",
+      "subject": "cmux remote: refusals name the next command (revoked, expired, claimed invitation, unknown ids, no daemon) (#48941)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T00:10:59Z",
+    "snapshot_id": "sh-dde0960bd52a4976b1c19f5871d17e28",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44962655292): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7119a3dde32a70970c3d5de8cabba4a0c4cc162b",
+    "image": "cloud-native-auto-9d9419a9-44962655292-1",
+    "revision": "ci-44962655292-1",
+    "at": "2026-11-22T00:10:59Z"
+  },
+  "rolled_back": false
+}
