@@ -73,6 +73,7 @@
      28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
      there's sometimes too much spacing between tool calls"). */
   --cv-tool-row-height: 22px;
+  --cv-thought-pitch: 20px; /* an opened thought's line pitch (.cv-thought__text line-height) */
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
@@ -3948,7 +3949,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
-  padding-block: calc((var(--cv-tool-row-height) - 20px) / 2);
+  padding-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
   color: var(--cv-text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
@@ -4004,14 +4005,11 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   padding-left: var(--cv-tool-text-inset);
   /* The text goes on from the row's line at its own 20px pitch: the row's line is centred in a
      taller row, so the body takes back the room under it. */
-  margin-top: calc((20px - var(--cv-tool-row-height)) / 2);
+  margin-top: calc((var(--cv-thought-pitch) - var(--cv-tool-row-height)) / 2);
 }
-/* A blank line parted the first line from the rest; a heading that opens the rest keeps its gap. */
+/* A blank line parted the first line from the rest. */
 .cv-thought__body.is-gap {
-  padding-top: 20px;
-}
-.cv-thought__body:not(.is-gap) > .cv-thought__parts > .cv-thought__title:first-child {
-  margin-top: 10px;
+  padding-top: var(--cv-thought-pitch);
 }
 /* An opened thought's text reads in the text tone, as a reply does (Lucas, 2026-11-06): its folded
    line stays in the activity tone. */
@@ -4033,7 +4031,9 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   font-weight: 600;
   color: var(--cv-text-muted);
 }
-.cv-thought__part + .cv-thought__title {
+/* A heading that opens the rest under the row's line keeps the same gap over it. */
+.cv-thought__part + .cv-thought__title,
+.cv-thought__body:not(.is-gap) > .cv-thought__parts > .cv-thought__title:first-child {
   margin-top: 10px;
 }
 .cv-tool.is-toggle {
@@ -4663,7 +4663,7 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-step-thought__body {
   display: block;
-  margin: calc((20px - var(--cv-tool-row-height)) / 2) 0 0;
+  margin: calc((var(--cv-thought-pitch) - var(--cv-tool-row-height)) / 2) 0 0;
   border-left: 0;
   line-height: 20px;
 }
