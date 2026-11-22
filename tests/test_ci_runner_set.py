@@ -29,9 +29,9 @@ TARGETS = {
     # 2026-10-31T23:57Z queue alarms: each sat 44-46 min on one Blacksmith size that started nothing
     # (gallery health on a fixed 16 vCPU label, web validation and PR checks' base-only on 32, the cloud
     # backend check on the capability map's fixed 4 vCPU label). Gallery health now reads the 16 vCPU pool,
-    # which moves to 32 vCPU on a stall (POOL_16 below).
+    # which moves to 32 vCPU on a stall (POOL_16 below). PR checks' jobs are now one advisory job holding a
+    # write token (CI v2 step 6), on the PR control JIT label: test_pr_checks_advisory_takes_a_one_job_vm.
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
-    "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
     "pr-body-checks.yml": {"body"},
 }
 
@@ -74,8 +74,6 @@ class RunnerSetTests(unittest.TestCase):
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): ephemeral,
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
-            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -109,8 +107,7 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
-                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
+                    direct = workflow == "web-validation.yml" and name == "web-validation"
                     if direct:
                         self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
                         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
@@ -123,6 +120,21 @@ class RunnerSetTests(unittest.TestCase):
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+
+    def test_pr_checks_advisory_takes_a_one_job_vm(self) -> None:
+        # pr-checks.yml's six jobs became one (CI v2 step 6) that writes the status comment lines, so it never
+        # reads RUNNER_POOLS (whose x64 pools lead with persistent machines) and never a shared persistent label:
+        # a fork takes Blacksmith, any other run CI_TRUSTED_RUNNER; not the PR control JIT label, which backed up.
+        job = yaml.safe_load((WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8"))["jobs"]["advisory"]
+        runs_on = runs_on_text(job, "pr-checks.yml#advisory")
+        self.assertNotIn("cmux-gcp-pr-control-jit-x64", runs_on)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && "
+                      "'blacksmith-4vcpu-ubuntu-2404'", runs_on)
+        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
+                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
+            self.assertNotIn(persistent, runs_on)
+        self.assertEqual(job["permissions"]["pull-requests"], "write")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU

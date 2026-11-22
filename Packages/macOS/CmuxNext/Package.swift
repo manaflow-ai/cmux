@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 5e7081bdadd1b56569508d14d08f4729b12c6c188ec661a2ff0aa334bd5baff3
+// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -536,6 +536,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSidebarActions",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextSettings",
@@ -605,6 +606,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHistoryPages",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextBrowserAutomation",
+                "CmuxNextCompat",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextHistory",
@@ -784,6 +786,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextBrowser",
                 "CmuxNextBrowserImport",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
@@ -897,6 +900,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHomeModel",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 .product(name: "CmuxChiefList", package: "CmuxChiefList"),
@@ -1089,6 +1093,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHistory",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -1153,6 +1158,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextAgentIntegrations",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextPages",
                 "CmuxNextSettings",
@@ -1207,6 +1213,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextSessionTransfer",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSettings",
             ],
@@ -1279,6 +1286,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1336,6 +1346,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextKeys",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextNotifications",
@@ -1525,6 +1536,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
             name: "CmuxNextFileGrid",
+            dependencies: ["CmuxNextCompat"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1560,7 +1572,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // over its daemon connection); model and SwiftUI view, no daemon or AppKit types.
         .target(
             name: "CmuxNextChiefMemory",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDesign",
+            ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1578,6 +1593,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextGitHubViewer",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextPages",
@@ -1705,6 +1721,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
             name: "CmuxNextChecklist",
+            dependencies: ["CmuxNextCompat"],
             resources: [
                 .process("Resources"),
             ],
@@ -1880,6 +1897,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextResources",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
@@ -2226,6 +2244,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // action catalog (cmux-action-catalog, module CCmuxActionCatalogFFI, RustActionCatalog).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextCompat",
                 "CmuxNextSignposts",
                 "CmuxNextWakeups",
             ],

@@ -28,7 +28,15 @@ import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
-import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
+import { TextSizeCard } from "./TextSizeCard";
+import {
+  BrowserProfiles,
+  MACHINE_COLORS_KEY,
+  MachinesSection,
+  SPACE_ROWS,
+  SpacesSection,
+  useSeveralSpaces,
+} from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
@@ -39,6 +47,7 @@ import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
+import { AgentSkillsCard } from "./AgentSkillsCard";
 import { TailnetCard } from "./TailnetCard";
 import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
@@ -73,6 +82,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
   agentCustomization: () => <AgentCustomizationCard />,
   agentTools: () => <AgentToolsCard />,
+  agentSkills: () => <AgentSkillsCard />,
   chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
@@ -81,6 +91,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: (focus) => <DensityCard focus={focus} />,
+  textSize: () => <TextSizeCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: (focus) => <ChannelsCard focus={focus} />,
   appUpdate: () => <AppUpdateCard />,
@@ -133,6 +144,8 @@ export function SectionView({
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
+  // With one space no row names spaces (Hide Spaces); a second space brings them back.
+  const severalSpaces = useSeveralSpaces();
   // appearance.themeEdits is the pickers' "(custom)" themes and appearance.favoriteThemes their
   // stars, never rows of their own.
   const groups = category.groups
@@ -147,6 +160,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
+          !(!severalSpaces && SPACE_ROWS.has(row.key)) &&
           !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),

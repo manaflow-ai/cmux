@@ -263,7 +263,7 @@ fn user_program_in(
 }
 
 /// `bin` in the directories of `path`, in order.
-fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
         // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
