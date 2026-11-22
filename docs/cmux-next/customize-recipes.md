@@ -48,6 +48,21 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Hairline: flat and neutral
+
+Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
+composer, a 2 px ring for focus, and no glass or shadows. The chat and the Markdown viewer use a
+dense 14 px Inter, and links are underlined text. It carries three palettes, each dark and light:
+`hairline` (zinc, 8 px corners), `hairline-slate` (6 px) and `hairline-stone` (10 px); switch with
+`cmux settings set appearance.themeFile hairline-slate`. The same look installs from
+`examples/looks/hairline`.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
+```
+
+Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
+
 ## Layout
 
 ### A compact sidebar
