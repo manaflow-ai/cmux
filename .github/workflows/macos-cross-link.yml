@@ -118,9 +118,7 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: macos-cross-link-aarch64-apple-darwin
           key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh') }}
-          # TEMP (measurement, reverted before landing): this PR saves too, so its next run is warm.
-          cache-on-failure: true
-          save-if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Link the macOS daemon family on Linux (framework stubs)
         id: link
