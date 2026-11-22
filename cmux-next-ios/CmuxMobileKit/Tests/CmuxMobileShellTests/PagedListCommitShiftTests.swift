@@ -131,20 +131,6 @@ import UIKit
         #expect(hosted.seen.worst <= 0.5, "a placement no frame drew measured \(hosted.seen.shifts)")
     }
 
-    /// The row being read straddles the list's top edge and grows 22 pt (#47121 step f902d4d6, the
-    /// up-*-flood and up-fast-busy cases): the layout's correction keeps every row below it where it
-    /// was, and only the row's own top moves, with its size. Nothing the reader sees moved.
-    @Test func theRowBeingReadGrowingInPlaceIsNoShift() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
-        settle()
-        hosted.seen.shifts = []
-        hosted.rows.items[10].tall = true
-        settle()
-        #expect(hosted.seen.worst <= 0.5, "the row being read grew in place and measured \(hosted.seen.shifts)")
-    }
 
     /// With the reader straddling the top edge as above, a 22 pt move of everything read (both edges
     /// of the row being read, and the row after it) still counts in full.
@@ -160,115 +146,32 @@ import UIKit
         #expect(abs(hosted.seen.worst - 22) < 0.5, "a 22 pt move of everything read measured \(hosted.seen.shifts)")
     }
 
-    /// A row inserted next to the row being read in the very frame everything moves: the move counts
-    /// in full (the measure follows the row by its id; a change around it does not drop the frame).
-    @Test func aMoveInTheFrameARowArrivesNextToTheReaderCountsInFull() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - list.adjustedContentInset.top), animated: false)
-        settle()
-        hosted.seen.shifts = []
-        hosted.rows.items.insert(Row(id: 1000), at: 11)
-        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
-        settle()
-        #expect(abs(hosted.seen.worst - 10) < 0.5, "a 10 pt move with a row arriving next to the reader measured \(hosted.seen.shifts)")
-    }
 
-    /// The row cut by the list's top edge grows at rest (an edit, a Chief that starts typing): the rows
-    /// below it, all the reader sees, stay where they were (step d20b5519, video frames 351-352).
-    @Test func aRowCutByTheTopEdgeGrowingKeepsTheRowsBelowStill() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
-        settle()
-        let before = try #require(top(of: 11, in: list))
-        hosted.rows.items[10].tall = true
-        settle()
-        // The fixture's own check: the row grew (a test whose row never grows passes on any code).
-        let grown = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
-        #expect(abs(grown.frame.height - 82) < 0.5, "row 10 measured \(grown.frame.height) pt, not 82: the grow did not reach the list")
-        let after = try #require(top(of: 11, in: list))
-        #expect(abs(after - before) <= 0.5, "the row under the cut row moved \(after - before) pt")
-    }
 
-    /// The cut row is the only row on screen (taller than the list): nothing below it is in view, so
-    /// it keeps its own top while it grows, and what the reader sees of it stays put.
-    @Test func aRowAloneOnScreenCutByTheTopEdgeKeepsItsTopWhenItGrows() throws {
-        // Row 10 is 1200 pt from the start: the fixture does not depend on a grow to set itself up.
-        var initial = (0 ..< 200).map { Row(id: $0) }
-        initial[10].huge = 1200
-        let hosted = try host(rows: initial)
-        defer { hosted.window.isHidden = true }
-        let list = hosted.list
-        // Bring row 10 on screen so the list measures it, then place its top 100 pt above the list's.
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - list.adjustedContentInset.top), animated: false)
-        settle()
-        let row = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
-        #expect(row.frame.height >= 1199, "row 10 measured \(row.frame.height) pt")
-        list.setContentOffset(CGPoint(x: 0, y: row.frame.minY + 100 - list.adjustedContentInset.top), animated: false)
-        settle()
-        let visible = list.indexPathsForVisibleItems.map(\.item)
-        #expect(visible == [10], "row 10 alone on screen, saw \(visible)")
-        let before = try #require(top(of: 10, in: list))
-        hosted.rows.items[10].huge = 1300
-        settle()
-        let grown = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
-        #expect(grown.frame.height >= 1299, "row 10 measured \(grown.frame.height) pt, not 1300: the grow did not reach the list")
-        let after = try #require(top(of: 10, in: list))
-        #expect(abs(after - before) <= 0.5, "the row alone on screen moved \(after - before) pt")
-    }
 
     private func top(of item: Int, in list: UICollectionView) -> CGFloat? {
         guard let attributes = list.layoutAttributesForItem(at: IndexPath(item: item, section: 0)) else { return nil }
         return list.convert(attributes.frame.origin, to: nil).y
     }
 
-    /// (a) A move drawn with no offset change and no layout pass of the list counts in full on the
-    /// drawn measure.
-    @Test func aDrawnMoveWithNoOffsetChangeCountsInFull() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        let offset = hosted.list.contentOffset
-        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
-        settle()
-        #expect(hosted.list.contentOffset == offset)
-        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
-        #expect(abs(hosted.seen.drawnWorst - 10) < 0.5, "a drawn 10 pt move measured \(hosted.seen.drawn)")
-    }
 
-    /// (b) Rows removed above the reader (a windowed swap of what is above): the offset and the
-    /// layout move together by the removed height and nothing on screen moves: 0 on the drawn measure.
-    @Test func theOffsetAndTheLayoutMovingTogetherDrawNoShift() throws {
+
+
+    /// The SwiftUI wiring: a change to the screen's rows reaches the list (its row count and a row's
+    /// height). The anchor and probe cases run on the controller itself (PagedListAnchorDirectTests);
+    /// this one proves what they skip.
+    @Test func aChangeToTheScreensRowsReachesTheList() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
         let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 20 * 60 - list.adjustedContentInset.top), animated: false)
+        #expect(hosted.window.isKeyWindow, "the host window is not key")
+        let count = list.numberOfItems(inSection: 0)
+        hosted.rows.items.insert(Row(id: 1000), at: 3)
+        hosted.rows.items[0].tall = true
         settle()
-        hosted.seen.drawn = []
-        let offset = list.contentOffset.y
-        hosted.rows.items.removeFirst(10)
-        settle()
-        #expect(abs(list.contentOffset.y - (offset - 600)) < 0.5, "the offset moved \(list.contentOffset.y - offset) pt")
-        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
-        #expect(hosted.seen.drawnWorst <= 0.5, "a swap of the rows above measured \(hosted.seen.drawn)")
-    }
-
-    /// (c) The row being read is removed (swapped out) in a frame: the measure follows a row drawn in
-    /// both frames instead of reading the removed row's far position.
-    @Test func theRowBeingReadSwappedOutFollowsASurvivingRow() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 20 * 60 - list.adjustedContentInset.top), animated: false)
-        settle()
-        hosted.seen.drawn = []
-        hosted.rows.items.removeAll { $0.id == 20 }
-        settle()
-        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
-        // The anchor keeps the next row (21) where it was: nothing drawn moved.
-        #expect(hosted.seen.drawnWorst <= 0.5, "the removed row was not followed by a surviving one: \(hosted.seen.drawn)")
+        #expect(list.numberOfItems(inSection: 0) == count + 1, "the insert did not reach the list: \(list.numberOfItems(inSection: 0)) rows, model \(hosted.rows.items.count)")
+        let height = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame.height ?? -1
+        #expect(abs(height - 82) < 0.5, "the grow did not reach the list: row 0 measured \(height) pt")
     }
 
     /// One run loop turn: the frame so far is committed.
