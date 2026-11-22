@@ -339,7 +339,7 @@ fn pack_writes_the_release_assets_and_the_same_archive_twice() {
     scaffold::scaffold_for(&dir, "hello", "section", Some(&acme())).unwrap();
     add_icon(&dir);
     let options = PackOptions { dir: dir.clone(), out: None, expect: None };
-    let first = pack::pack(&options).unwrap_or_else(|e| panic!("{e}"));
+    let first = pack::pack(&options).unwrap_or_else(|e| panic!("{}", e.text()));
     assert_eq!((first.id.as_str(), first.version.as_str()), ("acme/hello", "0.1.0"));
     assert_eq!(first.archive, dir.join("release/cmux-extension.tar.gz"));
     assert_eq!(read_json(&first.manifest)["id"], "acme/hello");
