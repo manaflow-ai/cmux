@@ -2,7 +2,7 @@
 // the same scene renderer as sidebar and Session Info sections. The daemon picks the extension and
 // builds the context (`apps.chat_widgets.route`); this row only names the call it is under and draws
 // the scene it gets. cmux ships no widgets of its own, so with no extension installed nothing shows.
-import { createContext, memo, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
+import { createContext, memo, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { ChatWidgetMount, type ChatWidgetTool } from "../../../apps/scene/chatWidgetClient";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
@@ -47,14 +47,15 @@ export function widgetTool(tool: Tool): ChatWidgetTool {
 export const ToolWidget = memo(function ToolWidget({ tool }: { tool: Tool }) {
   const injected = useContext(ChatWidgetClientContext);
   const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
-  const done = tool.status === "completed";
-  // One route per finished call: a re-render, or another call streaming, never asks again.
-  const owner = useMemo(
-    () =>
-      done && client ? new ChatWidgetMount(client, { key: `tool:${tool.id}`, tool: widgetTool(tool) }) : undefined,
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the call's id and its end name it; its text is final then.
-    [client, tool.id, done],
-  );
+  const key = tool.status === "completed" ? `tool:${tool.id}` : undefined;
+  // One route per finished call: the mount made when the call ended is kept for that call and
+  // client, so a re-render, or another call streaming, never asks again.
+  const [held, setHeld] = useState<{ key: string; client: PageClient; owner: ChatWidgetMount }>();
+  let owner = held && held.key === key && held.client === client ? held.owner : undefined;
+  if (!owner && key && client) {
+    owner = new ChatWidgetMount(client, { key, tool: widgetTool(tool) });
+    setHeld({ key, client, owner });
+  }
   const mounted = useSyncExternalStore(
     owner?.subscribe ?? noSubscribe,
     owner?.getSnapshot ?? noSnapshot,
