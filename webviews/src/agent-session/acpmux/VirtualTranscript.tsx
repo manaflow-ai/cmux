@@ -1804,7 +1804,8 @@ function estimateFrom(
   if (!last || last.sessionId !== sessionId) return { kept: undefined, resizing: undefined, partial: false };
   if (last.width === rowWidth)
     return {
-      kept: last.partial ? undefined : last,
+      // A cold open's rough layout (layoutConversation `roughAbove`) keeps no row either.
+      kept: last.partial || last.layout.rough ? undefined : last,
       resizing: undefined,
       partial: false,
     };
@@ -1817,6 +1818,23 @@ function estimateFrom(
     resizing: { rows: last.rows, layout: last.layout, from, to },
     partial: true,
   };
+}
+
+/// A cold open at the chat's end (layoutConversation `roughAbove`): the px above the end measured
+/// whole, the view and the history mounted above it (HISTORY_VIEWPORTS) with a viewport of margin
+/// either side. Undefined when anything is already measured or kept, the box has no height yet, or
+/// the chat opens at a saved place in its rows.
+function coldOpenRoughAbove(
+  cache: ReadonlyMap<string, unknown>,
+  kept: LastEstimate | undefined,
+  resizing: unknown,
+  rows: readonly AcpmuxRow[],
+  view: { height: number; openAt?: ScrollAnchor },
+): number | undefined {
+  if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
+  const openAt = view.openAt;
+  if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
+  return (HISTORY_VIEWPORTS + 2) * view.height;
 }
 
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
@@ -4311,6 +4329,10 @@ function TranscriptView({
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
   const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
+  // The view's height and saved place for a cold open's estimate (`roughAbove`), read without making
+  // either an input of it.
+  const coldView = useRef({ height, openAt });
+  coldView.current = { height, openAt };
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -4354,6 +4376,7 @@ function TranscriptView({
       sessionId,
       resizing,
       nearView(lastPlaced.current, rows, sessionId),
+      coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
     );
     lastEstimate.current = {
       rows,
@@ -4370,6 +4393,19 @@ function TranscriptView({
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
+  // A cold open's rough estimate is laid out whole once its first frame has painted: a frame, then a
+  // task, so the full layout never lands before that paint.
+  useEffect(() => {
+    if (!estimated.layout.rough) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(settleResize, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [estimated]);
   // What this chat laid out, for its next show in this page (conversation/keptLayouts.ts): references
   // only, so recording after each commit is O(1).
   useLayoutEffect(() => {
@@ -4522,7 +4558,8 @@ function TranscriptView({
       registry,
       look: chatLook,
       view: attachmentView,
-      partial: estimated.partial,
+      // A placement over a cold open's rough estimate keeps nothing either, once every row is measured.
+      partial: estimated.partial || estimated.layout.rough === true,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
