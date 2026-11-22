@@ -92,6 +92,8 @@ on:
       - "scripts/gallery-matrix/runner.ts"
       - "scripts/gallery-matrix/shift-baseline.json"
       - "scripts/gallery-matrix/shift-baseline.ts"
+      - "scripts/gallery-matrix/undeclared-baseline.json"
+      - "scripts/gallery-matrix/undeclared-baseline.ts"
       - "scripts/gallery-matrix/unplaced.py"
       - "scripts/gallery-matrix/upload-set.ts"
       - "scripts/cmux-next/build-agent-pane-web.sh"
@@ -109,6 +111,7 @@ on:
       - "schemas/type-scale/**"
       - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
+      - "schemas/layout-motion/**"
       - "schemas/theme/slots.json"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
@@ -141,6 +144,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
       - "web/data/model-catalog/**"
       - "release-notes/next/highlights/**"
+      # A store widget's gallery page renders its preview scenes (webviews/src/apps/scene/CalendarWidget.gallery.tsx).
+      - "first-party-apps/*/preview/scenes.json"
   workflow_dispatch:
     inputs:
       screenshots:
@@ -207,6 +212,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
           persist-credentials: false
 
       - name: Setup Bun
@@ -443,6 +449,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
           persist-credentials: false
 
       - name: Resolve the head and the merge
