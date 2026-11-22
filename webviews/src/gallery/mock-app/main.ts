@@ -150,12 +150,27 @@ const markOf = (session: AcpmuxSessionEntry) =>
           ? "unread"
           : "";
 
-/** The native sidebar, approximated: the traffic lights, then the chats grouped by folder. */
+/** A `sidebar.nav` entry's title: "id | Title | symbol" names one, else the action id stands in. */
+const navTitle = (entry: string) => {
+  const [id, title] = entry.split("|").map((part) => part.trim());
+  return title || id || "";
+};
+
+/** The native sidebar, approximated: the traffic lights, the look's nav rows (`sidebar.nav`), then the
+ * chats grouped by folder; with `sidebar.settleFinished`, a read, finished chat that is not the
+ * selected one folds into the "Settled (N)" row at the end. */
 function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
   const list = el("div", "app-sidebar-list");
-  const ages = lookSetting(data.look, "sidebar.showTimestamps", false) === true;
+  const ages = lookSetting<boolean>(data.look, "sidebar.showTimestamps", false) === true;
+  const nav = lookSetting<unknown>(data.look, "sidebar.nav", []);
+  for (const entry of Array.isArray(nav) ? nav : []) {
+    if (typeof entry === "string" && navTitle(entry)) list.append(el("div", "app-sidebar-nav", navTitle(entry)));
+  }
+  const settles = lookSetting<boolean>(data.look, "sidebar.settleFinished", false) === true;
+  const settled = (session: AcpmuxSessionEntry) =>
+    settles && session.sessionId !== data.selected && markOf(session) === "";
   const groups = new Map<string, AcpmuxSessionEntry[]>();
-  for (const session of data.sessions) {
+  for (const session of data.sessions.filter((session) => !settled(session))) {
     const name = folderName(session.cwd);
     groups.set(name, [...(groups.get(name) ?? []), session]);
   }
@@ -172,6 +187,7 @@ function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
       list.append(row);
     }
   }
+  if (settles) list.append(el("div", "app-sidebar-settled", `Settled (${data.sessions.filter(settled).length})`));
   if (data.sessions.length === 0) list.append(el("div", "app-sidebar-empty", "No chats yet"));
   sidebar.append(list);
 }
