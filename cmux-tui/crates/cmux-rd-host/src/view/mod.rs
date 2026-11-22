@@ -380,6 +380,12 @@ fn view_session(
         // The stream fits this screen: the host scales down to it, so the window shows it 1:1.
         max_width: Some(screen.0),
         max_fps: Some(opts.num_or("max-fps", 60u32)?),
+        // `--encode-profile ultra` asks the host for the ultra profile (standard when absent).
+        encode_profile: opts
+            .get("encode-profile")
+            .map(|_| opts.encode_profile())
+            .transpose()?
+            .map(|p| p.as_str().to_owned()),
         ..RdDocument::default()
     };
     signal.send_text(&signed_frame("offer", &offer.text(), &ticket.session_id, hub)?)?;

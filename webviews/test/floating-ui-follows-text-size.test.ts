@@ -130,7 +130,8 @@ test("a location menu that fits below at 12 pt opens above at 18 pt when its sca
   // A control in a composer high in the window, with 260 px under the composer's foot and more above:
   // the shortest menu (220) fits below at 12 pt, not its 330 at 18 pt.
   const make = (view: Window) => {
-    const composer = { getBoundingClientRect: () => rect(0, 400, 600, 100) };
+    // No text field drawn: the chat rule (`sideAwayFromChat`) picks the side.
+    const composer = { getBoundingClientRect: () => rect(0, 400, 600, 100), querySelector: () => null };
     return {
       ownerDocument: view.document,
       getBoundingClientRect: () => rect(20, 470, 80, 22),

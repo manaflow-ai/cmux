@@ -1,5 +1,6 @@
 @testable import CmuxMobileDesign
 @testable import CmuxMobileLive
+import CmuxMobileTransport
 import Foundation
 import Testing
 
@@ -91,6 +92,124 @@ import UIKit
         feed.apply(Self.frame(background: "#101010"), macID: "mac-a")
         #expect(changed.ids == ["mac-b", "mac-a"])
     }
+
+    /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". An
+    /// `appearance` channel that ends while its link lives is opened again, so the Mac's next
+    /// theme still reaches the phone; the read stops only when the link refuses a channel.
+    /// Before, it stopped after the first channel and the second frame never arrived.
+    @Test func aDroppedAppearanceChannelIsOpenedAgainWhileTheLinkLives() async {
+        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        let feed = MacAppearanceFeed(theme: Self.theme(), terminalThemes: terminals)
+        let link = AppearanceScriptLink(channels: [
+            [Self.frame(background: "#101010")],
+            [Self.frame(background: "#202020")],
+        ])
+        await feed.read(on: link, macID: "mac", reopenAfter: .zero)
+        #expect(link.opens == 3)
+        #expect(terminals.theme(for: "mac")?.background == "#202020")
+    }
+
+    /// A whole frame as hostd `Current::message` writes it (theme, null wallpaper, terminal lines
+    /// with a 256-entry palette, look, chat): about the 7.5 KB Leo's Mac sends per open.
+    static func hostdFrame(background: String = "#1e1e2e") -> Data {
+        let palette16 = (0..<16).map { String(format: "\"#%02x%02x%02x\"", $0 * 15, 255 - $0 * 15, ($0 * 37) % 256) }
+        var terminal = ["background = \(background)", "foreground = #cdd6f4", "cursor-color = #f5e0dc",
+                        "selection-background = #585b70", "selection-foreground = #cdd6f4", "minimum-contrast = 1",
+                        "palette-generate = true", "window-colorspace = srgb"]
+        terminal += (0..<256).map { String(format: "palette = %d=#%02x%02x%02x", $0, $0, 255 - $0, ($0 * 7) % 256) }
+        let lines = terminal.map { "\"\($0)\"" }.joined(separator: ",")
+        let json = """
+        {"theme":{"background":"\(background)","foreground":"#cdd6f4","palette":[\(palette16.joined(separator: ","))],\
+        "selection_background":"#585b70","selection_foreground":"#cdd6f4","cursor":"#f5e0dc","accent":"art",\
+        "accent_color":"#89b4fa","background_opacity":0.92},"wallpaper":null,"terminal":[\(lines)],\
+        "look":{"chrome_style":"glass","hue":212.5,"saturation":0.4,"glass_transparency":0.3,"sidebar_surface":"tinted",\
+        "terminal_font":{"family":"JetBrains Mono","size":13.0},"chat":{"sent":"#89b4fa","sent_text":"#1e1e2e"},\
+        "groups":{"palette":"vivid","gradient":"soft"}},\
+        "chat":{"background":"\(background)","foreground":"#cdd6f4","background_opacity":1.0,"bubbles":{"sent":"#89b4fa","sent_text":"#1e1e2e"}}}
+        """
+        return Data(json.utf8)
+    }
+
+    /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". His
+    /// Mac's hostd serves the whole frame on every `appearance` open and the phone reopens it again
+    /// and again (link churn). Each open, close and refocus keeps the terminal theme and the app
+    /// theme applied: nothing at a close resets them, and the same frame again changes nothing.
+    @Test func theThemeStaysAppliedAcrossRepeatedChannelReopens() async {
+        let frame = Self.hostdFrame()
+        #expect(frame.count > 6_000)
+        let decoded = CmuxMobileMacAppearance.decode(frame)
+        #expect(decoded != nil, "hostd's whole frame decodes on the phone")
+        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        let theme = Self.theme()
+        let feed = MacAppearanceFeed(theme: theme, terminalThemes: terminals)
+        feed.focus(macID: "mac")
+        let changes = MacRecorder()
+        let observer = NotificationCenter.default.addObserver(forName: CmuxMobileTerminalThemes.didChange, object: terminals, queue: nil) { note in
+            let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String ?? ""
+            MainActor.assumeIsolated { changes.ids.append(macID) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let reopens = 6
+        for _ in 0..<3 {
+            let link = AppearanceScriptLink(channels: Array(repeating: [frame], count: reopens))
+            await feed.read(on: link, macID: "mac", reopenAfter: .zero)
+            #expect(link.opens == reopens + 1)
+            // A link going down and the next one coming up (closeAllSessions, setFocus).
+            feed.focus(macID: nil)
+            #expect(terminals.theme(for: "mac")?.background == "#1e1e2e")
+            #expect(theme.palette != nil)
+            feed.focus(macID: "mac")
+        }
+        let terminal = terminals.theme(for: "mac")
+        #expect(terminal?.background == "#1e1e2e")
+        #expect(terminal?.foreground == "#cdd6f4")
+        #expect(terminal?.lines.count == 264)
+        #expect(theme.appearance == decoded)
+        #expect(theme.palette != nil)
+        #expect(theme.chatLook != nil)
+        #expect(changes.ids == ["mac"], "the same frame again is not a change")
+    }
+}
+
+/// A link whose `appearance` channels each deliver their frames and end; once they run out, it
+/// refuses channels as a closed link does.
+final class AppearanceScriptLink: MacLink, @unchecked Sendable {
+    let transport: TransportKind = .wireGuard
+    let states: AsyncStream<LinkState>
+    private let lock = NSLock()
+    private var channels: [[Data]]
+    private var openCount = 0
+    var opens: Int { lock.withLock { openCount } }
+
+    init(channels: [[Data]]) {
+        self.channels = channels
+        states = AsyncStream { $0.finish() }
+    }
+
+    func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        let frames: [Data]? = lock.withLock {
+            openCount += 1
+            return channels.isEmpty ? nil : channels.removeFirst()
+        }
+        guard let frames else { throw LinkError(code: "closed", message: "link closed") }
+        return AppearanceScriptChannel(frames: frames)
+    }
+    func ping() async throws -> UInt32 { 1 }
+    func close() async {}
+}
+
+final class AppearanceScriptChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private var frames: [Data]
+
+    init(frames: [Data]) { self.frames = frames }
+
+    func send(_ data: Data) async throws {}
+    func receive() async throws -> Data? {
+        lock.withLock { frames.isEmpty ? nil : frames.removeFirst() }
+    }
+    func close(code: String, reason: String) async {}
 }
 
 @MainActor final class MacRecorder {
