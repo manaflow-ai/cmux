@@ -1448,7 +1448,7 @@ fn request_permission_obeys_the_mode_and_never_comes_from_another_machine() {
 #[test]
 fn a_default_acting_call_does_not_wait_for_the_screen() {
     let d = Arc::new(FakeDesktop::standard());
-    let (e, slept) = default_settling_engine(d.clone());
+    let (e, slept) = default_settling_engine(d);
     assert_eq!(PolicyConfig::default().settle, SettleMode::Openai);
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
     assert!(!out.is_error, "{:?}", out.body);
@@ -1474,7 +1474,7 @@ fn a_default_acting_call_does_not_wait_for_the_screen() {
 #[test]
 fn a_batch_does_no_final_duplicate_settle() {
     let d = Arc::new(FakeDesktop::standard());
-    let (e, slept) = settling_engine(d.clone());
+    let (e, slept) = settling_engine(d);
     let out = e.call(
         &ctx(Some("b1")),
         "batch",
@@ -1496,7 +1496,7 @@ fn a_batch_does_no_final_duplicate_settle() {
 #[test]
 fn a_batch_step_settles_only_when_its_outcome_is_required() {
     let d = Arc::new(FakeDesktop::standard());
-    let (e, slept) = default_settling_engine(d.clone());
+    let (e, slept) = default_settling_engine(d);
     let out = e.call(
         &ctx(Some("b1")),
         "batch",
