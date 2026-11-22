@@ -11,6 +11,36 @@ square docked message box.
 
 Workbench v1 optimizes for scanning a lot of agent work at once: many threads across projects in view, long code-heavy replies read without scrolling sideways. Density is compact everywhere (24 pt sidebar rows, compact chrome, 13 px chat). Type leans monospace: replies in the mono preset on a tight UI face, code at nearly full size. It sets all three chat layout keys: `agentPane.display.layout.messages` `flat`, `.composer` `square`, `.header` `full`.
 
+## What game cmux plays under this look
+
+Under Workbench, cmux plays the operator's console: many agents running at once across many repos, and the person's job is to steer them, not to read prose. Everything is tuned for throughput: the sidebar is a tree of threads by project with branch and age on every row, so a stuck or finished agent is visible without opening it; the transcript is flat rows on the leading edge, so a prompt reads as a command in a log rather than a message in a conversation; replies and code are monospace-leaning and wide, so diffs and paths line up; the message box is square and docked like a terminal prompt. Color stays out of the way except for one blue that marks focus and your own turns.
+
+## Whom it serves
+
+Lawrence: he wrote most of the Rust core and lives in code, branches and many concurrent agent threads, so a dense, mono, project-grouped view fits how he already works.
+
+## Screenshots
+
+See [screenshots/](screenshots) and the table under "Screenshots, light and dark" below.
+
+## What this look could not set
+
+- The composer's own look and where the message box sits in an empty chat: `agentPane.composerLook` and `agentPane.emptyChatComposerPosition` are in review (#45843).
+- Tab shape (capsule or square tabs): `appearance.tabShape` is in review (#46780).
+- The selected sidebar row's fill (neutral or accent): `appearance.selection` is in review (#46516).
+- Sidebar row inset, padding and gap, toolbar button size and corners, the header divider, the composer's padding and minimum height: in review (#46861).
+- Which facts sit on which line of a sidebar row: `sidebar.workspaceRow.lines` validates but is not drawn (#42244).
+- A whole sidebar look (row shape, header style) beyond density and content: `sidebar.look` is in review (#46805).
+- The color of your own prompt's text: `--cv-user-bubble-text` is in review (#46490).
+- Menus and context menus: the `--menu-*` tokens are in review (#46846).
+- Font family per surface: only the chat (`agentPane.display.font.ui`, `.preset`, `.proseFamily`), the Markdown viewer (`markdown.font.preset`) and the terminal (`terminal.fontFamily`) take one; the sidebar, tab strip, header and Settings stay on the system face.
+- The prompt bubble's width: the chat's row estimate assumes 70%, so no setting or token changes it.
+- Buttons in the composer's toolbar and the model picker: no setting or interface draws them.
+- Corner radius across the app (panes, cards, buttons): only the prompt bubble (`--cv-user-bubble-radius`) and the message box (`agentPane.display.layout.composer`) take a corner.
+- Avatars or sender labels beside messages, and a reply drawn as a card of its own: the message layout key moves only your prompt (`bubbles`, `flat`, `card`); the reply is always plain prose.
+- Sidebar row height per kind and a monospace sidebar or tab font: the sidebar and tabs have no font family key.
+- A light theme that keeps the dark sidebar (a two-tone light look): one theme file colors both.
+
 ## What it reshapes
 
 | Part | How |

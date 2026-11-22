@@ -53,6 +53,9 @@
     "sidebar.workspaceRow.notification": false,
     "sidebar.workspaceRow.working": true,
 
+    // No tab strip while one chat is open.
+    "tabs.hideLoneChatTab": true,
+
     "markdown.font.preset": "system",
     "markdown.font.size": 15,
     "markdown.layout.width": 80

@@ -11,6 +11,36 @@ the reply flowing under them, a rounded message box and a header that shows its 
 
 Hearth v1 optimizes for reading and conversation: long replies set like a page, few controls in view, a calm warm palette in light and dark. Density is comfortable (32 pt sidebar rows, comfortable chrome). Type is serif prose at 16 px with a 1.7 line height in a roomy 760 px column, a humanist UI face around it. It sets all three chat layout keys: `agentPane.display.layout.messages` `card`, `.composer` `rounded`, `.header` `quiet`.
 
+## What game cmux plays under this look
+
+Under Hearth, cmux plays the long conversation: one person and one agent thinking something through, where the reply is the product. It optimizes for reading comfort over density: serif prose at a book's size and measure, warm paper that is easy on the eyes for an hour, your prompt set off as a soft card so the exchange reads like annotated pages, and the header's tools hidden until reached for. The sidebar is a calm list of conversations by recency rather than a project tree, because what matters is picking up where you left off.
+
+## Whom it serves
+
+Leo: he reads more agent output than anyone (briefs, reports, long replies across every lane) and asked for these looks, so a look built for reading long replies comfortably serves his day most directly.
+
+## Screenshots
+
+See [screenshots/](screenshots) and the table under "Screenshots, light and dark" below.
+
+## What this look could not set
+
+- The composer's own look and where the message box sits in an empty chat: `agentPane.composerLook` and `agentPane.emptyChatComposerPosition` are in review (#45843).
+- Tab shape (capsule or square tabs): `appearance.tabShape` is in review (#46780).
+- The selected sidebar row's fill (neutral or accent): `appearance.selection` is in review (#46516).
+- Sidebar row inset, padding and gap, toolbar button size and corners, the header divider, the composer's padding and minimum height: in review (#46861).
+- Which facts sit on which line of a sidebar row: `sidebar.workspaceRow.lines` validates but is not drawn (#42244).
+- A whole sidebar look (row shape, header style) beyond density and content: `sidebar.look` is in review (#46805).
+- The color of your own prompt's text: `--cv-user-bubble-text` is in review (#46490).
+- Menus and context menus: the `--menu-*` tokens are in review (#46846).
+- Font family per surface: only the chat (`agentPane.display.font.ui`, `.preset`, `.proseFamily`), the Markdown viewer (`markdown.font.preset`) and the terminal (`terminal.fontFamily`) take one; the sidebar, tab strip, header and Settings stay on the system face.
+- The prompt bubble's width: the chat's row estimate assumes 70%, so no setting or token changes it.
+- Buttons in the composer's toolbar and the model picker: no setting or interface draws them.
+- Corner radius across the app (panes, cards, buttons): only the prompt bubble (`--cv-user-bubble-radius`) and the message box (`agentPane.display.layout.composer`) take a corner.
+- Avatars or sender labels beside messages, and a reply drawn as a card of its own: the message layout key moves only your prompt (`bubbles`, `flat`, `card`); the reply is always plain prose.
+- A serif face for the sidebar and tab titles to match the prose: neither takes a font family.
+- The reply set in a narrower measure than the prompt, or drop caps and other prose ornaments: type is one size and width for the whole transcript.
+
 ## What it reshapes
 
 | Part | How |
