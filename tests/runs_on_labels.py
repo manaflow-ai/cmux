@@ -47,11 +47,7 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
-# Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
-# attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
 GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
-# The nightly-only build-lane runner, registered with this label alone; only the release path names it
-# (tests/test_release_runner_reserved.py). Attempt 1 of the nightly path takes it, attempt 2 the label above.
 GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
 
 TOKEN = re.compile(

@@ -126,6 +126,27 @@ def context(owner: str, linux_runner: str, overflow: str, trusted: str, darwin_c
 
 
 class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
+    def test_tree_jobs_use_the_linux_label(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for job in sorted(LINUX_LABEL_JOBS):
+            with self.subTest(job=job):
+                self.assertEqual(jobs[job]["runs-on"],
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+        for job in ("build", "build-linux"):
+            with self.subTest(job=job):
+                self.assertEqual(jobs[job]["with"]["linux_runner"], "cmux-linux")
+
+    def test_package_jobs_keep_their_fork_routes(self) -> None:
+        package = WORKFLOW.with_name("cmux-tui-build-package.yml")
+        jobs = yaml.safe_load(package.read_text())["jobs"]
+        targets = next(step for step in jobs["plan-build"]["steps"] if step.get("id") == "targets")
+        for expr, size in ((jobs["plan-build"]["runs-on"], 2), (jobs["package"]["runs-on"], 16),
+                           (targets["env"]["LINUX_RUNNER"], 16)):
+            with self.subTest(expression=expr):
+                self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                 "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
+                                 f"!= github.repository && 'blacksmith-{size}vcpu-ubuntu-2404' || 'cmux-linux' " + "}}")
+
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
         names = {name for name, _ in linux_routes()}
         for name in SHORT_JOBS:
@@ -223,8 +244,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 # The routes that can name an owned self-hosted Linux label whose runner user has no sudo:
 # cmux-gcp-lane-build-x64, the build-lane runners on the GCP agent lanes (cmuxterm-hq
 # build-fleet/swift-linux-builder/lane-build-runners). LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS name it,
-# the placement steps hand it on as a needs output or a reusable workflow's runner input, and a matrix runner
-# carries it in the workflows that read those variables. The nightly path names the label itself (6763b318).
+# and a matrix runner carries it in the workflows that read those variables.
 OWNED_ROUTE = re.compile(
     r"vars\.(?:LINUX_BUILD_RUNNER|LINUX_RUNNER_DARWIN_CROSS|CMUX_TUI_GATE_RUNNER)\b"
     r"|inputs\.linux(?:_build)?_runner\b"

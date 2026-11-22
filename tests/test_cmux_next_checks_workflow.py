@@ -1526,7 +1526,7 @@ OVERFLOW_FAILOVER = re.compile(
 
 
 def can_run_on_owned_runner(job: dict) -> bool:
-    """A runs-on that reads a repository variable, or portable placement's mini, can resolve to a mini (glaeda-*)."""
+    """A runs-on that reads a repository variable or a job output can resolve to a mini (glaeda-*)."""
     cells = workflow_jobs.runs_on_cells(job)
     if cells is None:
         return True  # a matrix value nothing resolves may name a mini
@@ -3272,7 +3272,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
-            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            # The router ran: web-bundles checks its result.
             "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",

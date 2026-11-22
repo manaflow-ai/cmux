@@ -424,10 +424,6 @@ path = "tests/test_ci_owned_catch_up.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_owned_first_not_census_frozen.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
@@ -487,7 +483,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_routed_jobs_check_needs.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
 
 [[test]]
 path = "tests/test_ci_post_merge_checks.py"
