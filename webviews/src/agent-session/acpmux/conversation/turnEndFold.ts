@@ -18,6 +18,7 @@
 // above it come down to meet the folded line. Reduce Motion, `data-agent-motion="off"` or no Web
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
+import { declareMove } from "../../../layout/motionContract";
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
@@ -116,6 +117,8 @@ export type TurnEndFold = {
   timer?: ReturnType<typeof setTimeout>;
   /// Stops the passes that follow the rows as they are placed again (the observer and listener).
   stop?: () => void;
+  /// Ends the fold's `turn-end` declaration (motionContract.ts), so the judge stops excusing it.
+  release?: () => void;
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
@@ -338,6 +341,8 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   fold.animations.clear();
   for (const copy of fold.copies) copy.remove();
   fold.copies.clear();
+  fold.release?.();
+  fold.release = undefined;
   thread?.removeAttribute(TURN_END_ATTR);
 }
 
@@ -396,6 +401,19 @@ export function playTurnEnd(
   let grew = false;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  // What the fold moves, declared while it plays (the contract's `turn-end`, motionContract.ts): every
+  // box it animates, filled in as the passes find them, and `strict`, so a box the fold does not play
+  // on is a shift even if the fold pushed it -- "No row above it moves, no row below it is pushed or
+  // pulled". The judge reads boxes after transforms, so these moves need declaring; a box that moved
+  // because the layout under it changed is not in here and is flagged. One map entry while it plays.
+  const played: Element[] = [];
+  fold.release = declareMove({
+    event: "turn-end",
+    scope: "targets",
+    targets: played,
+    strict: true,
+    by: "turn-end fold",
+  });
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
   // rows measured and placed again in the long frame the swap renders) plays from the start, so the
   // first painted frame is the fold's first, never most of the way there in one step.
@@ -443,6 +461,7 @@ export function playTurnEnd(
       lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
     const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
     fold.animations.add(animation);
+    if (!played.includes(node)) played.push(node);
     return animation;
   };
   /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
@@ -463,6 +482,7 @@ export function playTurnEnd(
       fill: "both",
     });
     fold.animations.add(animation);
+    if (!played.includes(copy)) played.push(copy);
     return animation;
   };
   // The rows the swap kept, by id; a row it took away left its copy, and its id may come back as
