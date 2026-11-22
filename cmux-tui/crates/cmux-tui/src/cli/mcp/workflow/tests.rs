@@ -6,6 +6,7 @@ struct Fake {
     starts: RefCell<BTreeMap<String, String>>,
     effects: Cell<usize>,
     refuse_start: Cell<bool>,
+    drop_start: Cell<bool>,
     fenced: Cell<bool>,
     allowed: RefCell<Value>,
     upstream_names: RefCell<Option<Value>>,
@@ -37,11 +38,19 @@ impl Backend for Fake {
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {
             if self.refuse_start.get() {
-                return Ok(json!({
-                    "ok": false,
-                    "message": "activity refused",
-                    "error": {"code": "activity.refused", "message": "activity refused"}
-                }));
+                // As acpmux refuses: an owner RPC error with its numeric code.
+                return Err(CallFailure {
+                    kind: FailureKind::Rejected,
+                    error: json!({"code": -32602, "message": "activity refused"}),
+                    idempotency_key: None,
+                });
+            }
+            if self.drop_start.get() {
+                return Err(CallFailure::local(
+                    FailureKind::InProgress,
+                    "acpmux.transport",
+                    "connection lost after send",
+                ));
             }
             self.effects.set(self.effects.get() + 1);
             self.starts.borrow_mut().insert(
@@ -242,6 +251,47 @@ fn native_workflow_host_journals_explicit_activity_refusal_for_immediate_replay(
     assert_eq!(replay, first);
     assert!(resumed.finish().is_ok());
     assert_eq!(server.backend.effects.get(), 0, "a refusal must never dispatch twice");
+}
+
+#[test]
+fn native_workflow_host_keeps_an_uncertain_activity_start_pending_for_resume() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::new(Fake::default(), None);
+    server.backend.drop_start.set(true);
+    let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+    let request = || code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "uncertain".into(),
+        options: Map::new(),
+    };
+    let first = handle(
+        &mut server,
+        &proof(),
+        &mut journal,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        request(),
+    )
+    .unwrap();
+    assert_eq!(first["ok"], false);
+    drop(journal);
+
+    // A lost answer is not a refusal: resume sends the same start again.
+    server.backend.drop_start.set(false);
+    let mut resumed = Journal::open(directory.path(), "source", 0).unwrap();
+    let replay = handle(
+        &mut server,
+        &proof(),
+        &mut resumed,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        request(),
+    )
+    .unwrap();
+    assert_eq!(replay["ok"], true, "{replay}");
+    assert_eq!(server.backend.effects.get(), 1, "the uncertain start is sent again once");
 }
 
 #[test]

@@ -330,9 +330,19 @@ fn refused(code: &str, message: &str) -> Value {
     json!({"ok":false,"message":message,"error":{"code":code,"message":message}})
 }
 
+/// The daemon decided this start itself and refused it for good: an RPC
+/// `invalid_params` (-32602) answer, which `internal_call` reports as
+/// `state: "rejected"`. Only that is journaled and replayed. A timeout, a lost
+/// connection or a stale runner proof (an `internal` error after a pause) says
+/// nothing about the start, so it stays pending and is sent again on resume.
 fn explicit_refusal(value: &Value) -> bool {
+    let envelope = field(value, "error");
     value.get("ok") == Some(&Value::Bool(false))
+        && field(envelope, "state").as_str() == Some("rejected")
+        && field(field(envelope, "error"), "code").as_i64() == Some(INVALID_PARAMS)
 }
+
+const INVALID_PARAMS: i64 = -32602;
 
 #[cfg(test)]
 mod tests;
