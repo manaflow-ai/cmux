@@ -237,7 +237,7 @@
           "weight": "semibold",
           "lineLimit": 1,
           "animation": "smooth",
-          "text": "12:00",
+          "text": "10:00",
           "strikethrough": false,
           "color": "primary"
         }
@@ -312,7 +312,7 @@
           "weight": "semibold",
           "lineLimit": 1,
           "animation": "smooth",
-          "text": "13:00",
+          "text": "11:00",
           "strikethrough": false,
           "color": "primary"
         }
@@ -387,7 +387,7 @@
           "weight": "semibold",
           "lineLimit": 1,
           "animation": "smooth",
-          "text": "14:00",
+          "text": "12:00",
           "strikethrough": false,
           "color": "primary"
         }
@@ -462,7 +462,7 @@
           "weight": "semibold",
           "lineLimit": 1,
           "animation": "smooth",
-          "text": "15:00",
+          "text": "13:00",
           "strikethrough": false,
           "color": "primary"
         }

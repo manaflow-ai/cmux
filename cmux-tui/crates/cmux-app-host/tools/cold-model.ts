@@ -30,6 +30,8 @@ const page = join(root, "skills/cmux-customization/references/extension-design.m
 const template = join(root, "cmux-tui/crates/cmux-tui/src/cli/ext/templates/widget")
 const sdk = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript/src/index.ts")
 const SIZES = ["small", "medium"] as const
+/** The clock every scene is drawn at: 2026-11-16 09:41 local time. */
+const AT = new Date(2026, 10, 16, 9, 41, 0).getTime()
 
 /** The widgets asked for: each a name and a request in a person's words, none naming a helper. */
 export const TASKS: Record<string, string> = {
@@ -123,16 +125,18 @@ function snapshot(host: FakeHost, mount: string): Op[] {
 }
 
 /** Each size's scene, keyed as `cmux ext shot --record` keys a widget's. */
-async function render(dir: string): Promise<Record<string, { ops: Op[] }>> {
+export async function render(dir: string): Promise<Record<string, { ops: Op[] }>> {
   const built = await pack(dir, { sdk })
   mkdirSync(join(dir, "dist"), { recursive: true })
   writeFileSync(join(dir, "dist/main.js"), built)
   const scenes: Record<string, { ops: Op[] }> = {}
   for (const size of SIZES) {
     const host = new FakeHost(built, { app: { id: "local/cold", version: "0.1.0" }, settings: {}, apiVersion: "1.0.0" })
+    // One fixed clock, so a widget that reads now() once at mount records the same scene on every run.
+    host.eval(`Date.now = () => ${AT}`)
     const error = host.mount("m", "renderWidget", { surface: "widget", place: "newtab", size, instance: "w1", settings: {}, refresh: { everySeconds: 60 }, locale: "en-US", timeZone: "UTC", preview: true })
     if (error) throw new Error(`${size}: ${error}`)
-    host.tick("m", new Date(2026, 10, 16, 9, 41, 0).getTime())
+    host.tick("m", AT)
     await host.settle()
     scenes[`cmux.widget/1 ${size}`] = { ops: snapshot(host, "m") }
   }

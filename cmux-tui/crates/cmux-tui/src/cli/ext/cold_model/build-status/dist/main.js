@@ -2400,16 +2400,6 @@
       "workspace.open_url"
     ]
   };
-  function widget(render) {
-    return render;
-  }
-  function bySize(context, views) {
-    if (context.size === "large")
-      return (views.large ?? views.medium ?? views.small)();
-    if (context.size === "medium")
-      return (views.medium ?? views.small)();
-    return views.small();
-  }
   var TYPE_ROLES = {
     numeral: { size: 34, weight: "semibold" },
     heading: { size: 20, weight: "semibold" },
@@ -2428,6 +2418,16 @@
     footnote: TYPE_ROLES.footnote.size
   };
   var SPACE = { none: 0, hairline: 2, xxs: 4, xs: 6, s: 8, m: 12, l: 16, xl: 20, xxl: 24, xxxl: 32, huge: 48 };
+  function widget(render) {
+    return render;
+  }
+  function bySize(context, views) {
+    if (context.size === "large")
+      return (views.large ?? views.medium ?? views.small)();
+    if (context.size === "medium")
+      return (views.medium ?? views.small)();
+    return views.small();
+  }
   function TextIn(role, text, options = {}) {
     const { size, weight } = TYPE_ROLES[role];
     return Text(text).font(size).weight(weight).lineLimit(options.lines ?? 1);
