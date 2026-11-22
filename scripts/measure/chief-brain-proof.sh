@@ -157,6 +157,12 @@ for n in $(seq 1 "$runs"); do
     --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
     --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &
   driver_pid=$!
+  # One line a minute while the driver runs: its output goes to a file, and the controller stops a
+  # measurement after 45 min with no log line (cmux-ci step 4bd3963570e5, 5 runs of about 12 min).
+  while kill -0 "$driver_pid" 2>/dev/null; do
+    echo "BRAIN-RUN $n of $runs: running, last: $(grep -E '\] BRAIN' "$work/driver-$n.log" | tail -1 | cut -c1-120)"
+    wait_s=0; while [[ $wait_s -lt 60 ]] && kill -0 "$driver_pid" 2>/dev/null; do sleep 5; wait_s=$((wait_s + 5)); done
+  done
   wait "$driver_pid" || rs=$?
   driver_pid=""
   echo "BRAIN-RUN $n of $runs: driver exit $rs"
