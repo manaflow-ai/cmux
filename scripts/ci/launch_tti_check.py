@@ -50,9 +50,13 @@ the app instead (`input: in_app`, every round row and the TTI line say which pat
 launch has CMUX_NEXT_LAUNCH_TYPE_PROBE=1, so the app itself types one key into its key window at its first window
 frame (LaunchTypeProbe, the probe scripts/measure/launch-ready.swift's `type` mode uses), and the terminal's
 interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `terminal_echo` (input_ms): the same
-process start to the typed key taken. `terminal.probe_no_key_window` (no window was key at that frame) fails the
-round. The chat composer posts no input mark in any build yet (`no_mark`), so on either path a chat round measures
-nothing and the row is the terminal's.
+process start to the typed key taken. The app types at its first window frame; `terminal.probe_no_key_window` (no
+window was key then) fails the round. The app types that one key wherever its key window takes it, before a chat page is up, so on the in_app path a
+chat round ends when the chat drew and fails nothing; the posted path's keys time the chat.
+
+Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
+launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
+behind, NoActivateKeyboardGuard gives the front back), so no key, posted or the app's own, could reach a window.
 """
 from __future__ import annotations
 
@@ -148,6 +152,15 @@ class Keys:
                 self.cg.CFRelease(event)
 
 
+NO_ACTIVATE_VARIABLE = "CMUX_NEXT_NO_ACTIVATE"
+
+
+def interactive_env(env: dict) -> dict:
+    """The run's environment without CMUX_NEXT_NO_ACTIVATE, for every launch it times: a person's launch activates
+    the app and its window takes key; under the variable none ever does, so a key could reach no window."""
+    return {k: v for k, v in env.items() if k != NO_ACTIVATE_VARIABLE}
+
+
 def activate(pid: int) -> None:
     """Bring the app to the front without waiting (a posted key goes to its key window)."""
     script = (f"ObjC.import('AppKit'); var a = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}); "
@@ -222,11 +235,12 @@ def in_app_terminal_reading(marks: dict) -> dict:
 
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
-    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
+    before a chat page is up, so its chat round measures nothing and fails nothing."""
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
+    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
         if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
             out.append("the app typed no key: no window was key at its first frame (terminal.probe_no_key_window)")
         else:
@@ -454,7 +468,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             break
         # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run): the
         # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
-        if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
+        if which == "chat" and (not args.has_input_mark or path == "in_app") and "agent_pane.painted" in marks:
             break
         if which == "terminal" and path == "in_app":
             term = in_app_terminal_reading(marks)
@@ -511,6 +525,7 @@ def check(args) -> int:
         app = Path(app)
         inst = rr.Instance(str(socket_path), str(app), env["HOME"])
         work = os.path.join(env["HOME"], "l5-work")
+        env = interactive_env(env)  # every launch from here takes the front, as a person's does
         started = time.monotonic()
         try:
             made = rr.seed(inst, args.fake_agent, work, front_terminal=False)

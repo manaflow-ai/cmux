@@ -16,6 +16,7 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { composerChanged } from "./launchInputEcho";
 import { holdFlag, setRef } from "./heldFlag";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
@@ -371,6 +372,7 @@ export function ComposerBox({
               return true;
             }}
             onChange={(markdown, caret) => {
+              composerChanged(); // a launch's first typed key drawn (launchInputEcho.ts)
               inline.edited(markdown);
               field.onChange(markdown, caret);
             }}

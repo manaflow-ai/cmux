@@ -18,6 +18,7 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         var early: [(String, Date)] = []
         var listeners: [@Sendable (String) -> Void] = []
         var layoutSettled = false
+        var inputEchoed = false
     }
 
     private let state = Mutex(State())
@@ -47,6 +48,18 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         }
         receiver?(name, date)
         for listener in listeners { listener(name) }
+    }
+
+    /// The first chat composer's echo of a typed key (`pane.inputEchoed`, webviews launchInputEcho.ts), once per
+    /// process: the launch mark `agent_pane.input_echoed` at the page's wall-clock `date` (the frame that drew the
+    /// key), the chat front's first interaction (LaunchStages `first_interaction`, scripts/ci/launch_tti_check.py).
+    func inputEchoed(at date: Date) {
+        guard LaunchMarkSink.shared.isActive else { return }
+        let first = state.withLock { state -> Bool in
+            defer { state.inputEchoed = true }
+            return !state.inputEchoed
+        }
+        if first { mark("agent_pane.input_echoed", at: date) }
     }
 
     /// The first chat page's launch settle (`pane.launchSettle`, webviews launchSettle.ts), once per process:
