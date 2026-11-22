@@ -412,6 +412,20 @@ def main():
             settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
             json.dump(settings, f)
+        if new_chat:
+            # The new-chat leg's agent: credit-free, its reply streamed a word at a time
+            # (scripts/ci/pair_e2e_stream_agent.py over acpmux's fake_agent.py), as this Mac's
+            # default harness, in an acpmux home of this run's own.
+            acpmux_home = os.path.join(os.path.realpath(a.work), "pair-rig", "acpmux")
+            os.makedirs(acpmux_home, mode=0o700, exist_ok=True)
+            fake_agent = os.path.join(ROOT, "cmux-tui/crates/acpmux/tests/fake_agent.py")
+            with open(os.path.join(acpmux_home, "config.json"), "w") as f:
+                json.dump({"harnesses": {"fake": {"argv": ["python3", os.path.join(ROOT, "scripts/ci/pair_e2e_stream_agent.py")],
+                                                  "env": {"FAKE_AGENT": fake_agent}}},
+                           "defaultHarness": "fake", "permissionPolicy": "ask",
+                           "webAskingModes": {"fake": ["normal", "strict"]}}, f)
+            env["ACPMUX_HOME"] = acpmux_home
+            env.pop("ACPMUX_SOCKET", None)
         # With a session, the explicit file names no account: the app signs in from no file (not even the
         # account home's ambient ones) and restores the session put in its token store below.
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
@@ -645,6 +659,43 @@ def daemon_conversation(tag, surface):
     return None
 
 
+def daemon_request(tag, request):
+    """One request to the Mac's daemon (the tag's cmux-tui socket); its reply, or None."""
+    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                                      text=True).stdout.strip()
+    for path in sorted(glob.glob(os.path.join(temp, f"cmux-tui-{os.getuid()}", f"*{tag}*"))):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.settimeout(20)
+                conn.connect(path)
+                f = conn.makefile("rwb")
+                f.write((json.dumps(dict(request, id=1)) + "\n").encode())
+                f.flush()
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    reply = json.loads(line)
+                    if reply.get("id") == 1:
+                        return reply
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def trim_video(video, start, end, out_path):
+    """The recording cut to [start, end] seconds (ffmpeg, when the host has it); a line for the summary."""
+    ffmpeg = shutil.which("ffmpeg") or next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg")
+                                             if os.path.exists(p)), None)
+    if not ffmpeg or not os.path.exists(video):
+        return "no trimmed clip (no ffmpeg or no recording)"
+    run = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-ss", f"{max(0, start):.1f}", "-to", f"{end:.1f}",
+                          "-i", video, "-vf", "scale=540:-2", "-c:v", "libx264", "-crf", "28", "-an", out_path],
+                         capture_output=True, text=True, timeout=300)
+    return (f"clip {os.path.basename(out_path)} ({end - max(0, start):.0f} s)" if run.returncode == 0
+            else f"no trimmed clip (ffmpeg {run.returncode})")
+
+
 def screen_text(paths):
     """{path: [line, ...]}: the text Vision reads on each screenshot (scripts/ci/screen_text.swift)."""
     if not paths:
@@ -667,7 +718,16 @@ def new_chat_leg(simctl, udid, bundle_id, phone_env, rpc, tag, screens, out):
     ~2 s; the Mac must then list the tab bound to a session, a shot must show the message, and none may
     show the old "hasn't started in this tab" notice (Vision reads each shot). (passed, summary line)."""
     before = {t.get("id") for _, _, t in snapshot_tabs(rpc)}
-    made = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
+    # A project folder, not the home folder: acpmux lets a phone start a chat only in a known
+    # project (remote_guard.rs web_roots drops ~ and its ancestors).
+    project = os.path.join(os.path.realpath(out), "..", "new-chat-project")
+    project = os.path.realpath(project)
+    os.makedirs(project, exist_ok=True)
+    with open(os.path.join(project, "README.md"), "w") as f:
+        f.write("# new-chat project\n\nThe pair-e2e new-chat leg's folder.\n")
+    made = daemon_request(tag, {"cmd": "new-workspace", "name": "new-chat-e2e", "cwd": project})
+    if not made or made.get("error") or made.get("ok") is False:
+        made = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
     fresh = wait_for(lambda: [p for w, p, t in snapshot_tabs(rpc) if t.get("id") not in before], 30, every=0.5)
     pane = fresh[0] if fresh else None
     opened = rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{pane}", "focus": True}) if pane else {"error": "no pane"}
@@ -745,12 +805,21 @@ def new_chat_leg(simctl, udid, bundle_id, phone_env, rpc, tag, screens, out):
         if n % 5:
             os.unlink(path)
     turn =[line for line in texts.get(sent[-1], []) if line.strip()] if sent else []
+    times = dict((p, t) for t, p in shots)
+    first = times.get(unsent[-1] if unsent else (sent[0] if sent else None))
+    clip = "no clip (no shot of the tab)"
+    if first is not None:
+        # The recording started ~2 s before the launch; shot times count from the launch.
+        clip = trim_video(video, first + 1, first + 2 + 14,
+                          os.path.join(out, "new-chat-clip.mp4"))
+    streamed = any("word by word" in line for line in texts.get(sent[-1], [])) if sent else False
     checks = {
         "the Mac's tab started with no session": started_unbound,
         "its host is this Mac's install (or unread)": host is None or host.startswith("install:"),
         "the Mac lists the tab bound to a session after the phone's send": session is not None,
         "a phone shot shows the sent message": bool(sent),
         "no phone shot shows \"hasn't started in this tab\"": not banner,
+        "the agent's streamed reply shows on the phone": streamed,
     }
     failed = [name for name, ok in checks.items() if not ok]
     return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + '; '.join(failed)}; tab {tab.get('id')} "
@@ -758,7 +827,7 @@ def new_chat_leg(simctl, udid, bundle_id, phone_env, rpc, tag, screens, out):
                         f"{session or 'none'}{f' {bound_at:.0f} s after launch' if bound_at is not None else ''}; "
                         f"{len(shots)} shots, {len(sent)} show the message, banner on {banner or 'none'}; "
                         f"Mac snapshot {'ok' if not shot.get('error') else shot.get('error')}; last screen text: "
-                        f"{' | '.join(turn)[-600:]!r}; video new-chat-phone.mp4")
+                        f"{' | '.join(turn)[-600:]!r}; video new-chat-phone.mp4; {clip}")
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")

@@ -172,6 +172,31 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      # The new-chat leg's evidence only: the phone's chat screens from the tab on (no sidebar, no
+      # Devices list), its trimmed clip, the Vision text and the Mac's tab record.
+      - name: Collect the new-chat evidence
+        if: always()
+        run: |
+          set -uo pipefail
+          d=artifacts/new-chat-evidence
+          mkdir -p "$d"
+          for f in artifacts/ios-sim/screens/new-chat-phone-before.png artifacts/ios-sim/screens/new-chat-phone-sent.png \
+                   artifacts/ios-sim/screens/new-chat-phone-turn.png artifacts/ios-sim/new-chat-clip.mp4 \
+                   artifacts/ios-sim/new-chat-mac-tab.json artifacts/ios-sim/new-chat-mac-after.json; do
+            [ -f "$f" ] && cp "$f" "$d/"
+          done
+          grep 'new chat from the phone' artifacts/ios-sim/SUMMARY.md > "$d/leg.txt" 2>/dev/null || true
+          ls -la "$d"
+
+      - name: Upload the new-chat evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pair-e2e-new-chat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/new-chat-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Remove the CI auth profile
         if: always()
         run: |
