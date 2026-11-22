@@ -9,6 +9,7 @@ const TEXT_CHARS: usize = 160;
 const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
+    "handle",
     "shortName",
     "indicator",
     "titleSource",
@@ -26,6 +27,9 @@ const EXTRA_KEYS: &[&str] = &[
     "pullRequests",
     "usageWarnings",
     "lastMessage",
+    // The chat's task list, counts and lines only (`task_list.rs`): the row's "3/7" and its step.
+    "taskList",
+    "rollingSummary",
     "lane",
     "turn",
     "tags",
@@ -106,12 +110,23 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
+/// A handle derived from the session id costs the row bytes and says nothing a reader cannot
+/// derive itself (`session_handle::display`, `session_handle::matches`), so only a given one rides.
+fn derived_handle(row: &Map<String, Value>, value: &Value) -> bool {
+    let id = row.get("sessionId").and_then(Value::as_str);
+    match (id, value.as_str()) {
+        (Some(id), Some(handle)) => crate::session_handle::default_handle(id) == handle,
+        _ => value.is_null(),
+    }
+}
+
 fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
                 && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !(key.as_str() == "handle" && derived_handle(row, value))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
@@ -123,6 +138,11 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         values.insert("status".into(), Value::String(status.to_owned()));
     }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
+    retain(
+        values.get_mut("taskList"),
+        &["source", "done", "total", "current", "next", "updatedAt"],
+    );
+    retain(values.get_mut("rollingSummary"), &["text", "next", "source", "turn", "at"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),
@@ -133,7 +153,16 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     retain(values.get_mut("coldArchive"), &["archivedAt", "messages"]);
     retain(
         values.get_mut("tags"),
-        &["notifications", "mux.parent", "mux.children", "cmux.chief.participant", "archived"],
+        // `cmux.chief` names the Home Chief that owns the chat: its readers (cmux-tui-core's
+        // `chief-work` and update plan, row 7c) find the Chief's roots by it.
+        &[
+            "notifications",
+            "mux.parent",
+            "mux.children",
+            "cmux.chief",
+            "cmux.chief.participant",
+            "archived",
+        ],
     );
     if let Some(Value::Array(warnings)) = values.get_mut("usageWarnings") {
         for warning in warnings {
@@ -164,6 +193,8 @@ fn shrinkable(key: &str) -> bool {
             | "waitingPrompt"
             | "activity"
             | "planStep"
+            | "current"
+            | "next"
             | "error"
             | "stuckError"
             | "cwd"
@@ -226,7 +257,7 @@ impl Form {
     }
 }
 
-pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
+pub(crate) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
     let value = hub.session_list_summary(session);
     let row = value.as_object().ok_or_else(|| invalid("v1 summary is not an object"))?;
     let meta = session.meta();
@@ -439,6 +470,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_row_carries_only_a_given_handle() {
+        let (hub, session) = fixture(false).await;
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert!(extra.get("handle").is_none(), "a derived handle stays off the row: {extra}");
+        hub.edit_test_meta(&session, |meta| meta.handle = Some("Mango".into()));
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(extra["handle"], "Mango");
+    }
+
+    #[tokio::test]
     async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
         let (hub, session) = fixture(false).await;
         hub.edit_test_meta(&session, |meta| {
@@ -569,5 +612,23 @@ mod tests {
             );
         });
         assert!(!summary_from_session(&hub, &parent).unwrap().archived);
+    }
+
+    /// Row 7c: a Chief's chats are found by `cmux.chief` (the Home's id) and `mux.parent`
+    /// (`optchat-chief:<id>`) in their summaries; another tag is still left out.
+    #[tokio::test]
+    async fn a_summary_keeps_the_chief_tags_its_readers_find_the_chief_by() {
+        let (hub, session) = fixture(false).await;
+        let tag = |value: &str| crate::store::Tag { value: value.into(), expires_at: None };
+        hub.edit_test_meta(&session, |meta| {
+            meta.tags.insert("cmux.chief".into(), tag("0a1b2c3d"));
+            meta.tags.insert("mux.parent".into(), tag("optchat-chief:0a1b2c3d"));
+            meta.tags.insert("lane".into(), tag("x"));
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(extra["tags"]["cmux.chief"], "0a1b2c3d", "{extra}");
+        assert_eq!(extra["tags"]["mux.parent"], "optchat-chief:0a1b2c3d");
+        assert!(extra["tags"].get("lane").is_none());
     }
 }

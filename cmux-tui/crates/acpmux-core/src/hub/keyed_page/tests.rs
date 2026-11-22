@@ -25,6 +25,7 @@ fn request(keys: Vec<ListKey>, max: u32) -> Page {
         filter: None,
         edition: None,
         fold: None,
+        turns: false,
     }
 }
 
@@ -56,7 +57,7 @@ fn check_large_keyed_pages(escaped: bool) {
         keys.push(wire_key(SortKey::of(&row)));
         rows.insert(row.key(), Arc::new(row));
     }
-    let expected: Vec<_> = keys.iter().map(|key| book_key(key).row).collect();
+    let expected: Vec<_> = keys.iter().map(|key| book_key(key).unwrap().row).collect();
     let provider = Arc::new(Provider { rows, reads: Mutex::new(Vec::new()) });
     let (hub, _writer) = Hub::new(SummaryIndex::new());
     hub.set_page_provider(provider.clone());

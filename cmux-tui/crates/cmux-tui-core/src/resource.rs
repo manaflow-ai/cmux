@@ -194,6 +194,8 @@ pub enum ResourceOperation {
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
+    #[serde(rename = "git.fingerprint")]
+    GitFingerprint,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.push")]
@@ -644,6 +646,10 @@ pub enum ResourceOperation {
     CloudOwnerHarnessLoginCopy,
     #[serde(rename = "cloud.owner.github_app")]
     CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.github_repos")]
+    CloudOwnerGithubRepos,
+    #[serde(rename = "cloud.owner.github_connect")]
+    CloudOwnerGithubConnect,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]

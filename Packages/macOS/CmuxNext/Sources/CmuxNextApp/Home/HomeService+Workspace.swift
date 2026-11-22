@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHomeModel
 import CmuxNextHostedChief
 import Foundation
 
@@ -32,18 +33,18 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
-        homeEnsureGeneration &+= 1
-        let generation = homeEnsureGeneration
-        homeEnsureInFlight = true
+        chiefTabStep = .notStarted
+        let generation = ensure.begin()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
+            defer { self?.ensureOwner.end(generation) }
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
-                settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
-                async let chiefTab: Void = ensureChiefTab(connection, home: home) // beside the dock steps: Home's first page waits for both
+                ensure.settle(generation); DebugTimings.markLaunch("home.ensure_home")
+                async let chiefTab: Void = ensureChiefTab(connection, home: home, generation: generation) // beside the dock steps: Home's first page waits for both
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
@@ -52,47 +53,18 @@ extension HomeService {
                 DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {
-                self?.settleHomeEnsure(generation)
+                self?.ensure.settle(generation)
                 self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
-    private func settleHomeEnsure(_ generation: Int) {
-        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
-    }
-
-    /// Returns once no `ensure_home` is in flight (at once when none is).
-    /// Each request has the connection's timeout, so this never outlives it.
-    func awaitHomeEnsured() async {
-        for await inFlight in ObservationStream({ self.homeEnsureInFlight }) where !inFlight { return }
-    }
-
-    /// The Chief owner's connection, once it serves conversations (this task
-    /// is cancelled by the next local connection).
-    private func chiefConnection() async -> DaemonConnection? {
-        let chief = chief
-        for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
-            if let connection { return connection }
-        }
-        return nil
-    }
-
-    /// The chief conversation: the oldest conversation with the mux in `listed` (the Chief owner's
-    /// list the caller just read; a second read held a fresh launch's Home a round trip longer), else one created under a fixed key.
+    /// The chief conversation (``HomeChiefName/conversation(_:listed:user:mux:mark:renameFailed:)``).
     private func chiefConversation(_ connection: DaemonConnection, listed: [ConversationSummary]) async throws -> String {
-        let client = ConversationClient(connection)
-        if let existing = HomeChiefName.select(from: listed) {
-            // One-time rename to the chief's name (N1); a failure keeps the old title.
-            if let rename = HomeChiefName.migration(for: existing) {
-                do { _ = try await client.op(rename) } catch {
-                    logger.error("chief rename: \(String(describing: error), privacy: .public)")
-                }
-            }
-            return existing.id
-        }
-        return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
+        try await HomeChiefName.conversation(ConversationClient(connection), listed: listed, user: Self.localUser, mux: Self.mux,
+                                             mark: { DebugTimings.markLaunch("home.\($0)") },
+                                             renameFailed: { [logger] in logger.error("chief rename: \(String(describing: $0), privacy: .public)") })
     }
 
     /// The signed-in user's cloud Chiefs (the Hosted Chief, made when this
@@ -119,10 +91,10 @@ extension HomeService {
         ensureHomeWorkspace(connection)
     }
 
-    private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
+    private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID, generation: Int) async throws {
         let local = services.machines.local
         guard local.supports(DaemonCapability.conversationTabs.rawValue) else {
-            homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
+            chiefTabStep = .reached("no chief tab: the daemon lacks conversation tabs")
             return
         }
         // A cloud Chief answers in its cloud main conversation: the Hosted
@@ -146,9 +118,11 @@ extension HomeService {
         // when a local Chief with history takes the tab back.
         let owner: DaemonConnection?
         if shown == nil {
-            homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
-            owner = await chiefConnection()
-            guard owner != nil, !Task.isCancelled else { return }; DebugTimings.markLaunch("home.chief_owner_ready")
+            chiefTabStep = .waitingForOwner
+            owner = await ensureOwner.connection(of: chief, generation: generation) // its connect lets this go on (HomeService.start)
+            guard owner != nil, !Task.isCancelled else { chiefTabStep = .reached("chief owner wait ended without a connection"); return }
+            DebugTimings.markLaunch("home.chief_owner_ready")
+            chiefTabStep = .reached("chief owner \(self.chief.home.session) ready")
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
@@ -162,9 +136,13 @@ extension HomeService {
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
         if let followed { followedChiefConversations.insert(followed) }
-        guard let chief = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
-                                                     prefersLocal: prefersLocalChief), HomeDock.classic else { return }
-        homeWorkspaceStep = "waiting for the home workspace in the tree"
+        let resolved = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
+                                                  prefersLocal: prefersLocalChief)
+        homeStore.rememberChief(resolved.map { .init($0) })  // the next launch draws it first; the cached one ends (CMUX-571)
+        guard let chief = resolved else { chiefTabStep = .reached("no chief conversation to show"); return }
+        // A docked Home shows the Chief in its dock: no tab to make here.
+        guard HomeDock.classic else { chiefTabStep = .reached("chief shown in the dock"); return }
+        chiefTabStep = .reached("waiting for the home workspace in the tree")
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
@@ -194,7 +172,7 @@ extension HomeService {
         let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {
-            homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
+            chiefTabStep = .reached("no chief tab: an empty home on a daemon without Workspace.kind")
             return
         }
         // The key lives on the service (shared by overlapping connects); a
@@ -209,7 +187,7 @@ extension HomeService {
         for surface in HomeCloudChiefs.staleChiefTabs(stale: others, chief: chief, in: local.store.workspaces) {
             try await connection.closeTab(surface)
         }
-        homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"
+        chiefTabStep = .reached(created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present")
     }
 
     // MARK: Tab content

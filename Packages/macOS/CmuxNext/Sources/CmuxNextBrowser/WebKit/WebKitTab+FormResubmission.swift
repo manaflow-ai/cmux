@@ -76,6 +76,7 @@ extension WebKitTab {
 
     /// Send: repeats the cancelled navigation with one POST allowed.
     private func resendForm(_ retry: WebKitFormResubmission.Retry) {
+        guard resumeIfSuspended() else { return }
         formResubmission.allowOnce = true
         switch retry {
         case .restore(let data):

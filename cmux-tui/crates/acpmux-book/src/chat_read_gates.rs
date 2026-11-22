@@ -1,6 +1,10 @@
 //! Book reads at fixed reply size, in five alternating steady-state rounds.
-use crate::log::{Anchor, MAX_BLOB_READ, MAX_FRAME_BYTES};
-use crate::testkit::{BlobFixture, blob_fixture, folded_book, ids};
+use crate::gate_rounds::{self, all_p95, best_p95, p95};
+use crate::log::{Anchor, Edge, MAX_BLOB_READ, MAX_FRAME_BYTES};
+use crate::testkit::{
+    BlobFixture, REPLY, TURN_ROWS, blob_fixture, folded_book, folded_turns, ids, turn_group,
+    turn_group_text,
+};
 use std::io::Write;
 use std::time::Instant;
 
@@ -10,10 +14,10 @@ const WARMUP: usize = 32;
 
 #[derive(Clone, Copy)]
 struct Measures {
-    small: u64,
-    god: u64,
-    small_all: u64,
-    god_all: u64,
+    small: u128,
+    god: u128,
+    small_all: u128,
+    god_all: u128,
 }
 
 impl Measures {
@@ -58,43 +62,38 @@ fn emit(name: &str, measures: Measures) {
     }
 }
 
-fn percentile(samples: &[u64]) -> u64 {
-    let mut sorted = samples.to_vec();
-    sorted.sort_unstable();
-    sorted.get((sorted.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap()
-}
-
 fn paired(
     name: &str,
     mode: &str,
     mut small: impl FnMut() -> u64,
     mut god: impl FnMut() -> u64,
 ) -> Measures {
-    fn round(sample: &mut impl FnMut() -> u64, into: &mut Vec<u64>) -> u64 {
+    fn round(sample: &mut impl FnMut() -> u64) -> Vec<u128> {
         for _ in 0..WARMUP {
             std::hint::black_box(sample());
         }
-        let start = into.len();
-        for _ in 0..SAMPLES {
-            into.push(sample());
-        }
-        percentile(into.get(start..).unwrap())
+        (0..SAMPLES).map(|_| u128::from(sample())).collect()
     }
-    let (mut small_samples, mut god_samples) = (Vec::new(), Vec::new());
-    let (mut small_best, mut god_best) = (u64::MAX, u64::MAX);
+    let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     for number in 1..=ROUNDS {
         // Each god round follows its small twin, rather than paying all of one side first.
-        let small_round = round(&mut small, &mut small_samples);
-        let god_round = round(&mut god, &mut god_samples);
-        small_best = small_best.min(small_round);
-        god_best = god_best.min(god_round);
-        println!("{name} mode={mode} round={number} small_p95={small_round} god_p95={god_round}");
+        let small_round = round(&mut small);
+        let god_round = round(&mut god);
+        let (small_p95, god_p95) = (p95(&small_round), p95(&god_round));
+        println!("{name} mode={mode} round={number} small_p95={small_p95} god_p95={god_p95}");
+        small_rounds.push(small_round);
+        god_rounds.push(god_round);
     }
+    // A row with two modes (blob_range) names each mode's rounds.
+    gate_rounds::report(
+        &format!("{name}/{mode}"),
+        &[("small", &small_rounds), ("god", &god_rounds)],
+    );
     let measures = Measures {
-        small: small_best,
-        god: god_best,
-        small_all: percentile(&small_samples),
-        god_all: percentile(&god_samples),
+        small: best_p95(&small_rounds),
+        god: best_p95(&god_rounds),
+        small_all: all_p95(&small_rounds),
+        god_all: all_p95(&god_rounds),
     };
     measures.report(name, mode);
     measures
@@ -143,6 +142,49 @@ fn v2_pr03c_fold_window() {
     );
     emit(name, measures);
     measures.check(name, "fold");
+}
+
+/// Turns in the god chat (80,000 messages in turns of four) and in the small one (200).
+const GOD_TURNS: u64 = 20_000;
+const SMALL_TURNS: u64 = 50;
+/// A turns page small enough that the small chat has turns left before it.
+const TURNS_PAGE_BYTES: usize = 2 * 1024;
+
+fn turns_sample(
+    log: &mut crate::log::Log,
+    folds: &crate::folds::Folds,
+) -> (u64, crate::log::Window) {
+    let start = Instant::now();
+    let page =
+        log.read_turns(Edge::Before(turn_group(GOD_TURNS + 1)), TURNS_PAGE_BYTES, folds).unwrap();
+    std::hint::black_box(&page);
+    (start.elapsed().as_nanos() as u64, page)
+}
+
+#[test]
+#[ignore]
+fn v2_pr03d_turns_page() {
+    let root = tempfile::tempdir().unwrap();
+    // Both chats end at the same turn, so their newest turns are the same rows.
+    let (mut small_log, small_folds) =
+        folded_turns(&root.path().join("small"), GOD_TURNS - SMALL_TURNS + 1, SMALL_TURNS);
+    let (mut god_log, god_folds) = folded_turns(&root.path().join("god"), 1, GOD_TURNS);
+    let (_, small_page) = turns_sample(&mut small_log, &small_folds);
+    let (_, god_page) = turns_sample(&mut god_log, &god_folds);
+    // Outside the clock: the same reply, cut by its bytes, with turns left before it.
+    assert_eq!(ids(&small_page.rows), ids(&god_page.rows));
+    assert_eq!(small_page.bytes, god_page.bytes);
+    assert!(small_page.rows.len() > 1 && (small_page.rows.len() as u64) < SMALL_TURNS);
+    assert!(small_page.has_before && god_page.has_before && !god_page.has_after);
+    let name = "v2.pr03d.turns_page";
+    let measures = paired(
+        name,
+        "newest",
+        || turns_sample(&mut small_log, &small_folds).0,
+        || turns_sample(&mut god_log, &god_folds).0,
+    );
+    emit(name, measures);
+    measures.check(name, "newest");
 }
 
 fn blob_sample(fixture: &mut BlobFixture, open: bool, bytes: &mut Vec<u8>) -> u64 {
@@ -198,4 +240,58 @@ fn v2_pr03c_blob_range() {
     for (mode, measures) in results {
         measures.check(name, mode);
     }
+}
+
+/// The last turn of both books in [`v2_pr03c_window_folds`].
+const LAST_TURN: u64 = 99_999;
+/// The turns one window there holds: each shows its group and its reply.
+const WINDOW_TURNS: u64 = 8;
+
+fn window_folds_sample(log: &mut crate::log::Log, folds: &crate::folds::Folds) -> u64 {
+    let before = folds.stats();
+    let start = Instant::now();
+    let rows = (2 * WINDOW_TURNS) as usize;
+    let window = log.read_window(Anchor::End, rows, MAX_FRAME_BYTES, Some(folds), &[]).unwrap();
+    std::hint::black_box(&window);
+    let elapsed = start.elapsed().as_nanos() as u64;
+    // Check outside the clock: one search a read, and the same steps and rows at both sizes.
+    let after = folds.stats();
+    assert_eq!(after.searches - before.searches, 1, "one search of folds.idx a read");
+    assert_eq!(after.search_reads - before.search_reads, 0, "the last entry is in memory");
+    assert_eq!(after.entry_reads - before.entry_reads, WINDOW_TURNS - 1, "a step a turn");
+    let expected: Vec<u64> = (LAST_TURN + 1 - WINDOW_TURNS..=LAST_TURN)
+        .flat_map(|turn| [turn_group(turn), turn_group(turn) + TURN_ROWS - 1])
+        .collect();
+    assert_eq!(ids(&window.rows), expected);
+    assert!(window.refused.is_empty() && window.has_before && !window.has_after);
+    assert_eq!(window.at.len(), window.rows.len());
+    for (row, range) in window.rows.iter().zip(&window.at) {
+        let text = window.bytes.get(range.clone()).unwrap();
+        if (row.row_id - 1).is_multiple_of(TURN_ROWS) {
+            assert_eq!(text, turn_group_text((row.row_id - 1) / TURN_ROWS));
+        } else {
+            assert_eq!(text, REPLY);
+        }
+    }
+    elapsed
+}
+
+#[test]
+#[ignore]
+fn v2_pr03c_window_folds() {
+    let root = tempfile::tempdir().unwrap();
+    // Both books end at the same turns; the god book has 100,000 closed folds, the small 10.
+    let (mut small_log, small_folds) =
+        folded_turns(&root.path().join("small"), LAST_TURN + 1 - 10, 10);
+    let (mut god_log, god_folds) = folded_turns(&root.path().join("god"), 0, LAST_TURN + 1);
+    assert_eq!((small_folds.count(), god_folds.count()), (10, 100_000));
+    let name = "v2.pr03c.window_folds";
+    let measures = paired(
+        name,
+        "folds",
+        || window_folds_sample(&mut small_log, &small_folds),
+        || window_folds_sample(&mut god_log, &god_folds),
+    );
+    emit(name, measures);
+    measures.check(name, "folds");
 }

@@ -22,12 +22,64 @@ pub(crate) struct MeshBook {
     hosts: BTreeMap<String, u64>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
+    /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
+    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`).
+    /// Only the hub carrier reads it.
+    #[cfg(feature = "hub-carrier")]
+    machines: BTreeMap<String, String>,
 }
 
-/// The fields a hub row is built from beside its key (`row_of`), and the last read that listed
-/// it. A heartbeat that changes nothing is told by these, not by building each row again: at
-/// 2,048 rows that build took 2.65 ms a read, and the next allocation, whoever made it, paid
-/// another 100 us for its frees (`list_tee/gates.rs`, `hub_row_drain_steps`, 2026-11-14).
+/// Whether `book` lists daemon `d` as one of this person's other machines (`mine`).
+fn is_mine(
+    d: &crate::mesh::BookDaemon,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> bool {
+    !(own_user.is_empty()
+        || d.user != own_user
+        || d.host.is_empty()
+        || own_daemon == Some(d.daemon_id.as_str())
+        || super::mesh_rows::is_own_host(&d.host)
+        || skip(&d.host))
+}
+
+/// The machines of `book` [`mine`] lists, by hub `daemonId`, to their host. A machine with no
+/// `daemonId` is left out: nothing can dial it.
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn mine_by_key(
+    book: &AddressBook,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> BTreeMap<String, String> {
+    book.daemons
+        .iter()
+        .filter(|d| !d.daemon_id.is_empty() && is_mine(d, own_user, own_daemon, skip))
+        .take(MAX_BOOK_ROWS)
+        .map(|d| (d.daemon_id.clone(), d.host.clone()))
+        .collect()
+}
+
+/// What a hub row is built from beside its key: `row_of` reads a session through this alone, and
+/// `Bare` keeps it, so a field a row reads is a field whose change builds the row again.
+#[derive(PartialEq, Eq)]
+struct Fields<'a> {
+    name: &'a str,
+    harness: &'a str,
+    state: &'a str,
+}
+
+impl<'a> Fields<'a> {
+    fn of(s: &'a BookSession) -> Self {
+        Self { name: &s.name, harness: &s.harness, state: &s.state }
+    }
+}
+
+/// The fields a hub row was built from (`Fields`), owned, and the last read that listed it. A
+/// heartbeat that changes nothing is told by these, not by building each row again: at 2,048
+/// rows that build took 2.65 ms a read, and the next allocation, whoever made it, paid another
+/// 100 us for its frees (`list_tee/gates.rs`, `hub_row_drain_steps`, 2026-11-14).
 struct Bare {
     name: String,
     harness: String,
@@ -36,13 +88,18 @@ struct Bare {
 }
 
 impl Bare {
-    fn of(s: &BookSession, read: u64) -> Self {
-        Self { name: s.name.clone(), harness: s.harness.clone(), state: s.state.clone(), read }
+    fn of(fields: &Fields<'_>, read: u64) -> Self {
+        let Fields { name, harness, state } = *fields;
+        Self { name: name.into(), harness: harness.into(), state: state.into(), read }
     }
 
-    /// Whether `s` builds the row this was built from.
-    fn builds(&self, s: &BookSession) -> bool {
-        self.name == s.name && self.harness == s.harness && self.state == s.state
+    fn fields(&self) -> Fields<'_> {
+        Fields { name: &self.name, harness: &self.harness, state: &self.state }
+    }
+
+    /// Whether `fields` build the row this was built from.
+    fn builds(&self, fields: &Fields<'_>) -> bool {
+        self.fields() == *fields
     }
 }
 
@@ -58,13 +115,7 @@ pub(crate) fn mine(
     let mut hosts = BTreeMap::new();
     let mut daemons = std::collections::HashSet::new();
     for d in book.daemons {
-        if own_user.is_empty()
-            || d.user != own_user
-            || d.host.is_empty()
-            || own_daemon == Some(d.daemon_id.as_str())
-            || super::mesh_rows::is_own_host(&d.host)
-            || skip(&d.host)
-        {
+        if !is_mine(&d, own_user, own_daemon, skip) {
             continue;
         }
         let seen = hosts.entry(d.host.clone()).or_insert(0);
@@ -83,14 +134,15 @@ pub(crate) fn mine(
 
 /// A hub session's row before `remote_summary` names it for its host. `updatedAt` is when this
 /// daemon first saw it as it is now, so a heartbeat that changes nothing changes no row.
-fn row_of(s: &BookSession) -> Value {
+fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
+    let Fields { name, harness, state } = *fields;
     json!({
-        "sessionId": s.session_id,
-        "name": s.name,
-        "harness": s.harness,
-        "status": s.state,
+        "sessionId": session_id,
+        "name": name,
+        "harness": harness,
+        "status": state,
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
-        "pendingPermissions": u64::from(s.state == "waiting"),
+        "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
     })
@@ -107,8 +159,32 @@ impl Hub {
     ) {
         let ssh: std::collections::HashSet<String> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-        let (hosts, sessions) = mine(book, own_user, own_daemon, &|host| ssh.contains(host));
+        let skip = |host: &str| ssh.contains(host);
+        #[cfg(feature = "hub-carrier")]
+        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &skip));
+        let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
+    }
+
+    /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
+    /// stops.
+    #[cfg(feature = "hub-carrier")]
+    pub fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
+    }
+
+    /// The host of the machine whose hub `daemonId` is `key`, when the book lists it as one of
+    /// this person's other machines.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_machine(&self, key: &str) -> Option<String> {
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines.get(key).cloned()
+    }
+
+    /// Each of this person's other machines the book lists: `(daemonId, host)`.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
     }
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
@@ -128,13 +204,15 @@ impl Hub {
                 key.push_str(&s.host);
                 key.push('/');
                 key.push_str(&s.session_id);
+                let fields = Fields::of(s);
                 if let Some((was, _)) = book.rows.get_mut(key.as_str())
-                    && was.builds(s)
+                    && was.builds(&fields)
                 {
                     was.read = read;
                     continue;
                 }
-                let mut fields = row_of(s);
+                let bare = Bare::of(&fields, read);
+                let mut fields = row_of(&s.session_id, &fields);
                 fields.set("updatedAt", json!(now));
                 let summary = Self::remote_summary(&s.host, fields);
                 let row = PeerRow::new(&summary);
@@ -144,7 +222,7 @@ impl Hub {
                     summary: row,
                     receipt: SessionReceipt::new(&s.host, &s.session_id, None, 0),
                 });
-                book.rows.insert(key.clone(), (Bare::of(s, read), row));
+                book.rows.insert(key.clone(), (bare, row));
             }
             let mut gone: Vec<(String, Value)> = Vec::new();
             book.rows.retain(|_, (bare, r)| {
@@ -203,6 +281,22 @@ impl Hub {
             .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone()))
             .collect();
         (hosts, keys)
+    }
+
+    /// The session ids of machine `host`'s hub rows, read from its own range of the book: what
+    /// the v2 list offers again when a slot of its index frees (`list_tee/refused.rs`).
+    pub(super) fn mesh_book_ids(&self, host: &str) -> Vec<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let start = format!("{host}/");
+        book.rows
+            .range::<str, _>((
+                std::ops::Bound::Included(start.as_str()),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(|(key, _)| key.starts_with(&start))
+            .filter(|(_, (_, r))| r.peer == host)
+            .map(|(_, (_, r))| r.receipt.mux_session_id.clone())
+            .collect()
     }
 
     /// The hub rows `keep` takes, cloning no other.

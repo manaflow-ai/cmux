@@ -114,9 +114,10 @@ fn directory(name: &str) -> std::path::PathBuf {
     directory
 }
 
+/// The snapshot file of terminal `n`: its stream ends at offset `n`.
 fn write_snapshot(directory: &Path, n: u8, days_ago: u64, replay: &[u8]) {
     let header = serde_json::json!({
-        "generation": "g", "stream_end": 0, "cols": 40, "rows": 5, "written_at_ms": NOW - days_ago * DAY_MS,
+        "generation": "g", "stream_end": n, "cols": 40, "rows": 5, "written_at_ms": NOW - days_ago * DAY_MS,
     });
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(replay).unwrap();
@@ -127,6 +128,13 @@ fn write_snapshot(directory: &Path, n: u8, days_ago: u64, replay: &[u8]) {
     file.write_all(&encoder.finish().unwrap()).unwrap();
 }
 
+/// The pass as the writer runs it, with a disk that is not low: over a scan of the snapshots of `parked`.
+fn pass_over(directory: &Path, parked: &HashSet<TerminalPublicId>) -> Pass {
+    let (_, snapshots) =
+        super::super::snapshot::scan(directory, |terminal| parked.contains(terminal));
+    run_with(directory, &snapshots, parked, NOW, u64::MAX, false)
+}
+
 #[test]
 fn the_pass_trims_parked_files_and_leaves_running_ones() {
     let directory = directory("run");
@@ -135,7 +143,7 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
     write_snapshot(&directory, 2, 3, &replay);
     write_snapshot(&directory, 3, 40, &replay);
     let parked: HashSet<_> = [id(1), id(3)].into();
-    run_with(&directory, &parked, NOW, u64::MAX, false);
+    pass_over(&directory, &parked);
     let (trimmed, _, _) = super::super::snapshot::read(&directory, &id(1)).unwrap();
     assert!(rows_of(&trimmed.bytes).0 <= WEEK_LINES);
     let header =
@@ -155,9 +163,152 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
     // A second pass in the same tier rewrites nothing.
     let before =
         fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
-    run_with(&directory, &parked, NOW, u64::MAX, false);
+    pass_over(&directory, &parked);
     let after =
         fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
     assert_eq!(before, after);
+    let _ = fs::remove_dir_all(&directory);
+}
+
+/// What `pass` read from the store's directory on this thread: (lists of the directory, reads of a snapshot
+/// header).
+fn disk_reads_of<T>(pass: impl FnOnce() -> T) -> ((usize, usize), T) {
+    use super::super::snapshot::DISK_READS;
+    let before = DISK_READS.with(std::cell::Cell::get);
+    let out = pass();
+    let after = DISK_READS.with(std::cell::Cell::get);
+    ((after.0 - before.0, after.1 - before.1), out)
+}
+
+/// The stream end that [`write_snapshot`] gave terminal `n`.
+fn end_of(n: u8) -> (TerminalPublicId, (String, u64)) {
+    (id(n), ("g".to_owned(), u64::from(n)))
+}
+
+/// The start of the store reads the snapshot files for 2 things: the parked trim (the age and the size of each
+/// parked snapshot) and where each terminal's stream ends. One list of the directory and one read of each header
+/// give both, at any number of parked terminals. Counts only: no time is compared.
+#[test]
+fn the_start_reads_each_snapshot_header_one_time() {
+    let replay = replay_with_lines(20);
+    for (parked, running) in [(8_u8, 3_u8), (32, 5)] {
+        let directory = directory(&format!("start-reads-{parked}"));
+        for n in 0..parked + running {
+            write_snapshot(&directory, n, 0, &replay);
+        }
+        let parked_ids: HashSet<_> = (0..parked).map(id).collect();
+        let ((lists, headers), reads) = disk_reads_of(|| {
+            super::super::start::trim_parked_and_read_ends(
+                &directory,
+                &parked_ids,
+                NOW,
+                u64::MAX,
+                false,
+            )
+        });
+        assert_eq!(reads.trim.rewrites, 0, "a fresh snapshot is not trimmed");
+        assert_eq!(
+            reads.stream_ends,
+            (0..parked + running).map(end_of).collect::<std::collections::HashMap<_, _>>(),
+            "each snapshot gives its stream end"
+        );
+        assert_eq!(
+            (lists, headers),
+            (1, usize::from(parked + running)),
+            "(lists of the directory, header reads) for {parked} parked and {running} other snapshots: one list, \
+             and each header one time"
+        );
+        let _ = fs::remove_dir_all(&directory);
+    }
+}
+
+/// The start's reads say how many entries the store's directory has (the scan's one list gives them: each file and
+/// folder, of each kind) and how many terminals are parked: the start log gets the 2 numbers, so a slow start says
+/// how much it had to go over. Counts only: no time is compared.
+#[test]
+fn the_start_counts_the_directory_entries_and_the_parked_terminals() {
+    let directory = directory("start-counts");
+    let replay = replay_with_lines(20);
+    for n in 0..5 {
+        write_snapshot(&directory, n, 0, &replay);
+    }
+    // 2 entries that are no snapshot file: the list gives them and the scan reads no header of them.
+    fs::write(directory.join("other.tail"), b"x").unwrap();
+    fs::create_dir(directory.join("folder")).unwrap();
+    // A parked terminal with no snapshot file is counted too: the count is of the terminals.
+    let parked: HashSet<_> = [id(0), id(1), id(9)].into();
+    let ((lists, headers), reads) = disk_reads_of(|| {
+        super::super::start::trim_parked_and_read_ends(&directory, &parked, NOW, u64::MAX, false)
+    });
+    assert_eq!((lists, headers), (1, 5), "the count of the entries is of the scan's one list");
+    assert_eq!(
+        (reads.scan.entries, reads.scan.headers, reads.parked),
+        (7, 5, 3),
+        "(entries of the directory, headers read, parked terminals)"
+    );
+    let _ = fs::remove_dir_all(&directory);
+}
+
+/// The trim runs before the stream ends are known. A snapshot that the pass removes gives no stream end (the
+/// stream of its terminal starts again), a trimmed one keeps its end, and one that is not parked is not touched.
+#[test]
+fn a_removed_snapshot_gives_no_stream_end_and_a_trimmed_one_keeps_its_end() {
+    let directory = directory("ends");
+    let replay = replay_with_lines(2_000);
+    // Parked, past 30 days: the file goes.
+    write_snapshot(&directory, 1, 40, &replay);
+    // Parked, 3 days: trimmed.
+    write_snapshot(&directory, 2, 3, &replay);
+    // Not parked: it stays as it is, whatever its age.
+    write_snapshot(&directory, 3, 40, &replay);
+    // Parked and fresh: it stays whole.
+    write_snapshot(&directory, 4, 0, &replay);
+    let parked: HashSet<_> = [id(1), id(2), id(4)].into();
+    let reads =
+        super::super::start::trim_parked_and_read_ends(&directory, &parked, NOW, u64::MAX, false);
+    assert_eq!(reads.trim.rewrites, 1, "the pass rewrites the 3-day snapshot");
+    assert!(
+        !super::super::snapshot::path(&directory, &id(1)).exists(),
+        "past 30 days the file goes"
+    );
+    let header =
+        super::super::snapshot::read_header(&super::super::snapshot::path(&directory, &id(2)))
+            .unwrap();
+    assert_eq!(header["kept_lines"], WEEK_LINES, "the 3-day snapshot is trimmed");
+    // The scanned header gives the end of the trimmed file: the new file must record the same stream.
+    assert_eq!(header["stream_end"], 2, "the trimmed file keeps its stream end");
+    assert_eq!(header["generation"], "g", "the trimmed file keeps its generation");
+    assert_eq!(
+        reads.stream_ends,
+        std::collections::HashMap::from([2, 3, 4].map(end_of)),
+        "the removed snapshot has no stream end; each other one has its own"
+    );
+    let _ = fs::remove_dir_all(&directory);
+}
+
+/// With no parked terminal (also when the read of the parked terminals failed, `Mux::parked_terminal_ids`), the
+/// pass changes no snapshot, whatever its age, the budget and the free disk, and each snapshot gives its stream
+/// end.
+#[test]
+fn with_no_parked_terminal_the_pass_changes_no_snapshot() {
+    let directory = directory("none-parked");
+    let replay = replay_with_lines(2_000);
+    // Past 30 days: a parked one would go.
+    write_snapshot(&directory, 1, 40, &replay);
+    // 3 days: a parked one would be trimmed.
+    write_snapshot(&directory, 2, 3, &replay);
+    let files = || [1, 2].map(|n| fs::read(super::super::snapshot::path(&directory, &id(n))).ok());
+    let before = files();
+    assert!(before.iter().all(Option::is_some), "setup: the 2 snapshot files are on disk");
+    // No budget and a low disk: the pass that removes the most.
+    let reads =
+        super::super::start::trim_parked_and_read_ends(&directory, &HashSet::new(), NOW, 0, true);
+    assert_eq!(reads.trim.rewrites, 0, "no rewrite");
+    assert!(files() == before, "a snapshot file changed or went with no parked terminal");
+    assert_eq!(
+        reads.stream_ends,
+        std::collections::HashMap::from([1, 2].map(end_of)),
+        "each snapshot has its stream end"
+    );
     let _ = fs::remove_dir_all(&directory);
 }

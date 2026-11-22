@@ -11,11 +11,14 @@ use std::path::Path;
 pub const HEAD_DIRS: &[&str] =
     &[".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
 
-/// The head's harness settings that run a command when the harness starts (hooks, and the
-/// project's MCP servers, which start outside the tool gate): a start at the head would run
-/// them on a partial checkout, so such a head is never marked.
-pub const START_SETTINGS: &[&str] =
-    &[".claude/settings.json", ".claude/settings.local.json", ".mcp.json"];
+/// The head's harness settings that run a command when the harness starts (hooks): a start at
+/// the head would run them on a partial checkout, so such a head is never marked.
+///
+/// A project `.mcp.json` is not one of them. Its stdio servers start outside the tool gate too,
+/// but the only start that goes ahead at a head, acpmux's Claude Code, replaces each one Claude
+/// would run with the same server under `cmux repo mcp-lazy`, which starts it once the whole
+/// checkout is in (acpmux `agent_tools::project_mcp`).
+pub const START_SETTINGS: &[&str] = &[".claude/settings.json", ".claude/settings.local.json"];
 
 /// Whether the head of `root` may be marked ready. `folders`: the folders below `root`,
 /// relative, whose own files and harness folders the head holds too (a chat's subpath and
@@ -109,11 +112,26 @@ mod tests {
         std::fs::create_dir_all(root.join("app/web")).unwrap();
         let folders = [Path::new("app"), Path::new("app/web")];
         assert!(head_allowed(root, &folders));
-        std::fs::write(root.join("app/web/.mcp.json"), "{}").unwrap();
-        assert!(!head_allowed(root, &folders), "a subpath folder's MCP servers");
+        std::fs::create_dir_all(root.join("app/web/.claude")).unwrap();
+        std::fs::write(root.join("app/web/.claude/settings.json"), "{}").unwrap();
+        assert!(!head_allowed(root, &folders), "a subpath folder's hooks");
         assert!(head_allowed(root, &[]), "the root alone has none");
-        std::fs::write(root.join(".mcp.json"), "{}").unwrap();
-        assert!(!head_allowed(root, &[]), "the root's MCP servers");
+        std::fs::create_dir_all(root.join(".claude")).unwrap();
+        std::fs::write(root.join(".claude/settings.local.json"), "{}").unwrap();
+        assert!(!head_allowed(root, &[]), "the root's hooks");
+    }
+
+    /// A project's MCP servers no longer keep the head unmarked: acpmux starts each under
+    /// `cmux repo mcp-lazy`, which waits for the whole checkout.
+    #[test]
+    fn project_mcp_servers_leave_the_head_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("app")).unwrap();
+        let servers = r#"{"mcpServers":{"local":{"command":"node","args":["server.js"]}}}"#;
+        std::fs::write(root.join(".mcp.json"), servers).unwrap();
+        std::fs::write(root.join("app/.mcp.json"), servers).unwrap();
+        assert!(head_allowed(root, &[Path::new("app")]));
     }
 
     #[test]

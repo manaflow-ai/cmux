@@ -21,6 +21,8 @@ pub mod blobs;
 pub mod checkpoint;
 pub mod folds;
 mod fsio;
+#[cfg(any(test, feature = "gate-rounds"))]
+pub mod gate_rounds;
 pub mod index;
 mod json;
 pub mod log;
@@ -41,3 +43,5 @@ mod recover_tests;
 mod row_tests;
 #[cfg(test)]
 mod testkit;
+#[cfg(test)]
+mod turns_read_tests;

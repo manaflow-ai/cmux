@@ -1,11 +1,12 @@
-//! `_acpmux/info` with `sessionIds`: the session list's rows by key, byte for byte the rows
-//! `_acpmux/sessions` lists, bounded, and a peer's row read here with nothing sent on its link;
-//! and `_acpmux/status`'s `closedListed`.
+//! `_acpmux/info` with `sessionIds`: the session list's rows by key, equal once parsed to the
+//! rows `_acpmux/sessions` lists, bounded, and a peer's row read here with nothing sent on its
+//! link; and `_acpmux/status`'s `closedListed` and `closedRemoteListed`.
 
 use crate::config::{Config, StoreMode};
 use crate::hub::Hub;
 use crate::rpc::{Message, method};
 use crate::server::{Origin, serve_connection_with};
+use acpmux_book::gate_rounds::{self, best_p95};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -100,7 +101,7 @@ fn listed_by_key(list: &Value) -> HashMap<String, Value> {
 }
 
 #[tokio::test]
-async fn the_rows_by_key_are_the_lists_rows_byte_for_byte() {
+async fn the_rows_by_key_are_the_lists_rows_once_parsed() {
     for ready in [true, false] {
         let (hub, _, live, closed) = fixture(ready);
         for tools in [false, true] {
@@ -163,6 +164,10 @@ async fn a_batch_past_its_bounds_is_refused() {
         json!({"sessionIds": many, "row": true}),
         json!({"sessionIds": [], "row": true}),
         json!({"sessionIds": [live.clone()], "sessionId": live.clone(), "row": true}),
+        // A peer's chat beside them is refused too, never forwarded to the peer.
+        json!({"sessionIds": [live.clone()], "sessionId": format!("far/{PEER_CHAT}"), "row": true}),
+        json!({"sessionIds": [live.clone()], "session": live.clone(), "row": true}),
+        json!({"sessionIds": [live.clone()], "name": "chat-0", "row": true}),
         json!({"sessionIds": [live.clone()]}),
         json!({"sessionIds": [7], "row": true}),
     ] {
@@ -215,20 +220,86 @@ async fn status_counts_the_closed_rows_the_list_holds() {
     let (hub, _, _, _) = fixture(true);
     let (status, _) = call(&hub, method::MUX_STATUS, json!({})).await;
     let (list, _) = call(&hub, method::MUX_SESSIONS, json!({})).await;
-    let closed = list.unwrap()["sessions"]
+    let list = list.unwrap();
+    let closed: Vec<&Value> = list["sessions"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|row| row["status"] == "closed")
-        .count();
-    assert_eq!(closed, 2);
-    assert_eq!(status.unwrap()["closedListed"], json!(closed));
+        .collect();
+    assert_eq!(closed.len(), 2);
+    let remote = closed.iter().filter(|row| row["peer"].is_string()).count();
+    assert_eq!(remote, 1, "the peer's closed row");
+    let status = status.unwrap();
+    assert_eq!(status["closedListed"], json!(closed.len()));
+    assert_eq!(status["closedRemoteListed"], json!(remote));
     assert!(crate::capabilities::ids().contains(&crate::capabilities::INFO_ROWS));
 }
 
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
+/// A session `n` stuck since `since` (three failed attempts on the account's sign-in).
+fn stuck_session(hub: &Hub, n: usize, since: u64) -> String {
+    let id = crate::god_fixture::chat_id(n);
+    let mut meta = crate::god_fixture::session_meta(
+        &id,
+        &format!("chat-{n}"),
+        "/work",
+        &crate::god_fixture::agent_session_id(n),
+        400,
+        1_791_540_000_000 + n as u64,
+    );
+    meta["status"] = Value::from("idle");
+    meta["harnessFailures"] = json!({"throughSeq": 9, "attempts": 3, "since": since,
+                                     "reason": "auth", "error": "401 unauthorized"});
+    hub.insert_test_session(serde_json::from_value(meta).unwrap());
+    id
+}
+
+/// `_acpmux/status` reads only the live sessions, and says what it said when it walked every
+/// one: the session count, the closed counts, the stuck list newest first and the agent counts,
+/// beside live, stuck and closed sessions, after one closes and after one is purged.
+#[tokio::test]
+async fn status_reads_the_live_sessions_and_says_the_same() {
+    let hub = memory_hub();
+    let live = session(&hub, 0, "idle");
+    let older_stuck = stuck_session(&hub, 1, 1_791_540_000_100);
+    let newer_stuck = stuck_session(&hub, 2, 1_791_540_000_200);
+    for n in 3..6 {
+        session(&hub, n, "closed");
+    }
+    let read = |hub: Arc<Hub>| async move {
+        let (status, _) = call(&hub, method::MUX_STATUS, json!({})).await;
+        let status = status.unwrap();
+        let stuck: Vec<String> = status["stuckSessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["sessionId"].as_str().unwrap().to_owned())
+            .collect();
+        (status, stuck)
+    };
+    let (status, stuck) = read(hub.clone()).await;
+    assert_eq!(status["sessions"], 6);
+    assert_eq!(status["closedListed"], 3);
+    assert_eq!(status["closedRemoteListed"], 0);
+    // Newest first, as the list sorts them.
+    assert_eq!(stuck, [newer_stuck.clone(), older_stuck.clone()]);
+    assert_eq!(status["stuckSessions"][0]["stuckReason"], "auth");
+    assert_eq!(status["liveAgents"], 0);
+    assert_eq!(status["hostsOnOtherBuilds"], 0);
+
+    // A stuck session that closes leaves the stuck list and adds to the closed count.
+    hub.kill(&hub.resolve(&newer_stuck).unwrap(), false).await.unwrap();
+    let (status, stuck) = read(hub.clone()).await;
+    assert_eq!(status["sessions"], 6);
+    assert_eq!(status["closedListed"], 4);
+    assert_eq!(stuck, std::slice::from_ref(&older_stuck));
+
+    // A purged session leaves the count; a purged live one leaves the closed count as it was.
+    hub.kill(&hub.resolve(&live).unwrap(), true).await.unwrap();
+    let (status, stuck) = read(hub.clone()).await;
+    assert_eq!(status["sessions"], 5);
+    assert_eq!(status["closedListed"], 4);
+    assert_eq!(stuck, [older_stuck]);
 }
 
 /// A hub with a hundred live chats, and `closed` closed ones beside them: the hundred's keys.
@@ -264,10 +335,8 @@ async fn batch_round(hub: &Arc<Hub>, keys: &[String]) -> (Vec<u128>, Vec<u128>) 
 }
 
 fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| {
-        rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(0)
-    };
-    let (small_p95, god_p95) = (best(small), best(god));
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95) = (best_p95(small), best_p95(god));
     let line =
         json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
     eprintln!("{line}");
@@ -332,7 +401,7 @@ async fn status_cost_beside_closed_rows() {
         }
         rounds.push(round);
     }
-    let best = rounds.iter_mut().map(|round| p95(round)).min().unwrap_or(0);
+    let best = best_p95(&rounds);
     let line = json!({"name": "status.beside_closed_wall", "p95": best, "unit": "ns"}).to_string();
     eprintln!("{line}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {

@@ -55,7 +55,12 @@ fn source(out: &Path) -> PathBuf {
         Command::new("curl").args(["-fsSL", "--retry", "3", "-o"]).arg(&tarball).arg(LIBVPX_URL),
         "download libvpx",
     );
-    let sum = Command::new("sha256sum").arg(&tarball).output().expect("sha256sum");
+    // coreutils' sha256sum on Linux; macOS ships only `shasum -a 256`.
+    let sum = Command::new("sha256sum")
+        .arg(&tarball)
+        .output()
+        .or_else(|_| Command::new("shasum").args(["-a", "256"]).arg(&tarball).output())
+        .expect("sha256sum or shasum");
     let sum = String::from_utf8_lossy(&sum.stdout);
     let got = sum.split_whitespace().next().unwrap_or("");
     assert_eq!(got, LIBVPX_SHA256, "libvpx tarball SHA-256 mismatch");
@@ -67,11 +72,33 @@ fn source(out: &Path) -> PathBuf {
 mod vp9 {
     use super::*;
 
+    /// Where libvpx is unpacked, built and installed. Its configure and makefiles break on
+    /// a path with whitespace (a macOS worker builds under `/Library/Application Support`),
+    /// so such an OUT_DIR gets a space-free directory under the temp dir, one per OUT_DIR.
+    fn work_root(out: &Path) -> PathBuf {
+        if !out.to_string_lossy().contains(char::is_whitespace) {
+            return out.to_path_buf();
+        }
+        // FNV-1a of OUT_DIR: stable across runs, distinct per build directory.
+        let hash = out.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+        });
+        let root = env::temp_dir().join(format!("cmux-libvpx-{hash:016x}"));
+        assert!(
+            !root.to_string_lossy().contains(char::is_whitespace),
+            "libvpx needs a build path without spaces; OUT_DIR and the temp dir ({}) both have one",
+            root.display()
+        );
+        std::fs::create_dir_all(&root).expect("libvpx work dir");
+        root
+    }
+
     pub fn build() {
         let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
-        let src = source(&out);
-        let build = out.join("libvpx-build");
-        let prefix = out.join("libvpx-install");
+        let root = work_root(&out);
+        let src = source(&root);
+        let build = root.join("libvpx-build");
+        let prefix = root.join("libvpx-install");
         let lib = prefix.join("lib").join("libvpx.a");
         if !lib.is_file() {
             let _ = std::fs::remove_dir_all(&build);

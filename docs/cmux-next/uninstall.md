@@ -204,10 +204,10 @@ This build's own folders:
 | `$CHIEF_DIR` | **Loses your data.** Chief memory. NIGHTLY's is `~/.cmux/chief/default` |
 | `$BUILD_DIR` | **Loses your data.** This build's app state (empty for NIGHTLY, whose state sits in `$SUPPORT` itself) |
 | `$SUPPORT/tags/$TAG` | **Loses your data.** The session daemon's saved workspaces, layout and scrollback |
-| `$SUPPORT/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`) and Cloud tunnel state (`cloud-next`) |
+| `$SUPPORT/$BUNDLE` | Links to this build's items in `cmux-next/$BUNDLE` that builds before kept here, and the sign-in file-fallback (`credentials.json`) NIGHTLY shares with classic NIGHTLY |
 | `$NEXT_SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
 | `$NEXT_SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
-| `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** Kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
+| `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`), Cloud tunnel state (`cloud-next`), the Cloud backend selection (`cloud-environment.json`, `client-config`), kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
 | `~/Library/Application Support/$BUNDLE` | Browser profiles (`BrowserProfiles`), backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
 | `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data. Each cmux browser profile has its own WebKit store, named by the profile's id (listed in `~/Library/Application Support/$BUNDLE/BrowserProfiles/profiles.json`), under `WebsiteDataStore/` here |
 | `~/Library/Caches/$BUNDLE` | Caches (update downloads, release notes) |

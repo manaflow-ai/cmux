@@ -152,8 +152,8 @@ fn window_page_resume_and_blob_use_the_shared_bound() {
 }
 
 #[test]
-fn resume_size_uses_sparse_offsets_and_at_most_one_segment_length() {
-    use crate::log::{Log, Options, ResumeSize, SEGMENT_HEADER_LEN};
+fn resume_size_counts_from_the_record_after_the_cursor_and_at_most_one_segment_length() {
+    use crate::log::{HEADER_LEN, Log, Options, ResumeSize, SEGMENT_HEADER_LEN};
     for (segment_bytes, expected_segments) in [(1_000_000, 1), (20_000, 2), (10_000, 3)] {
         let home = tempfile::tempdir().unwrap();
         let (mut log, _) = Log::open(home.path(), Options { segment_bytes }).unwrap();
@@ -162,33 +162,81 @@ fn resume_size_uses_sparse_offsets_and_at_most_one_segment_length() {
             log.append_settled(id, 1, RawRange { file, off: id, len: 1 }, b"{}").unwrap();
         }
         assert_eq!(log.row(600).unwrap().seg, expected_segments);
-        let before = log.stats();
-        // Both cursors start at the record with seq 256. Their actual missed records differ.
-        let first = log.resume_size(260, u64::MAX).unwrap();
-        let second = log.resume_size(300, u64::MAX).unwrap();
-        assert_eq!(first, second);
-        let ResumeSize::Within(bytes) = first else { panic!("at most two segments from seq 256") };
-        assert_eq!(bytes, (600 - 256 + 1) * (RECORD_OVERHEAD + 2) as u64);
+        // Both cursors share seq.idx's entry at seq 256; each is measured from its own next
+        // record, a header read for each record between the entry and the cursor.
         for cursor in [260, 300] {
-            let true_missed = (600 - cursor) * (RECORD_OVERHEAD + 2) as u64;
-            assert!(bytes >= true_missed);
+            let before = log.stats();
+            let size = log.resume_size(cursor, u64::MAX).unwrap();
+            assert_eq!(size, ResumeSize::Within((600 - cursor) * (RECORD_OVERHEAD + 2) as u64));
+            let headers = cursor + 1 - 256;
+            assert_eq!(log.stats().reads - before.reads, headers);
+            assert_eq!(log.stats().bytes_read - before.bytes_read, headers * HEADER_LEN as u64);
         }
+        let bytes = (600 - 260) * (RECORD_OVERHEAD + 2) as u64;
+        assert_eq!(log.resume_size(260, bytes - 1).unwrap(), ResumeSize::Over);
+        let before = log.stats();
         assert_eq!(log.resume_size(600, 0).unwrap(), ResumeSize::Within(0));
         assert_eq!(log.resume_size(u64::MAX, 0).unwrap(), ResumeSize::Within(0));
-        assert_eq!(log.resume_size(260, bytes - 1).unwrap(), ResumeSize::Over);
         let all = log.resume_size(0, u64::MAX).unwrap();
         if expected_segments >= 3 {
             assert_eq!(all, ResumeSize::Over);
         } else {
             assert_eq!(all, ResumeSize::Within(600 * (RECORD_OVERHEAD + 2) as u64));
         }
-        assert_eq!(log.stats().bytes_read, before.bytes_read);
-        assert_eq!(log.stats().reads, before.reads);
-        assert_eq!(
-            log.row(1).unwrap().off as u64,
-            SEGMENT_HEADER_LEN + crate::log::HEADER_LEN as u64
-        );
+        assert_eq!(log.stats().reads, before.reads, "a cursor at a seq.idx entry reads nothing");
+        assert_eq!(log.row(1).unwrap().off as u64, SEGMENT_HEADER_LEN + HEADER_LEN as u64);
     }
+}
+
+/// A resume that missed 10 records of 16 KB, 78 records past a `seq.idx` entry: it is measured
+/// from the record after its cursor, so it is under the actor's 1 MiB cap, and the records
+/// before the cursor cost one header read each, never their text.
+#[test]
+fn a_resume_of_large_records_counts_and_reads_only_what_it_missed() {
+    use crate::log::ResumeSize;
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    let text = vec![b'x'; crate::row::MAX_ROW_TEXT];
+    for id in 1..=600 {
+        log.append_settled(id, 1, RawRange::NONE, &text).unwrap();
+    }
+    let record = (crate::row::MAX_ROW_TEXT + RECORD_OVERHEAD) as u64;
+    let before = log.stats();
+    assert_eq!(log.resume_size(590, 1 << 20).unwrap(), ResumeSize::Within(10 * record));
+    let since = log.since(590, MAX_FRAME_BYTES).unwrap();
+    assert_eq!(since.rows.first().map(|row| row.seq), Some(591));
+    let read = log.stats().bytes_read - before.bytes_read;
+    // The 78 records from seq 512 to the cursor, a header each; then what the frame holds.
+    let headers = 2 * 78 * crate::log::HEADER_LEN as u64;
+    assert!(read <= headers + MAX_FRAME_BYTES as u64 + 64 * 1024, "{read} bytes read");
+}
+
+/// A header between `seq.idx`'s entry and the cursor that is not the next record's: the measure
+/// says damaged, never over, so its caller knows the book needs a rebuild.
+#[test]
+fn a_resume_measured_past_a_damaged_header_says_damaged() {
+    use crate::log::{HEADER_LEN, ResumeSize};
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    for id in 1..=20 {
+        log.append_settled(id, 1, RawRange::NONE, b"{}").unwrap();
+    }
+    assert_eq!(
+        log.resume_size(8, u64::MAX).unwrap(),
+        ResumeSize::Within(12 * (RECORD_OVERHEAD + 2) as u64)
+    );
+    let row = log.row(5).unwrap();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(home.path().join(format!("rows/{:06}.seg", row.seg)))
+        .unwrap();
+    file.seek(SeekFrom::Start(u64::from(row.off) - HEADER_LEN as u64 + 4)).unwrap();
+    file.write_all(&99u64.to_le_bytes()).unwrap();
+    assert_eq!(log.resume_size(8, u64::MAX).unwrap(), ResumeSize::Damaged);
+    assert_eq!(
+        log.resume_size(4, u64::MAX).unwrap(),
+        ResumeSize::Within(16 * (RECORD_OVERHEAD + 2) as u64)
+    );
 }
 
 #[test]

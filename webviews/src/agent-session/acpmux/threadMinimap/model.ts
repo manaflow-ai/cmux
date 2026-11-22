@@ -3,6 +3,7 @@
 import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
+import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
@@ -101,7 +102,11 @@ export function railPlacement(
 /// density"). A `fit` arm keeps that maximum as a slot and draws the ticks at the 10 px pitch in a rail
 /// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
 /// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
-/// thing shifts"). `fit-480` ships; the gallery compares the arms.
+/// thing shifts"). `fit-480` shipped that, but a chat short of 48 prompts then drew its rail above the
+/// view's middle. `fit-480-center` ships: the rail's middle is
+/// always the view's middle (Lucas, 2026-11-17: "the timeline ... is always vertically aligned, and is
+/// on the vertical center of the screen"); each new prompt grows it half a row at each end. The
+/// gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
@@ -126,7 +131,7 @@ export const RAIL_HEIGHTS = {
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480-center";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -146,6 +151,7 @@ export const STEP_MS = MOTION_MS.standard;
 /// responsive"). The rail is a deliberate target at the pane's edge, and the card is the point of
 /// hovering it; it was Codex's 250 ms `delayOpen`. The app's other hover cards keep their dwell
 /// (ui/hoverIntent.ts).
+// hover-timing: the minimap is a scrubber, its card the point of hovering it (Leo 2026-10-29)
 export const CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
@@ -316,12 +322,12 @@ export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
-/// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
-/// while Jump to latest shows: that control keeps its own glass and does not widen the transcript mask.
+/// (the bottom stack's top) while more lies below. The composer edge has no band: rows keep full ink
+/// down to the stack's top, as the Codex app's do (Lucas, 2026-11-17), Jump to latest or not.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
 export const TRANSCRIPT_FADE_TOP = 18;
-export const TRANSCRIPT_FADE_BOTTOM = 18;
+export const TRANSCRIPT_FADE_BOTTOM = 0;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
 /// above `viewportHeight` (a composer grown while the view follows the latest row).
@@ -376,19 +382,21 @@ export function railSlot(config: RailHeightConfig, viewportHeight: number, foot 
     : config.initial;
 }
 
-/// The top of a rail `height` tall: a `fit` arm's rail sits in its slot, placed as the slot of its
-/// full height would be (railTop), so the rows it adds never move it; every other rail is its box.
+/// The top of a rail `height` tall: a `top` or `bottom` fit arm's rail sits at that end of its slot,
+/// placed as the slot of its full height would be (railTop), so the rows it adds never move that end.
+/// A `center` one, and every other rail, is centered on the view itself (railTop): its middle stays
+/// the view's middle, and it moves off it only as little as it takes to stay in the room.
 export function railFitTop(
   height: number,
   viewportHeight: number,
   foot = viewportHeight,
   config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
 ): number {
-  if (!config.fixed || !config.fit) return railTop(height, viewportHeight, foot);
+  if (!config.fixed || !config.fit || config.fit === "center") return railTop(height, viewportHeight, foot);
   const slot = railSlot(config, viewportHeight, foot);
   const top = railTop(slot, viewportHeight, foot);
   const spare = Math.max(0, slot - height);
-  return config.fit === "top" ? top : config.fit === "bottom" ? top + spare : top + Math.round(spare / 2);
+  return config.fit === "top" ? top : top + spare;
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
@@ -657,14 +665,15 @@ export type MinimapTurns = {
   sessionId: string;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
-  /// Prompts indexed by the rail but not materialized in the transcript yet.
-  earlierRows?: readonly AcpmuxRow[];
-  /// The loaded portion is kept separately so prepending indexed prompts never changes the
-  /// incremental O(changed rows) work for a streamed reply.
+  /// The prompts the chat's index names that the rows do not hold yet (older than them). They are not in `turns`
+  /// or `ticks`: the rail reads each from here only when it draws or looks one up (railRows.ts), so a long chat's
+  /// index costs no object a prompt.
+  earlier?: PromptHeads;
+  /// The held turns and ticks: `turns` and `ticks` themselves (ScrollMap reads these).
   loadedTurns?: readonly MinimapTurn[];
   loadedTicks?: readonly MinimapTick[];
+  /// The rail row of the first held turn, past the indexed prompts (the count-only ones come before both).
   loadedStart?: number;
-  earlierTurns?: readonly MinimapTurn[];
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -678,7 +687,6 @@ const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[
 /// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
 /// rows before `from` in `rows` are the rows of `base`.
 export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
-const EMPTY_EARLIER_ROWS: readonly AcpmuxRow[] = [];
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
@@ -701,17 +709,11 @@ export function minimapTurns(
   sessionId = "",
   previous?: MinimapTurns,
   change?: RowsChange,
-  earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  earlier: PromptHeads = PromptHeads.EMPTY,
   promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
-  const reuse = prior
-    ? {
-        ...prior,
-        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.index >= 0),
-        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.index >= 0),
-      }
-    : undefined;
+  const reuse = prior;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -814,46 +816,30 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
-  // rail lays out every turn from the first frame. The combined list is a new array whenever the
-  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
-  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
+  // The indexed prompts older than the held rows (`earlier`) are not turns here: the rail reads them as rows of its
+  // own before the held ones (railRows.ts), so it lays out every turn from the first frame without an object a
+  // prompt. The loaded turns' lists are the result's own.
   const withEarlier = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
   ): MinimapTurns => {
-    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
     // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
-    if (!earlierRows.length)
-      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
-    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
-    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base, pendingCount: pending };
-    const earlier = sameEarlier
-      ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: promptText(row),
-          ...withSender(row),
-          reply: [],
-        }));
-    const turns = [...earlier, ...loadedTurns];
+    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length);
     return {
-      ...base,
-      turns,
-      // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
-      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
-      earlierRows,
-      earlierTurns: earlier,
-      pendingCount: pending,
+      rows,
+      sessionId,
+      turns: loadedTurns,
+      ticks: loadedTicks,
+      loadedTurns,
+      loadedTicks,
+      ...(spare ? { spare } : {}),
+      ...(earlier.length ? { earlier } : {}),
       loadedStart: earlier.length,
+      pendingCount: pending,
     };
   };
   if (!old) {

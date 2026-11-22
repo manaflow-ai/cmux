@@ -185,44 +185,46 @@ fn compaction_and_a_restore_cut_bump_the_count_twice_and_a_cold_archive_does_not
 
 #[test]
 fn a_cut_a_crash_left_halfway_bumps_the_count_when_it_is_finished() {
-    let (_home, store, last) = Home::chat("c", 200, 2 << 20);
-    super::between_segments_once("c", Box::new(|| panic!("a crash between two renames")));
-    let staged =
-        store.stage_compaction("c", CompactMode::Truncate { after: last / 2 }).unwrap().unwrap();
+    let (_home, store, last) = Home::chat("crash-cut", 200, 2 << 20);
+    super::between_segments_once("crash-cut", Box::new(|| panic!("a crash between two renames")));
+    let staged = store
+        .stage_compaction("crash-cut", CompactMode::Truncate { after: last / 2 })
+        .unwrap()
+        .unwrap();
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        store.commit_compaction("c", staged)
+        store.commit_compaction("crash-cut", staged)
     }));
     assert!(crashed.is_err());
     // The crash came after the first bump: one more when the cut is finished, before its first
     // rename, and one after its last.
     let restarted = LocalStore::new(store.root.clone(), 1 << 20).unwrap();
-    assert_eq!(restarted.read_stamp("c").unwrap(), 1);
-    restarted.segments("c").unwrap();
-    assert_eq!(restarted.read_stamp("c").unwrap(), 3);
+    assert_eq!(restarted.read_stamp("crash-cut").unwrap(), 1);
+    restarted.segments("crash-cut").unwrap();
+    assert_eq!(restarted.read_stamp("crash-cut").unwrap(), 3);
 }
 
 /// A read started while a change holds the writers' lock between two renames waits for the
 /// change, then reads under the bumped count: never a chunk of mixed lines under the old one.
 #[test]
 fn a_read_started_mid_change_waits_and_reads_under_the_bumped_count() {
-    let (_home, store, _) = Home::chat("c", 200, 2 << 20);
+    let (_home, store, _) = Home::chat("mid-change", 200, 2 << 20);
     let store = std::sync::Arc::new(store);
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let reader_store = store.clone();
     super::between_segments_once(
-        "c",
+        "mid-change",
         Box::new(move || {
             // The first segment is renamed and the writers' lock held: a read starts now.
             std::thread::spawn(move || {
                 started_tx.send(()).unwrap();
-                let before = reader_store.read_stamp("c").unwrap();
+                let before = reader_store.read_stamp("mid-change").unwrap();
                 let mut out = Vec::new();
                 let mut marks = LogMarks::default();
                 reader_store
-                    .read_log_bytes("c", 1, LogFilter::ALL, before, &mut marks, &mut out)
+                    .read_log_bytes("mid-change", 1, LogFilter::ALL, before, &mut marks, &mut out)
                     .unwrap();
-                let after = reader_store.read_stamp("c").unwrap();
+                let after = reader_store.read_stamp("mid-change").unwrap();
                 done_tx.send((before, after, out)).unwrap();
             });
             started_rx
@@ -231,13 +233,15 @@ fn a_read_started_mid_change_waits_and_reads_under_the_bumped_count() {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }),
     );
-    let staged =
-        store.stage_compaction("c", CompactMode::Write { archive: None }).unwrap().unwrap();
+    let staged = store
+        .stage_compaction("mid-change", CompactMode::Write { archive: None })
+        .unwrap()
+        .unwrap();
     assert!(done_rx.try_recv().is_err(), "nothing read yet");
-    assert!(store.commit_compaction("c", staged).unwrap());
+    assert!(store.commit_compaction("mid-change", staged).unwrap());
     let (before, after, out) = done_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
     assert_eq!((before, after), (2, 2), "the count was read after the change, not inside it");
-    let compacted = file_lines(&store, "c").concat();
+    let compacted = file_lines(&store, "mid-change").concat();
     assert!(compacted.starts_with(&out), "every line of the chunk is the compacted log's");
 }
 

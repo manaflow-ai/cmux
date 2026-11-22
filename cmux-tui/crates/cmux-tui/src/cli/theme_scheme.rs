@@ -92,6 +92,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         })
         .cloned()
         .collect();
+    if let Some(request) = theme_file_request(&rest) {
+        let prefix: Vec<String> =
+            args.iter().take_while(|word| *word != "theme").cloned().collect();
+        return Some(match request {
+            Ok(request) => super::theme_file::run(&global, &prefix, request),
+            Err(message) => {
+                eprintln!("{message}");
+                2
+            }
+        });
+    }
     Some(match parse(&rest) {
         Ok(request) => run(&global, request),
         Err(message) => {
@@ -99,6 +110,27 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             2
         }
     })
+}
+
+/// The theme file verbs (`super::theme_file`): its own verbs, `export` with
+/// no theme name (the current look), and `import` of a cmux theme file.
+/// Help lists both sets.
+fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Request, String>> {
+    let (verb, args) = rest.split_first()?;
+    let positional = || args.iter().filter(|word| !word.starts_with('-')).count();
+    let takes = match verb.as_str() {
+        verb if super::theme_file::VERBS.contains(&verb) => true,
+        "export" => positional() == 0 || args.iter().any(|w| w == "--save" || w == "--use"),
+        "import" => args
+            .iter()
+            .find(|word| !word.starts_with('-'))
+            .is_some_and(|file| super::theme_file::is_theme_file(Path::new(file))),
+        "-h" | "--help" | "help" => {
+            return Some(Err(format!("{}\n\n{USAGE}", super::theme_file::USAGE)));
+        }
+        _ => false,
+    };
+    takes.then(|| super::theme_file::parse(rest))
 }
 
 fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, String> {
@@ -396,65 +428,5 @@ fn decode_png(bytes: &[u8]) -> Result<(u32, u32, u8, Vec<u8>), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(words: &[&str]) -> Vec<String> {
-        words.iter().map(|w| (*w).to_owned()).collect()
-    }
-
-    #[test]
-    fn parses_each_verb() {
-        assert_eq!(
-            parse(&args(&["import", "x.yaml", "--name", "Mine", "--replace"])).unwrap(),
-            Request::Import {
-                file: "x.yaml".into(),
-                name: Some("Mine".into()),
-                from: None,
-                replace: true
-            }
-        );
-        assert_eq!(
-            parse(&args(&["export", "Nord", "--format", "iterm2"])).unwrap(),
-            Request::Export { name: "Nord".into(), format: SchemeFormat::Iterm2, output: None }
-        );
-        assert_eq!(
-            parse(&args(&["export", "Nord"])).unwrap(),
-            Request::Export { name: "Nord".into(), format: SchemeFormat::Base16, output: None }
-        );
-        assert!(matches!(
-            parse(&args(&["from-image", "w.png", "--appearance", "light"])).unwrap(),
-            Request::FromImage {
-                appearance: Some(Appearance::Light),
-                format: SchemeFormat::Ghostty,
-                ..
-            }
-        ));
-        assert!(parse(&args(&["convert", "x.yaml"])).is_err(), "convert needs --to");
-        assert!(parse(&args(&["export", "Nord", "--format", "png"])).is_err());
-        assert!(parse(&args(&["import"])).is_err());
-        assert!(parse(&args(&["nope"])).is_err());
-    }
-
-    #[test]
-    fn an_imported_file_is_named_by_its_scheme_then_its_file() {
-        let mut scheme = Scheme::from_theme_input(&cmux_theme_tokens::ThemeInput::GHOSTTY_DEFAULT);
-        assert_eq!(default_name(&scheme, Path::new("/x/tokyo-night.yaml")), "tokyo-night");
-        assert_eq!(default_name(&scheme, Path::new("/x/Nord")), "Nord");
-        scheme.name = Some("Tokyo Night".into());
-        assert_eq!(default_name(&scheme, Path::new("/x/tokyo-night.yaml")), "Tokyo Night");
-    }
-
-    #[test]
-    fn a_png_decodes_to_rgb() {
-        let mut bytes = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
-            encoder.set_color(png::ColorType::Rgb);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header().unwrap();
-            writer.write_image_data(&[1, 2, 3, 4, 5, 6]).unwrap();
-        }
-        assert_eq!(decode_png(&bytes).unwrap(), (2, 1, 3, vec![1, 2, 3, 4, 5, 6]));
-    }
-}
+#[path = "theme_scheme_tests.rs"]
+mod tests;

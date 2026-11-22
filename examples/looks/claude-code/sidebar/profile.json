@@ -1,0 +1,23 @@
+{
+  "cmuxProfile": 1,
+  "name": "claude-code-sidebar",
+  "description": "A 284 pt sidebar groups sessions by project folder and nests related sessions beneath their parent.",
+  "settings": {
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "sidebar.showProjects": true,
+    "sidebar.showChats": true,
+    "sidebar.controlsOnHover": true,
+    "appearance.metrics.sidebarWidth": 284
+  },
+  "files": {}
+}

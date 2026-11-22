@@ -64,11 +64,24 @@ pub(super) async fn enroll(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
 }
 
 /// A sign-in's enroll (`enroll`) with the join transition held, then the relay as config.json
-/// says once it is done (`on_disk`).
+/// says once it is done (`on_disk`), and the hub carrier on that join.
 pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
     hub: &Arc<Hub>,
     enroll: impl Future<Output = EnrollOutcome>,
     on_disk: impl FnOnce() -> D,
+) -> (EnrollOutcome, Option<&'static str>) {
+    enroll_transition_with(hub, enroll, on_disk, |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
+        Box::pin(async move { start_carrier(&hub, carrier_websocket(&hub)).await })
+    })
+    .await
+}
+
+/// [`enroll_transition`] with the carrier's start (`carrier`; tests put their own).
+async fn enroll_transition_with<D: Future<Output = Option<MeshRelayConfig>>>(
+    hub: &Arc<Hub>,
+    enroll: impl Future<Output = EnrollOutcome>,
+    on_disk: impl FnOnce() -> D,
+    carrier: impl FnOnce(Arc<Hub>) -> BoxFuture<'static, ()>,
 ) -> (EnrollOutcome, Option<&'static str>) {
     let _join = hub.join_transition.lock().await;
     let outcome = enroll.await;
@@ -79,13 +92,15 @@ pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>
             // stop of the relay between) never keeps the relay the last join's config started.
             let replaced = outcome == EnrollOutcome::Joined;
             // So does the carrier: one the last join started stops first, with the relay's hub
-            // client, so no ticket goes out on the last join's config meanwhile, then runs
-            // again on this join's.
-            let carrier_ran = replaced && stop_carrier(hub);
-            let relay = reconcile_relay(hub, on_disk().await, replaced).await;
-            if carrier_ran {
-                start_carrier(hub, carrier_websocket(hub)).await;
+            // client, so no ticket goes out on the last join's config meanwhile.
+            if replaced {
+                stop_carrier(hub);
             }
+            let relay = reconcile_relay(hub, on_disk().await, replaced).await;
+            // Then it runs on this join's, whether or not one ran before: a first join, or one
+            // after a sign-out's leave stopped the last, has none yet (#38440 review F1). One
+            // that still runs on this same join is kept.
+            carrier(Arc::clone(hub)).await;
             Some(relay)
         }
         _ => None,
@@ -243,11 +258,40 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
         let _ = hub.hub_carrier_websocket.set(websocket);
     }
     #[cfg(feature = "hub-carrier")]
-    if carrier.is_some() && hub.hub_carrier_serve.lock_or_recover().is_none() {
-        crate::hub_carrier::start_kept(hub, carrier).await;
+    {
+        // Every way through says what the carrier does, so a log always holds its state.
+        let running = hub.hub_carrier_serve.lock_or_recover().is_some();
+        if running {
+            tracing::info!("hub carrier: already serving; this join keeps it");
+        } else if carrier.is_some() {
+            crate::hub_carrier::start_kept(hub, carrier).await;
+        } else if joined(hub).await {
+            tracing::warn!("hub carrier off: this home is a copy, or the daemon has no listener");
+        } else {
+            tracing::info!("hub carrier off: this machine is not joined");
+        }
     }
+    // A joined machine whose build left the carrier out says so: the app's and the packages'
+    // acpmux once shipped without it and logged nothing (scripts/ci/acpmux-build-features.sh).
     #[cfg(not(feature = "hub-carrier"))]
-    let _ = (hub, carrier);
+    {
+        if joined(hub).await {
+            tracing::warn!(
+                "hub carrier off: this acpmux build has no hub carrier (feature hub-carrier)"
+            );
+        }
+        let _ = carrier;
+    }
+}
+
+/// Whether config.json joins this machine with its machine credential, which turns the carrier on.
+async fn joined(hub: &Hub) -> bool {
+    hub.config
+        .read()
+        .await
+        .mesh_relay
+        .as_ref()
+        .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
 }
 
 /// The daemon start's mesh relay and hub carrier. A sign-out's leave the last run did not finish
@@ -257,6 +301,12 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
 /// returns and held until both are settled, so an enroll or leave asked meanwhile waits for it,
 /// then acts on what it left; its task is kept on the hub (`Hub::join_start`).
 pub(crate) async fn start_joined_at_start(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
+    // The carrier's address, for a sign-in's enroll that starts it later, even when this start
+    // starts none (not joined yet, or a leave pending).
+    #[cfg(feature = "hub-carrier")]
+    if let Some(websocket) = carrier {
+        let _ = hub.hub_carrier_websocket.set(websocket);
+    }
     let join = Arc::clone(&hub.join_transition).lock_owned().await;
     let pending = crate::cli::cloud_join::leave_pending();
     let hub_for_disk = Arc::clone(hub);
@@ -300,12 +350,23 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
     // answer.
     Some(owner.scope.spawn_named("join-at-start", async move {
         let _join = join;
+        // The leave can wait on its lock and the hub's answers; until it ends, the carrier's
+        // state is this line.
+        tracing::info!(
+            "hub carrier: waits for the sign-out's leave the last run left unfinished, then starts if still joined"
+        );
         match finish.await {
             Some(outcome) if !crate::cli::cloud_join::relay_may_start(&outcome) => {
                 tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
                 // Left with the join's relay: stopped. Not finished: nothing changes now.
                 if outcome.left {
                     stop_joined(&hub).await;
+                    tracing::info!("hub carrier off: this machine left the team at this start");
+                } else {
+                    tracing::info!(
+                        kept = ?outcome.kept,
+                        "hub carrier off for this run: a sign-out's leave is not finished; the next start finishes it"
+                    );
                 }
             }
             outcome => {
@@ -318,6 +379,8 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
                     carrier(hub).await;
                     // The start's capability statement waited for this leave: it goes now.
                     crate::cli::cloud_join::state_capabilities_after_leave();
+                } else {
+                    tracing::info!("hub carrier off: this machine left the team at this start");
                 }
             }
         }
@@ -741,6 +804,68 @@ mod tests {
                 mark.store(true, Ordering::SeqCst);
             })
         }
+    }
+
+    /// A carrier start that keeps the relay URL of the join it started on (config.json's relay
+    /// as the daemon holds it then).
+    type Started = Arc<Mutex<Vec<Option<String>>>>;
+
+    fn carrier_on(
+        started: &Started,
+    ) -> impl FnOnce(Arc<crate::hub::Hub>) -> BoxFuture<'static, ()> + 'static {
+        let started = Arc::clone(started);
+        move |hub| -> BoxFuture<'static, ()> {
+            Box::pin(async move {
+                let url =
+                    hub.config.read().await.mesh_relay.as_ref().map(|relay| relay.url.clone());
+                started.lock().unwrap().push(url);
+            })
+        }
+    }
+
+    /// #38440 review F1: the carrier starts after a sign-in's enroll whether or not one ran
+    /// before. A first join (a daemon started unjoined) starts it, and so does a sign-in again
+    /// after a sign-out's leave stopped it, on the new join's relay and credential, never the
+    /// left one's.
+    #[tokio::test]
+    async fn a_re_enroll_after_a_sign_out_runs_the_carrier_on_the_new_join() {
+        let hub = memory_hub();
+        let (first, _first_seen) = recording_hub().await;
+        let (second, _second_seen) = recording_hub().await;
+        let started: Started = Arc::default();
+        // A daemon started unjoined: the first sign-in joins, and the carrier starts.
+        let disk: Disk = Arc::new(Mutex::new(Some(first.clone())));
+        let joined = super::enroll_transition_with(
+            &hub,
+            async { EnrollOutcome::Joined },
+            read(&disk),
+            carrier_on(&started),
+        )
+        .await;
+        assert_eq!(joined, (EnrollOutcome::Joined, Some("started")));
+        assert_eq!(*started.lock().unwrap(), [Some(first.url.clone())], "a first join's carrier");
+        // Signing out stops it with the relay.
+        *disk.lock().unwrap() = None;
+        let left =
+            LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: true };
+        super::after_leave(&hub, &left).await;
+        assert!(hub.mesh.get().is_none());
+        // Signing in again joins anew: the carrier runs again, on the new join.
+        *disk.lock().unwrap() = Some(second.clone());
+        let again = super::enroll_transition_with(
+            &hub,
+            async { EnrollOutcome::Joined },
+            read(&disk),
+            carrier_on(&started),
+        )
+        .await;
+        assert_eq!(again, (EnrollOutcome::Joined, Some("started")));
+        assert_eq!(
+            *started.lock().unwrap(),
+            [Some(first.url.clone()), Some(second.url.clone())],
+            "the re-enroll's carrier runs on the new join's relay"
+        );
+        super::stop_joined(&hub).await;
     }
 
     /// The start with a leave pending that ends as `outcome` once `gate` opens, config.json's

@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod live_tree;
+
 /// The most keys one `_acpmux/info` with `sessionIds` asks for (the design doc, "asks by key
 /// (`_acpmux/info`, at most 100 a request)").
 pub(crate) const MAX_KEYS: usize = 100;
@@ -30,6 +32,14 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         hub.session_log(&s).await;
     }
     let mut detail = hub.session_detail(&s);
+    // The Labs pane asks only on opening/refreshing. Other info reads never touch the live tree.
+    // Keep the file read on the host's trusted socket/app origins, as for other host-local data.
+    if params.get("includeLiveTree") == Some(&Value::Bool(true))
+        && matches!(conn.origin, Origin::Local | Origin::LocalApp)
+    {
+        let cwd = s.meta().cwd;
+        detail.set("liveTree", live_tree::read(&cwd).await);
+    }
     if let Some(obj) = detail.as_object_mut() {
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
@@ -67,8 +77,11 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     if conn.origin != Origin::Local {
         return Err(RpcError::invalid_params("sessionIds is read on this machine's socket only"));
     }
-    if params.get("sessionId").is_some_and(|id| !id.is_null()) {
-        return Err(RpcError::invalid_params("sessionIds and sessionId cannot both be given"));
+    if let Some(one) = ["sessionId", "session", "name"]
+        .into_iter()
+        .find(|key| params.get(key).is_some_and(|id| !id.is_null()))
+    {
+        return Err(RpcError::invalid_params(format!("sessionIds and {one} cannot both be given")));
     }
     if params.get(crate::server::peer_forward::ROW_WILL_DO).and_then(Value::as_bool) != Some(true) {
         return Err(RpcError::invalid_params("sessionIds reads the list's rows: send row: true"));

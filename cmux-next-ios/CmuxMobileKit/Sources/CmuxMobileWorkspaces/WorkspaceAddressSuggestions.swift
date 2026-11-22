@@ -65,7 +65,7 @@ public struct WorkspaceAddressSuggestions: View {
                     .frame(minHeight: 57)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .padding(.horizontal, 16)
                 .accessibilityIdentifier("address.otherWorkspace.\(hit.id)")
             }
@@ -113,7 +113,7 @@ public struct WorkspaceAddressSuggestions: View {
                 .frame(minHeight: 52)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, 16)
             .disabled(source.pendingTabTitle != nil)
             .accessibilityLabel(Text("\(WorkspaceTabsSource.openAddressTitle): \(text)"))

@@ -18,6 +18,8 @@
 #[cfg(unix)]
 mod actions;
 #[cfg(unix)]
+mod activation;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -28,10 +30,16 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod community;
+#[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
+#[cfg(unix)]
+mod github_gateway;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
@@ -41,18 +49,34 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod http_cache;
+#[cfg(unix)]
 mod load_trial;
 #[cfg(unix)]
 mod local_reload;
+#[cfg(unix)]
+mod locale;
+
+/// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
+/// preview words (`server::conversations`).
+#[cfg(unix)]
+pub(crate) fn person_locale() -> &'static str {
+    locale::current()
+}
+
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
-// The `render: web` page bridge (design step 5); the daemon's page-call
-// command and the Mac page host wire it in a follow-up.
+mod openers;
+#[cfg(unix)]
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
@@ -66,6 +90,8 @@ mod runs;
 #[cfg(unix)]
 mod safe_mode;
 #[cfg(unix)]
+mod server_external;
+#[cfg(unix)]
 mod server_tmp;
 #[cfg(unix)]
 mod servers;
@@ -76,17 +102,23 @@ mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
 #[cfg(unix)]
+mod status_items;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
 mod store_panels;
 #[cfg(unix)]
+mod store_trust;
+#[cfg(unix)]
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
+#[cfg(unix)]
+mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
@@ -95,6 +127,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -182,6 +216,10 @@ impl AppsSlot {
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
                 );
+                // Apps' GitHub reads run as the person's own gh sign-in.
+                supervisor.set_github_gateway(github_gateway::GitHubGateway::new(Arc::new(
+                    crate::feed_client::ProcessGh,
+                )));
                 // A page relay calls the store through the v2 page router,
                 // which makes it no apps client: it hears `apps-changed`
                 // from `subscribe` (page-router.json `events`), so the open

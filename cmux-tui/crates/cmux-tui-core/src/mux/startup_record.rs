@@ -42,7 +42,7 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .session_journal_database_path();
         let Some(session_dir) = database.as_deref().and_then(Path::parent) else { return };
-        self.open_slow_request_log(session_dir, database.as_deref());
+        self.open_slow_request_log(session_dir, database.as_deref(), unix_now_ms);
         let (pid, at_ms) = (std::process::id(), unix_now_ms());
         let mut line = timings.to_line(pid, at_ms);
         let mut after_ready =
@@ -85,10 +85,18 @@ impl Mux {
     }
 
     /// Opens the session's slow request log (`diagnostics/request_log.rs`) in `session_dir`,
-    /// names the two session locks to it, and writes its start line.
-    pub(crate) fn open_slow_request_log(&self, session_dir: &Path, database: Option<&Path>) {
+    /// names the two session locks to it, and writes its start line. `clock` is the log's
+    /// wall clock: the daemon passes [`unix_now_ms`].
+    pub(crate) fn open_slow_request_log(
+        &self,
+        session_dir: &Path,
+        database: Option<&Path>,
+        clock: crate::diagnostics::request_log::Clock,
+    ) {
         use crate::diagnostics::request_log::{Label, StartInfo};
-        let Some(log) = self.connection_stats.open_request_log(session_dir) else { return };
+        let Some(log) = self.connection_stats.open_request_log(session_dir, clock) else {
+            return;
+        };
         self.state.stats().report_long_holds("mux.state", log.clone());
         self.workspace_registry.stats().report_long_holds("workspace.registry", log.clone());
         let bytes = |suffix: &str| {

@@ -383,16 +383,23 @@ nonisolated enum AcpmuxServerPeer {
     /// only): the caller writes on THIS descriptor, never on another connection checked
     /// earlier (a squatter could take the path between a probe and a connect).
     static func connectChecked(socketPath: String, executable: URL) throws -> Int32 {
+        try connectChecked(socketPath: socketPath, executable: executable, allowForeign: false).descriptor
+    }
+
+    /// ``connectChecked(socketPath:executable:)``; with `allowForeign`, another install's same-user
+    /// daemon passes too (rule 1), and `match` says which it is. The caller of a foreign match
+    /// still checks rule 2 on its `initialize` and never proves or enrolls there (rule 3).
+    static func connectChecked(socketPath: String, executable: URL,
+                               allowForeign: Bool) throws -> (descriptor: Int32, match: Match) {
         let descriptor = try connect(socketPath)
         do {
-            guard try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: false) == .own else {
-                throw Refusal.otherExecutable(socketPath)
-            }
+            let match = try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: allowForeign)
+            guard allowForeign || match == .own else { throw Refusal.otherExecutable(socketPath) }
+            return (descriptor, match)
         } catch {
             Darwin.close(descriptor)
             throw error
         }
-        return descriptor
     }
 
     /// Who answers on `socketPath`, read from a connection's own peer facts and closed at once

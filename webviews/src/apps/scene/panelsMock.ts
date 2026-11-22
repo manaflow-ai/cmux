@@ -47,6 +47,43 @@ export function mockChatWidgetScene(context?: Record<string, unknown>): SceneOp[
   ];
 }
 
+/** What `apps.composer.list` answers in the mock: one extension's slash commands. */
+export const MOCK_COMPOSER_COMMANDS: readonly unknown[] = [
+  {
+    app: "samples/standup",
+    extension: "Standup",
+    name: "standup",
+    description: "Ask for today's standup notes",
+    insert: "Write my standup: what I did yesterday, what I do today, what blocks me.",
+  },
+  {
+    app: "samples/standup",
+    extension: "Standup",
+    name: "retro",
+    description: "Start a sprint retro",
+    hint: "<sprint>",
+    insert: "Run a retro for sprint ",
+  },
+];
+
+/** What `apps.composer.list` and `apps.composer.mentions` answer in the mock: one `@pr` provider. */
+export const MOCK_COMPOSER_MENTIONS: readonly {
+  prefix: string;
+  id: string;
+  label: string;
+  detail?: string;
+  insert: string;
+}[] = [
+  {
+    prefix: "pr",
+    id: "441",
+    label: "#441 Fix the login redirect",
+    detail: "open, 2 checks failing",
+    insert: "PR #441",
+  },
+  { prefix: "pr", id: "450", label: "#450 Faster startup", detail: "open, ready to merge", insert: "PR #450" },
+];
+
 export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp[] {
   if (panel.section === MOCK_CHAT_WIDGET.section)
     return mockChatWidgetScene(context as Record<string, unknown> | undefined);
@@ -89,6 +126,10 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
  * dispatch, and unmount through the production controller instead of injecting rendered rows. */
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
+  composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
+  composerMentions: readonly { prefix: string; id: string; label: string; detail?: string; insert: string }[] =
+    MOCK_COMPOSER_MENTIONS;
+  readonly mentionAsks: unknown[] = [];
   readonly dispatches: unknown[] = [];
   /** Every chat widget route the page asked for. */
   readonly routes: unknown[] = [];
@@ -123,6 +164,28 @@ export class MockAppPanelsClient implements PageClient {
             : null,
         };
         this.routes.push(params);
+        break;
+      }
+      case "cmux.apps.panels.composer":
+        result = {
+          commands: this.composerCommands,
+          mentions: [...new Set(this.composerMentions.map((item) => item.prefix))].map((prefix) => ({
+            app: "samples/team-flow",
+            extension: "Team flow",
+            prefix,
+          })),
+        };
+        break;
+      case "cmux.apps.panels.mentions": {
+        // The daemon's match, cut down: a prefix narrows to its provider, the query matches id or label.
+        this.mentionAsks.push(params);
+        const query = String(params.query ?? "").toLowerCase();
+        result = {
+          mentions: this.composerMentions
+            .filter((item) => params.prefix === undefined || item.prefix === params.prefix)
+            .filter((item) => !query || item.id.includes(query) || item.label.toLowerCase().includes(query))
+            .map((item) => ({ app: "samples/team-flow", extension: "Team flow", ...item })),
+        };
         break;
       }
       case "cmux.apps.panels.mount": {
@@ -196,6 +259,12 @@ export class MockAppPanelsClient implements PageClient {
 
   setPanels(panels: readonly AppPanel[]): void {
     this.panels = panels;
+    for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** A mock save of an extension's composer commands: the page lists them again on `changed`. */
+  setComposerCommands(commands: readonly unknown[]): void {
+    this.composerCommands = commands;
     for (const listener of this.changed) listener(undefined, ++this.seq);
   }
 

@@ -211,7 +211,7 @@ impl UpstreamSender {
         let mut bits = 0i64;
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_sent(seq, now_us);
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
             bits = bits.saturating_add(d.len() as i64 * 8);
         }
@@ -249,7 +249,8 @@ impl UpstreamSender {
             return Err(UpstreamError::NotMine);
         }
         let fb = Feedback::decode(payload).map_err(UpstreamError::Invalid)?;
-        let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+        let settled =
+            self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }

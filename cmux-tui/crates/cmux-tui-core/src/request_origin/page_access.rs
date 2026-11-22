@@ -101,6 +101,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
+        | Op::GitFingerprint
         | Op::GitFilesSearch
         | Op::GitCommit
         | Op::GitPush
@@ -453,6 +454,8 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerGithubRepos
+        | Op::CloudOwnerGithubConnect
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns

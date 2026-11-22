@@ -12,6 +12,7 @@ import type { AttachedCloudRepo, PendingCloudRepo } from "../cloudRepositoryPick
 import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl } from "./links";
+import { SCREEN_SHARING_LABELS, type ScreenSharingKind } from "../screenSharing";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -40,6 +41,10 @@ export type EnvironmentInput = {
   projectLook?: ProjectRowLook;
   /// Opens the repository's and the branch's GitHub links (the web rows' `href`).
   onOpenUrl?: (url: string) => void;
+  onShareScreen?: () => void;
+  /// Share (this Mac) or View screen (a Cloud machine): the row is drawn only with one.
+  screenShareKind?: ScreenSharingKind;
+  screenShareNote?: string;
 };
 
 export function environmentSection(
@@ -71,6 +76,15 @@ export function environmentSection(
     ...(machine.kind === "cloud" ? { subtitle: t("cloudRepository.lifetime") } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
+  if (input.onShareScreen && input.screenShareKind) {
+    rows.push({
+      id: "screen-sharing",
+      symbol: "display",
+      title: t(SCREEN_SHARING_LABELS[input.screenShareKind]),
+      action: actions.add("environment.screenSharing", input.onShareScreen),
+      ...(input.screenShareNote ? { subtitle: input.screenShareNote } : {}),
+    });
+  }
   if (cloudSession && input.cloudRepositoryAvailable) {
     rows.push({
       id: "cloud-default",
