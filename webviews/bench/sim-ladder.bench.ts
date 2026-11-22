@@ -25,7 +25,7 @@
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 1,10,100] [--sessions 3000] [--rows 120]
-//     [--window 5000] [--rate 20] [--freeze] [--json out.json]
+//     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
 // launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
@@ -57,6 +57,7 @@ const ROWS = Number(flag("--rows") ?? 120);
 const WINDOW_MS = Number(flag("--window") ?? 5000);
 const RATE = Number(flag("--rate") ?? 20);
 const FREEZE = argv.includes("--freeze");
+const SETTLE_MS = Number(flag("--settle") ?? 20_000);
 const JSON_OUT = flag("--json");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -221,8 +222,26 @@ const visibility = (page: Page) =>
 
 type Item = { page: Page; cdp: CDPSession; awake: boolean };
 
+/// Waits for the renderers to settle after a rung's pages load (compile, GC and decode bursts run for seconds after a
+/// load; chats x10 read 208 ms/s mid-burst against 86 at x100): until two 1 s readings agree within 25% (or 5 ms/s),
+/// at most SETTLE_MS. Returns whether they did.
+async function settle(rootPid: number, focused: Page): Promise<boolean> {
+  const deadline = Date.now() + SETTLE_MS;
+  let last = -1;
+  while (Date.now() < deadline) {
+    const pids = renderers(rootPid);
+    const t0 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+    await focused.waitForTimeout(1000);
+    const now = ((pids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - t0) / ticksPerSecond) * 1000;
+    if (last >= 0 && Math.abs(now - last) <= Math.max(5, 0.25 * Math.max(now, last))) return true;
+    last = now;
+  }
+  return false;
+}
+
 async function measure(rootPid: number, items: Item[], focused: Page): Promise<Sample> {
-  await focused.waitForTimeout(1500);
+  const settled = await settle(rootPid, focused);
+  if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
   const pids = renderers(rootPid);
   const awake = items.filter((item) => item.awake);
   const script = async () => {
