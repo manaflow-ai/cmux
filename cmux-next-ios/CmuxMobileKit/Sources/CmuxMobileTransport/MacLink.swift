@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
@@ -152,8 +156,8 @@ extension LinkError: LocalizedError {
     /// and a sentence for alerts and failure states.
     private var known: (reason: String, sentence: String)? {
         switch code {
-        case "timeout":
-            return (reason: "the Mac didn't answer in time", sentence: "Your Mac didn't answer in time. Try again.")
+        case _ where isTimeout:
+            return (reason: LinkError.timeoutReason, sentence: LinkError.timeoutSentence)
         case "not_admitted":
             return (reason: "the Mac refused this phone",
                     sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
@@ -166,8 +170,19 @@ extension LinkError: LocalizedError {
         }
     }
 
-    /// The Mac's or the link's own message, when it reads as a sentence for a person.
+    /// A request or write that ran out of time (the link's, the daemon's or acpmux's deadline).
+    /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
+    /// says what to do (Leo 2026-11-21: no "didn't answer in time").
+    public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// A status line's fragment for a timeout: the connection is being re-established.
+    public static let timeoutReason = "reconnecting to the Mac"
+    /// A failure state's sentence for a timeout that outlasted the quiet retries.
+    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open, then try again."
+
+    /// The Mac's or the link's own message, when it reads as a sentence for a person (never
+    /// for a timeout: that message is a diagnostic).
     private var proseMessage: String? {
+        guard !isTimeout else { return nil }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count <= 240, text.contains(" "), let first = text.unicodeScalars.first,
               CharacterSet.uppercaseLetters.contains(first) else { return nil }

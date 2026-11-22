@@ -27,6 +27,11 @@ export type LoadRunOptions = {
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const BUDGET_120 = 1000 / 120;
 
+/** The model receipt is independent of the virtual transcript's mounted window. */
+export function modelReady(log: { rows: number; last_prompt_seq: number | null }, turns: number): boolean {
+  return Number.isInteger(turns) && turns > 0 && log.rows >= turns * 3 && log.last_prompt_seq !== null;
+}
+
 /// When the page has rendered the current frame: a posted message runs after the rendering update.
 function afterRender(): Promise<number> {
   return new Promise((resolve) => {
@@ -40,7 +45,7 @@ function afterRender(): Promise<number> {
 }
 
 export async function loadSeed(
-  host: { selectSession(sessionId: string): void; rowCount(): number },
+  host: { selectSession(sessionId: string): void; rowCount(): number; rowIds?(): string[] },
   turns: number,
   options: { light?: boolean; queued?: number } = {},
 ): Promise<Record<string, unknown>> {
@@ -60,7 +65,12 @@ export async function loadSeed(
   let firstAtLatest: boolean | undefined;
   let shifts = 0;
   let shown: string | undefined;
-  const deadline = performance.now() + 25_000;
+  // Large typing fixtures need time for the reducer and virtual transcript to mount their rows. A
+  // fixed 25 s deadline returned zero rows on Chromium before the 100k-row L3 fixture had rendered,
+  // which made the load result an invalid setup diagnostic rather than a typing measurement. Keep
+  // ordinary load benches bounded at 25 s; only the explicitly large fixture gets the longer window.
+  const deadlineMs = turns >= 10_000 ? 120_000 : 25_000;
+  const deadline = performance.now() + deadlineMs;
   while (still < 20 && performance.now() < deadline) {
     await frame();
     const now = await afterRender();
@@ -75,17 +85,33 @@ export async function loadSeed(
     } else if (view.key !== shown) shifts += 1;
     shown = view.key;
   }
+  const rows = host.rowCount();
+  // The full chat, counted in the daemon's log the transcript pages from: `rows` is only the client's held window
+  // (a large fixture's attach is paged), so it can never say all of a 100k-row chat is there. `window_at_latest`:
+  // the held window holds the log's newest prompt row, so the client is on this whole log, at its end.
+  const log = mock.loadSessionLog(session);
+  const windowAtLatest =
+    log.last_prompt_seq !== null && (host.rowIds?.() ?? []).includes(`user-${log.last_prompt_seq}`);
   // Prompts waiting in its queue once it is open, as sent while a turn ran.
   if (options.queued) mock.seedQueue(session, Math.max(0, Math.floor(options.queued)));
   return {
     session,
     turns,
-    rows: host.rowCount(),
+    logical_rows: turns * 3,
+    model_rows: log.rows,
+    model_records: log.records,
+    // This readiness bit is about the model log, never about the mounted row window.
+    model_ready: modelReady(log, turns),
+    window_at_latest: windowAtLatest,
+    rows,
     seed_ms: round2(seeded - started),
     first_content_ms: firstContent === undefined ? null : round2(firstContent),
     first_content_at_latest: firstAtLatest ?? null,
     shifts_after_first_content: shifts,
     open_ms: round2(performance.now() - seeded),
+    seed_deadline_ms: deadlineMs,
+    seed_ready: still >= 20 && rows > 0,
+    seed_timed_out: still < 20 && performance.now() >= deadline,
   };
 }
 
@@ -129,6 +155,7 @@ export async function loadRun(
   const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
   acpmuxPerf.resetFrames();
   acpmuxPerf.resetRenders();
+  const streamStarted = performance.timeOrigin + performance.now();
   const streaming = mock.streamLoadTurn(session, {
     seconds,
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
@@ -136,7 +163,11 @@ export async function loadRun(
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
   });
   let streamDone = false;
-  void streaming.then(() => (streamDone = true));
+  let streamFinished: number | undefined;
+  void streaming.then(() => {
+    streamFinished = performance.timeOrigin + performance.now();
+    streamDone = true;
+  });
   const timestamps: number[] = [];
   const work: number[] = [];
   const late: number[] = [];
@@ -190,6 +221,8 @@ export async function loadRun(
   return {
     rows: host.rowCount(),
     ...streamed,
+    stream_started_epoch_ms: streamStarted,
+    stream_finished_epoch_ms: streamFinished,
     seconds,
     scroll_speed: speed,
     display: frameStats(timestamps, nominal),
@@ -219,6 +252,33 @@ export async function loadRun(
     renders,
     longest,
   };
+}
+
+export type LoadToolsOptions = {
+  /// Tool calls to add, and milliseconds between a call and its result (and its result and the next call).
+  count?: number;
+  gap_ms?: number;
+  /// Leave the turn running after them (the next `loadTools` adds to it); false ends it.
+  keep_open?: boolean;
+};
+
+/// `debug.agent_pane load_tools`: short tool calls arrive in the open chat's running turn, each its
+/// call and then its result, with no text between them, as a busy coordinator's do. Each call adds one
+/// row; whatever else renders is waste (render-counts.bench.ts `tool`).
+export async function loadTools(
+  host: { sessionId(): string | undefined; rowCount(): number },
+  options: LoadToolsOptions = {},
+): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  const session = host.sessionId();
+  if (!mock || !session) return { error: "no load session (run load_seed first)" };
+  const before = host.rowCount();
+  const added = await mock.addLoadTools(session, {
+    count: Math.max(0, Math.floor(options.count ?? 10)),
+    gapMs: Math.max(0, options.gap_ms ?? 60),
+    keepOpen: options.keep_open ?? false,
+  });
+  return { ...added, rows_before: before };
 }
 
 export type LoadTickOptions = {
@@ -490,7 +550,12 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
         }
         if (!part.watch) {
           const watch = new MutationObserver((records) => tally(part, records));
-          watch.observe(node, { subtree: true, childList: true, attributes: true, characterData: true });
+          watch.observe(node, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true,
+          });
           part.watch = watch;
         }
         part.nodes.add(node);

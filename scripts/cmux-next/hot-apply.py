@@ -120,7 +120,8 @@ another pauses it), so they add up to the run:
 
   plan      reading the app's commit and sorting the diff (live_apply.py)
   key       SHA's cmux-tui tree key and web source key (the web key checks SHA out sparsely)
-  fetch     downloads from files.cmux.com (the web bundle's own sha256 check is inside it)
+  fetch     downloads from files.cmux.com (a build's files download at once, each hashed as it
+            streams in; the web bundle's own sha256 check is inside it)
   verify    the sha256 checks of what was fetched and of what was put in place
   backup    the copies of what the app had, kept for `rollback`
   find      the daemons running from the app (ps, lsof, `server status`)
@@ -143,7 +144,8 @@ them from there, checks each against the sha256 it was fetched with, and only sw
 has published SHA (`glaeda-gh wait run` on the publish run, then `prefetch`); try-pr.sh and an agent
 that merges can run it right away. A part the app already runs is skipped: a `bin/cmux` (and its
 companions) that already hash to SHA's build, and an overlay whose commit has SHA's web key. The
-receipt names it under `unchanged`. An apply that changed nothing leaves last.json, and so
+receipt names it under `unchanged`. A build file the cache lacks but the app's bin/ already has (same
+sha256) is copied from there, not downloaded. An apply that changed nothing leaves last.json, and so
 `rollback`, to the apply before it. The web cache keeps the newest WEB_KEEP keys.
 
 Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
@@ -153,6 +155,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import contextlib
 import hashlib
 import importlib.util
@@ -189,7 +192,7 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
-HOT_KEYS_SCHEMA = 1
+HOT_KEYS_SCHEMA = 2  # 2: `web` also digests the catalogs gen-strings.mjs reads, `shell` no longer does
 # Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
 # scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
 TEAM_SIGNED = "team-signed"
@@ -520,8 +523,52 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
     import cmux_next_route as route
-    inputs = [i for i in route.scheme_phase_rust_inputs(repo) if not i.endswith(("Cargo.lock", "Cargo.toml"))]
+    # Manifests and lockfiles are helper inputs too.  A helper can keep an old binary when its
+    # source is unchanged but its dependency graph moves, so every named Cargo input must floor
+    # the signed app list just like the source directories do.
+    inputs = route.scheme_phase_rust_inputs(repo)
+    # The route helper intentionally narrows its Xcode scan to cmux-tui inputs for CI routing. The
+    # app also builds the separately bundled diff sidecar from Native/DiffSidecar and cmux-git;
+    # collect those explicit manifests here without treating the whole daemon tree as a helper.
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    inputs.extend(path for path in re.findall(r'"\$\(SRCROOT\)/([^"]+Cargo\.(?:toml|lock))"', project)
+                  if path not in inputs)
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+
+
+# $(SRCROOT) inputs of the app's Xcode project that name a whole tree another layer carries: cmux-tui's daemon is the
+# bin/ swap itself (its helper crates are helper_rust's), webviews/ is the web layer, and cmux-next-ios/ is the iPhone
+# app, whose one Mac-bundled part, cmux-mobile-host, is read from its build script instead.
+CARRIED_ROOTS = ("cmux-tui", "webviews", "cmux-next-ios")
+MOBILE_HOST_BUILD = "scripts/cmux-next/build-mobile-host.sh"
+
+
+def under(path: str, roots: list[str]) -> bool:
+    return any(path == r or path.startswith(r + "/") for r in roots)
+
+
+def bundled_inputs(repo: Path) -> list[str]:
+    """The source paths the app bundle builds or copies that `cmux app try`'s bin swap does not replace: every
+    $(SRCROOT) input of the app's Xcode project (scripts it copies, Native/DiffSidecar, resources) but the
+    CARRIED_ROOTS, plus cmux-mobile-host's own build inputs (build-mobile-host.sh `inputs=(...)`). A change under
+    one keeps an older app's copy, so it floors the signed live list like Swift does."""
+    import cmux_next_route as route
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    refs = {p.strip("/") for p in re.findall(r'\$\(SRCROOT\)/([A-Za-z0-9_.@+/-]+)', project)}
+    out = sorted(p for p in refs if p and p.split("/")[0] not in CARRIED_ROOTS)
+    try:
+        script = (repo / MOBILE_HOST_BUILD).read_text(encoding="utf-8")
+    except OSError:
+        script = ""
+    if m := re.search(r"^inputs=\(([^)]*)\)", script, re.M):
+        out.extend(p.strip("/") for p in m.group(1).split() if p.strip("/"))
+    return out
 
 
 BASE_REF = "refs/remotes/origin/feat-cmux-next"
@@ -565,6 +612,21 @@ def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -
     return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
 
 
+def web_catalogs(repo: Path, sha: str, strings: list[str]) -> tuple[list[str], list[str]]:
+    """Split STRINGS (SHA's .xcstrings files) into the catalogs the web pages read and the rest. gen-strings.mjs
+    builds every page's strings table from its catalogs at web-build time, and the web source key hashes them
+    (web-bundle-key.py), so the bundle published for SHA carries those catalogs' words: they ride the web part.
+    The rest (Swift-only catalogs) stay with the Swift build. gen-strings.mjs is read from SHA, not the working tree."""
+    if not strings:
+        return [], []
+    try:
+        named = load("web_bundle_key", "web-bundle-key.py").gen_strings_catalogs_in(
+            git(repo, "show", f"{sha}:webviews/scripts/pages/gen-strings.mjs")) or []
+    except (RuntimeError, OSError):
+        named = []  # unreadable: every catalog stays with the Swift build, as before
+    return [p for p in strings if p in named], [p for p in strings if p not in named]
+
+
 def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
     (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
@@ -578,12 +640,13 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
-    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    shell = files.get("rebuild", []) + files.get("swift-live", []) + swift_strings
     daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
-            "web": set_digest(blobs, files.get("web-live", [])),
+            "web": set_digest(blobs, files.get("web-live", []) + web_strings),
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
             # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
             # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
@@ -705,37 +768,66 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
 LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
 
 
-def pins_daemon(repo: Path, commit: str) -> list[str]:
+def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str]:
     """The paths of COMMIT's own change that alter what the app links.
 
     The app links the release named by app-ffi-pin.json, so FFI source edits alone do not pin the daemon to
     a new app. A repin does, as does Rust the Swift build reads outside the FFI release. A root commit pins it.
+    For app try's signed list, whole_app also includes every layer its bin-only update cannot carry.
     """
     parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
     daemon = sorted(set(files.get("daemon", [])))
+    uncarried = []
+    if whole_app:
+        uncarried = [path for kind in ("swift-live", "rebuild", "web-live") for path in files.get(kind, [])]
+        # Cargo.lock can classify as no-app even though a helper build consumes it. Include the
+        # complete diff for matching explicit helper inputs, while leaving unrelated no-app files
+        # out of the floor.
+        uncarried.extend(helper_rust(repo, daemon + files.get("no-app", [])))
+        # The separately bundled helpers share the workspace dependency graph.
+        uncarried.extend(path for path in daemon if path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"))
+        # What the bundle copies or builds beside bin/ (the code-mode runner and other bundled scripts, the diff
+        # sidecar's sources, cmux-mobile-host and the crates it links) classifies as no-app, ios-only or daemon,
+        # yet an older app keeps its own copy of it.
+        bundled = bundled_inputs(repo)
+        uncarried.extend(path for kind in ("no-app", "ios-only", "daemon") for path in files.get(kind, [])
+                         if under(path, bundled))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
     if before is None and after is None:
-        return linked_rust(repo, daemon)
-    paths = swift_read_rust(repo, daemon)
+        return sorted(set(uncarried + linked_rust(repo, daemon)))
+    paths = uncarried + swift_read_rust(repo, daemon)
     if before != after:
         paths.append(ffi_part.PIN_FILE)
-    return paths
+    return sorted(set(paths))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
-    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
-    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
-    built there links that change).
+    """Every app commit that app try can bring to SHA with only its published bin files, newest first.
+    Stop at the newest commit changing a layer those files do not carry, or daemon ABI compatibility.
+    Include that floor: an app built there already contains that change. Standalone hot-apply's daemon
+    compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "daemon_from": [], "daemon_floor": None, "daemon_floor_paths": []}
+    # daemon_from: the wider list of app commits that can run SHA's bin files beside their own app (daemon ABI
+    # only: the FFI pin and the Rust the Swift build reads). The nightly-live channel (`cmux app try channel`)
+    # reads it: it swaps only the daemon part and never claims the app is at SHA, so Swift, resources and web
+    # (which comes on its own channel) merged since the app's build wait for the next nightly. live_from stays
+    # the whole-app list, so a CLI that reads only live_from claims nothing new.
+    whole_app = True
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
-        out["live_from"].append(commit)
+        out["daemon_from"].append(commit)
+        if whole_app:
+            out["live_from"].append(commit)
+            if paths := pins_daemon(repo, commit, whole_app=True):
+                out["floor"], out["floor_paths"] = commit, paths[:20]
+                whole_app = False
         if paths := pins_daemon(repo, commit):
-            out["floor"], out["floor_paths"] = commit, paths[:20]
+            out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
 
@@ -779,10 +871,15 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    for kind in ("swift-live", "rebuild"):
-        if files.get(kind):
-            out["left"][kind] = files[kind]
-    web = files.get("web-live", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    for kind, paths in (("swift-live", files.get("swift-live")), ("rebuild", files.get("rebuild")), ("strings", swift_strings)):
+        if paths:
+            out["left"][kind] = paths
+    if files.get("strings"):
+        out["notes"].append("strings: " + ("the web pages' words ride the web part (gen-strings.mjs reads "
+                                           + ", ".join(web_strings) + "); " if web_strings else "")
+                            + "Swift's translations wait for the next build")
+    web = files.get("web-live", []) + web_strings
     if web and branch:
         # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
         out["left"]["web (not published for a branch)"] = web
@@ -863,6 +960,9 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
 
 
 def triple() -> str:
+    """This host's build target; CMUX_HOT_APPLY_TRIPLE names another (a Linux measure fetching a Mac's build)."""
+    if os.environ.get("CMUX_HOT_APPLY_TRIPLE"):
+        return os.environ["CMUX_HOT_APPLY_TRIPLE"]
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
 
@@ -882,8 +982,9 @@ def cached(copy: Path, want: str) -> bool:
         return copy.is_file() and sha256_file(copy) == want
 
 
-def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
-    """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
+def cmux_job(key: str, state: Path) -> tuple[str, str, Path]:
+    """SHA's cmux binary for this host as a build job (URL, its sha256, its copy under state/builds/),
+    the sha256 checked between the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
     completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json", lists_binary(name)))
     if completion.get("key") != key:
@@ -892,39 +993,78 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+    return f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"
 
 
-def fetch_build_file(url: str, want: str, copy: Path) -> Path:
-    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
-    if not cached(copy, want):
-        body = fetch(url)
-        with PHASES("verify"):
-            if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{url} does not hash to {want}")
+FETCH_WORKERS = 4  # a build is the daemon and six companions (~160 MB); one connection each, this many at once
+
+
+def fetch_build_files(jobs: list[tuple[str, str, Path]], seeds: Path | None = None) -> None:
+    """Each (URL, WANT, COPY) into COPY (state/builds/SHA256/FILE), checked against WANT. A COPY that still
+    hashes to WANT is kept; else a file of COPY's name in SEEDS (the app's bin/) that hashes to it is copied,
+    not downloaded (an app that already runs that build); the rest download at once, each hashed as it streams
+    to disk and kept only when it is WANT."""
+    missing = [job for job in jobs if not cached(job[2], job[1]) and not seeded(job[1], job[2], seeds)]
+    if not missing:
+        return
+    with PHASES("fetch"), concurrent.futures.ThreadPoolExecutor(min(FETCH_WORKERS, len(missing))) as pool:
+        for done in [pool.submit(download_into, *job) for job in missing]:
+            done.result()  # the first failure raises, after every download has ended
+
+
+def seeded(want: str, copy: Path, seeds: Path | None) -> bool:
+    """COPY made from SEEDS/COPY.name when that file hashes to WANT: no download."""
+    seed = seeds / copy.name if seeds else None
+    if seed is None or not seed.is_file():
+        return False
+    with PHASES("verify"):
         copy.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-            part.write(body)
+        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part, open(seed, "rb") as source:
+            digest = hashlib.sha256()
+            while chunk := source.read(1 << 20):
+                digest.update(chunk)
+                part.write(chunk)
+        if digest.hexdigest() != want:
+            os.unlink(part.name)
+            return False
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy
+        return True
 
 
-def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
-    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+def download_into(url: str, want: str, copy: Path, timeout: float = 300) -> None:
+    """URL streamed into COPY, kept only when it hashes to WANT. Runs in a worker thread: no PHASES here."""
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
+    with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+        try:
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(request, timeout=timeout) as answer:
+                while chunk := answer.read(1 << 20):
+                    digest.update(chunk)
+                    part.write(chunk)
+            if digest.hexdigest() != want:
+                raise RuntimeError(f"{url} does not hash to {want}")
+        except BaseException:
+            part.close()
+            os.unlink(part.name)
+            raise
+    os.chmod(part.name, 0o755)
+    os.replace(part.name, copy)
+
+
+def companion_jobs(key: str, state: Path) -> dict[str, tuple[str, str, Path] | None]:
+    """The companions of tree KEY's build for this host as build jobs, each with the sha256 of the
     commit-addressed manifest its source.json names; None for one that build published none of."""
     owner = json.loads(fetch_kept(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
     if not SHA.fullmatch(owner):
         raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
     binaries = json.loads(fetch_kept(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
-    out: dict[str, tuple[Path, str] | None] = {}
+    out: dict[str, tuple[str, str, Path] | None] = {}
     for artifact, file in COMPANIONS:
         asset = f"cmux-tui-{artifact}-{triple()}"
         want = binaries.get(asset)
-        if not want:
-            out[file] = None
-            continue
-        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
+        out[file] = (f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file) if want else None
     return out
 
 
@@ -947,20 +1087,24 @@ def team_signed(key: str, team: str | None) -> dict | None:
     return signed if files["cmux"] else None
 
 
-def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+def fetch_build(key: str, state: Path, team: str | None,
+                seeds: Path | None = None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
     """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
-    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree.
+    SEEDS (the app's bin/) gives the files it already has with the same sha256, so they are not downloaded."""
     signed = team_signed(key, team)
     if not signed:
-        new, want = fetch_cmux(key, state)
-        return new, want, fetch_companions(key, state), "ad-hoc"
-    out: dict[str, tuple[Path, str] | None] = {}
-    for file, entry in signed["files"].items():
-        want = entry["sha256"] if entry else None
-        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
-                                               state / "builds" / want / file), want)
+        jobs = {"cmux": cmux_job(key, state), **companion_jobs(key, state)}
+        build = "ad-hoc"
+    else:
+        jobs = {file: (f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{entry['sha256']}/{file}", entry["sha256"],
+                       state / "builds" / entry["sha256"] / file) if entry else None
+                for file, entry in signed["files"].items()}
+        build = f"team-signed ({team})"
+    fetch_build_files([job for job in jobs.values() if job], seeds)
+    out = {file: (job[2], job[1]) if job else None for file, job in jobs.items()}
     new, want = out.pop("cmux")
-    return new, want, out, f"team-signed ({team})"
+    return new, want, out, build
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -1782,7 +1926,7 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app), app / BIN)
                 receipt["steps"]["build"] = build
             # The file itself, whatever plan read: a --binary, or a build plan could not read.
             why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
@@ -1874,9 +2018,11 @@ def command_apply(args) -> int:
 
 def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, state: Path, t0: float) -> int:
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
+    app = Path(args.app)
     try:
         if "rust" in parts and not args.binary:
-            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"),
+                                                       None if args.base else app / BIN)
             receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:

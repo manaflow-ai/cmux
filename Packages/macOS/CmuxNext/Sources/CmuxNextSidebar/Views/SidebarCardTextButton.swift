@@ -40,10 +40,10 @@ final class SidebarCardTextButton: NSView {
     static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .medium) }
     static var height: CGFloat { ceil(font.boundingRectForFont.height) + Metrics.space1 }
 
-    /// `title` drawn and `help` as the tooltip; VoiceOver reads `help` as the label (nil: the title).
+    /// `title` drawn; VoiceOver reads `help` as the label (nil: the title). No tooltip: the button shows its title
+    /// (a1315's cut 2).
     func configure(title: String, help: String?) {
         label.stringValue = title
-        themedToolTip = help
         setAccessibilityLabel(help ?? title)
         setAccessibilityHelp(nil)
         needsLayout = true

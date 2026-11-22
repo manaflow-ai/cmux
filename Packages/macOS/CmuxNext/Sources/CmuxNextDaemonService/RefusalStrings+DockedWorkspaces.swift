@@ -17,7 +17,7 @@ nonisolated extension RefusalStrings {
 
     /// Move Pane to Dock with no pane focused or named.
     public static var noPaneForDock: String {
-        text("handlers.refusal.noPaneForDock", "No pane is focused.")
+        text("handlers.refusal.noPaneForDock", "Click a tab first, then try again.")
     }
 
     /// Move Pane to Dock on a pane that is in a dock already (or holds no tab).

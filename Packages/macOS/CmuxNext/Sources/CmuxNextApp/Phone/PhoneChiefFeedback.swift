@@ -86,6 +86,6 @@ enum PhoneFeedbackError: Error, CustomStringConvertible {
 
     var description: String {
         String(localized: "phone.feedback.chiefNotRunning", defaultValue: "Chief is not running. The recording is saved; send it again later.",
-               table: "Phone", bundle: .module)
+               table: "Phone", bundle: .module.inAppLanguage)
     }
 }

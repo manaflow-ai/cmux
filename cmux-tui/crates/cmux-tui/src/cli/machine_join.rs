@@ -175,7 +175,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
             if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::run_app_action_fallback(args)
+                && let Some(code) = super::app_commands::run_app_action_fallback(args)
             {
                 return Some(code);
             }
@@ -511,7 +511,10 @@ impl Platform {
             .enable_all()
             .build()
             .map_err(|e| internal(&e))?;
+        let space =
+            cmux_build_space::headers().map_err(|e| Failure::new("build_space", e.to_string()))?;
         let client = reqwest::Client::builder()
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()

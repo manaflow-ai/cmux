@@ -163,6 +163,9 @@ pub const HOST_UNIT: &str = "cmux-screen-host.service";
 const HOST_UNIT_TEXT: &str = include_str!("../../systemd/cmux-screen-host.service");
 
 /// `cmux-screen-display.service` for display `:display` run by `xvfb` (an absolute path).
+/// `-noreset`: the host's idle check ([`display_in_use`], every 30 s) is often the display's
+/// only client, and without it Xvfb resets the server each time that check disconnects and
+/// forks xkbcomp again on the next one, a new process in the unit's log every 30 s.
 pub fn display_unit(xvfb: &Path, display: u32) -> String {
     format!(
         "# cmux virtual display: written by `cmux-rd linux-host enable` on a machine with no\n\
@@ -172,7 +175,7 @@ pub fn display_unit(xvfb: &Path, display: u32) -> String {
          \n\
          [Service]\n\
          Type=simple\n\
-         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp\n\
+         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp -noreset\n\
          Restart=on-failure\n\
          RestartSec=2\n\
          \n\
@@ -344,11 +347,15 @@ fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Opti
     if atom == 0 {
         return None;
     }
-    let reply = conn.get_property(false, root, atom, AtomEnum::WINDOW, 0, 4096).ok()?.reply().ok()?;
+    let reply =
+        conn.get_property(false, root, atom, AtomEnum::WINDOW, 0, 4096).ok()?.reply().ok()?;
     if reply.type_ == 0 {
         return None;
     }
-    Some(reply.value32()?.collect())
+    // Collected into a local first: as the tail expression, the iterator's temporary outlives
+    // `reply` and the release build fails to compile (E0597).
+    let clients: Vec<u32> = reply.value32()?.collect();
+    Some(clients)
 }
 
 /// Whether `window`'s `WM_CLASS` names the session's terminal ([`SESSION_TERMINAL_CLASS`]).
@@ -467,7 +474,9 @@ pub fn stop_host() -> Res<()> {
         Ok(()) => Ok(()),
         Err(pid) => Err(format!(
             "the screen host is still running ({}{}); stop it with: {}",
-            pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+            pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+                format!("pid {pid}")
+            }),
             stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
             pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
                 format!("kill -KILL {pid}")
@@ -587,7 +596,11 @@ mod tests {
 
     #[test]
     fn the_session_unit_puts_a_desktop_on_the_display_and_stops_with_it() {
-        let unit = session_unit(Path::new("/usr/bin/openbox-session"), Some(Path::new("/usr/bin/xterm")), 99);
+        let unit = session_unit(
+            Path::new("/usr/bin/openbox-session"),
+            Some(Path::new("/usr/bin/xterm")),
+            99,
+        );
         assert!(unit.contains("PartOf=cmux-screen-display.service\n"));
         assert!(unit.contains("WantedBy=cmux-screen-display.service\n"));
         assert!(unit.contains("Environment=DISPLAY=:99\n"));
@@ -611,9 +624,9 @@ mod tests {
     #[test]
     fn the_display_unit_round_trips_its_number_and_the_host_drop_in_points_at_it() {
         let unit = display_unit(Path::new("/usr/bin/Xvfb"), 101);
-        assert!(
-            unit.contains("ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp\n")
-        );
+        assert!(unit.contains(
+            "ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp -noreset\n"
+        ));
         assert!(unit.contains("WantedBy=default.target"));
         assert_eq!(display_of_unit(&unit), Some(101));
         assert_eq!(display_of_unit("[Service]\nExecStart=/usr/bin/Xvfb\n"), None);

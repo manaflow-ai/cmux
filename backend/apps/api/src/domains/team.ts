@@ -2,7 +2,7 @@ import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, HostReplicaPurge, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
-import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
+import { hostByInstall, hostDelete, hostInSpace, hostOf, hostPayload, hostSpaceOf, hostUpsert, principalSpace, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { AI_LIMIT_MEMBER_OP, AI_LIMIT_OP, AI_LIMIT_OPS, mayManageBilling, reduceAiLimit, withoutMemberLimit } from "./team-ai-limit.ts"
 // TeamDO reads limits through this module (team-do.ts stays within its size budget).
@@ -17,7 +17,7 @@ import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type Tea
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
-import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerPairingRecorded, reduceServerPairingSpent, reduceServerRevoke, reduceServerSignedOut, type ServerPairing, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
 import { CLOUD_SESSION_OPS, reduceCloudSession } from "./team-cloud-sessions.ts"
@@ -32,9 +32,14 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly seat_count?: number
   /** Owners of a Stack team, kept by the reducers that change roles (re-review P3); 0 means no owner (noOwnerOf, review P2-3). Undefined on older heads until team.owner_count.init. */
   readonly owner_count?: number
+  /** Hosts of the base space (nightly and stable) only: a dev build's host is not in nightly's directory, so not in its count (team-reads.ts). */
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Recently paired servers (host -> the pairing code and invite that made them), so a revoke can spend them (team-servers.ts). */
+  readonly server_pairings?: Readonly<Record<string, ServerPairing>>
+  /** Pairings of removed servers that TeamDO still has to spend (host -> objects; team-do.ts flushPairingSpends). */
+  readonly pairing_spends?: Readonly<Record<string, { readonly pairing_object: string; readonly invite_object: string | null }>>
   /** A paired server's install -> the cmux-platform join token its approval minted (an id, not a secret; team-servers.ts). */
   readonly server_machine_joins?: Readonly<Record<string, string>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
@@ -120,7 +125,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
-          writes: [...members.map(memberUpsert), ...members.flatMap((m) => memberAuthorityWrites(m.user, ctx)), ...hosts.flatMap(hostUpsert)],
+          writes: [...members.map(memberUpsert), ...members.flatMap((m) => memberAuthorityWrites(m.user, ctx)), ...hosts.flatMap((h) => hostUpsert(h))],
           ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
         }
@@ -189,7 +194,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
           state: a.state,
           writes: orphaned.flatMap((h) => hostUpsert(h)),
           value: { orphaned: orphaned.map((h) => h.id) },
-          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, v.cert_valid_before, rejoined)]
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: hostPayload(h, state.team?.id, hostSpaceOf(ctx.rows, h.id)) })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, v.cert_valid_before, rejoined)]
         }
       }
       case "team.ensure_personal": {
@@ -224,30 +229,34 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (existing?.kind === "server") return reject("auth.forbidden", "paired servers must use the server pairing flow")
         const id = existing?.id ?? ctx.newId("host")
         if (existing && existing.owner_user !== p.user) return reject("auth.forbidden", "the host belongs to another user")
+        // An install lives in one build space (its UserDO's), so its host does too: set once, at the first enroll.
+        const space = existing ? hostSpaceOf(ctx.rows, existing.id) : principalSpace(p)
+        if (space !== principalSpace(p)) return reject("auth.forbidden", "the host belongs to another build")
         const host: typeof Host.Type = { ...existing, id, name: d.value.name, platform: d.value.platform, owner_user: p.user, enrolled_by: p.install, enrolled_at: existing?.enrolled_at ?? ctx.now }
         if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
         return {
           ok: true,
-          state: { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) },
-          writes: hostUpsert(host),
+          state: { ...state, host_count: (state.host_count ?? 0) + (existing || space ? 0 : 1) }, // nightly's count: base-space hosts only
+          writes: hostUpsert(host, existing ? undefined : space),
           value: host,
-          outbox: [{ kind: "host.upsert", entity: id, payload: { ...host, team: state.team.id } }]
+          outbox: [{ kind: "host.upsert", entity: id, payload: hostPayload(host, state.team.id, space) }]
         }
       }
       case "host.remove": {
         const d = decodeParams<typeof HostRemove.params.Type>(HostRemove, params)
         if (!d.ok) return d
         const host = hostOf(state, ctx.rows, d.value.host)
-        if (!host) return reject("selector.not_found", "host not found")
+        // Another build's host is not in this build's directory (build-space.ts).
+        if (!host || !hostInSpace(ctx.rows, host.id, p)) return reject("selector.not_found", "host not found")
         if (host.kind === "server") return reduceServerRevoke(state, params, ctx)
         const role = roleOf(state, ctx.rows, p.user)
         if (host.owner_user !== p.user && !roleHas(role, "team.manage")) return reject("auth.forbidden", "only the host owner or a team admin may remove it")
         return {
           ok: true,
-          state: { ...withoutLegacyHost(state, host.id), host_count: Math.max(0, (state.host_count ?? 1) - 1) },
+          state: { ...withoutLegacyHost(state, host.id), host_count: principalSpace(p) ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1) },
           writes: hostDelete(host),
           value: { host: host.id },
-          outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
+          outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(principalSpace(p) ? { space: principalSpace(p) } : {}) } }]
         }
       }
       case "host.replica.purge": {
@@ -256,7 +265,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!d.ok) return d
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot purge a host replica")
         const host = hostOf(state, ctx.rows, d.value.host)
-        if (!host) return reject("selector.not_found", "host not found")
+        if (!host || !hostInSpace(ctx.rows, host.id, p)) return reject("selector.not_found", "host not found")
         if (host.owner_user !== p.user || host.orphaned) return reject("auth.forbidden", "only the host owner may purge its replica")
         const a = appendAudit(state, state.team?.id ?? "", ctx, "host.replica.purge", `replica of host ${host.name} purged`, { host: host.id })
         return { ok: true, state: a.state, value: { host: host.id }, outbox: [a.outbox] }
@@ -268,6 +277,18 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       case "server.install_revoked": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceServerInstallRevoked(state, params)
+      }
+      case "server.pairing.recorded": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerPairingRecorded(state, params, ctx)
+      }
+      case "server.pairing.spent": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerPairingSpent(state, params)
+      }
+      case "server.signed_out": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerSignedOut(state, params, ctx)
       }
       case "server.network.confirmed": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
@@ -361,6 +382,20 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const q = params as { connection?: string; subject?: string; stack_user?: string; linked?: boolean }
         // Audit only; no state beyond the audit chain (identities live in the sso_identities side table).
         return withAudit({ ok: true, state, value: { connection: q.connection }, audit: { summary: q.linked ? `first SSO sign-in through ${q.connection}` : `SSO sign-in through ${q.connection}`, detail: q } }, state.team.id, ctx, op)
+      }
+      case "auth.handoff.minted":
+      case "auth.handoff.redeemed":
+      case "auth.handoff.refused": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        const q = params as { handoff?: string; stage?: string; reason?: string; device?: string; minted_device?: string }
+        // Audit only (auth-handoff.ts keeps the codes in its own side table, by hash).
+        const summary =
+          op === "auth.handoff.minted"
+            ? `sign-in hand-off ${q.handoff ?? "?"} minted${q.device ? ` for ${q.device}` : ""}`
+            : op === "auth.handoff.redeemed"
+              ? `sign-in hand-off ${q.handoff ?? "?"} redeemed${q.device ? ` by ${q.device}` : ""}`
+              : `sign-in hand-off ${q.stage ?? "?"} refused: ${q.reason ?? "?"}${q.device ? ` (${q.device})` : ""}`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary, detail: q } }, state.team.id, ctx, op)
       }
       case "sso.connection.secret_set":
       case "sso.connection.activated": {
