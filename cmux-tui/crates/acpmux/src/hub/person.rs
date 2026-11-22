@@ -1099,7 +1099,10 @@ impl Hub {
                         params.get("value").and_then(Value::as_str),
                     )
                 };
-                if id.is_some_and(|i| crate::web_modes::FREE_CONFIG_IDS.contains(&i)) {
+                // A model, effort, speed (`fast-mode`), suggestion or collaboration choice
+                // (`web_modes::cli_config_id`): no approval mode, so no person. A Web
+                // connection's set is still held to its table by the remote guard.
+                if id.is_some_and(crate::web_modes::cli_config_id) {
                     return Ok(());
                 }
                 // An unknown session is the handler's not-found; a peer's
