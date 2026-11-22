@@ -825,8 +825,15 @@ function playReplace(
     const { spans, up } = edge;
     /// Where a box of the view crosses the edge's run, as a fraction of it (0 where it starts, 1 at its end).
     const reach = (y: number) => wipeReach(spans, y, up);
-    /// The edge at `step` of WIPE_POINTS.
-    const edgeY = (step: number) => wipeEdge(spans, edgeAt(step / WIPE_POINTS), up);
+    /// The edge at `step` of WIPE_POINTS. The run is the part of the view that changes, so a box past
+    /// the view's edge or its spans' ends is still partly clipped when the edge stops there: the last
+    /// point puts the edge past every box (`top`, `height`), so the new frame ends wholly drawn and the
+    /// old wholly gone on the edge's last step, with nothing left for the animation's end to settle.
+    const edgeY = (step: number, top: number, height: number) => {
+      const y = wipeEdge(spans, edgeAt(step / WIPE_POINTS), up);
+      if (step < WIPE_POINTS) return y;
+      return up ? Math.min(y, top) : Math.max(y, top + height);
+    };
     /// A box's clip at edge `y`: the new frame shows on the side the edge has passed, the old on the other.
     const clipAt = (fresh: boolean, top: number, height: number, y: number) => {
       const above = Math.min(height, Math.max(0, y - top));
@@ -856,7 +863,7 @@ function playReplace(
         play(node, key, () => [
           [
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => ({
-              clipPath: clipAt(true, top, height, edgeY(step)),
+              clipPath: clipAt(true, top, height, edgeY(step, top, height)),
             })),
             { easing: "linear" },
           ],
@@ -875,8 +882,10 @@ function playReplace(
         play(element, key, () => [
           [
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => {
-              const y = edgeY(step);
-              const drawnThere = !lands || (up ? y <= lands.top : y >= lands.top + lands.height);
+              const y = edgeY(step, top, height);
+              // On the last step the row is drawn in its new place, wherever that is: the old copy goes.
+              const drawnThere =
+                !lands || step === WIPE_POINTS || (up ? y <= lands.top : y >= lands.top + lands.height);
               return { clipPath: drawnThere ? clipAt(false, top, height, y) : clipTop(0) };
             }),
             { easing: "linear", fill: "both" },
