@@ -37,6 +37,7 @@ import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
+import { CustomizeChecklistCard } from "./CustomizeChecklist";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
@@ -96,6 +97,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudModels: (focus) => <CloudModelsCard focus={focus} />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
+  customizeChecklist: () => <CustomizeChecklistCard />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   mcpServers: () => <McpServersCard />,
   tailnet: () => <TailnetCard />,
