@@ -519,6 +519,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     let layout: ChatTranscriptLayout
     private(set) var store: AgentChatStore
     let surface: AgentChatSurface
+    /// What the list shows: the store's turns, or a subagent's transcript.
+    private(set) var source: ChatTranscriptSource
     var context: ChatRowContext { lookup.context }
     private(set) var builder: ChatTranscriptBuilder
     /// Finished turns fold their work under "Worked for" (`WorkedFold`); tests of a row's own
@@ -579,12 +581,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
 
-    init(store: AgentChatStore, surface: AgentChatSurface) {
+    /// `source`: what it shows (the store's turns when nil).
+    init(store: AgentChatStore, surface: AgentChatSurface, source: ChatTranscriptSource? = nil) {
         self.store = store
         self.surface = surface
-        let lookup = ChatRowLookup(context: ChatRowContext(store: store, surface: surface))
+        let source = source ?? .chat(store)
+        self.source = source
+        let lookup = ChatRowLookup(context: ChatRowContext(store: store, surface: surface, turns: source.turns))
         self.lookup = lookup
-        builder = ChatTranscriptBuilder(diffs: store.diffs)
+        builder = ChatTranscriptBuilder(diffs: store.diffs, mode: source.mode)
         let layout = ChatTranscriptLayout()
         self.layout = layout
         lookup.layout = layout
@@ -613,7 +618,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
         // This list keeps the store's window while it shows it (`spillIfResting`); the store
         // keeps it on its own once the list goes (`AgentChatStore.boundsMemoryOffScreen`).
-        store.shown(by: self)
+        if source.pagesHistory { store.shown(by: self) }
         observe()
         reload()
     }
@@ -624,8 +629,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         self.store.hidden(by: self)
         store.shown(by: self)
         self.store = store
-        lookup.context = ChatRowContext(store: store, surface: surface)
-        builder = ChatTranscriptBuilder(diffs: store.diffs)
+        source = .chat(store)
+        lookup.context = ChatRowContext(store: store, surface: surface, turns: source.turns)
+        builder = ChatTranscriptBuilder(diffs: store.diffs, mode: source.mode)
         rows = [:]
         revisions.removeAll()
         lookup.layouts.reset()
@@ -648,7 +654,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // The oldest turn shown came into view (the reader scrolled up, or the first page is
         // shorter than the screen): read the page before it. The list keeps the reader's rows
         // in place as it lands (`reload`'s anchor).
-        if shownID == "session-start", store.hasEarlierHistory { store.loadEarlier() }
+        if shownID == "session-start", source.pagesHistory, store.hasEarlierHistory { store.loadEarlier() }
         guard !fadeIn.isEmpty, let id = shownID, fadeIn.remove(id) != nil,
               !UIAccessibility.isReduceMotionEnabled else { return }
         cell.contentView.alpha = 0
@@ -670,7 +676,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// more page ahead, so a fling up meets rows, never an empty top. Not on the tab grid's
     /// card, which holds its transcript.
     private func readAheadIfNear() {
-        guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
+        guard readsAhead, source.pagesHistory, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
         let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
@@ -695,13 +701,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// (`AgentChatStore.spillOlder`), and scrolling up brings them back. Not on the tab grid's
     /// card, which holds its transcript.
     func spillIfResting() {
-        guard surface.following, !surface.holdsTranscript, !collectionView.isTracking,
+        guard source.pagesHistory, surface.following, !surface.holdsTranscript, !collectionView.isTracking,
               store.turns.count > AgentChatStore.windowTrigger else { return }
         store.spillOlder(keeping: AgentChatStore.windowKeep)
     }
 
     /// A memory warning: every turn above the one the reader is on goes to disk.
     func relieveMemoryPressure() {
+        guard source.pagesHistory else { return }
         let reading = surface.following ? nil
             : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top).flatMap { rows[$0.id]?.turnID }
         store.spillOlder(keeping: AgentChatStore.pressureKeep, protecting: reading)
@@ -804,8 +811,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private func observe() {
         let store = store
         let surface = surface
+        let source = source
         withObservationTracking {
-            _ = store.turns
+            _ = source.turns()
             _ = store.pendingPermission?.request.id
             _ = store.pendingQuestion?.id
             _ = surface.permissionBarHidden
@@ -846,7 +854,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         defer { reloadTime += reloadStart.duration(to: .now) }
         // A turn that ended under a reader scrolled up keeps its work open: folding it under
         // "Worked for" would take away what they are reading (the Mac's rule, cmux#42802).
-        let running = store.isRunning ? store.turns.last?.id : nil
+        let running = source.runningTurn()
         if let ended = runningShown, ended != running, !surface.following {
             surface.disclosures.set(WorkedFold.key(turnID: ended), true)
         }
@@ -880,11 +888,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             guard let row = rows[id], case .editedFiles(let changes) = row.kind else { continue }
             if lookup.viewedShown[id] != ChatNativeRowActions.viewed(changes) { forced.insert(id) }
         }
-        let turns = store.turns
+        let turns = source.turns()
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
                                   permissionBarHidden: surface.permissionBarHidden,
-                                  earlierHistory: store.hasEarlierHistory, foldsWork: foldsWork)
+                                  earlierHistory: source.pagesHistory && store.hasEarlierHistory, foldsWork: foldsWork)
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -901,7 +909,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         // Laid out now, on the main thread: rows the reader sees first (the newest, on open)
         // and the streaming answer's changed block. Everything else is laid out off the main thread.
-        let runningTurn = store.isRunning ? turns.last?.id : nil
+        let runningTurn = running
         // A reader scrolled up off the streaming answer: its changed rows are laid out when they come
         // into view (prefetch, or the cell's own dequeue), not on the main thread for every token.
         var onScreen: Set<String>?
@@ -1087,7 +1095,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         queueWarmUp(weighed)
         spillIfResting()
         // After the layout pass that places what this reload put in.
-        if store.hasEarlierHistory, !store.isLoadingEarlier {
+        if source.pagesHistory, store.hasEarlierHistory, !store.isLoadingEarlier {
             Task { @MainActor [weak self] in self?.readAheadIfNear() }
         }
     }
