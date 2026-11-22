@@ -27,11 +27,18 @@ ASK = {"window": "window-1", "activate": True}
 class App(tabs.KeyTabsApp):
     """The app of the tabs' tests, which keeps each call's name in order (`names`). `lost_after`: the number of the
     recording after which the app is not active again (another app took the screen). `key`: False for an app that
-    becomes active with a window that is not its key window. `windows`: False for an app that lists no window."""
+    becomes active with a window that is not its key window. `windows`: False for an app that lists no window.
+    `page`: the id of a page that the app's window names as the holder of the keys in a child window
+    (`appkit.child_window_page`). `second_key`: True for an app with a second window that is its key window."""
 
     def __init__(self, folder, **more):
         super().__init__(folder, **more)
         self.names, self.lost_after, self.key, self.windows = [], None, True, True
+        self.page, self.second_key = None, False
+
+    def front(self):
+        """The tool's read of the frontmost app (no LaunchServices here)."""
+        return "the app (pid 7)"
 
     def rpc(self, method, params=None, timeout=30):
         action = (params or {}).get("action")
@@ -39,6 +46,11 @@ class App(tabs.KeyTabsApp):
         if method == "debug.focus" and not self.windows:
             return {"app_active": self.active, "windows": []}
         reply = super().rpc(method, params, timeout)
+        if method == "debug.focus" and self.page:
+            reply["windows"][0]["appkit"] = {"first_responder": None, "child_window_page": self.page}
+            reply["key_window"] = "PageWindow" if self.active and not self.second_key else None
+        if method == "debug.focus" and self.second_key:
+            reply["windows"].append({"id": "window-2", "is_key": True})
         if method == "debug.window.focus" and not self.key:
             self.is_key = False
             reply = {"key": None, "front": "window-1"}
@@ -55,6 +67,7 @@ class ActiveAppTests(unittest.TestCase):
     def run_mode(self, app, **changed):
         screen = new_surface_screen.Screen(close.options(self.folder, **changed), app.rpc, app.tools(), sleep=app.pause,
                                            make_session=lambda *asked: {}, clock=app.clock, start=app.start)
+        screen.front = app.front  # the tool's read of the frontmost app
         said = io.StringIO()
         with contextlib.redirect_stdout(said):
             report = screen.run()
@@ -66,10 +79,17 @@ class ActiveAppTests(unittest.TestCase):
         self.assertEqual(app.window_calls, [ASK])
         asked = app.names.index("debug.window.focus")
         self.assertTrue(all(asked < app.names.index(call) for call in ("frame_strip", "debug.key")), app.names)
-        self.assertEqual(report.get("activation"), {"by": "debug.window.focus", "asked": ASK, "reply": {"key": "window-1", "front": "window-1"},
-                                                    "app_active": True, "shell_window_is_key": True, "reads": 1, "seconds": 0.0})
-        # Each row says the app's own answer, read directly before its recording.
+        # (R) the report: the form that passed, the app's answer before the ask, and the facts of the last read.
+        self.assertEqual(report.get("activation"), {
+            "by": "debug.window.focus", "asked": ASK, "reply": {"key": "window-1", "front": "window-1"},
+            "app_active": True, "shell_window_is_key": True, "reads": 1, "seconds": 0.0, "form": "shell",
+            "before": {"app_active": False, "shell_window_is_key": False},
+            "at_the_end": {"key_window_form": "shell", "shown_tab_kind": "terminal", "child_window_page": None, "first_responder": None,
+                           "app_windows": 1, "app_key_window": None, "keyboard_given_back": None, "front_app": "the app (pid 7)"}})
+        # Each row says the app's own answer, read directly before its recording, and the form of the key window.
         self.assertEqual([(row.get("app_active"), row.get("shell_window_is_key"), row["invalid"]) for row in report["rows"]], [(True, True, [])] * 3)
+        self.assertEqual(([row.get("key_window_form") for row in report["rows"]], report.get("key_window_form")), (["shell"] * 3, "shell"))
+        self.assertEqual(report["cases"]["cmd-w/idle"].get("key_window_forms"), {"shell": 1})
         # The head: the app, the workspace of the keys, and how long the app took to become active.
         self.assertEqual(report["head"][:3], ["the app was active: yes",
                                               "the key's workspace: the workspace that the app showed at its launch (the tool asked for no other)",
@@ -87,7 +107,9 @@ class ActiveAppTests(unittest.TestCase):
         report, said = self.run_mode(app, keys="n,t,w", gaps="0")
         self.assertEqual(report.get("stopped"), 'active: after debug.window.focus {"window": "window-1", "activate": true} the app says '
                                                 'app_active=false and its window says is_key=false (the call\'s reply: {"key": null, "front": '
-                                                '"window-1"}): no tab made, no case recorded')
+                                                '"window-1"}; at the stop: key window form none, shown tab terminal, child_window_page null, '
+                                                'first responder null, 1 of the app\'s windows listed, the app\'s key window null, keyboard '
+                                                'given back null, front app the app (pid 7)): no tab made, no case recorded')
         self.assertEqual((app.window_calls, report["rows"], report["cases"], report["exit_code"]), ([ASK], [], {}, new_surface_screen.STOPPED_EXIT))
         self.assertEqual([call for call in app.names if call in ("frame_strip", "debug.key", "action.run")], [])
         self.assertEqual(report["head"][0], "the app was active: no")
@@ -102,6 +124,47 @@ class ActiveAppTests(unittest.TestCase):
         report, _ = self.run_mode(app, keys="w")
         self.assertIn("the app says app_active=true and its window says is_key=false", report.get("stopped", ""))
         self.assertEqual((report["rows"], app.strips), ([], 0))
+
+    def test_an_active_app_whose_page_has_the_keys_in_a_child_window_runs_and_each_row_says_that_form(self):
+        # (C) the check: the state of the stop on the fleet (the app active, the shell window not key), with a page
+        # that the window names as the holder of the keys and no cmux window that is key.
+        app = App(self.folder)
+        app.key, app.page = False, "page-7"
+        report, said = self.run_mode(app, keys="t", gaps="0")
+        self.assertIsNone(report.get("stopped"))
+        self.assertEqual([(row.get("app_active"), row.get("shell_window_is_key"), row.get("key_window_form"), row["invalid"])
+                          for row in report["rows"]], [(True, False, "page child", [])])
+        self.assertEqual((report["activation"]["form"], report["activation"]["reads"], report["key_window_form"]), ("page child", 1, "page child"))
+        self.assertEqual(report["activation"]["at_the_end"], {
+            "key_window_form": "page child", "shown_tab_kind": "terminal", "child_window_page": "page-7", "first_responder": None,
+            "app_windows": 1, "app_key_window": "PageWindow", "keyboard_given_back": None, "front_app": "the app (pid 7)"})
+        self.assertEqual(report["cases"]["cmd-t/idle"]["key_window_forms"], {"page child": 1})
+        self.assertIn(" app_active=True shell_window_is_key=False key_window_form=page child", next(
+            line for line in said.splitlines() if "-ROW cmd-t-idle-0" in line))
+
+    def test_a_page_with_the_keys_in_an_app_that_is_not_active_ends_the_run(self):
+        app = App(self.folder)
+        app.takes_focus, app.page = False, "page-7"
+        report, _ = self.run_mode(app, keys="t", gaps="0")
+        self.assertIn("the app says app_active=false and its window says is_key=false", report.get("stopped", ""))
+        self.assertEqual((report["rows"], app.strips, report["exit_code"]), ([], 0, new_surface_screen.STOPPED_EXIT))
+
+    def test_a_page_named_while_another_cmux_window_is_key_ends_the_run(self):
+        app = App(self.folder)
+        app.key, app.page, app.second_key = False, "page-7", True
+        report, _ = self.run_mode(app, keys="t", gaps="0")
+        self.assertIn("the app says app_active=true and its window says is_key=false", report.get("stopped", ""))
+        self.assertIn("at the stop: key window form none, shown tab terminal, child_window_page \"page-7\", first responder null, "
+                      "2 of the app's windows listed,", report.get("stopped", ""))
+        self.assertEqual((report["rows"], app.strips), ([], 0))
+
+    def test_a_hold_with_the_keys_in_a_page_child_window_is_invalid(self):
+        # A hold's sequence goes to the shell window as the key window: in the other form its row is INVALID, as before.
+        app = App(self.folder)
+        app.key, app.page = False, "page-7"
+        report, _ = self.run_mode(app, keys="t,w", gaps="0", close_cases="hold")
+        row = report["rows"][1]
+        self.assertEqual((row.get("key_window_form"), row["invalid"][0].split(":")[0]), ("page child", "active"))
 
     def test_an_app_that_lists_no_window_ends_the_run_with_no_ask(self):
         app = App(self.folder)

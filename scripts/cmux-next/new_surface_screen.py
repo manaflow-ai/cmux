@@ -45,15 +45,28 @@ recording can make more than 60 (`openings`: 2 for each New Tab or New Workspace
 recordings in a run has no limit. The key goes to the app's key path through `debug.key`'s sender, not
 through the keyboard's driver: the path from the keyboard to the app is not in a number.
 
-The active app. A person who presses a key has an active app with a key window, and the mode's launch does not make
-the app active. So each run asks ONE time, after the session is made and before its first tab and its first case:
+The active app. A person who presses a key has an active app with a key window. The driver's launch for this mode
+has no `CMUX_NEXT_NO_ACTIVATE` (cmd-n-paint-e2e.py `launch`; its other launches have it, so that a tool's app does
+not take the keyboard of a person at the Mac): an app with that variable drops each activation that it is asked
+for (`CmuxApplication.activate`) and gives the keyboard back when one of its windows becomes the key window
+(`NoActivateKeyboardGuard`), so the ask below could not be true in it. A run of this mode so takes the keyboard of
+the Mac that it runs on. The tool does not take the launch itself as an active app: each run asks ONE time, after
+the session is made and before its first tab and its first case:
 `debug.window.focus {window, activate: true}` for the first window that the app lists. Then it reads the app's own
 answer (`debug.focus`: `app_active`, and the window's `is_key`), up to `ACTIVE_READS` times 0.2 s apart, because
-an activation is a request. An app that is then not active, a window that is then not the key window, and an app
-that lists no window end the run at once (`stopped`, the exit code `STOPPED_EXIT`): no tab is made and no case is
-recorded. Each row says both facts from one read directly before its recording (`app_active`,
-`shell_window_is_key`), and the tool does not ask a second time: in a `hold` row a fact that is not true is an
-INVALID reason (a hold's keys go to the key window of an active app), in each other row it is the fact only. The
+an activation is a request. The read must have one of 2 forms (`key_form`). `shell`: the app is active and that
+window is the key window. `page child`: the app is active, no cmux window is the key window, and that window names a
+page that has the keys in a child window (`appkit.child_window_page`). Each other state (an app that is not active,
+an active app with no such key window) and an app that lists no window end the run at once (`stopped`, the exit
+code `STOPPED_EXIT`): no tab is made and no case is recorded. The report's `activation` says the form that passed
+(`form`), the app's answer before the ask (`before`) and the facts of the last read (`at_the_end`: the form, the
+shown tab's kind, the page that the window names, the first responder, the count of the app's windows, the class
+of the app's key window, what the app's no-activate mode gave back, the frontmost app by LaunchServices); a stop's
+text says them too. Each row says both facts and the form from one read directly before its recording
+(`app_active`, `shell_window_is_key`, `key_window_form`), and the tool does not ask a second time: in a `hold` row
+an app that is not active or a shell window that is not the key window is an INVALID reason (a hold's keys go to
+the shell window as the key window of an active app), in each other row it is the fact only. Runs with 2 forms
+are 2 states: no pair has both. The
 report's `head` says `the app was active: yes` only when each row says so, the workspace of the keys, and the
 reads and the seconds from the ask to the app's answer. Rows of a run in an active app and rows of a run in an
 app that was not active are 2 states: no table has both.
@@ -190,6 +203,32 @@ def key_tabs(text):
     if not counts or counts[0] < 1 or any(later <= earlier for earlier, later in zip(counts, counts[1:])):
         raise argparse.ArgumentTypeError(f"{text}: --key-tabs takes counts of tabs that rise, from 1 (6,84)")
     return counts
+
+
+def key_form(fact):
+    """(C) the check: the form of the key window in one read of the app (`Screen.listing`), or None for a state in
+    which no take runs. `shell`: the app is active and its first window is the key window. `page child`: the app is
+    active, no cmux window is the key window, and the first window names a page that has the keys in a child window
+    (`appkit.child_window_page`: the app shows a Chromium page in a child window, which is the key window while the
+    page has the focus). An app that is not active has no form."""
+    if fact["app_active"] is not True:
+        return None
+    if fact["is_key"] is True:
+        return "shell"
+    return "page child" if not fact["any_key"] and fact["appkit"].get("child_window_page") else None
+
+
+def front_app():
+    """(R) the report: the frontmost app of this session by LaunchServices (`lsappinfo front`, then its name and its
+    pid), or the tool's own words when it gives none (a host with no such program: `not read`)."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, errors="replace", timeout=5, check=False).stdout.strip()
+        name, pid = (subprocess.run(["/usr/bin/lsappinfo", "info", "-only", only, asn], capture_output=True, text=True, errors="replace",
+                                    timeout=5, check=False).stdout.strip() for only in ("name", "pid"))
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return f"not read ({str(error)[:80]})"
+    named, numbered = re.search(r'=\s*"([^"]*)"', name), re.search(r'"?pid"?\s*=\s*(\d+)', pid)
+    return f"{named.group(1) if named else (name or asn)[:60] or 'none'} (pid {numbered.group(1) if numbered else 'not read'})"
 
 
 def shells(workspace):
@@ -418,6 +457,7 @@ class Screen:
     def __init__(self, opts, rpc, tools, sleep=time.sleep, make_session=seed, clock=time.monotonic, start=beside):
         self.opts, self.rpc, self.tools, self.sleep, self.make_session = opts, rpc, tools, sleep, make_session
         self.clock, self.start = clock, start
+        self.front = front_app  # (R) the read of the frontmost app, one time at the end of the run's ask
         self.keep = os.path.join(opts.out, "screen-keep")
         self.rows, self.kept, self.kept_in_case = [], 0, 0
         # The driver's word about its launch (run_end_record.py): a text makes each row INVALID. `launch`: its facts.
@@ -558,19 +598,26 @@ class Screen:
         """One read of the app's focus model (`debug.focus`), for its first window: `window` (its id) and `is_key`,
         `app_active`, the shown workspace's `panes`, `tabs` and `kinds` (counts over each pane; None when the app
         lists no pane), and `pane`: the tabs in order (`{id, kind}`) and the shown tab of the pane that the model
-        names, or of the only pane (None when the app lists none)."""
+        names, or of the only pane (None when the app lists none). For the key window's form (`key_form`) and the
+        report: `windows` (the count of the app's windows in the answer), `any_key` (one of them is the key window),
+        the first window's `appkit` part, the class of the app's key window (`key_window`) and what the app says of
+        the keyboard that its no-activate mode gave back (`given_back`)."""
         reply = self.rpc("debug.focus", None, 30)
         reply = reply if isinstance(reply, dict) else {}
+        windows = [window for window in reply.get("windows") or [] if isinstance(window, dict)]
         fact = {"window": None, "is_key": None, "app_active": reply.get("app_active"), "panes": None, "tabs": None, "kinds": None,
-                "pane": None, "error": reply.get("error")}
+                "pane": None, "error": reply.get("error"), "windows": len(windows),
+                "any_key": any(window.get("is_key") is True for window in windows), "appkit": {},
+                "key_window": reply.get("key_window"), "given_back": reply.get("keyboard_given_back")}
 
         def tabs_of(pane):
             return [dict(zip(("id", "kind"), str(tab).rsplit(":", 1) + [None])) for tab in pane.get("tabs") or []]
-        for window in [window for window in reply.get("windows") or [] if isinstance(window, dict)][:1]:
+        for window in windows[:1]:
             panes = [pane for pane in window.get("topology") or [] if isinstance(pane, dict)]
             named = (window.get("model") or {}).get("pane")
             found = next((pane for pane in panes if pane.get("pane") == named), panes[0] if len(panes) == 1 else None)
-            fact.update({"window": window.get("id"), "is_key": window.get("is_key")})
+            fact.update({"window": window.get("id"), "is_key": window.get("is_key"),
+                         "appkit": window.get("appkit") if isinstance(window.get("appkit"), dict) else {}})
             if panes:
                 kinds = {}
                 for tab in [tab for pane in panes for tab in tabs_of(pane)]:
@@ -589,7 +636,8 @@ class Screen:
         its window the key window, and with `--key-tabs` the shown workspace's tabs. `hold`: a hold's list of INVALID
         reasons, which gets one when a fact is not true. Returns the focused pane (`pane`)."""
         fact = self.listing()
-        row.update({"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"]})
+        # `key_window_form`: the form of the key window in this read (`key_form`); rows of 2 forms are 2 states.
+        row.update({"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"], "key_window_form": key_form(fact)})
         if self.size is not None:
             row.update({"workspace_tabs_before": fact["tabs"], "workspace_kinds_before": fact["kinds"]})
         if hold is not None and not (fact["app_active"] is True and fact["is_key"] is True):
@@ -623,12 +671,26 @@ class Screen:
         self.sleep(2.0)  # tool pacing: the shown workspace's tabs mount before the ask and the first made tab
         return None
 
+    def key_facts(self, fact):
+        """(R) the report: what one read of the app says of the keys, and the frontmost app: the key window's form
+        (`key_form`), the kind of the shown tab of the key's pane, the page that the window names as the holder of
+        the keys, the window's first responder, the count of the app's windows, the class of the app's key window,
+        what the app's no-activate mode gave back, and the frontmost app by LaunchServices."""
+        pane = fact["pane"] or {}
+        return {"key_window_form": key_form(fact),
+                "shown_tab_kind": next((tab["kind"] for tab in pane.get("tabs") or [] if tab["id"] == pane.get("selected")), None),
+                "child_window_page": fact["appkit"].get("child_window_page"), "first_responder": fact["appkit"].get("first_responder"),
+                "app_windows": fact["windows"], "app_key_window": fact["key_window"], "keyboard_given_back": fact["given_back"],
+                "front_app": self.front()}
+
     def activate(self):
         """The run's one ask for the active app (the module doc). Returns the reason that ends the run (no window,
-        an app that is not active, a window that is not the key window), or None."""
+        an app that is not active, a state with no key window's form: `key_form`), or None."""
         fact = self.listing()
+        # `before`: the app's answer before the ask (an app that the system made active itself says so here).
         self.activation = {"by": "debug.window.focus", "asked": None, "reply": None, "app_active": fact["app_active"],
-                           "shell_window_is_key": fact["is_key"], "reads": 0}
+                           "shell_window_is_key": fact["is_key"], "reads": 0, "form": None,
+                           "before": {"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"]}}
         if not fact["window"]:
             said = f"the app's debug.focus said {json.dumps(fact['error'], default=str)[:200]}" if fact["error"] else "the app lists no window (debug.focus)"
             return f"active: {said}: no tab made, no case recorded"
@@ -636,17 +698,24 @@ class Screen:
         reply, began = self.rpc("debug.window.focus", asked, 30), self.clock()
         for reads in range(1, ACTIVE_READS + 1):
             fact = self.listing()
-            if (fact["app_active"] is True and fact["is_key"] is True) or reads == ACTIVE_READS:
+            if key_form(fact) or reads == ACTIVE_READS:  # (C) the check
                 break
             self.sleep(0.2)  # tool pacing: an activation is a request, the app's answer can come later
-        # `seconds`: from the ask's reply to the last read (the answer that both are true, or the last one that they are not).
+        # `seconds`: from the ask's reply to the last read (the answer with a form, or the last one with none).
+        # (R) `form`: the form that passed (None at a stop); `at_the_end`: the facts of that last read.
+        at = self.key_facts(fact)
         self.activation.update({"asked": asked, "reply": reply, "app_active": fact["app_active"], "shell_window_is_key": fact["is_key"],
-                                "reads": reads, "seconds": round(self.clock() - began, 1)})
-        if fact["app_active"] is True and fact["is_key"] is True:
+                                "reads": reads, "seconds": round(self.clock() - began, 1), "form": at["key_window_form"], "at_the_end": at})
+        if at["key_window_form"]:
             return None
+
+        def word(name):
+            return json.dumps(at[name], default=str)[:120]
         return (f"active: after debug.window.focus {json.dumps(asked)} the app says app_active={json.dumps(fact['app_active'])} and its "
-                f"window says is_key={json.dumps(fact['is_key'])} (the call's reply: {json.dumps(reply, default=str)[:300]}): no tab made, "
-                "no case recorded")
+                f"window says is_key={json.dumps(fact['is_key'])} (the call's reply: {json.dumps(reply, default=str)[:300]}; at the stop: "
+                f"key window form none, shown tab {at['shown_tab_kind']}, child_window_page {word('child_window_page')}, first responder "
+                f"{word('first_responder')}, {at['app_windows']} of the app's windows listed, the app's key window {word('app_key_window')}, "
+                f"keyboard given back {word('keyboard_given_back')}, front app {at['front_app']}): no tab made, no case recorded")
 
     def fill(self, asked):
         """`--key-tabs`: makes tabs beside the shown tab of the key's pane until the app lists `asked` tabs in the
@@ -917,6 +986,8 @@ class Screen:
         # The keys' workspace, then the one ask for the active app: a reason of either ends the run before a tab or a case.
         ended = ended or self.place() or self.activate()
         report["key_workspace"], report["activation"] = self.key_workspace, self.activation
+        # The form that passed the run's ask (`key_form`; None: no ask, or a stop). 2 runs with 2 forms are no pair.
+        report["key_window_form"] = (self.activation or {}).get("form")
         if ended:
             report["stopped"] = ended
             print(f"{MARK} STOPPED {ended}", flush=True)
@@ -949,12 +1020,15 @@ class Screen:
                       f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                       f"changes_after_content={row.get('changes_after_content')} "
                       f"refresh_ms={row.get('refresh_ms')} rate_share={row.get('rate_share')} capture={row.get('capture')}{holes(row)}{tabs} "
-                      f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')}", flush=True)
+                      f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')} "
+                      f"key_window_form={row.get('key_window_form')}", flush=True)
                 if row.get("call_went_on"):
                     break
             report["cases"][case] = frames_of.summarize(rows)
             report["cases"][case]["active"] = {name: {"yes": sum(1 for row in rows if row.get(name) is True), "of": len(rows)}
                                                for name in ("app_active", "shell_window_is_key")}
+            forms = [str(row.get("key_window_form")) for row in rows if "key_window_form" in row]
+            report["cases"][case]["key_window_forms"] = {form: forms.count(form) for form in sorted(set(forms))}
             report["cases"][case]["recorder_lost"] = frames_of.recorder_lost(rows)
             if self.size:
                 counts = [row["workspace_tabs_before"] for row in rows if isinstance(row.get("workspace_tabs_before"), int)]

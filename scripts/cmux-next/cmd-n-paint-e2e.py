@@ -42,7 +42,10 @@ bench. The quick and cold openings are reported, not judged: the exit status is 
 `--screen` is another use of the same app and keys, with no judgement and none of the openings above: each key
 alone, and each key a set time after another key, as the screen showed it frame by frame, in a session of
 `--workspaces` workspaces (new_surface_screen.py has its arguments and its report). The recording is then
-`--duration-ms` 2000 long unless that is given. With `w` in `--keys`, the mode also records the Close Tab key
+`--duration-ms` 2000 long unless that is given. The mode's own launch (`--app`) is the one launch of this driver
+with no `CMUX_NEXT_NO_ACTIVATE`: the mode asks for an active app with a key window, and an app with that variable
+drops the ask. So a screen take TAKES THE KEYBOARD of the Mac that it runs on: run it on no Mac that a person
+works at. With `w` in `--keys`, the mode also records the Close Tab key
 (Command-W): alone, a set time after a New Tab key, the same time after key-downs of the New Tab key at a hold's
 times with no repeat flag, and the same time after a hold of the New Tab key (`--close-cases`).
 
@@ -150,6 +153,11 @@ def launch(app_path, tag, at_end=None):
            "CMUX_NEXT_TEST_WINDOW_SCREEN": opts.window_screen, "CMUX_NEXT_CONFIG_FILE": config,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if opts.screen:
+        # (L) The screen mode's launch can take the keyboard: an app with CMUX_NEXT_NO_ACTIVATE=1 drops each
+        # activation, also the one that this mode asks for, and gives a key window back (new_surface_screen.py,
+        # `The active app`). So a screen take takes the keyboard of the Mac that it runs on. Each other mode's
+        # launch keeps the variable: it does not take the keyboard of a person at the Mac.
+        del env["CMUX_NEXT_NO_ACTIVATE"]
         # --window-look: its keys go into this launch's 2 config files before the app starts (new_surface_look.py).
         unwritten = new_surface_screen.new_surface_look.write(opts.window_look, env)
         if unwritten:
