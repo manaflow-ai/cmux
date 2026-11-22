@@ -24,8 +24,10 @@ extension ChiefWelcome {
         }
     }
 
-    /// The shortcuts listed below the Go to Workspace call-out, in order.
-    static let shortcutActions: [ActionID] = ["commandPalette", "search.chats", "newTab.default", "newSurface", "palette.newAgentChat"]
+    /// How to use cmux, in order: the shortcuts people use every day (cmux#48416), New Workspace `⌘N`, New Tab
+    /// `⌘T`, Split Right `⌘D`, Split Down `⇧⌘D`, Focus Location Bar `⌘L`, New Browser Tab `⇧⌘L`, Go to Workspace
+    /// `⌘P`, then the Command Palette `⇧⌘P` for everything else (default keys: cmux-action-catalog `catalog/`).
+    static let shortcutActions: [ActionID] = ["newTab", "newTab.default", "splitRight", "splitDown", "focusLocation", "openBrowser", goToAction, "commandPalette"]
     /// Go to Workspace, normally ⌘P.
     static let goToAction: ActionID = "goToWorkspace"
     /// Start Agent from Any App, normally ⌃⌥⌘Space: the system-wide key, last in the list. Its setting
@@ -43,16 +45,13 @@ extension ChiefWelcome {
                   let title = registry.descriptor(for: id)?.title else { return nil }
             return Shortcut(keys: keys, then: steps.dropFirst().first, title: title.hasSuffix("…") ? String(title.dropLast()) : title)
         }
-        return text(goTo: registry.shortcutDisplay(for: goToAction), shortcuts: shortcutActions.compactMap(shortcut),
-                    anyApp: shortcut(anyAppAction), anyAppOn: anyAppOn)
+        return text(shortcuts: shortcutActions.compactMap(shortcut), anyApp: shortcut(anyAppAction), anyAppOn: anyAppOn)
     }
 
-    /// The about message's Markdown: what Chief can do, Go to Workspace, other shortcuts and example requests.
-    /// An unbound Go to Workspace (`goTo` nil) has no call-out. `anyApp` (Start Agent from Any App) ends the
-    /// shortcut list, with a link that turns its key on unless `anyAppOn`.
-    public nonisolated static func text(goTo: String?, shortcuts: [Shortcut], anyApp: Shortcut? = nil, anyAppOn: Bool = false) -> String {
+    /// The about message's Markdown, kept short: one line on what Chief does, then how to use cmux (its shortcuts).
+    /// `anyApp` (Start Agent from Any App) ends the shortcut list, with a link that turns its key on unless `anyAppOn`.
+    public nonisolated static func text(shortcuts: [Shortcut], anyApp: Shortcut? = nil, anyAppOn: Bool = false) -> String {
         var blocks = [aboutText]
-        if let goTo { blocks.append(HomeStrings.chiefWelcomeGoTo(goTo)) }
         var lines = shortcuts.map { "- \($0.markdown) \($0.title)" }
         if let anyApp {
             lines.append(anyAppOn ? "- \(anyApp.markdown) \(anyApp.title)" : "- " + HomeStrings.chiefWelcomeAnyApp(anyApp.markdown, anyApp.title, link: anyAppLink))
@@ -60,8 +59,6 @@ extension ChiefWelcome {
         if !lines.isEmpty {
             blocks.append(([HomeStrings.chiefWelcomeShortcuts] + lines).joined(separator: "\n"))
         }
-        blocks.append(HomeStrings.chiefWelcomeExamplesHeader + "\n" + HomeStrings.chiefWelcomeExamples)
-        blocks.append(HomeStrings.chiefWelcomeAsk)
         return blocks.joined(separator: "\n\n")
     }
 }

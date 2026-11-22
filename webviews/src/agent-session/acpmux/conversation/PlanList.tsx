@@ -26,12 +26,16 @@ export const PlanList = memo(function PlanList({
   entries,
   ended = false,
   earlier = false,
+  still = false,
   id,
 }: {
   entries: readonly AcpmuxPlanEntry[];
   ended?: boolean;
   /// An earlier turn's list, shown under the running turn until the agent writes a new one.
   earlier?: boolean;
+  /// The chat's task list between turns (composer hat, chatTaskList.ts): no turn works on it, so its
+  /// step in progress shows a still ring, never the spinner.
+  still?: boolean;
   /// The plan row's id: an ended list the reader opened stays open when its row draws again.
   id?: string;
 }) {
@@ -82,7 +86,7 @@ export const PlanList = memo(function PlanList({
                 {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
                 {entry.status === "completed" && <Check size={10} />}
                 {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
-                {entry.status === "in_progress" && !ended && !earlier && <Spinner size={12} />}
+                {entry.status === "in_progress" && !ended && !earlier && !still && <Spinner size={12} />}
               </span>
               <span className="cv-plan__text">{entry.content}</span>
               {/* The marks are drawn only; a screen reader hears the state. */}

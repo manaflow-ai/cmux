@@ -53,7 +53,9 @@ fn now() -> i64 {
 
 /// `Some(exit code)` when `args` is `automation …` (or `automations …`).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = super::parse_globals(args).ok()?;
+    // A `--machine` after `automation` is the verb's own (`create … --target cloud --machine
+    // vm_…` names the Cloud machine); before it, it is still the global option.
+    let (global, command_args) = super::parse_action_globals(args).ok()?;
     let (first, rest) = command_args.split_first()?;
     if first != "automation" && first != "automations" {
         return None;

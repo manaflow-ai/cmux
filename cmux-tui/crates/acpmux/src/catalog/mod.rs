@@ -48,7 +48,8 @@ pub const MIN_FETCH_SPACING: Duration = Duration::from_secs(10);
 const STORE_FILE: &str = "models-v1.json";
 
 /// The copy bundled at build time.
-pub const BUNDLED: &str = include_str!("../../catalog/models-v1.json");
+pub static BUNDLED: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../catalog/models-v1.json"));
 
 /// Where the catalog in use came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +105,7 @@ fn now_ms() -> u64 {
 /// The bundled copy. It is checked by a test, so a bad one never ships; if it
 /// still fails to read, the catalog is empty and harnesses keep their own lists.
 fn bundled() -> Catalog {
-    schema::parse(BUNDLED.as_bytes()).unwrap_or_else(|e| {
+    schema::parse(BUNDLED.inflate().as_bytes()).unwrap_or_else(|e| {
         tracing::error!("the bundled model catalog does not read: {e}");
         Catalog {
             schema_version: schema::SCHEMA_VERSION,

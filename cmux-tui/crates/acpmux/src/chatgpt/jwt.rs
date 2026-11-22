@@ -152,6 +152,11 @@ pub(crate) fn verify(
     {
         return Err(Invalid::Nonce);
     }
+    claims_of(&claims)
+}
+
+/// The identity a payload names: `sub`, e-mail, plan and ChatGPT account.
+fn claims_of(claims: &Value) -> Result<Claims, Invalid> {
     let text = |pointer: &str| {
         claims.pointer(pointer).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
     };
@@ -162,4 +167,26 @@ pub(crate) fn verify(
         plan: text("/https:~1~1api.openai.com~1auth/chatgpt_plan_type"),
         account: text("/https:~1~1api.openai.com~1auth/chatgpt_account_id"),
     })
+}
+
+/// A token's payload with its signature NOT checked, and its `aud` required to name `audience`.
+/// Only for the CI import (`import.rs`), which has no JWKS to check against and whose tokens the
+/// first refresh proves with OpenAI; never a login.
+pub(crate) fn unverified(token: &str, audience: &str) -> Result<(Claims, Value), Invalid> {
+    let mut parts = token.split('.');
+    let (Some(_), Some(body), Some(_), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Invalid::Malformed);
+    };
+    let payload = json_part(body)?;
+    let aud_ok = match payload.get("aud") {
+        Some(Value::String(a)) => a == audience,
+        Some(Value::Array(list)) => list.iter().any(|a| a.as_str() == Some(audience)),
+        _ => false,
+    };
+    if !aud_ok {
+        return Err(Invalid::Audience);
+    }
+    Ok((claims_of(&payload)?, payload))
 }

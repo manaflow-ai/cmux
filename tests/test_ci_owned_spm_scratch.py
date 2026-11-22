@@ -958,5 +958,29 @@ class SeedRoot(unittest.TestCase):
         self.assertIn("owned_spm_scratch.py seeded", job)
 
 
+    def test_generated_files_builds_and_checks_in_the_seed_root(self):
+        """note-410: generated files takes the seed root like the fast tier, restores the seed there, and
+        every step that reads the build or writes the checkout runs in that root, not the slot's workspace."""
+        text = NEXT_WORKFLOW.read_text()
+        start = text.index("\n  generated-files:\n")
+        job = text[start:text.index("\n  generated-verdict:\n", start)]
+
+        def block(name):
+            found = job[job.index(f"- name: {name}\n"):]
+            return found[:found.index("\n      - name:", 10)]
+
+        lease = block("Keep Swift package builds on this owned Mac")
+        self.assertIn("owned_spm_scratch.py lease", lease)
+        self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}", lease)
+        self.assertIn("steps.spm-root.outputs.seed == '1'", block("Compute the fast-tier seed keys"))
+        self.assertIn("format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace)",
+                      block("Restore the CmuxNext build the base seeded"))
+        self.assertIn("owned_spm_scratch.py seeded", block("Replay the seed's input times"))
+        for name in ("Give this job its own bun", "Install the restored web bundles", "Build the web bundles",
+                     "Build package and tests", "Check generated action catalog, surfaces and inventory",
+                     "Check the settings exports", "Pack the exports for the base autofix",
+                     "Pack the exports for the PR autofix", "Regenerate stale files"):
+            self.assertIn("steps.spm-root.outputs.root || github.workspace", block(name).split("working-directory:", 1)[-1].split("\n", 1)[0], name)
+
 if __name__ == "__main__":
     unittest.main()
