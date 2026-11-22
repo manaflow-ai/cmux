@@ -685,6 +685,12 @@ pub trait Desktop: Send + Sync {
     fn picks_menu_items(&self) -> bool {
         false
     }
+
+    /// The displays `capture(CaptureTarget::Display(id))` takes, main first
+    /// (`list_displays`, crate::displays).
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Err(DesktopError::Unsupported("this desktop does not list displays".into()))
+    }
 }
 
 pub mod fake;
