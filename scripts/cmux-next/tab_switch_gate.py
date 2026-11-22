@@ -11,6 +11,14 @@ Every switch in every scenario must meet every budget (BUDGETS):
   shift_px == 0                       nothing moves when the tab comes back
   insert_ok is not False              the tab lands where it should go (null: the switch inserts nothing)
   anim_end_ok is not False            its animation ends where it should (null: no animation)
+  reloads == 0                        the switched-to tab did not load again (null or absent: not counted)
+  downloads_restarted == 0            no download started again (per switch, and a row's own count since a relaunch)
+  omnibar_frames == 0                 the omnibar never showed another URL or its empty "Search or type URL"
+
+The default scenarios (REQUIRED_SCENARIOS) must each have run under every load the run asked for: chromium-warm (ten
+live Chromium tabs, 20 switches) and chromium-restored (the same tabs after a relaunch restored them). Leo,
+2026-11-22: "this is so fucked. constant rerenders on every fucking page still." The gate had only ever switched back
+to a live tab (chromium-return), so tabs a relaunch restored, blank for 4 to 7 s and then loaded cold, passed it.
 
 The harness's own `pass` and `budget_fail` are read too, but never trusted alone: a report whose `pass` is true
 while a switch misses a budget fails here, and so does one the harness failed for a reason this module does not
@@ -20,7 +28,8 @@ know. A report that cannot be read, or lacks a load the run asked for, or a scen
 Usage:
   tab_switch_gate.py scope [--files-from FILE]           changed paths (one per line, stdin by default);
                                                          prints in_scope=true|false and the matched paths
-  tab_switch_gate.py evaluate REPORT [--loads idle,cpu,agents] [--summary FILE] [--sheet NAME]
+  tab_switch_gate.py evaluate REPORT [--loads idle,cpu,agents] [--scenarios chromium-warm,chromium-restored]
+                     [--summary FILE] [--sheet NAME]
                                                          REPORT: report.json, or a .tar holding one;
                                                          exit 0 pass, 1 budget miss or unreadable report
 """
@@ -40,6 +49,8 @@ from typing import Any
 
 SCHEMA = "tab-switch/v1"
 DEFAULT_LOADS = ("idle", "cpu", "agents")
+# Scenarios a run must have measured under each of its loads (evaluate --scenarios; none for judge() by default).
+REQUIRED_SCENARIOS = ("chromium-warm", "chromium-restored")
 
 # What the check measures: the tab strip and tabs, the pane that hosts a tab's content, the agent (chat) pane, its
 # conversation and composer, and the daemon's tab and pane store ops; plus the gate and the harness themselves.
@@ -53,6 +64,7 @@ SCOPE: tuple[str, ...] = (
     "scripts/cmux-next/bench_tab_switch.py",
     "scripts/cmux-next/bench-tab-switch.sh",
     "scripts/cmux-next/tab-switch-stages.py",
+    "scripts/cmux-next/tab_switch_restored.py",
     # Swift: the tab strip and tabs.
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/**",
@@ -151,6 +163,9 @@ class Scenario:
     worst_shift_px: float = 0
     insert_misses: int = 0
     anim_misses: int = 0
+    reloads: int = 0
+    downloads_restarted: int = 0
+    omnibar_frames: int = 0
     harness_fail: list[str] = dataclasses.field(default_factory=list)
     misses: list[str] = dataclasses.field(default_factory=list)
 
@@ -182,6 +197,11 @@ def _count(value: Any, where: str) -> int:
     if number < 0 or number != int(number):
         raise ReportError(f"{where} is {value!r}, not a count")
     return int(number)
+
+
+def _optional_count(value: Any, where: str) -> int:
+    """A count the scenario may not keep: null or absent is 0 (not counted), anything else must be a count."""
+    return 0 if value is None else _count(value, where)
 
 
 def _tri(value: Any, where: str) -> bool | None:
@@ -239,6 +259,11 @@ def judge_scenario(raw: Mapping[str, Any], index: int, display_hz: float | None)
             scenario.insert_misses += 1
         if _tri(switch.get("anim_end_ok"), f"{where} anim_end_ok") is False:
             scenario.anim_misses += 1
+        scenario.reloads += _optional_count(switch.get("reloads"), f"{where} reloads")
+        scenario.downloads_restarted += _optional_count(switch.get("downloads_restarted"), f"{where} downloads_restarted")
+        scenario.omnibar_frames += _optional_count(switch.get("omnibar_frames"), f"{where} omnibar_frames")
+    # A row's own count: downloads restarted from a relaunch to its block's end, the switches' and the restore's.
+    row_downloads = _optional_count(raw.get("downloads_restarted"), f"scenario {name} downloads_restarted")
     if late:
         scenario.misses.append(f"{late} of {scenario.switches} switches showed content after one display frame "
                                f"(worst {_fmt(scenario.worst_to_content_ms)} ms, frame {_fmt(scenario.frame_ms)} ms)")
@@ -252,14 +277,21 @@ def judge_scenario(raw: Mapping[str, Any], index: int, display_hz: float | None)
         scenario.misses.append(f"{scenario.insert_misses} switches inserted the tab in the wrong place")
     if scenario.anim_misses:
         scenario.misses.append(f"{scenario.anim_misses} animations ended in the wrong place")
+    if scenario.reloads:
+        scenario.misses.append(f"{scenario.reloads} reloads of a switched-to tab")
+    if scenario.omnibar_frames:
+        scenario.misses.append(f"{scenario.omnibar_frames} frames of a wrong or empty omnibar")
+    scenario.downloads_restarted = max(scenario.downloads_restarted, row_downloads)
+    if scenario.downloads_restarted:
+        scenario.misses.append(f"{scenario.downloads_restarted} downloads restarted")
     if scenario.harness_fail and not scenario.misses:
         scenario.misses.append("the harness failed it: " + "; ".join(scenario.harness_fail))
     return scenario
 
 
-def judge(report: Any, loads: Sequence[str] = DEFAULT_LOADS) -> Verdict:
-    """The verdict on a parsed tab-switch/v1 REPORT for a run that asked for LOADS. Raises ReportError when the
-    report cannot be judged."""
+def judge(report: Any, loads: Sequence[str] = DEFAULT_LOADS, scenarios: Sequence[str] = ()) -> Verdict:
+    """The verdict on a parsed tab-switch/v1 REPORT for a run that asked for LOADS, each of SCENARIOS measured under
+    each of them. Raises ReportError when the report cannot be judged."""
     if not isinstance(report, Mapping):
         raise ReportError("the report is not a JSON object")
     if report.get("schema") != SCHEMA:
@@ -271,11 +303,14 @@ def judge(report: Any, loads: Sequence[str] = DEFAULT_LOADS) -> Verdict:
     raw = report.get("scenarios")
     if not isinstance(raw, list) or not raw:
         raise ReportError("the report has no scenarios")
-    scenarios = [judge_scenario(item, i, display_hz) for i, item in enumerate(raw)]
-    failures = [f"{s.name} ({s.load}): {miss}" for s in scenarios for miss in s.misses]
+    judged = [judge_scenario(item, i, display_hz) for i, item in enumerate(raw)]
+    failures = [f"{s.name} ({s.load}): {miss}" for s in judged for miss in s.misses]
     for load in loads:
-        if not any(s.load == load for s in scenarios):
+        if not any(s.load == load for s in judged):
             failures.append(f"no scenario ran under load {load}")
+        for name in scenarios:
+            if not any(s.load == load and s.name == name for s in judged):
+                failures.append(f"{name} did not run under load {load}")
     harness_pass = report.get("pass")
     if not isinstance(harness_pass, bool):
         failures.append(f"the harness's pass is {harness_pass!r}, not true or false")
@@ -283,7 +318,7 @@ def judge(report: Any, loads: Sequence[str] = DEFAULT_LOADS) -> Verdict:
         failures.append("the harness reported pass: false with every switch in budget")
     elif harness_pass and failures:
         failures.append("the harness reported pass: true, but the budgets above were missed")
-    return Verdict(build=str(report.get("build") or "?"), display_hz=display_hz, scenarios=scenarios,
+    return Verdict(build=str(report.get("build") or "?"), display_hz=display_hz, scenarios=judged,
                    failures=failures)
 
 
@@ -313,15 +348,17 @@ def summary_markdown(verdict: Verdict | None, error: str | None = None, sheet: s
         return f"{title}no verdict\n\nThe report could not be judged: {error}. No verdict is never a pass.\n"
     lines = [title + ("pass" if verdict.ok else "fail"), "",
              f"Build `{verdict.build}`, display {_fmt(verdict.display_hz) + ' Hz' if verdict.display_hz else 'Hz unknown'}. "
-             "Budgets: content within one display frame, 0 blank frames, 0 wrong frames, 0 px shift.", "",
+             "Budgets: content within one display frame, 0 blank frames, 0 wrong frames, 0 px shift, 0 reloads, "
+             "0 downloads restarted, 0 omnibar frames.", "",
              "| scenario | load | switches | worst to content (ms) | frame (ms) | blank | wrong | shift (px) "
-             "| wrong insert | wrong anim end | verdict |",
-             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+             "| wrong insert | wrong anim end | reloads | downloads restarted | omnibar | verdict |",
+             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for s in verdict.scenarios:
         worst = "-" if s.worst_to_content_ms is None else _fmt(s.worst_to_content_ms)
         frame = "-" if s.frame_ms is None else _fmt(s.frame_ms)
         lines.append(f"| {s.name} | {s.load} | {s.switches} | {worst} | {frame} | {s.blank_frames} | {s.wrong_frames} "
-                     f"| {_fmt(s.worst_shift_px)} | {s.insert_misses} | {s.anim_misses} | {'ok' if s.ok else 'miss'} |")
+                     f"| {_fmt(s.worst_shift_px)} | {s.insert_misses} | {s.anim_misses} | {s.reloads} | {s.downloads_restarted} "
+                     f"| {s.omnibar_frames} | {'ok' if s.ok else 'miss'} |")
     if verdict.failures:
         lines += ["", "Missed:", *[f"- {failure}" for failure in verdict.failures]]
     if sheet:
@@ -337,6 +374,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     evaluate = sub.add_parser("evaluate")
     evaluate.add_argument("report")
     evaluate.add_argument("--loads", default=",".join(DEFAULT_LOADS))
+    evaluate.add_argument("--scenarios", default=",".join(REQUIRED_SCENARIOS),
+                          help="scenarios that must have run under every load (empty: none)")
     evaluate.add_argument("--summary", default="")
     evaluate.add_argument("--sheet", default="", help="where the contact sheet is (an artifact name or URL)")
     args = parser.parse_args(argv)
@@ -359,7 +398,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verdict, error = None, None
     try:
         report, images = load_report(args.report)
-        verdict = judge(report, loads)
+        verdict = judge(report, loads, [name for name in args.scenarios.split(",") if name])
     except (OSError, ReportError, tarfile.TarError) as caught:
         error, images = str(caught), []
     sheet = " in ".join(part for part in (", ".join(images), args.sheet) if part)
