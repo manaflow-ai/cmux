@@ -64,6 +64,15 @@ extension CloudAgentStartSetting {
     public nonisolated static let fallback = true
 }
 
+extension MachineSettingsSchema {
+    /// `worktrees.autoCleanup`: On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).
+    nonisolated static let autoCleanupPath = ["worktrees", "autoCleanup"]
+    nonisolated static let autoCleanupDefault = true
+    /// `worktrees.cleanBuildCaches`: Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).
+    nonisolated static let cleanBuildCachesPath = ["worktrees", "cleanBuildCaches"]
+    nonisolated static let cleanBuildCachesDefault = false
+}
+
 extension MobileSettings {
     /// `mobile.allowIPhoneConnections`.
     public nonisolated static let allowIPhoneConnectionsPath = ["mobile", "allowIPhoneConnections"]
@@ -344,6 +353,34 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var storage: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.storage", "Storage")
+        return [
+            SettingDescriptor(
+                MachineSettingsSchema.autoCleanupPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.autoCleanup", "Clean Up Agent Worktrees"),
+                help: SettingsText.keyed("settings.worktrees.autoCleanup.help", "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."),
+                kind: .toggle,
+                default: .bool(MachineSettingsSchema.autoCleanupDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
+            ),
+            SettingDescriptor(
+                MachineSettingsSchema.cleanBuildCachesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.worktrees.cleanBuildCaches", "Clean Up Build Caches"),
+                help: SettingsText.keyed("settings.worktrees.cleanBuildCaches.help", "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."),
+                kind: .toggle,
+                default: .bool(MachineSettingsSchema.cleanBuildCachesDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
             ),
         ]
     }
