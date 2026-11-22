@@ -26,6 +26,8 @@ import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
@@ -518,6 +520,16 @@ const InlineChip = memo(function InlineChip({
       </ContextMenu>
     );
   }
+  // A browser pick: its number and comment, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return (
+      <ContextMenu
+        className="acpmux-attachment-menu"
+        items={[{ id: "remove", label: t("composer.removeAttachment", { name }), onSelect: () => onRemove(id) }]}
+      >
+        <BrowserPickChip host="inline" name={attachment.name} text={attachment.text} remove={remove} />
+      </ContextMenu>
+    );
   // An inspector pick: the element and a snippet of its text, opening its whole report in place
   // (UIPickChip.tsx). Its right-click menu removes it, as the strip's does.
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
