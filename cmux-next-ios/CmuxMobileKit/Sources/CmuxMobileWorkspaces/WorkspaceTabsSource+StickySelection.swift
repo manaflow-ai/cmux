@@ -2,8 +2,8 @@
 import CmuxMobileModel
 import Foundation
 
-/// The tab on screen stays on screen (Leo, 2026-11-21: "i lost connection with cosmic gray or some shit
-/// refreshed or the connection fucking lagged and then it brought me out of the terminal tab and into a
+/// The tab on screen stays on screen (Leo, 2026-11-21: "i lost connection with cosmic gray or some s***
+/// refreshed or the connection f***ing lagged and then it brought me out of the terminal tab and into a
 /// browser tab").
 ///
 /// A reconnect, a resync or a partial tree can publish the workspace without the tab the person is on.
