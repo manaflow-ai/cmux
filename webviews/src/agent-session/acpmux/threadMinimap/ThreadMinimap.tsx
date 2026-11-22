@@ -11,7 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
@@ -43,7 +43,10 @@ import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
-import { useThreadMinimapArm } from "../chatDisplay";
+import { setRailShow, useRailControl, useRailShow, useThreadMinimapArm } from "../chatDisplay";
+import { RAIL_SHOWS, type RailShow } from "./railShow";
+import { threadMinimapReplies } from "./replies.experiment";
+import { RailShowControl } from "./RailShowControl";
 import {
   CARD_DELAY,
   JUMP_CURVE,
@@ -51,7 +54,10 @@ import {
   LANDING_OFFSET,
   MIN_PROMPTS,
   minimapTurns,
-  filterTurns,
+  keepsIndexed,
+  railEntries,
+  sameEntries,
+  railShowsOffered,
   railFade,
   railFadeReach,
   railFades,
@@ -75,7 +81,6 @@ import {
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
-  type RailFilter,
   type RowsChange,
   WAVE_SHAPES,
   replyMore,
@@ -85,12 +90,18 @@ import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
 
-/// The rail menu's filter items (model.ts `RailFilter`).
-const RAIL_FILTER_LABEL = {
-  all: "minimap.filterAll",
+/// The rail menu's show items (railShow.ts `RailShow`).
+export const RAIL_SHOW_LABEL = {
+  prompts: "minimap.filterAll",
   mine: "minimap.filterMine",
-  agents: "minimap.filterAgents",
-} as const;
+  received: "minimap.filterAgents",
+  replies: "minimap.showReplies",
+  everything: "minimap.showEverything",
+  errors: "minimap.showErrors",
+  edits: "minimap.showEdits",
+  tools: "minimap.showTools",
+  subagents: "minimap.showSubagents",
+} as const satisfies Record<RailShow, StringKey>;
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
 const STEP_PENDING_MS = STEP_MS + 150;
@@ -247,24 +258,37 @@ export function ThreadMinimap({
     lastTurns.current = read;
   }, [read]);
   const loadedTurns = read.turns;
-  /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
-  const [filter, setFilter] = useState<RailFilter>("all");
+  /// What the rail shows (railShow.ts `RailShow`), one setting for every rail: picked from its
+  /// right-click menu or its head control, so every pane changes at once.
+  const show = useRailShow();
+  const [repliesLook] = useState(() => experimentArm(threadMinimapReplies));
+  const controlOn = useRailControl();
+  const lastEntries = useRef<{ turns: readonly MinimapTurn[]; ticks: readonly MinimapTickRow[] } | undefined>(
+    undefined,
+  );
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`). A filtered rail draws each prompt it keeps as its own tick, and
-  // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
-  // The indexed prompts (`read.earlier`) come before the held ones as rows of the rail's own (railRows.ts). The index
-  // names no sender, so they are the person's: Mine keeps them, Agents none.
+  // a mark per prompt (`loadedTurns`). A rail showing anything but every prompt draws each entry it
+  // keeps as its own tick (model.ts `railEntries`), and falls back to every prompt when it would keep
+  // none, so the rail and its menu stay. The indexed prompts (`read.earlier`) come before the held
+  // ones as rows of the rail's own (railRows.ts). The index names no sender and no reply, so they are
+  // the person's prompts: `keepsIndexed` says which choices keep them.
   const named = useMemo(() => {
     const indexed = read.earlier ?? PromptHeads.EMPTY;
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
-    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, 0, filter);
-    const keptIndexed = filter === "agents" ? PromptHeads.EMPTY : indexed;
-    if (kept && (kept.ticks.length || keptIndexed.length))
-      return { turns: kept.turns, ticks: kept.ticks, earlier: keptIndexed, filtered: true };
+    const kept = show === "prompts" || full ? undefined : railEntries(read.turns, read.ticks, 0, show);
+    const keptIndexed = keepsIndexed(show) ? indexed : PromptHeads.EMPTY;
+    if (kept && (kept.ticks.length || keptIndexed.length)) {
+      const turns = sameEntries(lastEntries.current?.turns, kept.turns);
+      const ticks = sameEntries(lastEntries.current?.ticks, kept.ticks);
+      return { turns, ticks, earlier: keptIndexed, filtered: true };
+    }
     const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
     return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, filtered: false };
-  }, [filter, full, incomingLook.fold, read]);
+  }, [show, full, incomingLook.fold, read]);
+  useLayoutEffect(() => {
+    lastEntries.current = named.filtered ? named : undefined;
+  }, [named]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = pendingCount + named.earlier.length;
@@ -442,16 +466,17 @@ export function ThreadMinimap({
   // pane's right edge (past the VS Code minimap's `reserve` when that is on), with its hover strip and
   // card on that side.
   const { side, menu: sideMenu } = useRailSide();
-  // Right-click: whose prompts it shows, then which edge it sits on. Only other agents' messages is
-  // offered while the chat has one.
-  const hasIncoming = read.ticks.some((tick) => tick.from !== undefined);
+  // Right-click: what it shows, then which edge it sits on. A choice that would keep nothing in this
+  // chat is offered disabled (the rail would fall back to every prompt).
+  const offered = useMemo(() => railShowsOffered(read.turns, read.ticks), [read.turns, read.ticks]);
   const menu: ContextMenuItem[] = [
-    ...(["all", "mine", "agents"] as const).map((each) => ({
-      id: `rail-filter-${each}`,
-      label: t(RAIL_FILTER_LABEL[each]),
-      checked: filter === each,
-      disabled: each === "agents" && !hasIncoming,
-      onSelect: () => setFilter(each),
+    ...RAIL_SHOWS.map((each, at) => ({
+      id: `rail-show-${each}`,
+      label: t(RAIL_SHOW_LABEL[each]),
+      checked: show === each,
+      disabled: !offered.has(each),
+      separatorBefore: at === 3 || at === 5 ? true : undefined,
+      onSelect: () => setRailShow(each),
     })),
     ...sideMenu.map((item, at) => (at === 0 ? { ...item, separatorBefore: true } : item)),
   ];
@@ -1419,6 +1444,9 @@ export function ThreadMinimap({
           data-rest-tick={placement.restTickArm === "squeeze" ? "squeeze" : undefined}
           // A dimming arm draws other chats' ticks a step under the person's at rest (incoming.experiment.ts).
           data-incoming-dim={incomingLook.dim !== false || undefined}
+          // How the agent's replies draw once the rail shows them (replies.experiment.ts, threadMinimap.css).
+          data-replies-look={repliesLook}
+          data-show={show === "prompts" ? undefined : show}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}
@@ -1449,6 +1477,17 @@ export function ThreadMinimap({
             }
           }}
         >
+          {controlOn && repliesLook !== "ruler" && !full && (
+            <RailShowControl
+              show={show}
+              offered={offered}
+              labels={RAIL_SHOW_LABEL}
+              onOpen={() => {
+                setHovered(undefined);
+                dismiss();
+              }}
+            />
+          )}
           <ol
             ref={list}
             className="acpmux-minimap__list"
@@ -1731,18 +1770,20 @@ const TickList = memo(function TickList({
     const kept = labels.get(tick);
     if (kept && kept.index === index && kept.count === ticks.length && kept.marked === marked) return kept.label;
     const label =
-      tick.from !== undefined
-        ? t("minimap.tickFrom", {
-            index: index + 1,
-            count: ticks.length,
-            name: tick.from,
-            prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
-          })
-        : t(marked ? "minimap.tickBookmarked" : "minimap.tick", {
-            index: index + 1,
-            count: ticks.length,
-            prompt: tick.prompt,
-          });
+      tick.side === "reply"
+        ? t("minimap.tickReply", { index: index + 1, count: ticks.length, prompt: tick.prompt })
+        : tick.from !== undefined
+          ? t("minimap.tickFrom", {
+              index: index + 1,
+              count: ticks.length,
+              name: tick.from,
+              prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
+            })
+          : t(marked ? "minimap.tickBookmarked" : "minimap.tick", {
+              index: index + 1,
+              count: ticks.length,
+              prompt: tick.prompt,
+            });
     labels.set(tick, { index, count: ticks.length, marked, label });
     return label;
   }
@@ -1763,6 +1804,7 @@ const TickList = memo(function TickList({
           current={index >= first && index <= last}
           marked={marked}
           incoming={tick.from !== undefined}
+          reply={tick.side === "reply"}
           describedBy={described === index ? cardId : undefined}
           label={labelOf(tick, index, marked)}
           actions={actions}
@@ -1798,6 +1840,7 @@ const Tick = memo(function Tick({
   current,
   marked,
   incoming,
+  reply,
   describedBy,
   label,
   actions,
@@ -1814,6 +1857,8 @@ const Tick = memo(function Tick({
   marked: boolean;
   /// Another session's message, not the person's prompt (model.ts `promptSender`).
   incoming: boolean;
+  /// The agent's reply to a prompt (model.ts `railEntries`), drawn by replies.experiment.ts's arm.
+  reply: boolean;
   describedBy?: string;
   label: string;
   actions: TickActions;
@@ -1836,6 +1881,7 @@ const Tick = memo(function Tick({
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
       data-incoming={incoming || undefined}
+      data-reply={reply || undefined}
       style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}

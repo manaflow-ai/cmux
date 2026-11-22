@@ -141,7 +141,7 @@ permissions: {}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
-  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # Whether the Mac action-exports job runs: the paths changed since the last
@@ -705,7 +705,7 @@ jobs:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
     # action exports job fails or is skipped.
-    needs: [webviews-fmt, action-exports, pushed-exports]
+    needs: [action-areas, webviews-fmt, action-exports, pushed-exports]
     if: >-
       ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # A running repair finishes and lands on whatever feat-cmux-next is by then
@@ -729,6 +729,23 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # The marker base-autofix-since.sh reads: this run made its own Mac exports, or had none to make (the
+      # deferred job's condition, negated). The next runs diff from the newest successful run that has it, with
+      # two listings instead of reading every run's jobs (31 GITHUB_TOKEN calls a lookup on 2026-11-22). A failed
+      # upload leaves no marker, which only widens the next run's range.
+      - name: Write the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
+        run: printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/base-autofix-own-exports.txt"
+      - name: Upload the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: base-autofix-own-exports
+          path: ${{ runner.temp }}/base-autofix-own-exports.txt
+          retention-days: 14
+          if-no-files-found: error
 
       # What changed since the last successful run decides the repairs: a run
       # cancelled by a newer push, one whose repair could not land, or one that
