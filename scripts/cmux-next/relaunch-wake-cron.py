@@ -16,9 +16,16 @@ kind):
     launch.relaunch.<mode>.chat_live_ms           the shown chat's first live event, budget 600 (cmuxterm-hq goal
                                            restart-to-chat: "the open chat is drawn live within 600 ms");
     launch.relaunch.<mode>.chat_missing_runs      relaunches whose chat never went live, budget 0.
-  quit-launch-bound.py's session restore (workspaces with terminals, quit and reopened) is not in this part: on the
-  measure Macs its seeding launch never draws a terminal (step ab0db3de, 2026-11-19), so it would only leave the part
-  incomplete. Its rows come back when that launch draws.
+- relaunch-terminal-bench.py, warm (Quit and Keep Sessions, then reopen): the shown workspace's terminal runs a counter
+  through the quit. Ms since the reopened app's process started:
+    launch.relaunch.session.terminal_frame_ms    the launch mark first_terminal_frame, budget 1000;
+    launch.relaunch.session.terminal_restored_ms the terminal's screen drawn again, budget 1000;
+    launch.relaunch.session.terminal_live_ms     the running program's new output drawn (the view attached live
+                                                 again), budget 1000;
+    launch.relaunch.session.terminal_missing_runs relaunches whose terminal never went live, budget 0.
+  The 1000 ms is LAUNCH_BUDGETS' first window frame: the restored terminal is what that window shows. Before this the
+  part had no terminal row: quit-launch-bound.py's seeding launch waited for a terminal frame at a fresh launch, which
+  shows Home and draws none (step ab0db3de, 2026-11-19: "the seeding launch never drew a terminal").
 
 --suite=wake runs wake-proxy-bench.py (every process of the app stopped --sleep seconds, then resumed: why a proxy and
 what it leaves out is in that file):
@@ -101,7 +108,25 @@ def wake_rows(report: dict) -> list[dict]:
     return rows
 
 
-RELAUNCH_EXPECTED = [f"launch.relaunch.{m}.chat_live_ms" for m in RECONNECT_MODES]
+def terminal_rows(report: dict) -> list[dict]:
+    """Rows from relaunch-terminal-bench.py's --out report (pure)."""
+    rounds = [r for r in report.get("rounds") or [] if isinstance(r, dict)]
+    if not rounds:
+        return []
+    rows = []
+    for name in ("terminal_frame_ms", "terminal_restored_ms", "terminal_live_ms"):
+        row = ms_row(f"launch.relaunch.session.{name}", [r.get(name) for r in rounds], WINDOW_BUDGET_MS)
+        if row:
+            rows.append(row)
+    missing = sum(1 for r in rounds if not isinstance(r.get("terminal_live_ms"), (int, float)))
+    rows.append(count_row("launch.relaunch.session.terminal_missing_runs", missing, "runs"))
+    return rows
+
+
+# The terminal's missing_runs is always there once its bench ran a round: a terminal that never comes back is a value
+# (missing runs over its budget of 0), not an incomplete part.
+RELAUNCH_EXPECTED = [f"launch.relaunch.{m}.chat_live_ms" for m in RECONNECT_MODES] + [
+    "launch.relaunch.session.terminal_missing_runs"]
 # The app's answer only: with no working terminal the bench still times it, and its echo rows stay empty
 # (missed_rounds counts those rounds against its budget of 0).
 WAKE_EXPECTED = ["launch.wake_proxy.app_answer_ms"]
@@ -148,6 +173,10 @@ def main(argv: list[str] | None = None) -> int:
                                    "--modes", ",".join(RECONNECT_MODES), "--rounds", args.rounds, "--chats", "3",
                                    "--out", raw], 900)
         rows = reconnect_rows(read_json(raw))
+        raw = os.path.join(out_dir, "relaunch-terminal.json")
+        status["terminal"] = run([py, os.path.join(HERE, "relaunch-terminal-bench.py"), "--app", args.app,
+                                  "--rounds", args.rounds, "--out", raw], 300)
+        rows += terminal_rows(read_json(raw))
         expected = RELAUNCH_EXPECTED
     else:
         raw = os.path.join(out_dir, "wake-proxy.json")
