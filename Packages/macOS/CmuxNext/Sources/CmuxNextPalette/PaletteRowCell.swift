@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextDesign
 
 /// Shortcut badges drawn directly (no subviews): one rounded cap per key, printed as a Mac keyboard labels it
-/// (`KeycapLegend`: ⌘ ⌥ ⌃ ⇧, then "return", "tab", "esc", "delete" or the key), on a faint fill
+/// (`String.keycapLegend`: ⌘ ⌥ ⌃ ⇧, then "return", "tab", "esc", "delete" or the key), on a faint fill
 /// with a hairline edge and a legend in the text's own ink (Leo 2026-11-22: "this command palette's icons
 /// are really bad and not even properly depicting the keys"; design/palette-keycaps-gallery.html, look C).
 /// `keycaps` keeps the keys as the shortcut has them (↩, ⇥: what search and the ranker read); a chord's
@@ -38,14 +38,14 @@ final class PaletteKeycapsView: NSView {
     }
 
     private var pieces: [Piece] {
-        KeycapLegend.strokes(keycaps).enumerated().flatMap { index, stroke in
-            (index == 0 ? [] : [Piece.then]) + stroke.map { Piece.cap(KeycapLegend.legend($0)) }
+        keycaps.keycapStrokes.enumerated().flatMap { index, stroke in
+            (index == 0 ? [] : [Piece.then]) + stroke.map { Piece.cap($0.keycapLegend) }
         }
     }
 
-    /// A cap's width for `cap`, as given or as its legend (`KeycapLegend.legend` returns a legend unchanged).
+    /// A cap's width for `cap`, as given or as its legend (`String.keycapLegend` returns a legend unchanged).
     func capWidth(_ cap: String) -> CGFloat {
-        let text = (KeycapLegend.legend(cap) as NSString).size(withAttributes: attributes).width
+        let text = (cap.keycapLegend as NSString).size(withAttributes: attributes).width
         return max(PaletteLayout.keycapSize, ceil(text) + Metrics.space2 * 2)
     }
 
