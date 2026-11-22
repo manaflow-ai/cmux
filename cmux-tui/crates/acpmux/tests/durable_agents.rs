@@ -28,6 +28,8 @@ mod grant_cleared;
 mod host_crash;
 #[path = "durable_agents/host_level_move.rs"]
 mod host_level_move;
+#[path = "durable_agents/host_reboot.rs"]
+mod host_reboot;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/idle_subsessions_restart.rs"]
