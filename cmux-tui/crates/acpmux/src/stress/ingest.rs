@@ -62,22 +62,31 @@ fn p95(mut v: Vec<f64>) -> f64 {
     v[(v.len() - 1) * 95 / 100]
 }
 
-/// `writers` chats appending at once while one reader pages a chat of its own.
-fn run(writers: usize) -> Run {
-    let home = tempfile::tempdir().unwrap();
-    let store = local(home.path());
+/// `writers` chats appending at once while one reader pages a chat of its own. `shared`: all of
+/// them in one store (what the daemon does); else each chat in a store of its own, the control
+/// that shares no lock and sees the same machine (cores, disk, the suite's other tests).
+fn run(writers: usize, shared: bool) -> Run {
+    let homes: Vec<_> = (0..=writers).map(|_| tempfile::tempdir().unwrap()).collect();
+    let stores: Vec<Arc<dyn Store>> = if shared {
+        let one = local(homes[0].path());
+        (0..=writers).map(|_| one.clone()).collect()
+    } else {
+        homes.iter().map(|h| local(h.path())).collect()
+    };
     let text: String = "lorem ipsum dolor sit amet ".repeat(TEXT_BYTES / 27 + 1);
     let text: Arc<str> = Arc::from(&text[..TEXT_BYTES]);
-    chat(store.as_ref(), "reader");
+    // The reader's store is the last; writer `w`'s is `stores[w]`.
+    let reader_store = stores[writers].clone();
+    chat(reader_store.as_ref(), "reader");
     for seq in 1..=400 {
-        store.append("reader", &record(seq, &text)).unwrap();
+        reader_store.append("reader", &record(seq, &text)).unwrap();
     }
-    for w in 0..writers {
+    for (w, store) in stores.iter().take(writers).enumerate() {
         chat(store.as_ref(), &format!("w-{w:02}"));
     }
     let stop = Arc::new(AtomicBool::new(false));
     let reader = {
-        let (store, stop) = (store.clone(), stop.clone());
+        let (store, stop) = (reader_store.clone(), stop.clone());
         std::thread::spawn(move || {
             let mut lat = Vec::new();
             while !stop.load(Ordering::Relaxed) {
@@ -93,7 +102,7 @@ fn run(writers: usize) -> Run {
     let started = Instant::now();
     let threads: Vec<_> = (0..writers)
         .map(|w| {
-            let (store, text) = (store.clone(), text.clone());
+            let (store, text) = (stores[w].clone(), text.clone());
             std::thread::spawn(move || {
                 let id = format!("w-{w:02}");
                 for seq in 1..=PER_WRITER {
@@ -108,19 +117,27 @@ fn run(writers: usize) -> Run {
     let took = started.elapsed().as_secs_f64();
     stop.store(true, Ordering::Relaxed);
     let lat = reader.join().unwrap();
-    for w in 0..writers {
+    for (w, store) in stores.iter().take(writers).enumerate() {
         let id = format!("w-{w:02}");
-        assert_eq!(store.events(&id, PER_WRITER - 1, 10).unwrap().len(), 1, "{id}'s last record");
+        let last = store.events(&id, PER_WRITER - 1, 10).unwrap();
+        assert_eq!(last.len(), 1, "{id}'s last record");
     }
     Run { per_s: (writers as u64 * PER_WRITER) as f64 / took, read_p95_ms: p95(lat) }
 }
 
-/// The best of three runs: a loaded runner's stalls do not decide it.
-fn best(writers: usize) -> Run {
-    let runs: Vec<Run> = (0..3).map(|_| run(writers)).collect();
-    let per_s = runs.iter().map(|r| r.per_s).fold(0.0, f64::max);
-    let read_p95_ms = runs.iter().map(|r| r.read_p95_ms).fold(f64::INFINITY, f64::min);
-    Run { per_s, read_p95_ms }
+/// The best of three runs each of one store and of the control, taken in turn so a loaded
+/// runner's stalls fall on both alike: (shared, control).
+fn best(writers: usize) -> (Run, Run) {
+    let mut runs = (Vec::new(), Vec::new());
+    for _ in 0..3 {
+        runs.0.push(run(writers, true));
+        runs.1.push(run(writers, false));
+    }
+    let pick = |rs: &[Run]| Run {
+        per_s: rs.iter().map(|r| r.per_s).fold(0.0, f64::max),
+        read_p95_ms: rs.iter().map(|r| r.read_p95_ms).fold(f64::INFINITY, f64::min),
+    };
+    (pick(&runs.0), pick(&runs.1))
 }
 
 #[test]
@@ -133,21 +150,27 @@ fn appends_of_many_chats_go_on_side_by_side() {
         eprintln!("STRESS ingest: {cores} cores, skipped");
         return;
     }
-    let one = best(1);
-    let many = best(n);
+    let (one, _) = best(1);
+    let (many, apart) = best(n);
     let scale = many.per_s / one.per_s.max(1.0);
+    let of_apart = many.per_s / apart.per_s.max(1.0);
     eprintln!(
         "STRESS ingest: 1 chat {:.0}/s read p95 {:.2} ms; {n} chats {:.0}/s read p95 {:.2} ms; \
-         scale {scale:.2}x",
-        one.per_s, one.read_p95_ms, many.per_s, many.read_p95_ms
+         scale {scale:.2}x; {n} chats in stores of their own {:.0}/s, one store reaches \
+         {of_apart:.2} of it",
+        one.per_s, one.read_p95_ms, many.per_s, many.read_p95_ms, apart.per_s
     );
-    // Chats that share nothing but the store: each one's appends go on beside the others'. A
-    // store that writes every chat's line under one lock stays near 1x however many chats write.
-    let floor = n as f64 * 0.35;
+    // Chats that share nothing but the store: their appends go on beside one another about as
+    // fast as the same chats in stores of their own on the same machine at the same time (a
+    // floor against the control, not the core count, so the suite's other tests on the runner
+    // do not decide it). A store that writes every chat's line under one lock stays near one
+    // chat's rate, far under the control.
     assert!(
-        scale >= floor,
-        "{n} chats appending at once reached {scale:.2}x one chat's throughput (floor \
-         {floor:.1}x): the chats' appends wait on one another"
+        of_apart >= 0.6,
+        "{n} chats appending to one store reached {:.0}/s, {of_apart:.2} of the {:.0}/s they \
+         reach in stores of their own (floor 0.6): the chats' appends wait on one another",
+        many.per_s,
+        apart.per_s
     );
     // A page of one chat while the others stream: never held behind their appends.
     assert!(
