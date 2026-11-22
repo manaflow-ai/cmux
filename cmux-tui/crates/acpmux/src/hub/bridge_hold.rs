@@ -70,6 +70,8 @@ struct Hold {
     held: Vec<Parked>,
     /// The hold's timer task runs.
     timer: bool,
+    /// Wakes the timer to read `until` again before its sleep ends (a test's reset, [`lift`]).
+    wake: Arc<tokio::sync::Notify>,
 }
 
 static HOLDS: LazyLock<Mutex<HashMap<String, Hold>>> = LazyLock::new(Default::default);
@@ -120,6 +122,18 @@ pub(in crate::hub) fn rate_limited(record: &Value, error: &str) -> bool {
 /// When `session_id` is held, until when.
 pub(in crate::hub) fn held_until(session_id: &str) -> Option<u64> {
     holds().get(session_id).and_then(|h| h.until)
+}
+
+/// The reset comes now for `session_id`'s hold: a test lifts it when it has seen what it waits
+/// for, so no step of it races a real clock on a loaded runner.
+#[cfg(test)]
+pub(super) fn lift(session_id: &str) {
+    let mut all = holds();
+    let Some(hold) = all.get_mut(session_id) else { return };
+    if hold.until.is_some() {
+        hold.until = Some(now_ms());
+    }
+    hold.wake.notify_one();
 }
 
 /// A turn of `session_id` completed: the next failure holds for the shortest wait again.
@@ -258,11 +272,11 @@ impl Hub {
 
     async fn bridge_hold_timer(self: &Arc<Self>, session: &Arc<Session>) {
         let held = loop {
-            let until = {
+            let (until, wake) = {
                 let mut all = holds();
                 let Some(hold) = all.get_mut(&session.id) else { return };
                 match hold.until {
-                    Some(until) if until > now_ms() => until,
+                    Some(until) if until > now_ms() => (until, hold.wake.clone()),
                     _ => {
                         hold.until = None;
                         hold.timer = false;
@@ -270,7 +284,11 @@ impl Hub {
                     }
                 }
             };
-            tokio::time::sleep(Duration::from_millis(until.saturating_sub(now_ms()))).await;
+            let sleep = tokio::time::sleep(Duration::from_millis(until.saturating_sub(now_ms())));
+            tokio::select! {
+                () = sleep => {}
+                () = wake.notified() => {}
+            }
         };
         self.release_bridge_hold(session, held).await;
     }
