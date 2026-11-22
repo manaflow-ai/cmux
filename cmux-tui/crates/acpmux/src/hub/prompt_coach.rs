@@ -184,7 +184,16 @@ impl Hub {
             Some(rewrite) => rewrite(prompt),
             None => {
                 let harness = session.meta().harness;
-                match self.complete_own(Some(&harness), prompt, MAX_TOKENS, TIMEOUT).await {
+                match self
+                    .complete_own(
+                        Some(&harness),
+                        prompt,
+                        MAX_TOKENS,
+                        TIMEOUT,
+                        super::complete::ModelFallback::HarnessDefault,
+                    )
+                    .await
+                {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::info!(session = %session.id, reason = e.reason(), "prompt coach: no rewrite");

@@ -145,7 +145,7 @@ extension SidebarMapping {
                  harnessIcons: HarnessIconLookup, options: FaceOptions) -> SidebarWorkspace {
         let workspace = request.workspace, newTabPages = request.newTabPages, machine = options.machine
         func at(_ index: Int?) -> TabModel? { index.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
-        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status, workspaceID: workspace.id)
         let indicator = statuses.workspace
         // The focused tab; the label tab the row is named for (a chat over an idle shell); the face tab (the
         // label, or the work a page beside it was opened from) whose name, icon and kind the row shows.
@@ -260,9 +260,11 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
+        row.detail.origin = Self.origin(workspace.createdBy)
         return row
     }
 
