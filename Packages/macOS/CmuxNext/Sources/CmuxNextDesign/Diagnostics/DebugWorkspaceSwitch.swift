@@ -7,7 +7,8 @@ public import AppKit
 /// release, a key), so a switch that waits on its event shows there. Stages: `park`, `sidebar`,
 /// `root`, `theme`, `did_show` (since the intent). Lawrence 2026-10-21: "changing workspaces is laggy".
 @MainActor
-public enum DebugWorkspaceSwitch {
+public struct DebugWorkspaceSwitch {
+    public init() {}
     public static let timer = SwitchFrameTimer(owner: "debug.workspace_switch")
     /// The window whose switch is timed now (a switch is keyed by its window's state).
     public static func began(_ owner: AnyObject) {
