@@ -69,6 +69,10 @@ public final class MockAgentSession: AgentSessionSource {
         if summary.status == .waiting { startWaitingTurn() }
         let replayed = batch ?? []
         batch = nil
+        #if os(iOS)
+        // The mock stands in for the Mac: its history is the chat's reply (R2), never a phone cache.
+        if !replayed.isEmpty { LaunchMarks.shared.firstContent("chat", cached: false) }
+        #endif
         var head: [AgentSessionEvent] = [.batch(replayed)]
         // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
         if link == .down { head.append(.status(.disconnected)) }

@@ -1,0 +1,74 @@
+diff a/scripts/measure/ios-network-conditions.sh b/scripts/measure/ios-network-conditions.sh	(rejected hunks)
+@@ -24,10 +24,27 @@
+ # files laid over it (the shaper, the profiles, the two bench files and their dev-dependency), so
+ # the code under test is the ref's and the yardstick is this one. Same worker, same seeds.
+ # Local, without cmux-ci: scripts/measure/ios-network-conditions.sh [args] (needs cargo).
++#
++# Simulator leg, leg=sim (R1, time to readable): the iPhone app itself with no Mac reachable, from
++# its own marks (LaunchMarks `<surface>_first_content_cached|live`), per tap: cold_launch,
++# warm_foreground, open_chat, open_terminal, switch_session (cmux-next-ios/UITests/
++# ReadFirstUITests.swift), cold (a fresh simulator boot per run) and warm. Rows: surface
++# `sim:<tap>`, profile offline-sim@1, metric r1_ms (tap to the first content frame, cached or
++# not) and r2_ms (tap to the first frame from a reply; in mock mode the in-process mock), into the
++# same report.json and report.md.
++#   On a Mac with Xcode (a simulator worker): runs scripts/ci/cmux-next-ios-sim.sh test
++#     ui=ReadFirstUITests,ReadFirstColdUITests coldruns=N as a sibling step, then reads its evidence.
++#   Anywhere else: evidence=PATH reads a finished fleet simulator step's evidence.zip (or folder).
++#   The fleet controller runs only scripts/ci/cmux-next-ios-sim.sh on --class simulator, so the
++#   route from a lane VM is two commands:
++#     cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test \
++#       --arg ui=ReadFirstUITests,ReadFirstColdUITests --arg coldruns=20 --artifact artifacts/ios-sim/evidence.zip
++#     cmux-ci artifact STEP_ID /tmp/rf/evidence.zip
++#     scripts/measure/ios-network-conditions.sh leg=sim evidence=/tmp/rf/evidence.zip
+ set -euo pipefail
+ trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
+ 
+-before="" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0
++before="" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 leg=headless evidence=""
+ for kv in "$@"; do
+   case "$kv" in
+     before=*) before="${kv#*=}" ;;
+@@ -36,7 +53,9 @@ for kv in "$@"; do
+     surfaces=*) surfaces="${kv#*=}" ;;
+     scales=*) scales="${kv#*=}" ;;
+     seed=*) seed="${kv#*=}" ;;
+-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, n=, profiles=, surfaces=, scales=, seed=)" >&2; exit 2 ;;
++    leg=*) leg="${kv#*=}" ;;
++    evidence=*) evidence="${kv#*=}" ;;
++    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, n=, profiles=, surfaces=, scales=, seed=, leg=, evidence=)" >&2; exit 2 ;;
+   esac
+ done
+ [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
+@@ -45,6 +64,32 @@ done
+ [[ "$surfaces" =~ ^(terminal|chat)(,(terminal|chat))?$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat" >&2; exit 2; }
+ [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
+ [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
++[[ "$leg" == headless || "$leg" == sim ]] || { echo "ios-network-conditions.sh: leg=headless or leg=sim" >&2; exit 2; }
++
++if [[ "$leg" == sim ]]; then
++  root="$(git rev-parse --show-toplevel)"
++  work="$root/.build/ios-network-conditions"
++  mkdir -p "$work"
++  if [[ -z "$evidence" ]]; then
++    command -v xcrun >/dev/null || {
++      echo "ios-network-conditions.sh: leg=sim needs a Mac with Xcode (a simulator worker) or evidence=PATH;" \
++        "from Linux run the fleet step in this script's header, then pass its evidence.zip" >&2; exit 2; }
++    (( n >= 1 && n <= 30 )) || { echo "ios-network-conditions.sh: leg=sim takes n=1-30 cold runs" >&2; exit 2; }
++    code=0
++    "$root/scripts/ci/cmux-next-ios-sim.sh" test ui=ReadFirstUITests,ReadFirstColdUITests "coldruns=$n" || code=$?
++    echo "NETCOND-STATUS sim read-first exit=$code"
++    evidence="$root/artifacts/ios-sim"
++  fi
++  python3 -I "$root/scripts/measure/ios-read-first-rows.py" "$evidence" >"$work/lines-sim.txt"
++  echo "NETCOND-MACHINE leg=sim evidence=$evidence rows=$(wc -l <"$work/lines-sim.txt" | tr -d ' ')"
++  sed 's/^after /NETCOND /' "$work/lines-sim.txt"
++  # One report: the sim rows join the headless leg's lines when that ran into the same folder.
++  cat "$work/lines-sim.txt" >>"$work/lines.txt"
++  python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt" \
++    --json "$work/report.json" --markdown "$work/report.md" --after "$(git rev-parse HEAD)"
++  sed 's/^/NETCOND-TABLE /' "$work/report.md"
++  exit "${code:-0}"
++fi
+ command -v cargo >/dev/null || { echo "ios-network-conditions.sh: needs cargo on PATH; run it through cmux-ci run" >&2; exit 2; }
+ 
+ export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120

@@ -1,0 +1,22 @@
+diff a/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/MockAgentSession.swift b/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/MockAgentSession.swift	(rejected hunks)
+@@ -2,6 +2,9 @@
+ #if DEBUG
+ import CmuxAgentQuestion
+ import CmuxMobileModel
++#if os(iOS)
++import CmuxMobileDesign
++#endif
+ import Foundation
+ 
+ /// An offline `AgentSessionSource` that streams a realistic Claude Code style
+@@ -56,6 +59,10 @@ public final class MockAgentSession: AgentSessionSource {
+         let replayed = batch ?? []
+         batch = nil
+         continuation.yield(.batch(replayed))
++        #if os(iOS)
++        // The mock stands in for the Mac: its history is the chat's reply (R2), never a phone cache.
++        if !replayed.isEmpty { LaunchMarks.shared.firstContent("chat", cached: false) }
++        #endif
+         return stream
+     }
+ 

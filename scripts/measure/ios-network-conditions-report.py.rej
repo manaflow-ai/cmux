@@ -1,0 +1,10 @@
+diff a/scripts/measure/ios-network-conditions-report.py b/scripts/measure/ios-network-conditions-report.py	(rejected hunks)
+@@ -19,6 +19,8 @@ import sys
+ from collections import defaultdict
+ 
+ METRIC_ORDER = [
++    "r1_ms",
++    "r2_ms",
+     "first_content_ms",
+     "interactive_ms",
+     "gap_after_link_back_ms",

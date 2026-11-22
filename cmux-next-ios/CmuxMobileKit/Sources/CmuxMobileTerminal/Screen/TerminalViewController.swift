@@ -3415,7 +3415,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             echoMeter = TerminalFirstEcho()
         }
         #endif
-        if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached {
+            LaunchMarks.shared.mark("terminal_ready")
+            // R2: the first frame of the Mac's attached terminal since the last tap.
+            LaunchMarks.shared.firstContent("terminal", cached: false)
+        }
         if model.connectionState.isAttached,
            !LaunchMarks.shared.has("terminal_first_row_frame"),
            let text = surface.activeAreaText(),
