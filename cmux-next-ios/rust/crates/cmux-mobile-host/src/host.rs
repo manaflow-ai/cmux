@@ -272,6 +272,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             identity: pairing.identity.clone(),
             activity: Arc::clone(&pairing.activity),
             links: Default::default(),
+            pairing: Some(pairing.clone()),
         });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
