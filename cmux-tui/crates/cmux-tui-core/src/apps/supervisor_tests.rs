@@ -1339,6 +1339,8 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+#[path = "supervisor_store_sections_tests.rs"]
+mod store_sections;
 
 #[path = "supervisor_meters_tests.rs"]
 mod meters;
