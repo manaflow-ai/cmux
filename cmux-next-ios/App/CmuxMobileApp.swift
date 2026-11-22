@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
 import CmuxMobileTerminal
+import os
 #endif
 import SwiftUI
 
@@ -50,8 +51,16 @@ struct CmuxMobileApp: App {
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
         #if DEBUG
+        // The fleet simulator step's reducemotion=1 proof (scripts/ci/cmux-next-ios-sim.sh reads
+        // this line back from the simulator's log): what UIKit tells this process at launch.
+        Logger(subsystem: "dev.cmux.mobile", category: "accessibility")
+            .notice("launch: isReduceMotionEnabled=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)")
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
+        InputLatencyTrace.startIfRequested()
+        // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
+        TerminalFeedFixture.shared.startIfRequested()
         #endif
     }
 
@@ -65,6 +74,8 @@ struct CmuxMobileApp: App {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {
                 ShellScreenSharingDemo()
+            } else if ShellScreenSharingLink.isRequested {
+                ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalResizeDemoRoot.isRequested {
@@ -84,6 +95,7 @@ struct CmuxMobileApp: App {
             #if DEBUG
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
+            .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,

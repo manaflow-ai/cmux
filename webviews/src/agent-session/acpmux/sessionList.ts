@@ -100,6 +100,10 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** acpmux forks and edits it through any completed turn, not only its latest (`forksAnyTurn`:
+   *  its harness cuts a conversation at a turn, by kind, whatever its family is named). Unset
+   *  from an older acpmux. */
+  forksAnyTurn?: boolean;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -358,6 +362,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(typeof session.forksAnyTurn === "boolean" && { forksAnyTurn: session.forksAnyTurn }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
@@ -611,18 +616,22 @@ export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] =>
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
 export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
-  const local = sessions.filter((session) => {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
+    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) return;
     const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
-    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
+    if (!cwd || cwd === "~" || isAgentHome(cwd)) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(cwd);
+    if (!kept || at > kept.at) newest.set(cwd, { at, index });
   });
-  const folders = new Set<string>();
-  for (const session of byRecency(local)) {
-    folders.add(session.cwd!.replace(/\/+$/, ""));
-    if (folders.size >= limit) break;
-  }
-  return [...folders];
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([cwd]) => cwd);
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
@@ -654,11 +663,6 @@ export function projectLabel(cwd: string | undefined, t: Translate = translate):
 /** A folder for display, with a home folder's prefix written `~` as a shell prompt does. */
 export function homePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
-
-/** Newest first. */
-function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */

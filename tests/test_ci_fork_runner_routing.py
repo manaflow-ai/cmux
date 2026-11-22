@@ -69,7 +69,7 @@ BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
 BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
     r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
 )
-# The CLA jobs' runner identity guard (validate-cla-policy.rb is the
+# The CLA jobs' runner identity guard (main's validate-cla-policy.rb is the
 # authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
 # label, and always fail on an owned glaeda host.
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
@@ -176,7 +176,18 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# The pull-request and issue bots hold write tokens and may be started by an outsider's event, so they lead with the
+# PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT VMs, deleted after the job, no persistent runner
+# registers it) after the fork branch, behind their own switch; the repair workflows lead with the repair label the
+# same way (main's copies, tests/test_ci_write_token_jit_label.py). Either operand turns off with its variable and
+# leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+    TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
 # own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
 LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
@@ -193,7 +204,7 @@ def trusted_runner_line(workflow: str, line: str) -> bool:
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 # Derived, not hand-kept: every job that reports a context in REQUIRED_CHECKS
 # (scripts/ci/required_status_checks.py, kept honest by required-checks-drift.yml), plus the
-# jobs it needs. The hand list missed cla.yml's CLAAssistant and cla-policy-guard.yml's validate.
+# jobs it needs.
 # (workflow, job) -> why a merge-gating job takes another route.
 TRUSTED_RUNNER_EXEMPT = {
     ("merge-group-policy-checks.yml", "cla-assistant"): (
@@ -215,10 +226,6 @@ UNRESOLVED_NAME_EXEMPT = {
         "workflow_run/workflow_dispatch report job named by the analysis headline of a finished run; it reports "
         "on that run's commit after the fact, never a pull request's required context"
     ),
-    ("ci-guard-attribution.yml", "report"): (
-        "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
-        "commit after the fact, never a pull request's required context"
-    ),
     ("rust-workspaces.yml", "workspace"): (
         "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
         "key), never one of the required context names"
@@ -232,7 +239,7 @@ TRUSTED_RUNNER_EXTRA_JOBS = {
     ),
 }
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
-TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate"), ("cla.yml", "CLAAssistant")}
+TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate")}
 
 
 def trusted_runner_jobs(texts: dict[str, str]) -> set[tuple[str, str]]:
@@ -1452,8 +1459,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""
         roots = outsider_triggered_workflows()
-        self.assertIn(WORKFLOWS / "cla.yml", roots)
-        self.assertIn(WORKFLOWS / "claude.yml", roots)
+        self.assertIn(WORKFLOWS / "backend-migrations.yml", roots)
+        self.assertIn(WORKFLOWS / "auto-triage.yml", roots)
         # A reusable workflow called only from fully gated roots never runs
         # for a fork head either.
         ungated = [path for path in roots if not every_job_gated(path.read_text(encoding="utf-8"), SAME_REPOSITORY_GATE)]
@@ -1526,7 +1533,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
         follower = (
             "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
-            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cla.yml\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/backend-migrations.yml\n"
             "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
             "    runs-on: ubuntu-24.04\n"
         )

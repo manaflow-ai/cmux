@@ -9,11 +9,10 @@ import { agentsOnHost, fleetTotals, loadPerCore } from "../model";
 import { agentsOf, Loaded } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { FleetMachine } from "../types";
+import { intl } from "../../../ui/intl";
 
 const percent = (value: number | null | undefined, language: string) =>
-  value == null
-    ? "–"
-    : new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
+  value == null ? "–" : intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
 
 export function FleetView({ data, strings, placement, onSetFleetURL }: ChiefViewProps) {
   const agents = agentsOf(data);
@@ -29,7 +28,7 @@ export function FleetView({ data, strings, placement, onSetFleetURL }: ChiefView
   );
   // Beside another view the table drops CPU and memory, which the load meter already sums up.
   const compact = placement !== "pane";
-  const number = new Intl.NumberFormat(strings.language);
+  const number = intl.NumberFormat(strings.language);
   return (
     <div className="cv-fleet">
       <Loaded
@@ -112,6 +111,7 @@ function MachineRow({
   const load = loadPerCore(machine);
   return (
     <tr data-error={machine.error ? "" : undefined} data-hot={load !== undefined && load > 1 ? "" : undefined}>
+      {/* tooltip-allow: a machine's error shows nowhere else. */}
       <th scope="row" className="cv-host" title={machine.error ?? undefined}>
         {machine.host.split(".")[0]}
       </th>
@@ -139,7 +139,7 @@ function MachineCells({
   language: string;
 }) {
   const load = loadPerCore(machine);
-  const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const number = intl.NumberFormat(language, { maximumFractionDigits: 1 });
   return (
     <>
       <td>
