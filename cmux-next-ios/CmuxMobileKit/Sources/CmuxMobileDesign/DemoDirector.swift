@@ -22,6 +22,9 @@ public final class DemoDirector {
         case feedOpen(event: String)
         case chatSend(String)
         case chatScroll(toTop: Bool)
+        /// CAPTURE BASE STUB: the list rig types the Event Inspector's filter (head's command; the
+        /// base screen does not read it, so the base `events-filter` case types nothing).
+        case inspectorFilter(String)
         case chatPermission(optionKind: String)
         case chatOpenChanges
         case chatOpenFirstFile

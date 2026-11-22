@@ -42,6 +42,8 @@ final class ListStressRig: NSObject {
 
     static func runIfConfigured(shell: ShellModel) async {
         let settings = ListStressSettings.shared
+        // A main thread busy for 2 s records its stack (UI tests attach it).
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_STALL_WATCHDOG"] == "1" { MainStallWatchdog.start() }
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
         running = rig
@@ -174,6 +176,20 @@ final class ListStressRig: NSObject {
         case "home":
             MacHomeFeed.shared.seedStressRows(count: settings.count, macID: "mac-studio")
             shell.tab = .home
+        case "subagent", "subagents", "inspector":
+            // A subagent's transcript, the Subagents list or the Event Inspector (ListStressChatScreens),
+            // presented over the shell with its live load.
+            guard let controller = settings.chatScreen() else { return }
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            var top = window?.rootViewController
+            while let presented = top?.presentedViewController { top = presented }
+            try? await Task.sleep(for: .seconds(settings.openDelay))
+            FrameIntervalLog.shared.begin("\(screen)-open")
+            top?.present(controller, animated: true)
+            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: .milliseconds(100))
+            FrameIntervalLog.shared.end()
+            logMemory("\(screen)-opened")
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
         }
