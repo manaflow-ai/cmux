@@ -333,6 +333,32 @@ import UIKit
         #expect(host.seen.drawnWorst <= 0.5, "drawn shift while a row resized mid-slide: \(host.seen.drawn.filter { abs($0) > 0.5 })")
     }
 
+    /// keepLine's scope: an `.up` list the reader left (mid-list, not following its newest row) keeps
+    /// the reader's row, not the bottom edge. A row on screen below the reader that sizes itself
+    /// pushes only the rows under it; the row being read stays where it is.
+    @Test func anUpListNotFollowingKeepsTheReaderWhenARowBelowResizes() throws {
+        let host = Host(direction: .up, animatesNewest: true, cachesHeights: false)
+        defer { host.close() }
+        // The status bar's scroll to top: the list stops following its newest row (no finger needed).
+        host.controller.scrollViewDidScrollToTop(host.list)
+        host.scroll(toTopOf: 100)
+        try #require(!host.controller.followsNewest, "the list still follows its newest row")
+        host.seen.clear()
+        let visible = host.list.indexPathsForVisibleItems.map(\.item).sorted()
+        try #require(visible.count > 4 && visible.first == 100, "visible rows \(visible)")
+        let below = visible[visible.count / 2]
+        let before = try #require(host.top(of: 100))
+        let underBefore = try #require(host.top(of: below + 1))
+        host.live.extra[host.rows[below].id] = 22
+        host.settle()
+        #expect(abs(host.height(of: below) - 82) < 0.5, "row \(below) measured \(host.height(of: below)) pt: the resize did not land")
+        let after = try #require(host.top(of: 100))
+        #expect(abs(after - before) <= 0.5, "the row being read moved \(after - before) pt")
+        let underAfter = try #require(host.top(of: below + 1))
+        #expect(abs(underAfter - underBefore - 22) <= 0.5, "the row under the resized one moved \(underAfter - underBefore) pt, not 22")
+        #expect(host.seen.worst <= 0.5, "frame shift: \(host.seen.shifts.filter { abs($0) > 0.5 })")
+    }
+
     // MARK: The frame-shift probe
 
     /// A row inserted next to the reader in the frame everything moves 10 pt: the move counts in full
