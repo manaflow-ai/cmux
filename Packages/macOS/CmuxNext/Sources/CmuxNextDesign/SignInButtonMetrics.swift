@@ -9,11 +9,11 @@ public import CoreGraphics
 /// levels inside the one corner radius), which the caller passes.
 ///
 /// ```swift
-/// let metrics = SignInButtonMetrics(density: .compact, cornerRadius: Metrics.controlCornerRadius)
-/// metrics.height // 24
+/// let metrics = SignInButtonMetrics(density: DensityPreset.compact.tokens, cornerRadius: Metrics.controlCornerRadius)
+/// metrics.height // 25: Compact is Default scaled by 0.9
 /// ```
 public nonisolated struct SignInButtonMetrics: Equatable, Sendable {
-    /// The button's height: a control's height (24 pt at Compact, 30 at Comfortable).
+    /// The button's height: a control's height at the density (25 pt at Compact, 22 at Ultra-compact).
     public var height: CGFloat
     /// The room on each side of the title.
     public var paddingX: CGFloat

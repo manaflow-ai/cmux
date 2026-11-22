@@ -78,6 +78,11 @@ pub(super) enum Control {
     Reached { from: Option<SocketAddr>, via_turn: bool },
     /// Debug and tests: the socket's network is gone.
     Blackhole,
+    /// Debug and tests: the network goes dark (`true`: nothing this side
+    /// sends leaves and nothing arrives, on its socket or its TURN
+    /// allocation) or comes back on the same socket and addresses
+    /// (`false`), with no roam: an elevator, a tunnel, a dead cell.
+    Dark(bool),
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
 }
@@ -904,6 +909,21 @@ pub fn simulate_network_loss(session_id: Option<&str>, dialer: bool) -> usize {
     for session in live() {
         if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
             let _ = session.control.send(Control::Blackhole);
+            hit += 1;
+        }
+    }
+    hit
+}
+
+/// Debug and tests: one side's network (of `session_id`, or of every
+/// session) goes dark or comes back on the same socket and addresses, with
+/// no OS network event ([`Control::Dark`]). Returns how many sessions it hit.
+#[doc(hidden)]
+pub fn simulate_blackout(session_id: Option<&str>, dialer: bool, dark: bool) -> usize {
+    let mut hit = 0;
+    for session in live() {
+        if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
+            let _ = session.control.send(Control::Dark(dark));
             hit += 1;
         }
     }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import CmuxMobileTerminal
 
@@ -128,5 +129,37 @@ import Testing
         let m = try #require(mark(in: before, at: 300))
         let after = Array(before.dropFirst(50)) + history(80, prefix: "new")
         #expect(locate(m, in: after)?.row == 250)
+    }
+}
+
+/// #43189, steps 4b1ace37e645e27da805eb83 and 3cc159766081374998251de5: on
+/// the way up a 30,000-row history, a window fetch's reset marked nothing
+/// (`Z`, `miss=it:Ztext47/4151v18g151`): the page was at the top of the
+/// window, where the phone's 151-row mirror holds 111 blank rows above the
+/// first history row (the Mac's 40-row screen replayed into a taller grid).
+/// The 56 rows read around the anchor were all blank, so there was no mark;
+/// the page then followed the new window's bottom, the Mac's screen, and the
+/// next fling up asked for the newest rows (trail `...MPGZNMPG`).
+@Suite struct TerminalReadingMarkOverBlankRowsTests {
+    private func window(from start: Int, blankRows: Int, history: Int = 4_000) -> [String] {
+        Array(repeating: "", count: blankRows) + (start..<(start + history)).map { String(format: "%06d history row %d", $0, $0) }
+    }
+
+    @Test func aMarkOverBlankRowsReadsOnToTheFirstRowsWithText() throws {
+        let before = window(from: 6_000, blankRows: 111)
+        let mark = try #require(TerminalReadingMark(anchor: .init(row: 47, delta: 3), totalRows: before.count) {
+            before.indices.contains($0) ? before[$0] : nil
+        }, "the rows with text below the blank ones make the mark")
+        // The next window starts 1,500 rows earlier, with the same blank rows
+        // above it: the rows the page showed are 1,500 rows lower, and the
+        // page keeps its place above the first row it showed with text.
+        let after = window(from: 4_500, blankRows: 111)
+        let found = mark.locate(totalRows: after.count) { after.indices.contains($0) ? after[$0] : nil }
+        #expect(found == TerminalScrollModel.Anchor(row: 47 + 1_500, delta: 3))
+    }
+
+    @Test func aPageOfBlankRowsAloneIsStillNoMark() {
+        let rows = Array(repeating: "", count: 400)
+        #expect(TerminalReadingMark(anchor: .init(row: 47, delta: 0), totalRows: rows.count) { rows[$0] } == nil)
     }
 }
