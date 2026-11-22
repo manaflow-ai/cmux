@@ -14,7 +14,10 @@
 # and profiles (webviews/bench/link-profiles.json). Its TERMINAL_RESTART_JSON: first content, settled.
 #
 #   cmux-ci test --setup rust -- 'scripts/measure/restart-settled-linux.sh [links=local,rtt50,rtt200,throttled]
-#     [rounds=5] [turns=120] [down=0] [only=chat|terminal]'
+#     [rounds=5] [turns=120] [down=0] [only=chat|terminal] [zlib=0|1]'
+#
+# zlib=1 runs the chat's link compressing lines of 16 KiB or more (LINK_ZLIB=1, bench/linkModel.ts `zlibWire`), as
+# the machine link carrying a chat on another machine does once both ends support it.
 #
 # Prints both rows per link and one `RESTART_SETTLED_COMPARE {...}` line: per link, the chat's and the terminal's
 # medians and the ratio chat settled / terminal settled. What it does not cover: the native app's process start,
@@ -26,6 +29,7 @@ rounds=5
 turns=120
 down=0
 only=both
+zlib=0
 for arg in "$@"; do
   case "$arg" in
     links=*) links="${arg#links=}" ;;
@@ -33,6 +37,7 @@ for arg in "$@"; do
     turns=*) turns="${arg#turns=}" ;;
     down=*) down="${arg#down=}" ;;
     only=*) only="${arg#only=}" ;;
+    zlib=*) zlib="${arg#zlib=}" ;;
     *) echo "restart-settled-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -63,7 +68,7 @@ if [[ "$only" != terminal ]]; then
     eval "$("$root/scripts/ci/ensure-system-chrome.sh" --print-env 2>/dev/null || true)"
   IFS=, read -r -a each <<<"$links"
   for link in "${each[@]}"; do
-    LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" \
+    LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" LINK_ZLIB="$zlib" \
       bun bench/first-load-after-restart.bench.ts >"$out/chat-$link.log" 2>&1 ||
       { status=1; echo "restart-settled: the chat bench failed on $link:"; grep -v BABEL "$out/chat-$link.log" | tail -n 20; }
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true
@@ -89,6 +94,7 @@ for link in sorted(set(chat) | set(term)):
         "link": link,
         "chatFirstContentMs": c.get("firstContentMs"), "chatSettledMs": cs, "chatShifts": c.get("shifts"),
         "chatShiftPxMax": c.get("shiftPxMax"), "chatBytes": c.get("bytesDown"),
+        "chatWireBytes": c.get("wireDown"), "chatZlib": c.get("zlib"),
         "terminalFirstContentMs": t.get("firstContentMs"), "terminalSettledMs": ts,
         "terminalChanges": t.get("changesAfterFirst"), "terminalBytes": t.get("bytes"),
         "ratio": round(cs / ts, 2) if cs and ts else None,
