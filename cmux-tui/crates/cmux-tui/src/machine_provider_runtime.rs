@@ -1,7 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
