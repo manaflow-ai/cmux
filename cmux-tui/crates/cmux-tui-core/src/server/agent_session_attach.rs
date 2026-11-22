@@ -121,8 +121,8 @@ const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
 const MAX_LOGIN_BYTES: usize = 4096;
 
-pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
-pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
+// Attached tabs are not capped by count: each holds one acpmux link (a unix socket, two
+// descriptors here) and its reader thread with a [`THREAD_STACK_BYTES`] stack, a constant cost.
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
@@ -191,16 +191,6 @@ struct AttachState {
     attachments: HashMap<(u64, SurfaceId), Arc<Attachment>>,
     /// Slots taken by attaches that are still connecting.
     reserved: HashSet<(u64, SurfaceId)>,
-}
-
-impl AttachState {
-    fn count(&self, client: u64) -> usize {
-        self.attachments.keys().chain(self.reserved.iter()).filter(|(c, _)| *c == client).count()
-    }
-
-    fn total(&self) -> usize {
-        self.attachments.len() + self.reserved.len()
-    }
 }
 
 impl AgentSessions {
@@ -935,7 +925,7 @@ impl Refusal {
             Self::BadRequest => "bad request",
             Self::UnknownTab => "not an agent tab with a session in this daemon",
             Self::NotAttached => "the tab is not attached on this connection",
-            Self::Limit => "too many attached agent tabs",
+            Self::Limit => "the agent tab could not attach now; try again",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::BadList => "acpmux's session list could not be read whole",
@@ -1470,10 +1460,7 @@ fn attach(
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
-        if state.reserved.contains(&key)
-            || state.count(client) >= MAX_ATTACHMENTS_PER_CLIENT
-            || state.total() >= MAX_ATTACHMENTS_TOTAL
-        {
+        if state.reserved.contains(&key) {
             return refuse(writer, id, Refusal::Limit);
         }
         state.reserved.insert(key);
