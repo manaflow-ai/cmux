@@ -138,6 +138,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "customize",
+        "lead" : [
+          "customizeChecklist"
+        ],
+        "symbol" : "switch.2",
+        "title" : {
+          "key" : "settings.category.customize",
+          "text" : "Customize"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.updates",
             "rows" : [
@@ -599,6 +622,7 @@
               "appearance.metrics.tabFontSize",
               "appearance.metrics.tabStripHeight",
               "tabs.overflow",
+              "tabs.shellIconTheme",
               "tabs.verticalTabs",
               "tabs.verticalTabsExpandOnHover",
               "tabs.hideLoneChatTab",
@@ -2351,6 +2375,7 @@
       {
         "categories" : [
           "general",
+          "customize",
           "updates"
         ],
         "id" : "app",
@@ -6515,6 +6540,163 @@
       "title" : {
         "key" : "settings.tabs.overflow",
         "text" : "Tab Overflow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "machine"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabShellIconThemeMachine",
+            "text" : "Machines"
+          },
+          "value" : "machine"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.shellIconTheme.help",
+        "text" : "Machines shows each shell tab with the icon of the machine it runs on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.shellIconTheme",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "icon",
+        "icons",
+        "shell",
+        "terminal",
+        "machine",
+        "machines",
+        "theme",
+        "ssh",
+        "cloud",
+        "remote"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "shellIconTheme"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.shellIconTheme"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.shellIconTheme",
+        "text" : "Shell Tab Icons"
       },
       "validation" : "portable"
     },
@@ -91526,7 +91708,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 8,
+      "default" : 6,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",

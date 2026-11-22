@@ -13,6 +13,7 @@
 //               after a full collection; the fixture's own records are held before and so are not counted).
 // It reads only the client, not React's render of its rows. Prints PERF_ROW lines (million_event_chat.*).
 //   bun bench/million-event-chat.bench.ts [events=1000000] [pages=20]
+// MODE=window instead scrolls a chat of N pages from its bottom to its top and back (`windowBench` below).
 /// <reference types="bun" />
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { perfRow } from "./perfRow";
@@ -170,6 +171,229 @@ const pct = (values: number[], share: number) =>
   values.length === 0
     ? Number.NaN
     : [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!;
+
+// MODE=window: a reader scrolls from the bottom to the top of a chat of N older pages and back (direct.ts
+// `shedNewerHeld`, `loadNewer`). Each N is a fresh client on a stand-in that makes its records as they are asked
+// for (seq-numbered, WINDOW_PAGE records a page, one turn a page), so the fixture holds nothing. The reader's view
+// is the held rows' top while going up (each older page lands above it) and their end while going down. At each N:
+//   heap        the JS heap at the top over the heap before the open (MB, after a full collection);
+//   held        records the client holds at the top, and rows it hands the transcript (one height entry each);
+//   up / down   one page's cost going up (`loadOlder`) and down (`loadNewer`), ms p50/p95;
+//   ratio       each to N=10's.
+// The transcript mounts only the rows in view (VirtualTranscript), so the DOM is not this harness's: rows is what
+// its layout holds. A side that runs past WINDOW_BUDGET_S (default 900) at an N stops there and says so.
+//   MODE=window bun bench/million-event-chat.bench.ts [_] [_] (WINDOW_NS=10,100,1000,10000 WINDOW_PAGE=200)
+async function windowBench(): Promise<never> {
+  const NS = (process.env.WINDOW_NS ?? "10,100,1000,10000").split(",").map(Number);
+  const PAGE = Number(process.env.WINDOW_PAGE ?? 200);
+  const BUDGET_MS = Number(process.env.WINDOW_BUDGET_S ?? 900) * 1000;
+  const recordAt = (seq: number): Rec => {
+    const at = START + seq * 50;
+    const phase = (seq - 1) % PAGE;
+    if (phase === 0)
+      return { sessionId: CHAT, seq, at, dir: "mux", kind: "user_message", msg: { text: `Question ${seq}` } };
+    if (phase === 1) return { sessionId: CHAT, seq, at, dir: "mux", kind: "turn_started", msg: {} };
+    if (phase === PAGE - 1)
+      return { sessionId: CHAT, seq, at, dir: "mux", kind: "turn_result", msg: { stopReason: "end_turn" } };
+    if (phase % 10 === 9)
+      return {
+        sessionId: CHAT,
+        seq,
+        at,
+        dir: "in",
+        kind: "tool_call",
+        msg: update({
+          sessionUpdate: "tool_call",
+          toolCallId: `t${seq}`,
+          title: `rg step ${seq}`,
+          kind: "search",
+          status: "completed",
+        }),
+      };
+    return {
+      sessionId: CHAT,
+      seq,
+      at,
+      dir: "in",
+      kind: "agent_message_chunk",
+      msg: update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `token ${seq} ` } }),
+    };
+  };
+  const span = (from: number, to: number, last: number) => {
+    const out: Rec[] = [];
+    for (let seq = Math.max(1, from); seq <= Math.min(last, to); seq += 1) out.push(recordAt(seq));
+    return out;
+  };
+  const standIn = (lastSeq: number) => {
+    const session = {
+      sessionId: CHAT,
+      cwd: "/home/dev/x",
+      title: "a long chat",
+      harness: "claude",
+      family: "claude",
+      status: "ready",
+      turnCount: Math.ceil(lastSeq / PAGE),
+      updatedAt: START + lastSeq * 50,
+      lastSeq,
+    };
+    const answer = (method: string, params: any) => {
+      switch (method) {
+        case "initialize":
+          return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        case "_acpmux/watch":
+          return { sessions: [session] };
+        case "_acpmux/attach":
+          return { session, events: span(lastSeq - PAGE + 1, lastSeq, lastSeq), hasMore: true, lastSeq };
+        case "_acpmux/events": {
+          const limit = Math.min(Number(params?.limit ?? PAGE), PAGE);
+          if (params?.promptIndex === true) {
+            const events: Rec[] = [];
+            for (let seq = 1; seq < Math.min(lastSeq + 1, params?.beforeSeq ?? Infinity); seq += PAGE) {
+              const prompt = recordAt(seq);
+              events.push({ ...prompt, msg: { text: prompt.msg.text } });
+            }
+            return { events, hasMore: false, lastSeq };
+          }
+          const kinds: unknown = params?.kinds;
+          if (Array.isArray(kinds) && !kinds.includes("transcript")) {
+            // The few-record reads (a turn's opener): the newest user_message before `beforeSeq`.
+            const before = Math.min(lastSeq + 1, params?.beforeSeq ?? Infinity);
+            const seq = Math.floor((before - 2) / PAGE) * PAGE + 1;
+            return { events: seq >= 1 ? [recordAt(seq)] : [], hasMore: false, lastSeq };
+          }
+          if (params?.beforeSeq !== undefined) {
+            const events = span(params.beforeSeq - limit, params.beforeSeq - 1, lastSeq);
+            return { events, hasMore: (events[0]?.seq ?? 1) > 1, lastSeq };
+          }
+          const after = Number(params?.afterSeq ?? 0);
+          const events = span(after + 1, after + limit, lastSeq);
+          return { events, hasMore: (events.at(-1)?.seq ?? lastSeq) < lastSeq, lastSeq };
+        }
+        default:
+          return null;
+      }
+    };
+    return () => {
+      const socket: any = {
+        readyState: 1,
+        send(raw: string) {
+          const message = JSON.parse(raw);
+          if (message.id === undefined) return;
+          const reply = JSON.stringify({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: answer(message.method, message.params),
+          });
+          setTimeout(() => socket.onmessage?.({ data: reply }), 0);
+        },
+        close() {},
+      };
+      setTimeout(() => socket.onopen?.(), 0);
+      return socket as WebSocket;
+    };
+  };
+  type Side = {
+    n: number;
+    up: number[];
+    down: number[];
+    heapMB: number;
+    held: number;
+    rows: number;
+    mostHeld: number;
+    done: boolean;
+    endHeld: number;
+  };
+  const results: Side[] = [];
+  for (const n of NS) {
+    const lastSeq = (n + 2) * PAGE;
+    const base = heapMB();
+    let shown: any = { rows: [] };
+    const client: any = await AcpmuxDirectClient.connect(
+      { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+      (next: any) => (shown = next),
+      undefined,
+      standIn(lastSeq),
+    );
+    for (let i = 0; i < 2000 && (client.events?.length ?? 0) === 0; i++) await settle();
+    for (let i = 0; i < 40; i++) await settle();
+    client.setFollowing(false);
+    client.readerView = () => (shown.rows ?? []).slice(0, 4).map((row: any) => row.id);
+    const started = performance.now();
+    const up: number[] = [];
+    let mostHeld = 0;
+    let done = true;
+    for (let page = 0; page < n; page++) {
+      if (performance.now() - started > BUDGET_MS) {
+        done = false;
+        break;
+      }
+      const from = client.events[0]?.seq ?? 0;
+      const start = performance.now();
+      await client.loadOlder(undefined, false, true);
+      await settle();
+      up.push(performance.now() - start);
+      mostHeld = Math.max(mostHeld, client.events.length);
+      if ((client.events[0]?.seq ?? 0) >= from && !shown.canLoadOlder) break;
+    }
+    for (let i = 0; i < 10; i++) await settle();
+    const heapTop = heapMB() - base;
+    const heldTop = client.events.length;
+    const rowsTop = shown.rows?.length ?? 0;
+    client.readerView = () => (shown.rows ?? []).slice(-4).map((row: any) => row.id);
+    const down: number[] = [];
+    const downStarted = performance.now();
+    for (let page = 0; page < 2 * n + 10 && typeof client.loadNewer === "function" && client.hasNewerLeft?.(); page++) {
+      if (performance.now() - downStarted > BUDGET_MS) {
+        done = false;
+        break;
+      }
+      const start = performance.now();
+      await client.loadNewer();
+      await settle();
+      down.push(performance.now() - start);
+      mostHeld = Math.max(mostHeld, client.events.length);
+    }
+    const endHeld = client.events.length;
+    client.close();
+    results.push({ n, up, down, heapMB: Math.max(0, heapTop), held: heldTop, rows: rowsTop, mostHeld, done, endHeld });
+    console.log(
+      `window n=${n}: ${up.length} pages up${done ? "" : " (budget ran out)"}, heap +${heapTop.toFixed(1)} MB at the top, ` +
+        `${heldTop} records and ${rowsTop} rows held there (most ${mostHeld}), up p50 ${pct(up, 0.5).toFixed(2)} ms ` +
+        `p95 ${pct(up, 0.95).toFixed(2)} ms, ${down.length} pages down p50 ${pct(down, 0.5).toFixed(2)} ms, ` +
+        `${endHeld} records held back at the end`,
+    );
+  }
+  const first = results[0]!;
+  const ratio = (value: number, of: number) => (of > 0 ? (value / of).toFixed(2) : "-");
+  console.log(
+    "\n| N pages | pages up | JS heap MB | held records | most held | rows (height entries) | up ms/page p50 | down ms/page p50 | heap / N=10 | held / N=10 | up / N=10 |",
+  );
+  console.log("|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const side of results) {
+    const upP50 = pct(side.up, 0.5);
+    console.log(
+      `| ${side.n} | ${side.up.length}${side.done ? "" : " (budget)"} | ${side.heapMB.toFixed(1)} | ${side.held} | ${side.mostHeld} | ${side.rows} | ` +
+        `${upP50.toFixed(2)} | ${side.down.length ? pct(side.down, 0.5).toFixed(2) : "-"} | ${ratio(side.heapMB, first.heapMB)} | ` +
+        `${ratio(side.held, first.held)} | ${ratio(upP50, pct(first.up, 0.5))} |`,
+    );
+    perfRow({
+      name: `million_event_chat.window.n${side.n}.held_records`,
+      p50: side.held,
+      p95: side.mostHeld,
+      unit: "records",
+    });
+    perfRow({ name: `million_event_chat.window.n${side.n}.heap_mb`, p50: side.heapMB, p95: side.heapMB, unit: "MB" });
+    if (side.up.length)
+      perfRow({
+        name: `million_event_chat.window.n${side.n}.up_page`,
+        p50: upP50,
+        p95: pct(side.up, 0.95),
+        unit: "ms",
+      });
+  }
+  process.exit(0);
+}
+if (process.env.MODE === "window") await windowBench();
 
 const { history, turns } = fixture();
 const fake = daemon(history, turns);
