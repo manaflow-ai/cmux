@@ -263,6 +263,9 @@ await requireBrowserLane("agent-pane-composer-still-on-churn.test.ts", async () 
       });
       for (const [label, result] of Object.entries(results))
         console.log(`COMPOSER-CHURN ${JSON.stringify({ event: label, ...result, editorNodeBefore: node })}`);
+      console.log(
+        `CHURN-LOG ${JSON.stringify(await page.evaluate(() => (globalThis as any).__churnLog ?? []), null, 1)}`,
+      );
       for (const [label, result] of Object.entries(results)) {
         expect({ label, renders: result.renders, props: result.props }).toEqual({ label, renders: 0, props: [] });
         expect({ label, node: result.node }).toEqual({ label, node });

@@ -47,7 +47,35 @@ export function usePropChurn(name: string, props: object, enabled: boolean, coun
     // An object prop names the members that changed too (`snapshot.summary`), one level down.
     if (was && is && typeof was === "object" && typeof is === "object" && !Array.isArray(was))
       for (const member of new Set([...Object.keys(was), ...Object.keys(is)]))
-        if (!Object.is((was as Record<string, unknown>)[member], (is as Record<string, unknown>)[member]))
+        if (!Object.is((was as Record<string, unknown>)[member], (is as Record<string, unknown>)[member])) {
           count(`${name}.prop:${key}.${member}`);
+          // TEMP diagnostic
+          const brief = (v: unknown) =>
+            Array.isArray(v)
+              ? `[${v.length}]`
+              : v && typeof v === "object"
+                ? `{${Object.keys(v).length}}`
+                : String(v).slice(0, 60);
+          const a = (was as Record<string, unknown>)[member];
+          const b = (is as Record<string, unknown>)[member];
+          let first = "";
+          if (Array.isArray(a) && Array.isArray(b)) {
+            const i = a.findIndex((x, n) => JSON.stringify(x) !== JSON.stringify(b[n]));
+            if (i >= 0)
+              first = ` @${i} ${JSON.stringify(a[i])?.slice(0, 300)} => ${JSON.stringify(b[i])?.slice(0, 300)}`;
+          } else if (a && b && typeof a === "object" && typeof b === "object") {
+            const ks = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(
+              (k) => JSON.stringify((a as any)[k]) !== JSON.stringify((b as any)[k]),
+            );
+            first = ` keys ${ks.slice(0, 8).join(",")} ${ks
+              .slice(0, 2)
+              .map(
+                (k) =>
+                  `${k}:${JSON.stringify((a as any)[k])?.slice(0, 120)}=>${JSON.stringify((b as any)[k])?.slice(0, 120)}`,
+              )
+              .join(" ")}`;
+          }
+          ((globalThis as any).__churnLog ??= []).push(`${key}.${member} ${brief(a)} -> ${brief(b)}${first}`);
+        }
   }
 }
