@@ -296,7 +296,7 @@ async fn a_restart_continuation_reads_a_replayed_end_of_a_call_left_open() {
 }
 
 /// The subagents a log rebuilds before a daemon adopts a running host (`work_below.rs`
-/// `seed_subagents_from_log`) are the ones the tap followed live: a replay starts none.
+/// `subagents_in_log`) are the ones the tap followed live: a replay starts none.
 #[test]
 fn the_subagents_a_log_rebuilds_are_the_live_ones_without_the_replays() {
     let hub = new_hub();
@@ -322,7 +322,8 @@ fn the_subagents_a_log_rebuilds_are_the_live_ones_without_the_replays() {
         (tree.running_count(), tree.background_running())
     };
     assert_eq!(live, (2, 1));
-    hub.seed_subagents_from_log(&s);
+    let rebuilt = hub.subagents_in_log(&s);
+    hub.seed_subagents(&s, rebuilt);
     let tree = s.subagents.lock().unwrap();
     assert_eq!((tree.running_count(), tree.background_running()), live);
 }
