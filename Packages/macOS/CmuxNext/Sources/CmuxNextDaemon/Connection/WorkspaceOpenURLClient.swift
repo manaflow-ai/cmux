@@ -11,15 +11,6 @@ public struct WorkspaceOpenURLClient: Sendable {
         self.connection = connection
     }
 
-    /// ``openOnHome(_:)`` on the connection `connection` answers when the open is asked (none: nothing
-    /// opens), as a closure: Settings > Accounts opens a sign-in page beside the window this way.
-    public static func homeOpener(_ connection: @escaping @MainActor () -> DaemonConnection?) -> @MainActor (URL) async -> Void {
-        { url in
-            guard let connection = connection() else { return }
-            try? await WorkspaceOpenURLClient(connection).openOnHome(url.absoluteString)
-        }
-    }
-
     /// Opens `url` (http or https) on the right side of the current session's home workspace.
     public func openOnHome(_ url: String) async throws {
         let key = "cmux-next-open-url-" + UUID().uuidString.lowercased()
