@@ -384,8 +384,9 @@
 }
 
 .rbd-button[data-default] {
-  color: var(--cmux-app-accent-text, #fff);
-  background: var(--cmux-app-accent, #3b82f6);
+  /* The default button: ink on tone, inverted, so it reads in every theme. */
+  color: var(--rbd-tone);
+  background: var(--rbd-ink);
 }
 
 .rbd-spinner {
@@ -442,6 +443,10 @@
 
 .rbd-menu-action {
   min-height: 26px;
+}
+
+.rbd-menu-action .rbd-menu-name {
+  grid-column: 2 / -1;
 }
 
 .rbd-menu-icon {
