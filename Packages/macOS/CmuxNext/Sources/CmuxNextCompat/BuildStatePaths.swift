@@ -125,6 +125,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     }
 
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
+    /// The kept favicon per site origin (`OriginFaviconKeeper`), one folder per profile.
+    public var originFaviconsCache: URL { (ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true)).appendingPathComponent("OriginFavicons", isDirectory: true) }
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
 
     /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm

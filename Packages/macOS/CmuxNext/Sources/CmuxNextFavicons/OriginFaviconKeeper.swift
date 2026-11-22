@@ -39,13 +39,6 @@ public final class OriginFaviconKeeper {
         self.directory = directory
     }
 
-    /// The app's folder in its caches.
-    public nonisolated static var defaultDirectory: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux-next", isDirectory: true)
-            .appendingPathComponent("OriginFavicons", isDirectory: true)
-    }
-
     /// The icon `origin` last had for `profile`, or nil. A miss asks the disk once (off the main thread).
     public func kept(origin: String, profile: BrowserProfileID) -> TabImage? {
         _ = revision
