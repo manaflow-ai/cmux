@@ -334,7 +334,8 @@ GALLERY = {
     "webviews/scripts/agent-pane/bundle.mjs": 'import fs from "node:fs";\nexport const bundle = fs;\n',
     "webviews/src/agent-session/acpmux/dev.tsx": "export const dev = 1;\n",
     "webviews/test/support/galleryFrame.ts": 'import fs from "node:fs";\nexport const galleryFrame = (id: string) => id;\n',
-    "webviews/src/ui/button.tsx": "export const Button = 1;\n",
+    "webviews/src/ui/button.tsx": 'import "./button.css";\nexport const Button = 1;\n',
+    "webviews/src/ui/button.css": ".button {}\n",
     "webviews/src/ui/button.gallery.tsx": 'import { Button } from "./button";\nexport default [{\n  id: "button-basic",\n  Button,\n}];\n',
     "webviews/src/ui/card.tsx": "export const Card = 1;\n",
     "webviews/src/ui/card.gallery.tsx": 'import { Card } from "./card";\nexport default [{\n  id: "card-basic",\n  Card,\n}];\n',
@@ -400,6 +401,15 @@ class GalleryEdgesTest(unittest.TestCase):
         for path in ("webviews/src/gallery/shell.ts", "webviews/test/baseline.txt", "schemas/theme/colors.json"):
             with self.subTest(path=path):
                 self.assertTrue(EDGED <= self.selected(selector, path))
+
+    def test_an_imported_stylesheet_selects_its_importers_not_every_stage(self) -> None:
+        selected = self.selected(wa.Selector(self.root), "webviews/src/ui/button.css")
+        self.assertIn("webviews/test/button-stage.test.ts", selected)
+        self.assertNotIn("webviews/test/pane-page.test.ts", selected)
+        (self.root / "webviews/src/ui/theme.css").write_text('@import "./button.css";\n')
+        git(self.root, "add", "-A")
+        self.assertTrue(EDGED <= self.selected(wa.Selector(self.root), "webviews/src/ui/button.css"),
+                        "a stylesheet another one @imports stays in the zone")
 
     def test_a_sweep_runs_for_every_entry(self) -> None:
         selector = wa.Selector(self.root)
