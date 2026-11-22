@@ -72,11 +72,19 @@ public final class PagedListProbe {
     public var scrolling: ((Bool) -> Void)?
     /// The row being read: the first row under the list's top edge, after the last layout pass.
     public internal(set) var readingID: AnyHashable?
-    /// After every layout pass, while set: how far the row being read moved on screen beyond what
+    /// After every committed frame, while set: how far the row being read moved on screen beyond what
     /// the scroll explains (the person's drag or fling, the status bar's scroll to top, or the
     /// list's own deliberate moves: following the newest row, riding the bottom edge). 0 when
     /// nothing shifted; the stress bench fails on anything over half a point.
     public var frameShift: ((CGFloat) -> Void)?
+    /// The same measure taken at each layout pass instead (DEBUG, beside `frameShift` so a run shows
+    /// what one counts and the other doesn't): a pass can see the list mid-placement, which never
+    /// draws. `midPlacement` when the list's own window frame at this pass or the last one differs
+    /// from where the last committed frame drew it; `detail` for a shift over half a point.
+    public var passFrameShift: ((_ shift: CGFloat, _ midPlacement: Bool, _ detail: String?) -> Void)?
+    /// How long the committed-frame measure took for one drawn frame, in milliseconds (DEBUG): the
+    /// stress bench reports it beside its hitches, since a run without the probe has no such cost.
+    public var samplerCost: ((_ ms: Double) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -85,6 +93,9 @@ public final class PagedListProbe {
     public var slid: ((_ frames: Int) -> Void)?
     /// Rows arrived at the newest end under a resting finger and wait for it to lift.
     public var held: ((_ rows: Int) -> Void)?
+    /// Each snapshot apply: the rows redrawn in place (reconfigured, by id) and whether rows came,
+    /// went or moved.
+    public var applied: ((_ reconfigured: [AnyHashable], _ rowsChanged: Bool) -> Void)?
 
     public init() {}
 }
@@ -202,6 +213,24 @@ final class SwipeProvider {
 final class PagedListCollectionView: UICollectionView {
     var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
+
+    /// The screen's content scroll view, as Workspaces' and the Feed's collections are, so the
+    /// navigation bar's search drawer and scroll edge follow this list (without it the drawer never
+    /// collapsed over Home's list, and the pull-down search's tuck undid itself). A controller that
+    /// already names one (a chat's keyboard dock) keeps it.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let controller = next as? UIViewController {
+                if controller.contentScrollView(for: .top) == nil { controller.setContentScrollView(self, for: .top) }
+                if controller.parent is UINavigationController || controller.parent == nil { break }
+            }
+            responder = next
+        }
+    }
+
     /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
     /// move the offset further inside it (rows above it sized as they came into view, with the
     /// content moved by as much), which is its correction, not the finger's or the fling's move.
@@ -265,6 +294,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var row: (Item) -> Row
     var edgeView: (PagedListEdge, PagedListEnd) -> AnyView
     var swipeActions: ((Item) -> [PagedListAction])?
+    /// A full swipe runs the first action (UIKit's default); off, it runs none.
+    var fullSwipe = true
+    /// Items that head a `.down` list: not its newest rows (``PagedList/pagedHeader(_:)``).
+    var header: Set<Item.ID> = []
+    /// Rows that land above the newest row count as arrivals (``PagedList/pagedCountsArrivals(_:)``).
+    var countsArrivals = true
     var loadMore: () -> Void = {}
     /// Reads the newer rows a windowed model holds on disk.
     var loadNewer: () -> Void = {}
@@ -272,7 +307,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var onReading: ((Item.ID) -> Void)?
     /// A windowed model's own jump to its newest rows (they may be on disk).
     var showNewest: (() -> Void)?
-    var probe: PagedListProbe?
+    var probe: PagedListProbe? {
+        didSet {
+            guard (probe == nil) != (commitWatch == nil) else { return }
+            commitWatch = probe == nil ? nil : PagedListCommitWatch { [weak self] in self?.timedSampleCommitted() }
+        }
+    }
     var pinning: PagedListBottomPinning
     /// New rows at the newest end slide in on a spring while the reader is there.
     var animatesNewest = true
@@ -334,6 +374,31 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var offsetY: CGFloat
     }
     private var shiftSample: ShiftSample?
+    /// The committed-frame measure's last sample, where the last committed frame drew the list, and
+    /// where the last layout pass found it (the pass measure's mid-placement mark).
+    private var committedSample: ShiftSample?
+    private var committedFrame: CGRect?
+    private var passFrame: CGRect?
+    private var commitWatch: PagedListCommitWatch?
+    /// The committed-frame measure's detail (DEBUG, while `shiftDetail` is set): the offset moves
+    /// noted since the last committed frame, and the last frames' drawn rows: per frame, the reader
+    /// row's top and the next row's top in the window, the offset, and what the scroll and the
+    /// list's own moves (the spring's slide) explained. A steady slide moves both rows by what it
+    /// explains; a jump moves them by more, for a frame.
+    private var commitTrail: [String] = []
+    private struct DrawnFrame {
+        var number: Int
+        var read: CGFloat
+        var next: CGFloat
+        var offset: CGFloat
+        var explained: CGFloat
+        var spring: Bool
+        var trail: [String]
+    }
+    /// Kept as numbers; formatted only when a shift is reported (each frame's string cost a busy
+    /// main thread its frames: up-fast-busy, steps 6d8bcee4 and f902d4d6).
+    private var drawnFrames: [DrawnFrame] = []
+    private var committedFrames = 0
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
     /// Counts every offset move the scroll explains (the finger, a fling, the list's own slide): a
@@ -467,7 +532,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     /// The newest row's id (the top of a `.down` list, the bottom of an `.up` one).
-    private func newestID(in ids: [Item.ID]) -> Item.ID? { direction == .down ? ids.first : ids.last }
+    private func newestID(in ids: [Item.ID]) -> Item.ID? {
+        direction == .down ? (header.isEmpty ? ids.first : ids.first { !header.contains($0) }) : ids.last
+    }
 
     /// Shows `given` (top to bottom) and both edges' states. Rows whose value changed are drawn
     /// again in place; rows that came or went above the reader leave what they read where it was;
@@ -508,8 +575,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // Rows that arrived at the newest end: the rows now on the newest side of the old newest row.
         let oldNewest = newestID(in: order)
         var arrivals = 0
-        if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
-            arrivals = direction == .down ? at : newOrder.count - 1 - at
+        if loaded, heldNewest, countsArrivals, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
+            arrivals = direction == .down ? at - newOrder[..<at].count(where: header.contains) : newOrder.count - 1 - at
         }
         let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled
         // A finger on the list, or a fling still moving it, holds the rows under it: rows that arrive
@@ -565,6 +632,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
+        if let applied = probe?.applied {
+            applied(reconfigure.compactMap { if case .row(let id) = $0 { AnyHashable(id) } else { nil } }, rowsChanged)
+        }
         collectionView.layoutIfNeeded()
         arriving = false
         // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
@@ -642,12 +712,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         let top = readerTop
         var rows: [Anchor.Row] = []
+        var headers: [Anchor.Row] = []
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                   attributes.frame.maxY > top + 0.5,
-                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
-            rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes)))
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row(let rowID) = id else { continue }
+            let row = Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes))
+            // The items heading a `.down` list (``PagedList/pagedHeader(_:)``) never hold the reader
+            // while a row is in view: rows arriving under them would push the rows down in place of
+            // the slide, and a header that changes height would move what is being read.
+            if header.contains(rowID) { headers.append(row) } else { rows.append(row) }
         }
+        if rows.isEmpty { rows = headers }
         return rows.isEmpty ? nil : Anchor(rows: rows)
     }
 
@@ -922,15 +998,19 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// last pass, where it is now, less what the scroll explains. Skipped across a rotation, and
     /// when that row left or moved (a removal or move is not a shift of what is read).
     private func sampleShift(from source: String) {
-        guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
+        guard !updating, let probe, probe.frameShift != nil || probe.passFrameShift != nil, loaded,
+              collectionView.window != nil else { return }
         let width = collectionView.bounds.width
         querying += 1
         let current = referenceRow()
         querying -= 1
         let offsetY = collectionView.contentOffset.y
+        let frame = listFrame
+        let lastFrame = passFrame
         defer {
+            passFrame = frame
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
-            if probe?.shiftDetail != nil {
+            if probe.shiftDetail != nil {
                 previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(ledger.pending)"
             }
             ledger.reset()
@@ -942,23 +1022,114 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
         let shift = (now - last.windowY) + ledger.explained
-        report(shift)
-        if abs(shift) > 0.5, let detail = probe?.shiftDetail {
-            let insets = collectionView.adjustedContentInset
-            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(ledger.explained) offset=\(offsetY - last.offsetY) "
-                + "pending=\(ledger.pending) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
-                + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
-                + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
-                + "trail=\(trail.joined(separator: ",")) prev=\(previousInterval)")
+        guard let report = probe.passFrameShift else { return }
+        // The list's own window frame moved since the last pass, or differs from the last committed
+        // frame's: one of the two passes saw it mid-placement (before the first commit too).
+        let movedSincePass = lastFrame.map { $0 != frame } ?? false
+        let movedSinceCommit = committedFrame.map { $0 != frame } ?? false
+        let lastPassOffCommit = lastFrame.flatMap { last in committedFrame.map { last != $0 } } ?? false
+        let midPlacement = movedSincePass || movedSinceCommit || lastPassOffCommit
+        report(shift, midPlacement, abs(shift) > 0.5
+            ? shiftDetail(at: source, moved: now - last.windowY, explained: ledger.explained, offset: offsetY - last.offsetY, frame: frame)
+            : nil)
+    }
+
+    /// The frame-shift measure (``PagedListProbe/frameShift``) at each committed frame, what the
+    /// screen shows: the row being read in the last committed frame, where it is in this one, less
+    /// what the scroll explains in between. A layout pass can run while the list is mid-placement
+    /// (SwiftUI gives the collection its bounds before its center): that never draws, so only the
+    /// committed frames count. Skipped as the pass measure skips (a rotation, the row left or moved).
+    private func timedSampleCommitted() {
+        guard let cost = probe?.samplerCost else { return sampleCommitted() }
+        let start = CACurrentMediaTime()
+        sampleCommitted()
+        cost((CACurrentMediaTime() - start) * 1000)
+    }
+
+    private func sampleCommitted() {
+        guard !updating, let probe, let report = probe.frameShift, loaded, collectionView.window != nil else { return }
+        let width = collectionView.bounds.width
+        querying += 1
+        let current = committedReferenceRow()
+        querying -= 1
+        let offsetY = collectionView.contentOffset.y
+        let frame = listFrame
+        committedFrames += 1
+        if probe.shiftDetail != nil {
+            let nextY = current?.next.flatMap { windowY(of: $0, bottom: false) }
+            if drawnFrames.count == 6 { drawnFrames.removeFirst() }
+            drawnFrames.append(DrawnFrame(number: committedFrames, read: current?.windowY ?? .nan, next: nextY ?? .nan,
+                                          offset: offsetY, explained: ledger.committedExplained, spring: spring.isRunning,
+                                          trail: commitTrail))
         }
+        defer {
+            committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
+            committedFrame = frame
+            ledger.resetCommitted()
+            commitTrail.removeAll(keepingCapacity: true)
+        }
+        guard let last = committedSample, abs(last.width - width) < 0.5,
+              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
+        if let next = last.next, let gap = last.gap {
+            guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
+        }
+        let was = last.windowY
+        let shift = (now - was) + ledger.committedExplained
+        report(shift)
+        if abs(shift) > 0.5, let detail = probe.shiftDetail {
+            detail(shift, shiftDetail(at: "commit", moved: now - was, explained: ledger.committedExplained,
+                                      offset: offsetY - last.offsetY, frame: frame)
+                + " frames=" + drawnFrames.map { f in
+                    String(format: "#%d[read=%.1f next=%.1f off=%.1f expl=%+.1f spring=%d ", f.number, f.read, f.next,
+                           f.offset, f.explained, f.spring ? 1 : 0) + f.trail.joined(separator: ",") + "]"
+                }.joined(separator: " "))
+        }
+    }
+
+    /// The row the committed-frame measure follows: as ``referenceRow()``, but for a list read from
+    /// its top, the first row whose top is in view (at or below the reader's top edge). A row cut by
+    /// that edge that changes height keeps its bottom where it was (``PagedListLayout`` corrects the
+    /// offset for it, as for any row above), so its top moves while nothing the reader sees does:
+    /// following it counted a row growing under the bars as a shift (up-medium-flood 44 pt and
+    /// up-slow-flood 22 pt, steps 6d8bcee4 and f902d4d6, with the next row still to the point).
+    private func committedReferenceRow() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
+        guard direction != .up || !followsNewest else { return referenceRow() }
+        let top = readerTop
+        var found: (CellID, Int, CGFloat)?
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                  attributes.frame.minY >= top - 0.5,
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            if let first = found {
+                return (first.0, id, indexPath.item - first.1, false, first.2)
+            }
+            found = (id, indexPath.item, windowY(attributes))
+        }
+        return found.map { ($0.0, nil, nil, false, $0.2) }
+    }
+
+    /// The list's frame in its window (a container that moves it moves what is read).
+    private var listFrame: CGRect { collectionView.convert(collectionView.bounds, to: nil) }
+
+    private func shiftDetail(at source: String, moved: CGFloat, explained: CGFloat, offset: CGFloat, frame: CGRect) -> String {
+        let insets = collectionView.adjustedContentInset
+        return "from=\(source) moved=\(moved) explained=\(explained) offset=\(offset) "
+            + "pending=\(ledger.pending) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
+            + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
+            + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
+            + String(format: "list=%.0f,%.0f ", frame.minX, frame.minY)
+            + "trail=\(trail.joined(separator: ",")) prev=\(previousInterval)"
     }
 
     /// One offset move or layout correction for the probe's detail: its kind, the move, and `^` when
     /// it came inside another scroll callback.
     private func note(_ kind: String, _ delta: CGFloat) {
-        guard probe?.shiftDetail != nil, trail.count < 24 else { return }
+        guard probe?.shiftDetail != nil else { return }
         let nested = kind.hasPrefix("A") ? scrollDepth > 0 : scrollDepth > 1
-        trail.append("\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))")
+        let entry = "\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))"
+        if commitTrail.count < 32 { commitTrail.append(entry) }
+        guard trail.count < 24 else { return }
+        trail.append(entry)
     }
 
     /// The row the measure follows: the one the list keeps still. The one being read (its top), or,
@@ -1099,6 +1270,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             }
         } else {
             note("n", delta)
+            #if DEBUG
+            // A move none of the list's paths claims: name who made it (the stress bench's detail).
+            if probe?.shiftDetail != nil, abs(delta) > 0.5, trail.count < 24 {
+                let callers = Thread.callStackSymbols.dropFirst(2).prefix(14)
+                    .map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined() }
+                trail.append("n-by:" + callers.joined(separator: "<"))
+            }
+            #endif
         }
         pullToRefresh?.scrolled()
         // Only the person's moves decide whether the list follows its newest row: the list's own
@@ -1219,8 +1398,51 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return one
         }
         let configuration = UISwipeActionsConfiguration(actions: contextual)
-        configuration.performsFirstActionWithFullSwipe = true
+        configuration.performsFirstActionWithFullSwipe = fullSwipe
         return configuration
     }
 }
 #endif
+
+/// Runs `sample` once per display frame, after Core Animation commits it: a display link marks each
+/// frame due, and the first main run loop turn after it samples (its observer runs after the commit
+/// observer at order 2000000, before the loop waits). Once per frame, not per turn: a busy main
+/// thread turns the loop many times a frame (the up-fast-busy stress case's hitches rose 8.7 to 70
+/// ms/s when it sampled every turn, steps 87db292d and 57fdbd67).
+@MainActor
+final class PagedListCommitWatch {
+    // Invalidating a run loop observer or a display link is safe from any thread.
+    nonisolated(unsafe) private let observer: CFRunLoopObserver
+    nonisolated(unsafe) private let link: CADisplayLink
+    private let tick = PagedListCommitTick()
+
+    init(_ sample: @escaping @MainActor () -> Void) {
+        let tick = tick
+        let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
+        observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 2_000_100) { _, _ in
+            MainActor.assumeIsolated {
+                guard tick.due else { return }
+                tick.due = false
+                sample()
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        link = CADisplayLink(target: tick, selector: #selector(PagedListCommitTick.frame(_:)))
+        link.add(to: .main, forMode: .common)
+    }
+
+    deinit {
+        link.invalidate()
+        CFRunLoopObserverInvalidate(observer)
+    }
+}
+
+/// The display link's target: marks a frame due (a separate object, so the link does not retain the watch).
+@MainActor
+private final class PagedListCommitTick: NSObject {
+    var due = false
+
+    @objc func frame(_ link: CADisplayLink) {
+        due = true
+    }
+}

@@ -27,6 +27,9 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
     let row: (Item) -> Row
     let empty: () -> Empty
     var swipeActions: ((Item) -> [PagedListAction])?
+    var fullSwipe = true
+    var header: Set<Item.ID> = []
+    var countsArrivals = true
     var endLabel: LocalizedStringKey?
     var loadingLabel: LocalizedStringKey = "Loading…"
     var failureTitle: LocalizedStringKey = "Couldn't load"
@@ -118,7 +121,8 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
 
     private var config: PagedListConfig<Item, Row> {
         PagedListConfig(direction: direction, items: items, edge: edge, newerEdge: newerEdge, loadMore: loadMore,
-                        loadNewer: loadNewer, retry: retry, row: row, swipeActions: swipeActions, endLabel: endLabel,
+                        loadNewer: loadNewer, retry: retry, row: row, swipeActions: swipeActions, fullSwipe: fullSwipe,
+                        header: header, countsArrivals: countsArrivals, endLabel: endLabel,
                         identifier: identifier, probe: probe, cachesHeights: cachesHeights, refresh: refresh,
                         onReading: onReading, showNewest: showNewest, beyondWindow: beyondWindow, pinning: pinning,
                         animatesNewest: animatesNewest, prefetch: prefetch, cancelPrefetch: cancelPrefetch)
@@ -155,10 +159,30 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
             .accessibilityIdentifier("\(identifier).empty")
     }
 
-    /// Trailing swipe actions per row (UIKit's swipe; the first is the full swipe's).
-    public func pagedSwipeActions(_ actions: @escaping (Item) -> [PagedListAction]) -> Self {
+    /// Trailing swipe actions per row (UIKit's swipe; the first is the full swipe's, unless
+    /// `allowsFullSwipe` is false: then a full swipe runs none, as SwiftUI's `allowsFullSwipe: false`).
+    public func pagedSwipeActions(allowsFullSwipe: Bool = true, _ actions: @escaping (Item) -> [PagedListAction]) -> Self {
         var copy = self
         copy.swipeActions = actions
+        copy.fullSwipe = allowsFullSwipe
+        return copy
+    }
+
+    /// Items that head a `.down` list (a grid of pins, a status card above the rows): they are not
+    /// its newest rows, so a row that lands under them, at the top of the rows, arrives (it slides
+    /// in at the top, or counts on the newest-rows indicator while the reader is away).
+    public func pagedHeader(_ ids: Set<Item.ID>) -> Self {
+        var copy = self
+        copy.header = ids
+        return copy
+    }
+
+    /// Whether rows that land above the newest row this update are new (they slide in at the newest
+    /// end, or count on the indicator). Off for an update the person made themselves: a search typed
+    /// or cleared, hidden rows shown again; the rows it brings are not arrivals.
+    public func pagedCountsArrivals(_ counts: Bool) -> Self {
+        var copy = self
+        copy.countsArrivals = counts
         return copy
     }
 
@@ -381,6 +405,9 @@ struct PagedListConfig<Item: Identifiable & Equatable, Row: View> where Item.ID:
     let retry: @MainActor () async -> Void
     let row: (Item) -> Row
     let swipeActions: ((Item) -> [PagedListAction])?
+    let fullSwipe: Bool
+    let header: Set<Item.ID>
+    let countsArrivals: Bool
     let endLabel: LocalizedStringKey?
     let identifier: String
     let probe: PagedListProbe?
@@ -412,6 +439,9 @@ struct PagedListConfig<Item: Identifiable & Equatable, Row: View> where Item.ID:
         }
         controller.edgeHasEndView = endLabel != nil
         controller.swipeActions = swipeActions
+        controller.fullSwipe = fullSwipe
+        controller.header = header
+        controller.countsArrivals = countsArrivals
         controller.loadMore = loadMore
         controller.loadNewer = loadNewer ?? {}
         controller.onReading = onReading
