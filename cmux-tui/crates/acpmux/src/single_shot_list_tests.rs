@@ -63,6 +63,25 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "coord-sim's reader: a `limit`/`cursor` loop, page by page",
     ),
     (
+        "cmux-tui/crates/coord-sim/src/degen/cases.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the degen cases' `whole_list`: a `cursor` loop, page by page",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/degen/sidebar.rs",
+        "\"_acpmux/watch\"",
+        1,
+        "turns watching on for the one-change case, its page unread",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/fanin/ramp.rs",
+        "\"_acpmux/sessions\"",
+        2,
+        "`listing` times the one-read list on purpose beside the `limit`/`cursor` loop it is \
+         compared with",
+    ),
+    (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
         "\"_acpmux/sessions\"",
         1,
