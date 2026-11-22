@@ -35,8 +35,9 @@ pub(super) const CARRY_DEADLINE: Duration = Duration::from_secs(30);
 /// link and its retry found it down again (about 2 s on the outbox's schedule).
 pub(super) const CARRY_FROM_ATTEMPT: u32 = 2;
 
-/// The `--relay` name the far daemon records for a carried message.
-const RELAY_NAME: &str = "acpmux-ssh";
+/// The `--relay` name the far daemon records for a carried message: its inbox wakes the chat
+/// for it (`prompt_provenance::waited`).
+const RELAY_NAME: &str = crate::prompt_provenance::SSH_CARRY_RELAY;
 
 /// What one carry did.
 #[derive(Debug)]
