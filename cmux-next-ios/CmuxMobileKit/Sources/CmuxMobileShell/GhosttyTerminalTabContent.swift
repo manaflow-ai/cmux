@@ -338,6 +338,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts = [:]
         slots = [:]
         cardViews = [:]
+        heldCardText = [:]
         upgrade.reset()
         placeholderTabs = [:]
         workspaceOwner = [:]
@@ -538,6 +539,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // A slower older reply never replaces a newer card text (A6).
             guard self.screenTextRefresh.finished(tab.id, request: request) else { return }
             guard let model, live || !model.pageStarted else { return }
+            // The grid is scrolling: the card keeps what it shows, and the text
+            // lands once the grid stops (`overviewScrollingChanged`).
+            if self.liveRefresh.isScrolling {
+                self.heldCardText[tab.id] = (model, text)
+                return
+            }
             // Unchanged text is only re-dated (still the Mac's screen now), so
             // an unchanged card is not redrawn every second (r13 review).
             if model.cardScreenText != text { model.cardScreenText = text } else if live { model.confirmCardScreenText() }
@@ -574,7 +581,22 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     func overviewScrollingChanged(_ scrolling: Bool) {
         liveRefresh.setScrolling(scrolling, now: CACurrentMediaTime())
+        if !scrolling { applyHeldCardText() }
         wakeLiveRefresh()
+    }
+
+    /// Screen reads that came back while the grid scrolled, newest per tab
+    /// (Leo, 2026-11-22: "new updates even are a maybe").
+    private var heldCardText: [String: (model: TerminalModel, text: String)] = [:]
+
+    private func applyHeldCardText() {
+        guard !heldCardText.isEmpty else { return }
+        let held = heldCardText
+        heldCardText = [:]
+        for (id, entry) in held where hosts[id]?.model === entry.model {
+            if entry.model.pageStarted { continue }
+            if entry.model.cardScreenText != entry.text { entry.model.cardScreenText = entry.text } else { entry.model.confirmCardScreenText() }
+        }
     }
 
     func sceneActiveChanged(_ active: Bool) {
