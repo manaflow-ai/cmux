@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 77d1f1f757b3e662836eb03864ead82c0d8bf016579f089d77a6ad8e34279ea2.
+// cmux-tui mux protocol 12, IR 2733a3e89cc235eaededb70797797f3f8b7a9c1372a63884d3fa245ce201bc2a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3447,6 +3447,8 @@ pub struct SendRequest {
     pub expect_foreground: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub flow: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -5783,6 +5785,9 @@ impl CmuxClient {
         }
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
+        }
+        if !request.key.is_missing() {
+            self.require_capability_field("send", "send-key-v1")?;
         }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;

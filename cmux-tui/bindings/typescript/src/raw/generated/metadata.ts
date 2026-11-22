@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 77d1f1f757b3e662836eb03864ead82c0d8bf016579f089d77a6ad8e34279ea2. */
+/* cmux-tui mux protocol 12, IR 2733a3e89cc235eaededb70797797f3f8b7a9c1372a63884d3fa245ce201bc2a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "77d1f1f757b3e662836eb03864ead82c0d8bf016579f089d77a6ad8e34279ea2" as const;
+export const SDK_IR_SHA256 = "2733a3e89cc235eaededb70797797f3f8b7a9c1372a63884d3fa245ce201bc2a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2904,6 +2904,10 @@ export const COMMAND_METADATA = {
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
+      },
+      "key": {
+        "since": null,
+        "capability": "send-key-v1"
       },
       "paste": {
         "since": 7,
@@ -27938,7 +27942,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
         "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request.",
+        "key (send-key-v1) is 1 to 128 bytes: a send whose key the daemon already applied (within 10 minutes, among its last 1024 keys) returns the same success and writes nothing; a send refused with nothing written forgets its key."
       ],
       "fields": {
         "bytes": {
@@ -27982,6 +27987,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "key": {
+          "capability": "send-key-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "paste": {
