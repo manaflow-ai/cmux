@@ -138,6 +138,14 @@ export function takeWebSwapFocus(key: string, now = Date.now()): boolean {
   }
 }
 
+/** The part of `doc` that has the keyboard and takes it back after a swap. Only a page that has the
+ * keyboard (`hasFocus()`): an unfocused chat keeps its DOM focus in its composer too, and taking it
+ * back there pulled the caret into that chat after a swap (cmux#50535's after-run). */
+function focusOwner(doc: Document): string | null | undefined {
+  if (!doc.hasFocus()) return null;
+  return doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+}
+
 /** Answers the host's ask (`window.cmuxWebSwap`) and tracks input method composition. Once per document. */
 export function installWebSwap(doc: Document = document): void {
   const view = doc.defaultView as
@@ -156,7 +164,7 @@ export function installWebSwap(doc: Document = document): void {
       const reason = webSwapHold(doc);
       if (reason) return reason;
       // The reload comes next: the focus owner gets the keyboard back once the page is up again.
-      const owner = doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+      const owner = focusOwner(doc);
       try {
         if (owner) view.sessionStorage.setItem(WEB_SWAP_FOCUS_KEY, JSON.stringify({ owner, at: Date.now() }));
         else view.sessionStorage.removeItem(WEB_SWAP_FOCUS_KEY);
@@ -168,7 +176,7 @@ export function installWebSwap(doc: Document = document): void {
     // The host reloads the page into new web next (PageWebView+GracefulSwap.swift): its state goes
     // over to the new document, and the focus owner takes the keyboard back there.
     prepare() {
-      const owner = doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+      const owner = focusOwner(doc);
       try {
         if (owner) view.sessionStorage.setItem(WEB_SWAP_FOCUS_KEY, JSON.stringify({ owner, at: Date.now() }));
       } catch {

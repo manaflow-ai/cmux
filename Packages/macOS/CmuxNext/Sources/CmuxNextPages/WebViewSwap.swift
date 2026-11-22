@@ -22,7 +22,7 @@ public enum WebViewSwap {
                                                                 contentWorld: .page)) as? Bool == true
         guard prepared, let host = webView.superview, webView.window != nil, !webView.isHiddenOrHasHiddenAncestor,
               let still = await snapshot(webView)
-        else { return webView.reload() }
+        else { _ = webView.reload(); return }
         // Over the view, not under it: a WebKit view paints its own background between the old
         // document and the new one's first script, which a still under it does not hide.
         let cover = StillCover(frame: webView.frame)
@@ -30,7 +30,7 @@ public enum WebViewSwap {
         cover.imageScaling = .scaleAxesIndependently
         cover.autoresizingMask = webView.autoresizingMask
         host.addSubview(cover, positioned: .above, relativeTo: webView)
-        webView.reload()
+        _ = webView.reload()
         _ = await waitForRestored(webView)
         afterPresentationUpdate(of: webView) { [weak cover] in cover?.removeFromSuperview() }
     }
