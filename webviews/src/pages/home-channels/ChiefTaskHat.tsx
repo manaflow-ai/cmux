@@ -77,7 +77,7 @@ function TaskRow({ task, now, strings, chip }: { task: ChiefTask; now: number; s
   const live = task.state === "running" || task.state === "stalled";
   const meta = live ? formatDuration(Math.max(0, now - task.startedAt)) : strings.t(`run.status.${status}`);
   return (
-    <li className="lg-task-hat__row" data-state={task.state} title={task.result ?? task.title}>
+    <li className="lg-task-hat__row" data-state={task.state} aria-description={task.result ?? task.title}>
       <RunMark status={status} />
       <span className="lg-task-hat__title" dir="auto">
         {task.title}

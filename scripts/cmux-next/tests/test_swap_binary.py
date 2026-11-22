@@ -14,6 +14,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import importlib.util as _git_fixture_importlib
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parents[3] / "tests" / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "scripts/cmux-next/swap-binary.sh"
 SIDE = ROOT / "scripts/cmux-next/side-instance.sh"
@@ -147,7 +155,8 @@ class SwapBinaryTests(unittest.TestCase):
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
         repo.mkdir()
-        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True,
+                                        env=git_fixture_env.fixture_env()).stdout.strip()
         git("init", "-q")
         git("config", "user.email", "t@example.com"); git("config", "user.name", "t")
         (repo / "App").mkdir(); (repo / "App/main.swift").write_text("1")
@@ -195,6 +204,41 @@ class SwapBinaryTests(unittest.TestCase):
         self.assertIn("added Contents/Frameworks/Iroh.framework/Iroh", diff)
         self.assertNotIn("removed Contents/Resources/CmuxNext_CmuxNextApp.bundle/agent-pane/index.html", diff)
         self.assertFalse(any("web/" in line or "Info.plist" in line for line in diff))
+
+    def folding_locale(self):
+        """A UTF-8 locale whose bash globs fold case (cmux-symbols.bin before CmuxNext_*), or None."""
+        probe = self.tmp / "collate-probe"
+        probe.mkdir(exist_ok=True)
+        for name in ("CmuxNext_A.bundle", "cmux-symbols.bin"):
+            (probe / name).touch()
+        for loc in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8"):
+            env = {k: v for k, v in os.environ.items() if not k.startswith("LC_")}
+            env.update(LANG=loc, LC_COLLATE=loc)
+            out = subprocess.run(["bash", "-c", 'cd "$1" && echo *', "-", str(probe)], env=env,
+                                 text=True, capture_output=True).stdout.split()
+            if out == ["cmux-symbols.bin", "CmuxNext_A.bundle"]:
+                return loc
+        return None
+
+    # SB-PLACE: in a UTF-8 locale bash's globs fold case, so place met cmux-symbols.bin before
+    # CmuxNext_CmuxNextApp.bundle and listed them out of order. The other place test runs in the runner's
+    # locale (C on CI), where the order holds without the fix, so it passed with the fix removed (run
+    # 44827601922, 2026-11-21). This one forces a folding locale, also through LC_ALL, which overrides a
+    # function's LC_COLLATE: `local LC_COLLATE=C` alone still listed them out of order there.
+    def test_place_lists_in_byte_order_in_a_case_folding_locale(self):
+        loc = self.folding_locale()
+        if loc is None:
+            self.skipTest("no locale on this host folds case in bash globs")
+        base = {k: v for k, v in self.env.items() if not k.startswith("LC_")}
+        app, overlay = self.nightly(), self.overlay()
+        for label, extra in (("LANG/LC_COLLATE", {"LANG": loc, "LC_COLLATE": loc}), ("LC_ALL", {"LC_ALL": loc})):
+            with self.subTest(locale=label):
+                copy = self.tmp / f"copy-{label.replace('/', '-')}/cmux NIGHTLY.app"
+                shutil.copytree(app, copy)
+                self.env = {**base, **extra}
+                r = self.run_tool("place", copy, overlay)
+                self.assertIn("replaced=MacOS/cmux,Resources/CmuxNext_CmuxNextApp.bundle,Resources/cmux-symbols.bin",
+                              r.stdout, f"{label}={loc}")
 
     def test_place_refuses_an_installed_app_and_a_missing_overlay(self):
         r = self.run_tool("place", self.nightly(), self.tmp / "nothing", check=False)
