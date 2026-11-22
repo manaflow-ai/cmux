@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "t3code-archive",
+  "description": "Fold seen, finished chats until new activity and archive the settled group on demand.",
+  "settings": {
+    "sidebar.settleFinished": true
+  },
+  "files": {}
+}
