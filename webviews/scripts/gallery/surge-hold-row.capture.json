@@ -1,0 +1,98 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"],
+    ["light", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "surge-counts",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "counts",
+      "width": 760,
+      "height": 200,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-surface-card",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "surface-card",
+      "width": 760,
+      "height": 200,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-surface-line",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "surface-line",
+      "width": 760,
+      "height": 200,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-open",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "open",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-open-unmarked",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "open-unmarked",
+      "width": 760,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-open-host-refused",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "open-host-refused",
+      "width": 760,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-open-offline",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "open-offline",
+      "width": 760,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "surge-open-daemon-error",
+      "entry": "agent-pane.surge-hold-row",
+      "variant": "open-daemon-error",
+      "width": 760,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}

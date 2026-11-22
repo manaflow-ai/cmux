@@ -89,7 +89,11 @@ const LISTING = {
   ],
 };
 
-async function render(surge: SurgeHold | undefined, list = async () => LISTING) {
+async function render(
+  surge: SurgeHold | undefined,
+  list: () => Promise<unknown> = async () => LISTING,
+  connected = true,
+) {
   const container = installDom();
   const calls = { list: 0 };
   const listThreads = () => {
@@ -106,6 +110,7 @@ async function render(surge: SurgeHold | undefined, list = async () => LISTING) 
           listThreads={listThreads}
           readThread={async () => []}
           onOpenSender={() => undefined}
+          connected={connected}
         />,
       );
     });
@@ -182,18 +187,65 @@ test("the need-you pill opens the panel on those alone", async () => {
   expect(lines[0]).toContain("lane-7");
 });
 
-test("a failed listing says so with Try again, which reads again", async () => {
+test("a transient failure reads again by itself, with no button", async () => {
   let fail = true;
   const { container, calls } = await render({ held: 4, needYou: 0, seq: 1 }, async () => {
-    if (fail) throw new Error("offline");
+    if (fail) throw new Error("timed out");
     return LISTING;
   });
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
-  expect(container.querySelector('.acpmux-surge-note[role="alert"]')).not.toBeNull();
+  expect(calls.list).toBe(1);
+  expect(container.querySelector("button.acpmux-surge-retry")).toBeNull();
+  expect(container.querySelector('.acpmux-surge-note[role="alert"]')).toBeNull();
   fail = false;
-  await click(container.querySelector(".acpmux-surge-retry"));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+  });
   await settle();
   expect(calls.list).toBe(2);
   expect(threadIds(container).length).toBe(2);
+});
+
+test("a listing the app refuses says to update cmux, with no Try again", async () => {
+  const { container, calls } = await render({ held: 4, needYou: 0, seq: 1 }, async () => {
+    throw Object.assign(new Error("refused"), { code: "transport.method_refused", data: { origin: "native" } });
+  });
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  const note = container.querySelector('.acpmux-surge-note[role="alert"]');
+  expect(note?.getAttribute("data-failure")).toBe("host");
+  expect(note?.textContent).toContain("Update cmux");
+  expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
+  expect(calls.list).toBe(1);
+});
+
+test("acpmux's own error shows its message, with no button", async () => {
+  const { container } = await render({ held: 4, needYou: 0, seq: 1 }, async () => {
+    throw Object.assign(new Error("inbox store locked"), { code: -32000 });
+  });
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(container.querySelector('.acpmux-surge-note[role="alert"]')?.textContent).toContain("inbox store locked");
+  expect(container.querySelector("button")?.textContent).not.toContain("Try again");
+  expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
+});
+
+test("not connected, it says so and reads nothing until the chat is back", async () => {
+  const { container, calls } = await render({ held: 4, needYou: 0, seq: 1 }, async () => LISTING, false);
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(container.querySelector('.acpmux-surge-note[role="alert"]')?.getAttribute("data-failure")).toBe("offline");
+  expect(container.querySelector(".acpmux-surge-retry")).toBeNull();
+  expect(calls.list).toBe(0);
+});
+
+test("a listing that marks no thread held says acpmux has not named them, and lists none", async () => {
+  const { container } = await render({ held: 100, needYou: 0, seq: 1 }, async () => ({
+    threads: LISTING.threads.map(({ surgeHeld: _, ...rest }) => rest),
+  }));
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(threadIds(container)).toEqual([]);
+  expect(container.querySelector('.acpmux-surge-note[data-empty="unmarked"]')).not.toBeNull();
 });

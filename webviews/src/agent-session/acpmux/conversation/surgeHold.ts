@@ -87,16 +87,17 @@ const senderOf = (value: unknown): SenderRef | undefined => {
   return session || label ? { ...(session && { session }), ...(label && { label }) } : undefined;
 };
 
-/// The listing's reply as the threads the panel lists: a listing that marks held threads
-/// (`surgeHeld` or `held` on a thread) lists only those; one that marks none lists every thread.
-/// The ones that need the person first, then the newest.
+/// The listing's reply as the threads the panel lists: only the threads acpmux marks held
+/// (`surgeHeld` or `held` on a thread). A listing that marks none lists none: the chat's whole inbox
+/// is not what the row counts (2026-11-22: a chat's 3,488 inbox threads, none marked, listed under
+/// "100 held"), and the panel says acpmux did not name them (`surge.noneMarked`). The ones that need the person first,
+/// then the newest.
 export function heldThreads(reply: unknown): HeldThread[] {
   const listed = (reply as { threads?: unknown } | null)?.threads;
   if (!Array.isArray(listed)) return [];
   const rows = listed.filter((row): row is ListedThread => Boolean(row) && typeof row === "object");
-  const marks = rows.some((row) => row.surgeHeld === true || row.held === true);
   const threads: HeldThread[] = [];
-  for (const row of marks ? rows.filter((r) => r.surgeHeld === true || r.held === true) : rows) {
+  for (const row of rows.filter((r) => r.surgeHeld === true || r.held === true)) {
     const threadId = text(row.threadId);
     if (!threadId) continue;
     const from = Array.isArray(row.from) ? row.from.filter((f): f is string => typeof f === "string" && f !== "") : [];
@@ -135,4 +136,52 @@ export const HELD_PAGE = 20;
 /// The threads drawn, as one notice for the received-messages card.
 export function heldNotice(threads: readonly HeldThread[], shown: number): InboxNotice {
   return { threads: threads.slice(0, Math.max(0, shown)) };
+}
+
+/// Why the held threads could not be listed, read from the request's rejection, so the panel says
+/// what failed and the step that helps, and reads again by itself only where that can work (no failure offers a button):
+/// - `host`: the app hosting the pane refused to pass the request on (not on its relay allowlist,
+///   `transport.method_refused` with `data.origin: "native"`, or another host refusal): acpmux never
+///   saw it, and only a newer cmux helps;
+/// - `daemonOld`: acpmux does not know the method (JSON-RPC -32601): only a newer cmux helps;
+/// - `offline`: the pane is not connected to acpmux (`native.not_connected`): the panel reads again by
+///   itself once it reconnects;
+/// - `daemon`: acpmux answered with an error: its message; it reads again on the next snapshot;
+/// - `other`: anything else (a timeout, the connection dropped mid-read): read again on a backoff (retryDelay).
+export type ListFailure =
+  | { kind: "host" }
+  | { kind: "daemonOld" }
+  | { kind: "offline" }
+  | { kind: "daemon"; why: string }
+  | { kind: "other" };
+
+const HOST_REFUSALS = new Set(["transport.method_refused", "remote.unsupported", "native.unsupported"]);
+
+export function listFailure(error: unknown): ListFailure {
+  const record = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const code = record.code;
+  const data = record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : {};
+  if (code === "native.not_connected") return { kind: "offline" };
+  if (typeof code === "string" && HOST_REFUSALS.has(code)) return { kind: "host" };
+  if (data.origin === "native") return { kind: "host" };
+  if (code === -32601 || code === "-32601") return { kind: "daemonOld" };
+  const why = typeof record.message === "string" ? record.message.trim() : "";
+  if (typeof code === "number" && why) return { kind: "daemon", why };
+  return { kind: "other" };
+}
+
+/// Whether the panel reads again by itself after `failure`: only a transient one (a timeout, a busy
+/// relay) with no answer from acpmux. The host's refusal and an old acpmux need an update; acpmux's own
+/// error says why and reads again on the next snapshot; not connected reads again on reconnect. No
+/// failure offers a button (Leo 2026-11-22: a "useless 'try again.'").
+export const retriesItself = (failure: ListFailure): boolean => failure.kind === "other";
+
+/// The wait before transient retry `n` (0-based): 1, 2, 4, 8 s with up to a quarter more at random,
+/// so panels opened together do not read in step; undefined past the last, when the panel says so
+/// quietly and waits for the next snapshot.
+export const RETRY_TRIES = 4;
+export function retryDelay(n: number, random: () => number = Math.random): number | undefined {
+  if (n < 0 || n >= RETRY_TRIES) return undefined;
+  const base = 1000 * 2 ** n;
+  return Math.round(base * (1 + random() / 4));
 }

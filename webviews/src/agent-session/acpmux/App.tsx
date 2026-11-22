@@ -13019,6 +13019,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             listThreads={listSurgeThreads}
             readThread={readInboxThread}
             onOpenSender={openSenderChat}
+            connected={connected}
           />
         )}
         {!goalAtFoot && goalNode}
