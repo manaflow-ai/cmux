@@ -81,7 +81,6 @@ SCOPED: dict[str, str] = {
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "cmux-next-remote-daemon.yml": "daemon/remote/**",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",

@@ -519,6 +519,47 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("fetch", receipt["phases"])
         self.assertEqual(self.sha(), self.new)
 
+    def test_a_build_the_app_already_has_is_copied_not_downloaded(self):
+        # The app runs SHA's build already (a NIGHTLY of it, an apply whose cache was cleared): its own
+        # bin/ files that hash to the published sha256 seed the cache, and nothing is downloaded.
+        self.cmux.write_bytes(self.new_body)
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"new host")
+        self.publish_companions({"cmux-app-host": b"new host"})
+        tree, built = self.tmp / "tree" / self.key, self.tmp / "commits" / FIX
+        (tree / self.name).unlink()
+        next(built.glob("cmux-tui-app-host-*")).unlink()
+        code, receipt, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        state = self.tmp / "state" / "builds"
+        self.assertEqual((state / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertEqual((state / hashlib.sha256(b"new host").hexdigest() / "cmux-app-host").read_bytes(), b"new host")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["unchanged"], ["rust"])
+
+    def test_an_app_file_of_other_bytes_is_no_seed(self):
+        # bin/cmux is the app's old build: the published one is downloaded, and checked.
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertEqual((self.tmp / "state" / "builds" / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertFalse((self.tmp / "state" / "builds" / self.old).exists())
+
+    def test_a_companion_that_does_not_hash_leaves_nothing_kept(self):
+        # The build's files download at once: one that is not its sha256 fails the run, and no copy of it stays.
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        built = self.tmp / "commits" / FIX
+        next(built.glob("cmux-tui-cloud-server-*")).write_bytes(b"tampered")
+        code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.assertIn("does not hash to", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+        builds = self.tmp / "state" / "builds"
+        self.assertFalse((builds / hashlib.sha256(b"new cloud").hexdigest()).exists() and
+                         any((builds / hashlib.sha256(b"new cloud").hexdigest()).iterdir()))
+        self.assertEqual([p for p in builds.rglob("tmp*")], [])
+
     def test_a_completion_without_this_host_s_binary_is_not_kept(self):
         (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
         code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
@@ -1059,6 +1100,17 @@ class LiveFromWholeApp(unittest.TestCase):
                 self.assertIn(path, out["floor_paths"])
                 self.assertEqual(self.hot.pins_daemon(self.repo, native), [])
 
+    def test_daemon_from_walks_past_the_whole_app_floor(self):
+        # The nightly-live channel swaps only the daemon: an app built before a Swift or web change can still
+        # run the newer daemon, so daemon_from goes on past live_from's floor, to the root commit here (it adds
+        # the project file, so it is the daemon floor itself).
+        native = self.commit("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n")
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        out = self.hot.live_from(self.repo, daemon, 3)
+        self.assertEqual((out["live_from"], out["floor"]), ([daemon, native], native))
+        self.assertEqual(out["daemon_from"], [daemon, native, self.base])
+        self.assertEqual(out["daemon_floor"], self.base)
+
     def test_function_body_and_deleted_swift_also_need_the_full_app(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
         self.commit(path, "func value() -> Int {\n    return 1\n}\n")
@@ -1172,6 +1224,15 @@ class PinCompatibility(unittest.TestCase):
         result = self.hot.live_from(self.repo, removed)
         self.assertEqual(result["live_from"], [removed])
         self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
+    def test_a_repin_floors_daemon_from_too(self):
+        self.pin.unlink()
+        removed = self.commit()
+        (self.repo / "docs.md").write_text("docs\n")
+        docs = self.commit()
+        result = self.hot.live_from(self.repo, docs)
+        self.assertEqual((result["live_from"], result["daemon_from"]), ([docs, removed], [docs, removed]))
+        self.assertEqual(result["daemon_floor_paths"], [self.hot.ffi_part.PIN_FILE])
 
     def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
         self.pin.write_text("not JSON\n")
