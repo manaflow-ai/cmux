@@ -6,11 +6,13 @@
 // - the leaving words and the arriving row are never drawn at once (the call's name twice; the roll
 //   before this, `?liveSwap=roll`, drew it 8 frames), nor cross its words' box;
 // - nothing on the live line moves more than 0.6 line in one frame (turn-transition-jumps.test.ts's
-//   LINE_PX), and the hand-over rests within 200 ms.
+//   LINE_PX), and the hand-over rests by the frame the roll ends (MOTION_ROLL_MS, Claude desktop's
+//   200 ms; Leo, 2026-11-22: "ours is too jarring/jagged compared to claude right now").
 // CMUX_SWAP_LOOK=roll runs it on another look (the roll fails the first bound: red before green).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium } from "playwright";
+import { MOTION_ROLL_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import {
@@ -81,7 +83,8 @@ await requireBrowserLane("thinking-tool-swap-frames.test.ts", async () => {
       }
       expect({ twice, overlap }).toEqual({ twice: [], overlap: 0 });
       expect(moved).toBeLessThanOrEqual(MAX_FRAME_PX);
-      expect(rest).toBeLessThanOrEqual(200);
+      // The roll starts two frames after the call lands (the commit, then its first frame); its last frame is the slot that holds its end.
+      expect(rest).toBeLessThanOrEqual((Math.ceil(MOTION_ROLL_MS / FRAME_MS) + 2) * FRAME_MS + 0.001);
     } finally {
       await browser.close();
     }

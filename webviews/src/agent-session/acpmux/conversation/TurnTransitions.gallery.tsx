@@ -30,7 +30,7 @@ import {
 } from "./scriptedTurn";
 import type { TailGlideLook } from "./tailGlide";
 import { turnView } from "./turns";
-import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { MOTION_MS, MOTION_ROLL_MS, MOTION_ROLL_TRAVEL, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const expanded = new Set<string>();
 
@@ -49,7 +49,17 @@ const LABEL: Record<GalleryTurn, string> = {
 };
 
 /// How the live line hands its words to an arriving call (conversation.css `data-live-swap`).
-type LiveSwapLook = "shipped" | "before" | "wait" | "exit" | "quick" | "cross" | "slide";
+type LiveSwapLook =
+  | "shipped"
+  | "opaque"
+  | "claude"
+  | "brisk"
+  | "before"
+  | "wait"
+  | "exit"
+  | "quick"
+  | "cross"
+  | "slide";
 
 function TurnTransitionsGallery({ turn, look, swap }: { turn: GalleryTurn; look: TailGlideLook; swap?: LiveSwapLook }) {
   const [view, setView] = useState<Required<ScriptedView>>(() => ({
@@ -120,10 +130,23 @@ const TURNS: TransitionTurn[] = ["text-tool", "burst-thought", "tool-group", "st
 const ARRIVALS: ArrivalTurn[] = ["arrive-thinking", "arrive-tool", "arrive-group", "arrive-subagent"];
 const LOOKS: TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 const ARRIVAL_LOOKS: TailGlideLook[] = ["arrive", "quick", "glide"];
-const SWAP_LOOKS: LiveSwapLook[] = ["shipped", "before", "wait", "exit", "quick", "cross", "slide"];
+const SWAP_LOOKS: LiveSwapLook[] = [
+  "shipped",
+  "opaque",
+  "claude",
+  "brisk",
+  "before",
+  "wait",
+  "exit",
+  "quick",
+  "cross",
+  "slide",
+];
 const SWAP_NOTE: Record<LiveSwapLook, string> = {
-  shipped:
-    "Shipped: the live line rolls its words (the call) out and the next in, never a blank line; the call's row fades in on the exit lead once the roll is over, so its name is drawn once.",
+  shipped: `Shipped: Claude desktop's time and curve (Leo, 2026-11-22: "ours is too jarring/jagged compared to claude"). Over ${MOTION_ROLL_MS} ms the old words rise out as the new rise in, the two tiling the line across ${MOTION_ROLL_TRAVEL}% of it, so every frame shows one line of words; the old go once a tenth of them is left, before the call's row fades in.`,
+  opaque: `Before: both texts opaque, a whole line of travel, on the arrival step (${MOTION_MS.quick} ms): mid-change the two read over each other a few pixels apart, for the two or three frames a busy pane draws.`,
+  claude: `Claude desktop's roll as it ships there: 70% of the line, both texts fading across ${MOTION_ROLL_MS} ms, so mid-change both are faint (the blank tear of Leo's 2026-11-11 ask) and the call's name is still faintly on the line when its row lands.`,
+  brisk: `The shipped roll on the entry step (${MOTION_MS.micro} ms): calmer than the old roll, quicker than Claude's.`,
   wait: "The roll, then the call's row fading in on the full arrival step: drawn once, but at rest 50 ms later.",
   before:
     "Before: the call's row fades in a line over the roll while the call's name rolls out at full ink, drawn twice for 8 frames.",

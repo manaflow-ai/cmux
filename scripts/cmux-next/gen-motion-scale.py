@@ -70,6 +70,19 @@ def load():
     send = data["send"]
     assert set(send) == {"ms", "ease", "for"} and isinstance(send["ms"], int), send
     assert len(send["ease"]) == 4 and 0 <= send["ease"][0] <= 1 and 0 <= send["ease"][2] <= 1, send
+    # The sent prompt's pop: a transform alone, so it runs on the compositor. It overshoots on purpose
+    # (Leo 2026-11-22: "it does a little pop and settle"), so its curve's y may pass 1; nothing waits
+    # on it (the prompt is in place and readable from its first frame), so it may outlast the ceiling.
+    pop = data["sendPop"]
+    assert set(pop) == {"ms", "ease", "scale", "rise", "for"} and isinstance(pop["ms"], int) and 0 < pop["ms"] <= 600, pop
+    assert len(pop["ease"]) == 4 and 0 <= pop["ease"][0] <= 1 and 0 <= pop["ease"][2] <= 1, pop
+    assert 0.8 <= pop["scale"] < 1 and 0 <= pop["rise"] <= 16, pop
+    roll = data["roll"]
+    assert set(roll) == {"ms", "ease", "travel", "for"}, roll
+    # A word change is a small move: within the scale's ceiling, never past its end, rising less than a line.
+    assert isinstance(roll["ms"], int) and 0 < roll["ms"] <= data["steps"][-1]["ms"], roll
+    assert len(roll["ease"]) == 4 and all(0 <= value <= 1 for value in roll["ease"]), roll
+    assert isinstance(roll["travel"], int) and 0 < roll["travel"] <= 100, roll
     return data
 
 
@@ -95,6 +108,14 @@ def css_block(data):
     lines.append("  /* A sent prompt's one motion: its room, its bubble and the thread's rise. */")
     lines.append("  --cmux-motion-send: %sms;" % data["send"]["ms"])
     lines.append("  --cmux-ease-send: %s;" % bezier(data, data["send"]["ease"]))
+    pop = data["sendPop"]
+    lines.append("  /* A sent prompt's pop: past its size and back (its start: conversation.css cv-send-pop). */")
+    lines.append("  --cmux-motion-send-pop: %sms;" % pop["ms"])
+    lines.append("  --cmux-ease-send-pop: %s;" % bezier(data, pop["ease"]))
+    lines.append("  /* A line whose words change in place: the old rise out as the new rise in, over --cmux-roll-travel of the line. */")
+    lines.append("  --cmux-motion-roll: %sms;" % data["roll"]["ms"])
+    lines.append("  --cmux-ease-roll: %s;" % bezier(data, data["roll"]["ease"]))
+    lines.append("  --cmux-roll-travel: %s%%;" % data["roll"]["travel"])
     settle_ms = data["settle"]["ms"]
     lines.append("  /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */")
     lines.append("  --cmux-motion-settle: %sms;" % settle_ms)
@@ -149,6 +170,17 @@ export const MOTION_EASE_SEND = "{send_ease}";
 export const MOTION_SEND_CURVE = [{send_points}] as const;
 
 /**
+ * A sent prompt's pop (ms, `--cmux-motion-send-pop`): {pop_for}.
+ */
+export const MOTION_SEND_POP_MS = {pop_ms};
+
+/** The pop's curve (`--cmux-ease-send-pop`): it passes its end and settles back. */
+export const MOTION_EASE_SEND_POP = "{pop_ease}";
+
+/** The scale and the rise (px) the pop starts from (conversation.css `cv-send-pop`'s first keyframe). */
+export const MOTION_SEND_POP_FROM = {{ scale: {pop_scale}, rise: {pop_rise} }} as const;
+
+/**
  * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): {settle_for}.
  */
 export const MOTION_SETTLE = "{settle}";
@@ -156,9 +188,23 @@ export const MOTION_SETTLE = "{settle}";
 /** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
 export const MOTION_SETTLE_MS = {settle_ms};
 
+/**
+ * A line whose words change in place (ms, `--cmux-motion-roll`): {roll_for}.
+ */
+export const MOTION_ROLL_MS = {roll_ms};
+
+/** The roll's curve (`--cmux-ease-roll`). */
+export const MOTION_EASE_ROLL = "{roll_ease}";
+
+/** How far the roll rises, in percent of the line's height (`--cmux-roll-travel`). */
+export const MOTION_ROLL_TRAVEL = {roll_travel};
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = {spinner};
-""".format(send_for=data["send"]["for"], send_ms=data["send"]["ms"], send_ease=bezier(data, data["send"]["ease"]),
+""".format(roll_for=data["roll"]["for"], roll_ms=data["roll"]["ms"], roll_ease=bezier(data, data["roll"]["ease"]),
+           roll_travel=data["roll"]["travel"], pop_for=data["sendPop"]["for"], pop_ms=data["sendPop"]["ms"],
+           pop_ease=bezier(data, data["sendPop"]["ease"]), pop_scale="%g" % data["sendPop"]["scale"],
+           pop_rise="%g" % data["sendPop"]["rise"], send_for=data["send"]["for"], send_ms=data["send"]["ms"], send_ease=bezier(data, data["send"]["ease"]),
            send_points=", ".join("%g" % value for value in data["send"]["ease"]),
            src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
            spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"],
@@ -216,7 +262,7 @@ AGENT_CHAT_SPINNER = re.compile(r"(--cmux-spinner-period: )(\d+)(ms; /\* GENERAT
 # itself a var() or a template expression is not a copy. --cmux-ease-spring keeps its own fallback (a
 # cubic-bezier for engines with no linear()); a line marked `motion-allow: <reason>` keeps its literal.
 FALLBACK = re.compile(
-    r"var\(\s*--cmux-(motion-(?:quick|micro|standard|large|settle|send)|ease-(?:out|settle|send)|spinner-period)"
+    r"var\(\s*--cmux-(motion-(?:quick|micro|standard|large|settle|send-pop|send|roll)|ease-(?:out|settle|send-pop|send|roll)|roll-travel|spinner-period)"
     r"\s*,(?!\s*var\()\s*([^()$`]*?(?:\([^()]*\))?)\s*\)")
 FALLBACK_SKIP = re.compile(r"\.generated\.ts$")
 ALLOW = re.compile(r"motion(?::\s*allow|-allow:)\s*\S")
@@ -226,10 +272,15 @@ def fallback_values(data):
     values = {"motion-%s" % step["name"]: "%sms" % step["ms"] for step in data["steps"]}
     values["motion-settle"] = "%sms" % data["settle"]["ms"]
     values["motion-send"] = "%sms" % data["send"]["ms"]
+    values["motion-roll"] = "%sms" % data["roll"]["ms"]
+    values["ease-roll"] = bezier(data, data["roll"]["ease"])
+    values["roll-travel"] = "%s%%" % data["roll"]["travel"]
     values["spinner-period"] = "%sms" % data["spinner"]["ms"]
     values["ease-out"] = bezier(data)
     values["ease-settle"] = bezier(data, data["settle"]["bezier"])
     values["ease-send"] = bezier(data, data["send"]["ease"])
+    values["motion-send-pop"] = "%sms" % data["sendPop"]["ms"]
+    values["ease-send-pop"] = bezier(data, data["sendPop"]["ease"])
     return values
 
 

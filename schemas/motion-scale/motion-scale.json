@@ -15,6 +15,19 @@
     "ease": [0.16, 1, 0.3, 1],
     "for": "a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: \"that slow settle animation is just so bad. Like, just do it.\"); 0 at every ui.animationSpeed"
   },
+  "sendPop": {
+    "ms": 450,
+    "ease": [0.34, 1.3, 0.64, 1],
+    "scale": 0.92,
+    "rise": 6,
+    "for": "a prompt the reader sends pops in where it already sits: from 92% of its size and 6px low, anchored at its trailing edge, it passes its size by about 0.25% at 300 ms and settles back (Leo 2026-11-22: \"it does a little pop and settle\"; \"so much NICER FEELING than just a jarring instant send\"). Claude's desktop app's own user-message entrance (`cds-um-enter`: 450 ms, cubic-bezier(.34, 1.3, .64, 1), scale(.92) translateY(6px), transform-origin at the trailing edge). Transform only, so the compositor plays it; its room, the thread and the thinking row still land at once (send). Scaled by ui.animationSpeed, 0 with motion off; Reduce Motion draws the prompt in place. It overshoots and outlasts the large step on Leo's word; nothing waits on it"
+  },
+  "roll": {
+    "ms": 200,
+    "ease": [0.165, 0.84, 0.44, 1],
+    "travel": 100,
+    "for": "a line whose words change in place (the running turn's live line: Thinking, a call, Writing, back to Thinking): the old words rise out as the new rise in from below, the two tiling the line (a whole line of travel, so every frame shows a line of words, Leo 2026-11-11: \"brief moments where it just looks like a blank tear\"), and what follows the words moves with them on the same curve. Claude desktop's own values, read from its app bundle (cds-pill-roll-in-up / cds-pill-roll-out over --cds-dur-base 0.2s and --cds-ease-out cubic-bezier(.165, .84, .44, 1), there translateY 70% with both texts fading, which draws that faint middle; Leo 2026-11-22: \"likewise the thinking and how it switches between things i think we ought to be able to get better too. the switching to and from things... i think ours is too jarring/jagged compared to claude right now\"). travel is the rise as a percent of the line's height"
+  },
   "easeOut": [0, 0, 0.58, 1],
   "spring": {
     "step": "large",

@@ -98,9 +98,9 @@ describe("motion scale", () => {
     expect(finds("a.tsx", 'const c = "transition-opacity duration-150 data-scrolling:duration-0";')).toEqual([1]);
     expect(finds("a.tsx", 'const c = "transition-[height] duration-220";')).toEqual([1]);
     expect(finds("a.ts", "export const MONACO = `\n.x {\n  transition: opacity 0.4s;\n}\n`;")).toEqual([3]);
-    expect(finds("a.tsx", "export const THOUGHT_FOLD_MS = 200;")).toEqual([1]);
+    expect(finds("a.tsx", "export const THOUGHT_FOLD_MS = 210;")).toEqual([1]);
     expect(finds("a.tsx", "export const FADE_MS = 160;")).toEqual([1]);
-    expect(finds("a.ts", "const SHIFT_MS = 200;\nel.animate(frames, { duration: SHIFT_MS });")).toEqual([1, 2]);
+    expect(finds("a.ts", "const SHIFT_MS = 210;\nel.animate(frames, { duration: SHIFT_MS });")).toEqual([1, 2]);
     expect(finds("a.ts", "el.animate(frames, { duration: 250, easing: 'ease-out' });")).toEqual([1]);
     expect(finds("a.tsx", 'const style = { transition: "opacity 150ms ease" };')).toEqual([1]);
   });

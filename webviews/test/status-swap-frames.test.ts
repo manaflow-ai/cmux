@@ -13,7 +13,11 @@
 //   cross-fade's middle, both texts faded, does not: that is the blank tear);
 // - overlap: two readable texts drawn over the same pixels (more than 2px of y);
 // - the line's box keeps its height;
-// - the change ends within the motion scale's micro step plus a frame's slack.
+// - the change has come to rest within the motion scale's micro step plus a frame's slack: nothing on
+//   the line is more than 1px from where it rests or part way through a fade. The live line's roll
+//   runs Claude desktop's 200 ms on its curve (MOTION_EASE_ROLL; Leo, 2026-11-22: "i think ours is too
+//   jarring/jagged compared to claude right now"), whose last 80 ms move it under a pixel; the hat's
+//   change ends there outright.
 //
 // Real gallery frames in Chromium and WebKit from Playwright; CI fails the file when it cannot launch
 // (requireBrowserLane).
@@ -177,13 +181,30 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
           }
         };
         /// Text changes only: the finite cadenced shimmer sweeps do not move the words.
+        /// Still visibly moving: more than 1px from where it rests, or part way through a fade.
+        const away = (element: Element) => {
+          if (!(element instanceof HTMLElement)) return true;
+          const style = getComputedStyle(element);
+          const opacity = Number(style.opacity);
+          if (opacity > 0.02 && opacity < 0.98) return true;
+          if (opacity <= 0.02) return false;
+          const [x = "0", y = "0"] = style.translate === "none" ? [] : style.translate.split(" ");
+          const px = (value: string, size: number) =>
+            value.endsWith("%") ? (Number.parseFloat(value) * size) / 100 : Number.parseFloat(value) || 0;
+          const matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform);
+          return (
+            Math.abs(px(x, element.offsetWidth) + matrix.m41) > 1 ||
+            Math.abs(px(y, element.offsetHeight) + matrix.m42) > 1
+          );
+        };
         const playing = (which: "hat" | "line") => {
           const { outer } = parts(which);
           return (outer?.getAnimations({ subtree: true }) ?? []).filter((animation) => {
             if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity)
               return false;
-            const name = (animation as CSSAnimation).animationName;
             const target = (animation.effect as KeyframeEffect | null)?.target;
+            if (which === "line" && target && !away(target)) return false;
+            const name = (animation as CSSAnimation).animationName;
             if (
               name === "cmux-cadenced-shimmer-band" &&
               target instanceof Element &&
@@ -251,7 +272,7 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
             Math.max(...line.heights) - Math.min(...line.heights),
             `${which}: heights ${line.heights.join(", ")}`,
           ).toBeLessThanOrEqual(0.5);
-          // Each change ends within the micro step plus two frames of slack, at rest.
+          // Each change comes to rest within the micro step plus two frames of slack, at rest.
           if (!lagging)
             for (const ms of line.swapMs) expect(ms, `${which}: change took ${ms}ms`).toBeLessThanOrEqual(160);
         }

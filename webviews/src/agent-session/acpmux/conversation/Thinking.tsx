@@ -36,6 +36,7 @@ import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { WorkingCountsContext, workingParts } from "./workingForModel";
 import { motionAllowed } from "../subagents/trayMotionModel";
+import { MOTION_EASE_ROLL, MOTION_ROLL_MS } from "../../../motion/scale.generated";
 import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
@@ -148,7 +149,7 @@ type Roll = {
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
 /// changing tool calls at the bottom"): the old words roll up and out of the line as the new roll in
-/// from below, both opaque and clipped to the line (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
+/// from below, each fading as it travels, clipped to the line (conversation.css `cv-roll-*`, Claude desktop's roll). `key` names what the line says; the playful verb's
 /// own rotation keeps one key, so only a new call or state rolls. Undefined (the line waits on the
 /// person, retries or shows a start look) rolls nothing, and neither do the first words after it.
 ///
@@ -331,9 +332,10 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
       const from = before.lefts[index];
       const dx = from === undefined ? 0 : from - lefts[index]!;
       if (Math.abs(dx) < 0.5) return;
+      // On the roll's clock and curve, so a count lands with the words it follows.
       count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
-        duration: arriveMs(node),
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
+        duration: rollMs(node),
+        easing: MOTION_EASE_ROLL,
       });
     });
   });
@@ -351,15 +353,15 @@ function countsMove(node: Element): boolean {
   );
 }
 
-/// The arrival step (`--agent-motion-arrive`), in ms.
-function arriveMs(node: Element): number {
-  const value = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-arrive").trim();
+/// The roll (`--agent-motion-roll`), in ms: the host's speed and the minimal motion included.
+function rollMs(node: Element): number {
+  const value = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-roll").trim();
   const ms = value?.endsWith("ms")
     ? Number.parseFloat(value)
     : value?.endsWith("s")
       ? Number.parseFloat(value) * 1000
       : NaN;
-  return Number.isFinite(ms) ? ms : 120;
+  return Number.isFinite(ms) ? ms : MOTION_ROLL_MS;
 }
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the

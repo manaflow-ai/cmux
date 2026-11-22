@@ -38,12 +38,34 @@ export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";
 export const MOTION_SEND_CURVE = [0.16, 1, 0.3, 1] as const;
 
 /**
+ * A sent prompt's pop (ms, `--cmux-motion-send-pop`): a prompt the reader sends pops in where it already sits: from 92% of its size and 6px low, anchored at its trailing edge, it passes its size by about 0.25% at 300 ms and settles back (Leo 2026-11-22: "it does a little pop and settle"; "so much NICER FEELING than just a jarring instant send"). Claude's desktop app's own user-message entrance (`cds-um-enter`: 450 ms, cubic-bezier(.34, 1.3, .64, 1), scale(.92) translateY(6px), transform-origin at the trailing edge). Transform only, so the compositor plays it; its room, the thread and the thinking row still land at once (send). Scaled by ui.animationSpeed, 0 with motion off; Reduce Motion draws the prompt in place. It overshoots and outlasts the large step on Leo's word; nothing waits on it.
+ */
+export const MOTION_SEND_POP_MS = 450;
+
+/** The pop's curve (`--cmux-ease-send-pop`): it passes its end and settles back. */
+export const MOTION_EASE_SEND_POP = "cubic-bezier(0.34, 1.3, 0.64, 1)";
+
+/** The scale and the rise (px) the pop starts from (conversation.css `cv-send-pop`'s first keyframe). */
+export const MOTION_SEND_POP_FROM = { scale: 0.92, rise: 6 } as const;
+
+/**
  * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): a fold, a Show more or a panel that grows or shrinks to its new height: a strong ease-out that starts at full speed and decelerates into its end on a long soft tail, never past it (Leo 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key"). Measured on the reference panel's folds (split-motion-sweep, 4 events): a first-order exponential, 1 - e^(-t/38 ms), about 53% of the way in the first frame and within 0.5 pt of rest by about 225 ms, fold and unfold alike; this cubic-bezier over 265 ms was within 1.1% of it at every point. It runs the standard step's 180 ms instead, the same curve compressed, so a fold is at rest 85 ms sooner (Leo 2026-11-09: "there's some sort of 'settling' and like ok maybe but the animations end to end need to just resolve faster"); no house move outlasts the large step. The exact curve as linear(0, .393, .632, .778, .866, .920, .952, .972, .984, .991, .996, .998, 1) over 230 ms is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no linear() easing. Native: the same CAMediaTimingFunction(0.16, 1, 0.3, 1) over 0.18 s, or, where a spring must take an interruption, an overdamped one with mass 1, stiffness 45100 and damping 1216.
  */
 export const MOTION_SETTLE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 /** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
 export const MOTION_SETTLE_MS = 180;
+
+/**
+ * A line whose words change in place (ms, `--cmux-motion-roll`): a line whose words change in place (the running turn's live line: Thinking, a call, Writing, back to Thinking): the old words rise out as the new rise in from below, the two tiling the line (a whole line of travel, so every frame shows a line of words, Leo 2026-11-11: "brief moments where it just looks like a blank tear"), and what follows the words moves with them on the same curve. Claude desktop's own values, read from its app bundle (cds-pill-roll-in-up / cds-pill-roll-out over --cds-dur-base 0.2s and --cds-ease-out cubic-bezier(.165, .84, .44, 1), there translateY 70% with both texts fading, which draws that faint middle; Leo 2026-11-22: "likewise the thinking and how it switches between things i think we ought to be able to get better too. the switching to and from things... i think ours is too jarring/jagged compared to claude right now"). travel is the rise as a percent of the line's height.
+ */
+export const MOTION_ROLL_MS = 200;
+
+/** The roll's curve (`--cmux-ease-roll`). */
+export const MOTION_EASE_ROLL = "cubic-bezier(0.165, 0.84, 0.44, 1)";
+
+/** How far the roll rises, in percent of the line's height (`--cmux-roll-travel`). */
+export const MOTION_ROLL_TRAVEL = 100;
 
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;
