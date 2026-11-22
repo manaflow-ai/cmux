@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 669,
+  "count": 672,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerLook",
+          "title": "Composer Look",
+          "help": "Where the mode, model and effort sit: under the box or inside it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Agent Chat",
+          "values": [
+            "auto",
+            "studio"
           ]
         },
         {
@@ -92,6 +104,18 @@
             "always",
             "collapsed",
             "never"
+          ]
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "title": "Empty Chat Message Box",
+          "help": "Where the message box sits in a chat with no messages yet.",
+          "kind": "choice",
+          "default": "bottom",
+          "group": "Agent Chat",
+          "values": [
+            "bottom",
+            "center"
           ]
         },
         {
@@ -2344,6 +2368,20 @@
             "max": 4000,
             "unit": "milliseconds"
           }
+        },
+        {
+          "key": "agentPane.display.transcriptLook",
+          "title": "Transcript Look",
+          "help": "How messages, cards and spacing look.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
         },
         {
           "key": "agentPane.display.transcriptView",
@@ -5907,7 +5945,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
