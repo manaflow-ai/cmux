@@ -8,6 +8,7 @@
     "feedMirror": ["feedMirrorDescriptors", null],
     "attention": ["attentionDescriptors", "AttentionSettings"],
     "mutedWorkspaces": ["mutedWorkspacesDescriptors", "NotificationPreferences"],
-    "sounds": ["soundDescriptors", "NotificationSoundPreferences"]
+    "sounds": ["soundDescriptors", "NotificationSoundPreferences"],
+    "delivery": ["deliveryDescriptors", "NotificationPreferences"]
   }
 }

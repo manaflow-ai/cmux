@@ -52,7 +52,7 @@ mod carrier;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod clipboard;
 mod clock;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
 pub mod computer_use_worker;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod connect;
@@ -138,7 +138,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// cmux Computer Use's screenshots through ScreenCaptureKit, for the helper's Computer Use worker
 /// mode to hand to the engine's macOS desktop (`src/mac/cu_host.rs`).
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
 pub use mac::cu_host::computer_use_host_services;
 
 /// Runs one `cmux-rd` subcommand (`args[0]`) with its options. Returns the process exit
@@ -251,7 +251,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     };
     // The Computer Use worker the cmux-tui daemon starts on a Mac with no cmux Remote: its stdin
     // and stdout are the daemon's control channel, so nothing else may print there.
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
     }

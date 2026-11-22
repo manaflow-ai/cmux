@@ -31,10 +31,11 @@ pre-push hook judges the push against the INSTALLED copy of this
 baseline, so a refusal there would refuse every push that moves a site.
 
 It runs in the local pre-push gate only (no CI step; written under the
-2026-10-23 no-new-CI rule, since lifted), which refuses a push whose tree has a raw-spawn finding
-the base tree did not have. An error in the guard itself prints a warning
-and passes (fail open): a bug here must not block every push. Its rules are
-tested by scripts/cmux-next/tests/check-no-raw-spawn.test.sh, which
+2026-10-23 no-new-CI rule, since lifted), which refuses a push whose tree
+has a raw-spawn finding the base tree did not have. An error in the guard
+itself prints a warning and passes (fail open): a bug here must not block
+every push. Its rules are tested by
+scripts/cmux-next/tests/check-no-raw-spawn.test.sh, which
 tests/test_cmux_next_prepush_gate.py runs.
 
 Usage: scripts/cmux-next/check-no-raw-spawn.py [repo-root] [--list]

@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextDevices
+@testable import CmuxNextDevices
+import CryptoKit
 @testable import CmuxNextDesign
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
@@ -87,13 +88,15 @@ struct AAMacScreenViewerGalleryTests {
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
         scope.root(root)
-        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
+        // This Mac's own hub link is up: a failed state then shows its own cause (an asleep host, a link error), not
+        // "This Mac lost its connection to the device hub", which every failed state showed with no hub at all.
+        let hub = await connectedHub()
+        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { hub }
+        #expect(viewer.hubConnected)
         viewer.phase = .streaming(sessionID: "gallery-session", scope: state.scope)
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
         defer { pane.close() }
-        pane.model.viewerLook = look
         pane.model.hasFrame = state.hasFrame
-        pane.model.capturesKeyboard = state.capturesKeyboard
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
                                        frameSize: state.hasFrame ? remotePixels : .zero)
         pane.view.frame = root.bounds
@@ -102,6 +105,10 @@ struct AAMacScreenViewerGalleryTests {
         window.orderFrontRegardless()
         // The toolbar and the card follow the models through Observation (main-actor tasks): let them run.
         for _ in 0 ..< 100 { await Task.yield() }
+        // The keyboard state goes in after those tasks: each syncs the input gate, which puts back the fixture's
+        // released keyboard (`capturesKeyboard` false). Nothing syncs it again, so the control states keep their marks.
+        pane.model.capturesKeyboard = state.capturesKeyboard
+        for _ in 0 ..< 20 { await Task.yield() }
         pane.view.needsLayout = true
         pane.view.layoutSubtreeIfNeeded()
         if state.hasFrame {
@@ -119,6 +126,8 @@ struct AAMacScreenViewerGalleryTests {
         pane.view.chrome.statusStrip?.body.resolveColors()
         for _ in 0 ..< 20 { await Task.yield() }
         pane.view.layoutSubtreeIfNeeded()
+        // The picture shows the state named: a control state with its controlling marks, the rest without.
+        try #require(pane.model.capturesKeyboard == state.capturesKeyboard, "\(look.rawValue)-\(state.name): capturesKeyboard")
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
@@ -126,6 +135,29 @@ struct AAMacScreenViewerGalleryTests {
         let image = try #require(rep.cgImage)
         window.close()
         return image
+    }
+
+    /// A hub whose socket says connected (no network: its account token never resolves, so its reads fail at once).
+    static func connectedHub() async -> DeviceHub {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: GalleryKeys())
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { throw CancellationError() })
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Gallery Mac")
+        await hub.handle(.state(.connected))
+        return hub
+    }
+
+    nonisolated private struct GalleryKeys: DeviceKeyMaterial {
+        let signing = P256.Signing.PrivateKey()
+        let agreement = P256.KeyAgreement.PrivateKey()
+        var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
+        var agreementPublicKey: P256.KeyAgreement.PublicKey { agreement.publicKey }
+        func signature(for message: Data) throws -> P256.Signing.ECDSASignature { try signing.signature(for: message) }
+        func open(_ ciphertext: Data, encapsulatedKey: Data, info: Data) throws -> Data {
+            var recipient = try HPKE.Recipient(privateKey: agreement, ciphersuite: RelaySealing.ciphersuite, info: info,
+                                               encapsulatedKey: encapsulatedKey)
+            return try recipient.open(ciphertext)
+        }
     }
 
     /// Wide light and dark for every state on one sheet (half size, light left, dark right).
