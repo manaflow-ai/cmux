@@ -98,6 +98,9 @@ MARKER_STEPS = {
 JOB_IF_READS = {
     ("cmux-next.yml", "crash-ends-app"): "a skipped compile is a route that asked for no app build; the compile's own "
                                          "check says so",
+    ("backend-migrations.yml", "gate"): "skipped only when the plan succeeded with no migration change, the one result "
+                                        "that is a pass; a failed or cancelled plan still runs it and fails (main's "
+                                        "copy since #48999)",
 }
 
 
