@@ -2429,6 +2429,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 mod ssh_carry;
+mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub mod peer_auth;
