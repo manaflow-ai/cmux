@@ -142,8 +142,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const acpmux = facts.acpmux ? `ln -sf ${shq(facts.acpmux)} ${DIR}/bin/acpmux` : `printf '#!/bin/sh\\nexec %s acp "$@"\\n' ${shq(facts["cmux-tui"])} > ${DIR}/bin/acpmux && chmod +x ${DIR}/bin/acpmux`;
     await run(`ln -sf ${shq(facts["cmux-tui"])} ${DIR}/bin/cmux-tui && ${acpmux}`);
     const oneRun = async (label: "control" | "proof"): Promise<RunResult> => {
-      const login = `${DIR}/${label}.login.env`;
-      await writeFile(login, Buffer.from(`CLAUDE_CODE_OAUTH_TOKEN=${token}\n`), 0o600);
+      // fs/write's file is not the exec user's (run 45010085517: a 0600 one was unreadable), so it is 0644 in a 0700
+      // directory of the exec user's, as the journey's login copy (cloud-journey.ts); the driver deletes it.
+      const login = `${DIR}/private/${label}.login.env`;
+      await run(`mkdir -p ${DIR}/private && chmod 700 ${DIR}/private`);
+      await writeFile(login, Buffer.from(`CLAUDE_CODE_OAUTH_TOKEN=${token}\n`), 0o644);
       const optIn = label === "proof" ? "--env OPTCHAT_CHIEF_TURN_CREDENTIALS=1" : "";
       const out = `${DIR}/${label}`;
       // In the foreground, inside one exec: a machine with no exec in flight stops on its own (run 45007797355
@@ -169,6 +172,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       let replies: string[] = (res0?.msgs ?? []).map((m: any) => String(m.text));
       if (!replies.length) { try { replies = JSON.parse(r.stdout.split("==CONV==")[1].split("==HOST==")[0].trim() || "[]"); } catch { /* none */ } }
       writeFileSync(path.join(outDir, `${label}.log`), r.stdout);
+      await run(`rm -f ${login}`);
       return { label, exit: done ? "exit 0" : "nonzero or timed out", replies, timeout: res0?.timeout ?? null, why: r.stdout.split("==HOST==")[1]?.trim().slice(-600) ?? "" };
     };
     const control = await oneRun("control");
