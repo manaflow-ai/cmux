@@ -240,6 +240,7 @@ pub(super) async fn handle_notification(
                     m,
                     &mut params,
                     false,
+                    false,
                 )
                 .await
             {
@@ -662,6 +663,7 @@ async fn dispatch_brief(
             method::SESSION_NEW,
             &mut new_params,
             false,
+            false,
         )
         .await?;
     }
@@ -1010,6 +1012,7 @@ pub(super) async fn handle_request(
             m,
             &mut params,
             policy_proved,
+            conn.presented_web_device(),
         )
         .await
         .map_err(|e| challenge(e, &params))?;
@@ -1340,6 +1343,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PERF,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -1496,6 +1500,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(view)
         }
+        super::browser_workspaces::SET => hub.person.browser_workspaces.set(conn, &params),
+        super::browser_workspaces::READ => hub.person.browser_workspaces.read(conn).await,
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
@@ -2542,6 +2548,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The live perf commentator (`perf_watch.rs`): this machine's own clients only. It names
+        // chats and clients, and `on` writes its tail file.
+        method::MUX_PERF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may use the perf watch",
+                ));
+            }
+            crate::perf_watch::handle(&params).await
+        }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
