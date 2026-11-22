@@ -71,9 +71,9 @@ fn the_default_look_fills_nothing() {
 
 #[test]
 fn a_look_fills_only_what_the_person_leaves_unset() {
-    let root = json!({"sidebar": {"look": "studio", "groupBy": "folder", "showTimestamps": false}});
+    let root = json!({"sidebar": {"look": "studio", "groupBy": "none", "showTimestamps": false}});
     let out = filled(&root, schema(), &Domains::default());
-    assert_eq!(at(&out, "sidebar.groupBy"), Some(&json!("folder")), "the person's grouping wins");
+    assert_eq!(at(&out, "sidebar.groupBy"), Some(&json!("none")), "the person's grouping wins");
     assert_eq!(at(&out, "sidebar.showTimestamps"), Some(&json!(false)), "the person's off wins");
     assert_eq!(
         at(&out, "sidebar.detailedStatusIcons"),

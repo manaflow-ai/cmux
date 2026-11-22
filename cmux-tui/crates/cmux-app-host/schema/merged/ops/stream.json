@@ -1,0 +1,10 @@
+{
+  "family": "stream",
+  "ops": {
+    "stream.cancel": {
+      "source": "local",
+      "class": "connection_control",
+      "digest": "a9732571b6a24ac1"
+    }
+  }
+}

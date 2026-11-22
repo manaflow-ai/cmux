@@ -4,7 +4,7 @@
 //! The state is the app's `computer_use.status` (the model behind Computer
 //! Use Setup and `cmux agents doctor`): `{phase, accessibility,
 //! screen_recording, helper}`. Turned off, setup turns it on with
-//! `settings.set computerUse.enabled true` and `confirm: true`: the key is
+//! `settings.set computerUse.mode fullAccess` and `confirm: true`: the key is
 //! the person's, so the app asks them on a native sheet and setup waits for
 //! that one click (the app bounds the sheet; one left unanswered reads as
 //! declined). The undo turns it off the same way. The macOS grants
@@ -28,11 +28,16 @@ use cmux_json::JsonSet as _;
 
 const TASK: &str = "computer_use";
 
-/// The setting that turns Computer Use on, a key only the person sets.
-const SETTING: &str = "computerUse.enabled";
+/// The setting that turns Computer Use on, a key only the person sets. The
+/// retired `computerUse.enabled` is not it: an old app read `enabled: false`
+/// as mode `off`, so writing it turned Computer Use off with nothing shown.
+const SETTING: &str = "computerUse.mode";
+
+/// The mode setup turns on, the setting's default.
+const ON: &str = "fullAccess";
 
 /// The command that turns it back off, on the same sheet.
-const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+const UNDO: &str = "cmux settings set computerUse.mode off --confirm";
 
 /// How long setup waits for the person to answer the app's sheet. The app
 /// bounds the sheet itself; this only keeps a lost reply from hanging setup.
@@ -187,14 +192,14 @@ fn enabled(global: &GlobalArgs) -> bool {
         super::super::app::READ_TIMEOUT,
         None,
     )
-    .is_ok_and(|reply| reply["value"] == Value::Bool(true))
+    .is_ok_and(|reply| reply["value"].as_str().is_some_and(|mode| mode != "off"))
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what
 /// the person must do when it did not turn on.
 fn turn_on(global: &GlobalArgs) -> Result<(), Value> {
     eprintln!("cmux: setup computer-use: waiting for the person to allow Computer Use in cmux");
-    let params = json!({"path": SETTING, "value": true, "confirm": true});
+    let params = json!({"path": SETTING, "value": ON, "confirm": true});
     match super::super::mcp::agent_app(global, "settings.set", params, APPROVAL_TIMEOUT, None) {
         Ok(_) => Ok(()),
         Err(error) if error.pointer("/data/declined") == Some(&Value::Bool(true)) => Err(json!({

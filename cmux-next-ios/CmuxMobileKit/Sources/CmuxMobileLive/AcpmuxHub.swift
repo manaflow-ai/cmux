@@ -2038,7 +2038,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if let detail = result["session"], let session = AcpmuxSession(detail) {
             summary.status = session.summaryStatus
-            if !session.name.isEmpty { summary.name = session.name }
+            if let name = session.shownName { summary.name = name }
         }
         // The replay boundary is the attach reply: its page (and the session state it
         // carries) is history, applied as one change, so the chat opens on the whole

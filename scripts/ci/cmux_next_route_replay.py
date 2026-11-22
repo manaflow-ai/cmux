@@ -78,6 +78,10 @@ SWIFT_COMPILE_TIERS = frozenset(("native", "scheme", "macos"))
 # daemon tier or `full`.
 HOT_ONLY_REASON = "(hot-only: no app build)"
 HOT_ONLY_TIERS = frozenset(("native", "macos", "scheme", "generated", "swift", "fast_tier"))
+# A pull request whose CmuxNext paths are no action or settings export input (the router's
+# NO_GENERATOR_INPUT_REASON) drops the generated tier alone, and `macos` when it was its only Mac tier.
+NO_GENERATOR_INPUT_REASON = "(no generator input)"
+GENERATED_TIERS = frozenset(("generated", "macos"))
 
 
 def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
@@ -91,6 +95,10 @@ def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     if (reason and dropped and dropped <= SWIFT_COMPILE_TIERS and not added
             and old.get("swift_targets", "") == new.get("swift_targets", "")):
         return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {reason}")
+    generated = next((r for r in new_reasons if NO_GENERATOR_INPUT_REASON in r), None)
+    if (generated and "generated" in dropped and dropped <= GENERATED_TIERS and not added
+            and old.get("swift_targets", "") == new.get("swift_targets", "")):
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {generated}")
     hot = next((r for r in new_reasons if HOT_ONLY_REASON in r), None)
     if hot and dropped and dropped <= HOT_ONLY_TIERS and not added and new.get("hot_only") == "true":
         return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {hot}")

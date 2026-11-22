@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_notification_delivery::{AgentEvent, Delivery};
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -227,6 +228,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                 let Some(live) = mux.upgrade() else { return };
                 for entry in queue.take_due(Instant::now()) {
                     let notice = Notice {
+                        event: None,
                         key: format!("cache-ttl-{}-{}", entry.spec.id, entry.target.idle_since),
                         title: format!("{} cache ready", entry.target.name),
                         subtitle: Some(format!(
@@ -324,6 +326,10 @@ impl Mux {
     }
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
+        let delivery = self.agent_notification_delivery(notice.event);
+        if delivery == Delivery::Off {
+            return;
+        }
         // One wait, one notice: a daemon restart mid-wait sees the wait again
         // under a newer sequence, and the tab still holds the first notice.
         // The question it asks tells it from a new wait.
@@ -353,7 +359,8 @@ impl Mux {
         // Hashed: an adopted session's id is the agent's own, of any length.
         let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
         let key = format!("acpmux-{digest:x}");
-        let posted = self.create_durable_notification(
+        // Badge: the unread record and its ring, with no desktop banner.
+        let posted = self.create_durable_notification_with(
             &Actor::Daemon,
             &key,
             notice.title.clone(),
@@ -362,6 +369,7 @@ impl Mux {
             notice.level,
             Some(*surface),
             NotificationSource::Agent,
+            delivery == Delivery::Banner,
         );
         if posted.is_err() {
             self.report_internal_diagnostic("agent chat notification not posted");
@@ -1195,6 +1203,7 @@ struct Chat {
     name: String,
     kind: String,
     indicator: String,
+    waiting_on: Option<AgentEvent>,
     idle_since: Option<u64>,
     unread: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
@@ -1218,6 +1227,7 @@ struct Chat {
 }
 
 struct Notice {
+    event: Option<AgentEvent>,
     /// Unique per chat; the notification's idempotency key.
     key: String,
     title: String,
@@ -1259,6 +1269,11 @@ impl Chat {
             session,
             name,
             kind,
+            waiting_on: match text("waitingOn") {
+                Some("question") => Some(AgentEvent::Question),
+                Some("permission") => Some(AgentEvent::PermissionRequest),
+                _ => None,
+            },
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
@@ -1298,6 +1313,20 @@ impl Chat {
             return None;
         }
         Some(Notice {
+            // The summary can describe another pending question. Classify this
+            // specific request using acpmux's normalized question shape.
+            event: Some(
+                if ask
+                    .pointer("/request/toolCall/_meta/acpmux/question/items")
+                    .is_some_and(Value::is_array)
+                    || ask.pointer("/request/toolCall/_meta/claude/tool").and_then(Value::as_str)
+                        == Some("AskUserQuestion")
+                {
+                    AgentEvent::Question
+                } else {
+                    AgentEvent::PermissionRequest
+                },
+            ),
             key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
             title: format!("{} needs input", self.name),
             subtitle: None,
@@ -1336,6 +1365,7 @@ impl Chat {
             self.notified_turn = Some(turn.clone());
             match status.as_str() {
                 "completed" => notices.push(Notice {
+                    event: Some(AgentEvent::TaskComplete),
                     key: format!("done-{turn}"),
                     title: format!("{name} finished"),
                     subtitle: None,
@@ -1344,6 +1374,7 @@ impl Chat {
                     restated: false,
                 }),
                 "failed" => notices.push(Notice {
+                    event: None,
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
@@ -1360,6 +1391,7 @@ impl Chat {
         let was = before.map_or("", |chat| chat.indicator.as_str());
         if self.indicator == "input" && was != "input" {
             notices.push(Notice {
+                event: self.waiting_on,
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
                 title: format!("{name} needs input"),
@@ -1371,6 +1403,7 @@ impl Chat {
         }
         if self.indicator == "lost" && was != "lost" {
             notices.push(Notice {
+                event: None,
                 key: format!("lost-{}", self.last_seq),
                 title: format!("{name} stopped responding"),
                 subtitle: None,

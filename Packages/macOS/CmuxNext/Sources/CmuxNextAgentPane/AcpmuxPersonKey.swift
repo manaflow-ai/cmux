@@ -31,6 +31,14 @@ nonisolated enum AcpmuxPersonKey {
         var pid: Int32?
         /// The instance a reader that is not a pane re-enrolled already (``claimReenroll(for:pid:)``).
         var reenrolled: Int32?
+        /// The instance that took this key (``EnrollOutcome/delivered``).
+        var delivered: Int32?
+    }
+
+    /// The pid of the daemon on `socketPath` that took this launch's key, nil when none did yet:
+    /// a host may keep that daemon's endpoint for its next handshakes (``AcpmuxPrewarmedEndpoint``).
+    static func delivered(for socketPath: String) -> Int32? {
+        keys.withLock { $0[socketPath]?.delivered }
     }
 
     /// Keys by daemon socket path.
@@ -176,6 +184,7 @@ nonisolated enum AcpmuxPersonKey {
                 _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
                                                     params: ["key": key], executable: environment.executable,
                                                     deadline: .seconds(5))
+                if let pid = status.pid { keys.withLock { $0[environment.socketPath]?.delivered = pid } }
                 return .delivered
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {

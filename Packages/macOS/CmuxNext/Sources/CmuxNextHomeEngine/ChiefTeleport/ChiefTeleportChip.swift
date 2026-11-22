@@ -49,7 +49,6 @@ public final class ChiefTeleportChip: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
         setAccessibilityIdentifier("cmux.home.chief.teleport")
-        setAccessibilityHelp(ChiefTeleportStrings.help)
         show()
         startWatching()
     }
@@ -75,7 +74,8 @@ public final class ChiefTeleportChip: NSView {
         // task-owner: this view (cancelled when it leaves its window; it ends at the first change after
         // the view is released); event-driven (Observation).
         watch = Task { [weak self, model] in
-            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name) }) {
+            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name,
+                                                                      language: DesignSettings.shared.appLanguage, thisMac: ChiefTeleportStrings.thisMac) }) {
                 self?.show()
             }
         }
@@ -122,7 +122,9 @@ public final class ChiefTeleportChip: NSView {
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
         setAccessibilityLabel(ChiefTeleportStrings.label(text))
-        themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
+        // With its words shown it needs no tooltip (a1315's cut 2); a glyph alone is named by it.
+        themedToolTip = style.showsText ? nil : text
+        setAccessibilityHelp(ChiefTeleportStrings.help)
         invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true
@@ -233,4 +235,9 @@ private nonisolated struct ChiefTeleportChipShown: Equatable {
     var location: ChiefLocation
     var phase: ChiefTeleportPhase
     var fork: String?
+    /// `app.language` and the chip's words in it: the chip draws again in a new language, live (the
+    /// words register the strings bundle's language with Observation; the setting, a change before
+    /// the launch warm-up adopted the bundle).
+    var language: String?
+    var thisMac: String
 }

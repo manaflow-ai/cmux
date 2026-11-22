@@ -460,9 +460,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     # another run, so no run cancels another's work.
     build = workflow_job(artifacts, "build")
     # The build job calls a reusable workflow: a shared group let each newer
-    # same-key build cancel the running one (run 38126073200), so it is per run.
-    assert "group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in build
-    assert "cancel-in-progress: false" in build
+    # same-key build cancel the running one (run 38126073200), so it is per run
+    # on every trunk, integration and nightly path. Only a branch push's build
+    # shares its branch's group (BRANCH_BUILD_SUPERSEDED,
+    # test_branch_push_build_cancels_only_its_own_branch_older_build).
+    assert "format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id)" in build
+    assert "BRANCH_BUILD_SUPERSEDED" in build
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
     # tree another run already published shares one group per key, because
@@ -2383,6 +2386,73 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
         return str(eval(python, {"_format": lambda text, *args: text.format(*args)}))  # noqa: S307 - test-only, fixed input
 
     return gh_expressions.EXPRESSION.sub(evaluate, template)
+
+
+def _evaluate_branch_expression(template: str, context: dict[str, object]) -> str:
+    """As _evaluate_concurrency_group, plus !=, ! and startsWith() (the build job's branch rule)."""
+    def lookup(match: re.Match[str]) -> str:
+        value: object = context
+        for part in match.group(0).split("."):
+            value = value.get(part) if isinstance(value, dict) else None
+        return repr(value)
+
+    def evaluate(match: re.Match[str]) -> str:
+        python = match.group(1).replace("needs.tree-preflight.outputs.key", "github.key")
+        python = re.sub(r"\bgithub(?:\.[A-Za-z_]+)+", lookup, python)
+        python = python.replace("&&", " and ").replace("||", " or ")
+        python = re.sub(r"!(?!=)", " not ", python)
+        python = python.replace("startsWith(", "_starts(")
+        python = re.sub(r"format\('([^']*)',", r"_format('\1',", python)
+        return str(eval(python, {"_format": lambda text, *args: text.format(*args),  # noqa: S307 - test-only
+                                 "_starts": lambda text, prefix: str(text).startswith(prefix)}))
+
+    return gh_expressions.EXPRESSION.sub(evaluate, template)
+
+
+def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
+    # BRANCH_BUILD_SUPERSEDED: on 2026-11-13..19 the builds of non-trunk branch
+    # pushes ran 622 min/day after their branch had a newer push. A branch
+    # push's build shares one group per branch with cancel-in-progress; every
+    # trunk, integration, nightly and dispatch build keeps a group per run that
+    # nothing cancels. The R2 writers keep their per-run groups.
+    document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    concurrency = jobs["build"]["concurrency"]
+
+    def render(template: str, event_name: str, ref: str, run_id: str = "7") -> str:
+        return _evaluate_branch_expression(
+            template, {"github": {"event_name": event_name, "ref": ref, "run_id": run_id, "key": "k" * 12,
+                                "repository": "manaflow-ai/cmux"}}
+        )
+
+    for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x"):
+        assert render(concurrency["group"], "push", ref) == f"cmux-tui-build-ref-{ref}", ref
+        assert render(concurrency["group"], "push", ref, "8") == render(concurrency["group"], "push", ref), ref
+        assert render(concurrency["cancel-in-progress"], "push", ref) == "True", ref
+    assert render(concurrency["group"], "push", "refs/heads/fix/a") != render(concurrency["group"], "push", "refs/heads/fix/b")
+    kept = ["refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next",
+            "refs/heads/feat-cmux-next-ios", "refs/heads/next-batch/1", "refs/heads/rc/1.2", "refs/heads/cmux-tui-pin-aa"]
+    for event_name, ref in [("push", ref) for ref in kept] + [("workflow_dispatch", "refs/heads/fix/a")]:
+        assert render(concurrency["group"], event_name, ref) == "cmux-tui-build-" + "k" * 12 + "-7", (event_name, ref)
+        assert render(concurrency["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
+    # The jobs that write R2 never share a group across runs and are never cancelled by one.
+    for name in ("publish-tree", "build-darwin-fallback", "cmux-next-daemon-tests"):
+        assert jobs[name]["concurrency"]["cancel-in-progress"] == "false", name
+    assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
+    assert document["concurrency"]["cancel-in-progress"] == "false"
+    # A build a newer push cancelled plans no macOS fallback once the branch has moved;
+    # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
+    plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
+    assert render(plan["env"]["BRANCH_PUSH"], "push", "refs/heads/fix/a") == "1"
+    for ref in kept:
+        assert render(plan["env"]["BRANCH_PUSH"], "push", ref) == "", ref
+    assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
+    assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
+    assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"
+    # The rule is the push-gate's: the same branches are superseded there and here.
+    gate = jobs["push-gate"]["if"]
+    for ref in kept + ["refs/heads/fix/a"]:
+        assert (render(gate, "push", ref) == "True") == (render(concurrency["cancel-in-progress"], "push", ref) == "True"), ref
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
