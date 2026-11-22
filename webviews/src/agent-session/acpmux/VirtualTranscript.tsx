@@ -6612,8 +6612,14 @@ function TranscriptView({
   };
   const armFrameGuard = () => guard.arm();
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
-    armFrameGuard();
-    pacing.scrolled();
+    // A hidden scroller (no height: a display:none view, cmuxterm-hq goals/memory-per-chat.md cut 2a) paints no
+    // frame, so there is nothing for the guard to commit or the pacer to sample; armed, each kept a frame loop
+    // running for as long as the hidden view's offset events came (60 frames/s a view).
+    const hidden = node.clientHeight === 0;
+    if (!hidden) {
+      armFrameGuard();
+      pacing.scrolled();
+    }
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
     // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
     if (!followingRef.current) tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
@@ -6621,7 +6627,7 @@ function TranscriptView({
     if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
-    if (node.clientHeight === 0) return;
+    if (hidden) return;
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.

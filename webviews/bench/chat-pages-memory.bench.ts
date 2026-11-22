@@ -165,7 +165,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    // NOMINIFY=1: readable names in the idle wakeup sources.
+    build: { outDir: out, emptyOutDir: true, ...(process.env.NOMINIFY === "1" ? { minify: false } : {}) },
     logLevel: "error",
   });
   // CSS=inline: the page's stylesheets as one inline <style>, as the page shipped them before; else linked
