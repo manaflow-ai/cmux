@@ -3,8 +3,9 @@
 //! run, or a named [`Refusal`]. Every (state, event) pair is written out: no arm falls through to a
 //! default, so a new state or event does not compile until each pair is decided.
 //!
-//! Nothing calls this yet. It is the runtime layer the `cmux-lifeline` typestate handles
-//! (cmux#46922) can sit on, and its table ([`table`], committed as
+//! It is the runtime layer under the `cmux-lifeline` typestate handles (`Vm<S, T>`, cmux#46922):
+//! `power/lifeline_tests.rs` checks every handle edge against [`step`], with the edges where the two
+//! still differ named there. Its table ([`table`], committed as
 //! `schemas/cloud-machine-power/table.json`) is what the TypeScript platform's `Power.ts` and the
 //! app's copies of the status (`CloudMachine.swift`, `webviews/src/pages/cloud/model.ts`) can
 //! replay later.
