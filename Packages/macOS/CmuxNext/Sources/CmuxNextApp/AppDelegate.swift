@@ -290,7 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when the user reloads a browser tab.
         services.observeBorders()
         services.observeGlass()
-        firstFrame.whenOpen { [weak services] in services?.followLaunchShellOptIn() } // Labs > Show Window Shell at Launch, for the next launch
+        if let id = services.environment.launch.bundleID { firstFrame.whenOpen { [weak services] in LaunchShellPaths.follow(support: LaunchTimesFile.supportDirectory(bundleID: id)) { [weak services] in services.map { $0.settings?.snapshot.launchShellFirst ?? false } } } } // Labs > Show Window Shell at Launch, for the next launch
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()

@@ -263,6 +263,18 @@ public enum LaunchShellPaths {
         }.value
     }
 
+    /// Keeps the opt-in file matching `isOn` (Labs > Show Window Shell at Launch) for the next launch:
+    /// event-driven, one file write per change; ends when `isOn` gives nil (its owner went).
+    public static func follow(support: URL, isOn: @escaping @MainActor @Sendable () -> Bool?) {
+        // task-owner: ends when isOn gives nil (the app's services went); otherwise lives as long as the app
+        Task {
+            for await on in ObservationStream(isOn) {
+                guard let on else { return }
+                _ = await setOptedIn(on, support: support)
+            }
+        }
+    }
+
     /// The first part of every image key, from the bundle's version and commit: a new build never
     /// draws an old build's image. Only characters a key component allows (cmux-launch-shell `ImageKey`).
     public nonisolated static func build(info: [String: Any]) -> String {
