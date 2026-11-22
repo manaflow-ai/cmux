@@ -117,11 +117,25 @@ pub struct PeerNotices {
     busy_us: AtomicU64,
     max_us: AtomicU64,
     peak_queued: AtomicU64,
+    /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels.
+    kinds: Mutex<std::collections::BTreeMap<String, u64>>,
 }
 
+const KINDS_KEPT: usize = 64;
+
 impl PeerNotices {
-    /// One notice took `us` to apply, with `queued` more behind it.
-    pub fn applied(&self, us: u64, queued: u64) {
+    /// One notice of `label` took `us` to apply, with `queued` more behind it.
+    pub fn applied(&self, label: String, us: u64, queued: u64) {
+        let mut kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner);
+        let full = kinds.len() >= KINDS_KEPT;
+        match kinds.get_mut(&label) {
+            Some(n) => *n += 1,
+            None if !full => {
+                kinds.insert(label, 1);
+            }
+            None => *kinds.entry("other".into()).or_default() += 1,
+        }
+        drop(kinds);
         self.applied.fetch_add(1, Ordering::Relaxed);
         self.busy_us.fetch_add(us, Ordering::Relaxed);
         self.max_us.fetch_max(us, Ordering::Relaxed);
@@ -134,6 +148,7 @@ impl PeerNotices {
             "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
             "maxUs": self.max_us.load(Ordering::Relaxed),
             "peakQueued": self.peak_queued.load(Ordering::Relaxed),
+            "kinds": self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone(),
         })
     }
 }
