@@ -214,33 +214,66 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
   async function open(chat: string, items: readonly Item[], tabRow: boolean): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: WINDOW, height: 640 } });
     await installPaintedFrames(page);
-    // The worktree pill reads the folder's git status from the app (postNative `git.status`).
+    // The app's side (Swift's `agentSession` handler): the handshake names the chat; the worktree pill reads the
+    // folder's git status (postNative `git.status`); a warning chat has a tail the app kept (`chat.tail.get`), drawn
+    // while its attach is out, so the attach's failure fails the open on screen (direct.ts: "failed", the header's
+    // warning, model.ts paneHeader).
     await page.addInitScript(
-      ({ worktree }) => {
+      ({ worktree, endpoint, chat, tail }) => {
+        const posts: string[] = [];
+        (window as unknown as { __posts: string[] }).__posts = posts;
         (window as unknown as { webkit: unknown }).webkit = {
           messageHandlers: {
             agentSession: {
-              postMessage: async ({ method }: { method: string }) => ({
-                ok: true,
-                value:
-                  method === "git.status" && worktree
-                    ? {
-                        branch: "feat/stall-history",
-                        base: "main",
-                        detached: false,
-                        worktree: { main_root: "/home/dev/uploader-main" },
-                      }
-                    : null,
-              }),
+              postMessage: async ({ method }: { method: string }) => {
+                posts.push(method);
+                const value =
+                  method === "ready"
+                    ? { protocolVersion: 1, transport: "acpmux-websocket", endpoint, token: "t", sessionId: chat }
+                    : method === "git.status" && worktree
+                      ? {
+                          branch: "feat/stall-history",
+                          base: "main",
+                          detached: false,
+                          worktree: { main_root: "/home/dev/uploader-main" },
+                        }
+                      : method === "chat.tail.get" && tail
+                        ? tail
+                        : null;
+                return { ok: true, value };
+              },
             },
           },
         };
       },
-      { worktree: items.includes("worktree") },
+      {
+        worktree: items.includes("worktree"),
+        endpoint: `ws://127.0.0.1:${daemon!.port}/`,
+        chat,
+        tail: items.includes("warning")
+          ? { events: eventsFor(chat), summary: sessionFor(chat), historyExhausted: true }
+          : null,
+      },
     );
     await page.goto(url(chat));
-    if (items.includes("warning")) await page.locator(".acpmux-status").first().waitFor({ state: "attached" });
-    else await page.getByText(REPLY).waitFor();
+    try {
+      if (items.includes("warning")) await page.locator(".acpmux-status").first().waitFor({ state: "attached" });
+      else await page.getByText(REPLY).waitFor();
+    } catch (error) {
+      console.log(
+        `chat-header-slots ${comboName(items)}: posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
+      );
+      console.log(
+        (
+          await page
+            .locator(".acpmux-header")
+            .first()
+            .evaluate((node) => node.outerHTML)
+            .catch(() => "no header")
+        ).slice(0, 4000),
+      );
+      throw error;
+    }
     await page.waitForFunction(
       () =>
         Boolean((window as { cmuxAcpmuxBridge?: { applyTabRow?: unknown } }).cmuxAcpmuxBridge?.applyTabRow) &&
@@ -316,7 +349,25 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       items.includes("pullRequest") && ".acpmux-header-pr",
       items.includes("needsYou") && ".acpmux-needs-you-button[data-count]",
     ].filter((selector): selector is string => Boolean(selector));
-    for (const selector of ready) await page.locator(selector).first().waitFor({ state: "attached" });
+    for (const selector of ready)
+      await page
+        .locator(selector)
+        .first()
+        .waitFor({ state: "attached" })
+        .catch(async (error: unknown) => {
+          console.log(
+            `chat-header-slots ${comboName(items)}: no ${selector}; posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
+          );
+          console.log(
+            (
+              await page
+                .locator(".acpmux-header")
+                .first()
+                .evaluate((node) => node.outerHTML)
+            ).slice(0, 4000),
+          );
+          throw error;
+        });
     await settle(page);
     return page;
   }
