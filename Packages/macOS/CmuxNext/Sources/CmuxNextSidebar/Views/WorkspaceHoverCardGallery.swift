@@ -134,14 +134,20 @@ public struct WorkspaceHoverCardGallery {
             SidebarTimelineEntry(kind: kind, date: now.addingTimeInterval(-ago), text: text, agent: "Claude Code")
         }
         let local = SidebarMachine(id: .local, name: "studio", kind: .local)
-        return [(WorkspaceHoverCardOptions.Layout.timeline, "Layout · Timeline (before 2026-11-20)"),
-                (.compact, "Layout · Compact · chosen")].map { layout, name in
+        // Each layout as a hovered row opens it (details folded), then with Show details open: the gallery window
+        // takes no clicks, so a capture can only show the history the Compact layout cuts from an open pair.
+        let pairs: [(WorkspaceHoverCardOptions.Layout, String, Bool)] = [
+            (.timeline, "Layout · Timeline (before 2026-11-20)", false), (.compact, "Layout · Compact · chosen", false),
+            (.timeline, "Layout · Timeline · details open", true), (.compact, "Layout · Compact · details open", true),
+        ]
+        return pairs.map { layout, name, open in
             var options = WorkspaceHoverCardOptions()
             options.layout = layout
             let content = WorkspaceHoverCardContent.make(workspace, machine: local, now: now, options: options, timeline: timeline)
             let card = WorkspaceHoverCardView()
             card.configure(content, now: now)
             card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: local)
+            if open { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
     }
