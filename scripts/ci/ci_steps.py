@@ -14,7 +14,8 @@ lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a
 routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
 setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
-step never turns its job red. `--label NAME` says the event is a label change of NAME;
+step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order.
+`--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run.
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
@@ -73,6 +74,7 @@ class Step:
     title: str = ""
     about: str = ""
     needs: tuple[str, ...] = ()
+    alone: bool = False
 
 
 @dataclass
@@ -143,11 +145,14 @@ def parse(doc: dict) -> Table:
             title=raw.get("title", ""),
             about=raw.get("about", ""),
             needs=tuple(raw.get("needs", ())),
+            alone=raw.get("alone", False),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(step.blocks, bool):
             raise TableError(f"step {name}: `blocks` is true or false")
+        if not isinstance(step.alone, bool):
+            raise TableError(f"step {name}: `alone` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -282,7 +287,9 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                     result = run_step(step, env)
                     print_log(result, out)
                     return result
-                results += pool.map(run_and_print, steps)
+                results += pool.map(run_and_print, [s for s in steps if not s.alone])
+            # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
+            results += [run_and_print(s) for s in steps if s.alone]
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
