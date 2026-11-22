@@ -72,6 +72,9 @@ impl<B: Backend> Server<B> {
         };
         let path = self.chat_path(path);
         let file = std::path::Path::new(&path);
+        // What the file held before this call writes it, so a deck that then fails to open
+        // is put back: the person never saw the replacement. `None`: there was no file.
+        let mut previous: Option<Option<Vec<u8>>> = None;
         match arguments.get("markdown") {
             None => {
                 if !file.is_file() {
@@ -89,6 +92,7 @@ impl<B: Backend> Server<B> {
                 {
                     return invalid(format!("slides cannot make {}: {error}", folder.display()));
                 }
+                previous = Some(std::fs::read(file).ok());
                 // Through a temporary file, so the open tab never reloads a half-written deck.
                 let temporary = file.with_extension("md.cmux-slides-tmp");
                 if let Err(error) = std::fs::write(&temporary, markdown)
@@ -126,6 +130,13 @@ impl<B: Backend> Server<B> {
         open.insert("focus".into(), json!(focus));
         let mut answer = self.open_as(&open, Some(pptx_view::Kind::Markdown));
         let opened = answer.get("isError").and_then(Value::as_bool) != Some(true);
+        if !opened && let Some(before) = previous {
+            // The open failed: the deck is as it was before this call.
+            let _ = match before {
+                Some(bytes) => std::fs::write(file, bytes),
+                None => std::fs::remove_file(file),
+            };
+        }
         if let Some(receipt) = answer.get_mut("structuredContent").and_then(Value::as_object_mut)
             && opened
         {

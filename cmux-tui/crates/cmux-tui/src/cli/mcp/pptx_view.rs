@@ -234,6 +234,11 @@ fn respond(head: &Head, port: u16, served: &Served) -> Response {
     }
 }
 
+/// The one CDN script a deck page may load: the PowerPoint writer its runtime loads on
+/// Export .pptx. A path source matches that file only, so a slide's raw HTML cannot load
+/// any other script from the host.
+const WRITER_URL: &str = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
+
 /// The Markdown deck at `path`, compiled now, under a policy that runs only the deck
 /// runtime (and the PowerPoint writer it loads from the CDN on Export .pptx) and reaches
 /// only this listener.
@@ -246,7 +251,7 @@ fn markdown_page(path: &Path) -> Response {
     let hash = base64::engine::general_purpose::STANDARD
         .encode(Sha256::digest(md_deck::runtime_script().as_bytes()));
     let policy = format!(
-        "default-src 'none'; script-src 'sha256-{hash}' https://cdn.jsdelivr.net; connect-src 'self'; \
+        "default-src 'none'; script-src 'sha256-{hash}' {WRITER_URL}; connect-src 'self'; \
          style-src 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: data:; \
          font-src data:; base-uri 'none'; form-action 'none'"
     );
@@ -316,17 +321,14 @@ fn asset(deck: &Path, relative: &str) -> Response {
 
 /// `%XX` escapes decoded; `None` for a bad escape or text that is not UTF-8.
 fn percent_decode(text: &str) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(at + 1..at + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            at += 3;
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let hex = [bytes.next()?, bytes.next()?];
+            out.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
         } else {
-            out.push(bytes[at]);
-            at += 1;
+            out.push(byte);
         }
     }
     String::from_utf8(out).ok()

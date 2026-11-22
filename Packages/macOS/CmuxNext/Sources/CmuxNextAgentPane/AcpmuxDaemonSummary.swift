@@ -52,7 +52,7 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
 
     /// The row's title.
     public static var title: String {
-        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "cmux daemon", bundle: .module)
+        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "cmux daemon", bundle: .localizedModule)
     }
 
     /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's
@@ -62,15 +62,15 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         switch state {
         case .upToDate:
             return String(format: String(localized: "agentPane.acpmuxDaemon.upToDate", defaultValue: "%@ (up to date)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .restarting:
             return String(format: String(localized: "agentPane.acpmuxDaemon.restarting", defaultValue: "%@ (restarting…)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .otherBuild:
             return String(format: String(localized: "agentPane.acpmuxDaemon.otherBuild", defaultValue: "%@ (not the app's build)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .notRunning:
-            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .module)
+            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .localizedModule)
         }
     }
 

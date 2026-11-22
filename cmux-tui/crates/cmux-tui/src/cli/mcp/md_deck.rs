@@ -4,7 +4,8 @@
 //!
 //! The format is the common Markdown slide format, so a deck an agent already knows how to
 //! write works: optional front matter (`title:`), a `---` line between slides (never inside
-//! a code fence), `<!-- _class: title -->` (or `center`) on a slide for its layout, and any
+//! a code fence), `<!-- _class: title -->` (or `center`) on a slide for its layout,
+//! `<!-- skip -->` on a slide to keep it out of Present and the exports, and any
 //! other HTML comment as the slide's speaker notes. A `Notes:` line also starts the notes.
 //! A slide with nothing but headings is a title slide. Raw HTML (an inline `<svg>` chart, a
 //! `<div class="cols">`) passes through.
@@ -100,7 +101,7 @@ fn front_matter(source: &str) -> (Vec<(String, String)>, &str) {
         offset += line.len();
         let trimmed = line.trim_end();
         if offset > line.len() && (trimmed == "---" || trimmed == "...") {
-            return (meta, &rest[offset..]);
+            return (meta, rest.get(offset..).unwrap_or_default());
         }
         if line.starts_with([' ', '\t']) {
             continue;
@@ -124,7 +125,7 @@ fn split_slides(body: &str) -> Vec<String> {
             Some(open) if trimmed.starts_with(open.as_str()) => fence = None,
             Some(_) => {}
             None if trimmed.starts_with("```") || trimmed.starts_with("~~~") => {
-                fence = Some(trimmed[..3].to_owned());
+                fence = Some(trimmed.get(..3).unwrap_or(trimmed).to_owned());
             }
             None if trimmed == "---" => {
                 slides.push(String::new());
@@ -140,29 +141,31 @@ fn split_slides(body: &str) -> Vec<String> {
     slides
 }
 
-/// One `<section>`: its class directive, its notes, and its Markdown as HTML.
+/// One `<section>`: its class and skip directives, its notes, and its Markdown as HTML.
 fn render_slide(markdown: &str) -> String {
     let mut class = None;
+    let mut skip = false;
     let mut notes = Vec::new();
     let mut body = String::with_capacity(markdown.len());
     let mut rest = markdown;
-    // HTML comments: a class directive or speaker notes, never shown.
-    while let Some(start) = rest.find("<!--") {
-        body.push_str(&rest[..start]);
-        let after = &rest[start + 4..];
-        let Some(end) = after.find("-->") else {
-            body.push_str(&rest[start..]);
+    // HTML comments: a class or skip directive or speaker notes, never shown.
+    while let Some((before, after)) = rest.split_once("<!--") {
+        body.push_str(before);
+        let Some((comment, tail)) = after.split_once("-->") else {
+            body.push_str("<!--");
+            body.push_str(after);
             rest = "";
             break;
         };
-        let comment = after[..end].trim();
+        let comment = comment.trim();
         let directive = comment.strip_prefix("_class:").or_else(|| comment.strip_prefix("class:"));
         match directive {
             Some(value) => class = Some(value.trim().to_owned()),
+            None if comment == "skip" || comment == "_skip: true" => skip = true,
             None if !comment.is_empty() => notes.push(comment.to_owned()),
             None => {}
         }
-        rest = &after[end + 3..];
+        rest = tail;
     }
     body.push_str(rest);
     // `Notes:` on its own line: the rest of the slide is notes.
@@ -187,9 +190,10 @@ fn render_slide(markdown: &str) -> String {
     let (html, only_headings) = markdown_html(&shown);
     let class = class.or_else(|| only_headings.then(|| "title".to_owned()));
     let mut section = match class.as_deref().map(class_attr).filter(|class| !class.is_empty()) {
-        Some(class) => format!("<section class=\"{class}\">\n"),
-        None => "<section>\n".to_owned(),
+        Some(class) => format!("<section class=\"{class}\""),
+        None => "<section".to_owned(),
     };
+    section.push_str(if skip { " data-skip>\n" } else { ">\n" });
     section.push_str(&html);
     if !notes.is_empty() {
         section.push_str("<aside class=\"notes\">");
