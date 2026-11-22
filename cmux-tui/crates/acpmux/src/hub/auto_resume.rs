@@ -760,6 +760,47 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether the chat's continuation is only a rate-limit retry waiting for the reset of a chat
+    /// the limit has, with no turn running: a stop parks or closes such a chat and starts
+    /// nothing (`stop_auto_resume`), so a conditional stop counts it idle (`stop_if_idle.rs`). A
+    /// lane out of usage is not busy (Leo: "lanes dont count if they are idle and out of usage").
+    pub(super) fn only_rate_limit_waits(&self, session: &Session) -> bool {
+        session.rate_hold.limited()
+            && session.turn().is_none()
+            && !session.closing.load(std::sync::atomic::Ordering::SeqCst)
+            && matches!(
+                session.auto_resume.lock().as_ref(),
+                Some(Mark::Waiting { retry: Some(r), .. }) if r.reason == RetryReason::RateLimit
+            )
+    }
+
+    /// Puts a continuation for the cut turn `turn` waiting until `until`, for `reason`. A
+    /// `RateLimit` one also holds the chat, as a Codex chat at its usage cap is held.
+    #[cfg(test)]
+    pub(super) fn wait_to_continue_for_test(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn: &str,
+        until: u64,
+        reason: RetryReason,
+    ) {
+        if reason == RetryReason::RateLimit {
+            self.hold_for_rate_limit(session, turn, until, true);
+        }
+        session.auto_resume.lock().replace(Mark::Waiting {
+            turn: turn.into(),
+            retry: Some(RetrySummary {
+                attempt: 1,
+                of: 4,
+                reason,
+                next_at: until,
+                prompt_id: "p".into(),
+                turn_id: turn.into(),
+            }),
+            _wake: Wake(Arc::new(Notify::new())),
+        });
+    }
+
     /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
     pub(super) fn has_auto_resume_mark(&self, session: &Session) -> bool {
         session.auto_resume.lock().is_some()
