@@ -18,7 +18,7 @@ use super::{GlobalArgs, Outcome, caller, new_call_id, print, with_machine};
 
 /// What `record` was asked to do.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum RecordRequest {
+pub(in crate::cli) enum RecordRequest {
     /// Record for `seconds` and save the file.
     Whole { out: String, seconds: f64, options: Value, machine: Option<String> },
     /// Start one and return.
