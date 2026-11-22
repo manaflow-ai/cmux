@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # The fan-in ramps on a CI Linux runner, from the repo root:
-#   cmux-ci test --setup rust --timeout 7200 --artifact DIR -- bash cmux-tui/crates/coord-sim/src/fanin/ci.sh [RAMPS] [WINDOW_S] [HOSTS]
+#   cmux-ci test --setup rust --timeout 7200 --artifact DIR -- bash cmux-tui/crates/coord-sim/src/fanin/ci.sh [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]
 # Builds the acpmux daemon (release) and coord-sim, runs `coord-sim fanin` (real daemons both sides,
 # one controller, N sessions over HOSTS hosts) and copies the tables and raw samples to
 # $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts, 3 fan-out rounds
-# (FANIN_FANOUT_ROUNDS=0 measures fan-in with no fan-out bursts).
+# (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts).
 set -uo pipefail
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
 HOSTS=${3:-10}
-ROUNDS=${FANIN_FANOUT_ROUNDS:-3}
+ROUNDS=${4:-${FANIN_FANOUT_ROUNDS:-3}}
 ROOT=$(pwd)
 OUT=${FAST_CHECKS_OUT:-/tmp/fanin-out}
 mkdir -p "$OUT"
