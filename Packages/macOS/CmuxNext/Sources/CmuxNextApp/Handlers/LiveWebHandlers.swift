@@ -134,7 +134,7 @@ enum LiveWebHandlers {
 
 enum LiveWebStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "LiveWeb", bundle: .module)
+        String(localized: key, defaultValue: value, table: "LiveWeb", bundle: .module.inAppLanguage)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {

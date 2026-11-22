@@ -77,6 +77,20 @@ impl MediaEngine {
         drop
     }
 
+    /// The host's strict pacer dropped these whole, never-sent frames at its queue
+    /// limit (D2: newest frame wins). They leave the controller and the loss meter, so a
+    /// datagram never sent is not read as loss (which over 5% would cut ultra); nothing
+    /// is asked for, and their frames stay in the NACK history.
+    pub fn forget_unsent(&mut self, dropped: &[Vec<u8>]) {
+        for d in dropped {
+            let Ok((header, _)) = DatagramHeader::decode(d) else { continue };
+            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
+                self.cc.on_dropped(header.transport_seq);
+                self.loss_meter.forget(header.transport_seq);
+            }
+        }
+    }
+
     /// The host dropped `stale` (the datagrams `outage_drop_plan` picked) from its
     /// pacer. They are retired from the controller and the loss meter (a datagram
     /// never sent is not loss) and their frames leave the NACK history. A stream

@@ -11,6 +11,7 @@ import { HOME_LABELS, homeLists } from "./homeListsModel";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { settledShelf } from "./settledChats";
 import { SettledShelf } from "./SettledShelf";
+import { WithFacts } from "./chips/FactsHoverCard";
 /// The lists under a new chat's composer. Each row opens its session. Renders
 /// nothing when neither list has a row, so the home is the hero and composer alone.
 export function HomeLists({
@@ -127,18 +128,16 @@ const HomeRow = memo(function HomeRow({
     <li>
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
-        <span className="acpmux-home-title" title={title ?? session.displayTitle}>
-          {title ?? session.displayTitle}
-        </span>
-        {detail && (
-          <span className="acpmux-home-detail" title={detail}>
-            {detail}
-          </span>
-        )}
+        <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
+        {detail && <span className="acpmux-home-detail">{detail}</span>}
         {project && (
-          <span className="acpmux-home-meta acpmux-home-project" title={session.cwd}>
-            {project}
-          </span>
+          <WithFacts facts={[{ value: session.cwd ?? "", code: true }]}>
+            {(facts) => (
+              <span {...facts} className="acpmux-home-meta acpmux-home-project">
+                {project}
+              </span>
+            )}
+          </WithFacts>
         )}
         {at !== undefined && <HomeAge at={at} />}
         <ChevronIcon />
