@@ -75,6 +75,18 @@ pub struct Outcome {
     pub down: Pipe,
     pub up: Pipe,
     pub blob_bytes: usize,
+    /// Blob bytes of blobs the phone already held when they arrived.
+    pub resent_blob_bytes: usize,
+}
+
+/// When the link drops.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Drop {
+    /// Never: run until both sides are idle.
+    Never,
+    /// The moment the first screenful of cards is filled. Every frame
+    /// still in flight is lost.
+    AfterFirstScreen,
 }
 
 /// Runs one link from link-up (t = 0) until both sides are idle.
@@ -84,6 +96,18 @@ pub fn simulate(
     session: &mut Session,
     mirror: &mut Mirror,
     phone_first: Vec<Vec<u8>>,
+) -> Res<Outcome> {
+    simulate_until(link, producer, session, mirror, phone_first, Drop::Never)
+}
+
+/// [`simulate`], ending early when `drop` says the link drops.
+pub fn simulate_until(
+    link: &Link,
+    producer: &Producer,
+    session: &mut Session,
+    mirror: &mut Mirror,
+    phone_first: Vec<Vec<u8>>,
+    drop: Drop,
 ) -> Res<Outcome> {
     let mut queue: BTreeMap<(u64, u64), Ev> = BTreeMap::new();
     let mut seq = 0u64;
@@ -95,6 +119,7 @@ pub fn simulate(
     let mut up = Pipe::new(link.up_bps, link.rtt_ms);
     let mut marks = Marks::default();
     let mut blob_bytes = 0;
+    let mut resent_blob_bytes = 0;
     for frame in phone_first {
         let (_, at) = up.send(0.0, frame.len());
         push(&mut queue, at, Ev::ToMac(frame));
@@ -126,8 +151,11 @@ pub fn simulate(
                         if session.pushes() { None } else { mirror.want_frame() }
                     }
                     Applied::Gap { .. } => mirror.resume_frame(),
-                    Applied::Blob { len, .. } => {
+                    Applied::Blob { len, fresh, .. } => {
                         blob_bytes += len;
+                        if !fresh {
+                            resent_blob_bytes += len;
+                        }
                         None
                     }
                 };
@@ -136,10 +164,13 @@ pub fn simulate(
                     push(&mut queue, at, Ev::ToMac(reply));
                 }
                 check_marks(&mut marks, mirror, now);
+                if drop == Drop::AfterFirstScreen && marks.first_screen.is_some() {
+                    break;
+                }
             }
         }
     }
-    Ok(Outcome { marks, down, up, blob_bytes })
+    Ok(Outcome { marks, down, up, blob_bytes, resent_blob_bytes })
 }
 
 pub fn check_marks(marks: &mut Marks, mirror: &Mirror, now: f64) {

@@ -19,8 +19,8 @@ use cmux_tab_snapshots::{
     BlobHash, Kind, Manifest, Message, Mirror, Producer, Row, Session, Viewport,
 };
 use link::{
-    FIRST_SCREENFUL, LINK_HEADER_PER_WRITE, LINK_PAYLOAD_PER_WRITE, LINKS, Link, Outcome, Pipe,
-    simulate,
+    Drop, FIRST_SCREENFUL, LINK_HEADER_PER_WRITE, LINK_PAYLOAD_PER_WRITE, LINKS, Link, Outcome,
+    Pipe, simulate, simulate_until,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
@@ -93,6 +93,7 @@ fn report(scenario: &str, link: &Link, out: &Outcome, saved: (usize, usize)) -> 
         "framesUp": out.up.frames,
         "linkWritesDown": out.down.writes,
         "blobBytesDown": out.blob_bytes,
+        "resentBlobBytes": out.resent_blob_bytes,
         "manifestMs": ms(out.marks.rows),
         "firstCardMs": ms(out.marks.first_card),
         "firstScreenMs": ms(out.marks.first_screen),
@@ -138,6 +139,7 @@ fn baseline(link: &Link, producer: &Producer) -> Value {
         "framesUp": up.frames,
         "linkWritesDown": down.writes,
         "blobBytesDown": blob_bytes,
+        "resentBlobBytes": 0,
         "manifestMs": ms(Some(titles_at)),
         "firstCardMs": ms(card_done.first().copied()),
         "firstScreenMs": ms(first_screen),
@@ -228,8 +230,8 @@ impl SessionMode {
     }
 }
 
-/// Scenarios a to d on one link; prints each and returns bytes down.
-fn scenarios(w: &Workload, link: &Link, mode: SessionMode) -> Res<[usize; 4]> {
+/// Scenarios a to d and f on one link; prints each and returns bytes down.
+fn scenarios(w: &Workload, link: &Link, mode: SessionMode) -> Res<[usize; 5]> {
     let line = |name: &str, out: &Outcome, saved| {
         let mut v = report(name, link, out, saved);
         v["session"] = json!(mode.name());
@@ -284,7 +286,45 @@ fn scenarios(w: &Workload, link: &Link, mode: SessionMode) -> Res<[usize; 4]> {
         &resumed,
         savings(&producer_d, &rows_d, resumed.blob_bytes, &before),
     );
-    Ok([a, b, c, d])
+
+    // f. Cold open on a link that drops once the first 6 cards are filled;
+    // the phone reconnects with `have` and `resume` and fills the rest.
+    let producer_f = w.producer();
+    let mut phone_f = Mirror::new();
+    let up = link_up(&phone_f);
+    let mut session_f = mode.session();
+    let dropped = simulate_until(
+        link,
+        &producer_f,
+        &mut session_f,
+        &mut phone_f,
+        up,
+        Drop::AfterFirstScreen,
+    )?;
+    let held: HashSet<BlobHash> = phone_f.export_held().into_iter().collect();
+    let mut first = report("f_drop_after_first_screen", link, &dropped, (0, 0));
+    first["session"] = json!(mode.name());
+    first["leg"] = json!("before_drop");
+    first["blobsHeldAtDrop"] = json!(held.len());
+    print(&first);
+    let up = link_up(&phone_f);
+    let again = simulate(link, &producer_f, &mut mode.session(), &mut phone_f, up)?;
+    let mut second = report(
+        "f_drop_after_first_screen",
+        link,
+        &again,
+        savings(&producer_f, &all_rows_of(&producer_f), again.blob_bytes, &none),
+    );
+    second["session"] = json!(mode.name());
+    second["leg"] = json!("reconnect_have_resume");
+    second["allCardsFilled"] = json!(phone_f.missing().is_empty());
+    print(&second);
+    let f = dropped.down.bytes + again.down.bytes;
+    Ok([a, b, c, d, f])
+}
+
+fn all_rows_of(producer: &Producer) -> Vec<&Row> {
+    producer.rows().iter().collect()
 }
 
 fn print(v: &Value) {
@@ -325,7 +365,7 @@ fn main() -> Res<()> {
             }
         };
         for mode in [SessionMode::Want, SessionMode::Push] {
-            let [cold, warm, one, resumed] = scenarios(&w, link, mode)?;
+            let [cold, warm, one, resumed, dropped] = scenarios(&w, link, mode)?;
             print(&json!({
                 "kind": "baseline_ratio",
                 "link": link.name,
@@ -335,6 +375,7 @@ fn main() -> Res<()> {
                 "baselineOverWarmOpen": ratio(warm),
                 "baselineOverOneThumbChanged": ratio(one),
                 "baselineOverReconnectResume": ratio(resumed),
+                "baselineOverDropAndReconnect": ratio(dropped),
             }));
         }
         print(&base);
