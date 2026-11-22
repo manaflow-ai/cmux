@@ -497,7 +497,7 @@ pub trait MeshHub: Send + Sync {
 /// against another hub. Each read takes the client then in use; the lock is never held across
 /// a call.
 #[derive(Default)]
-pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>, crate::mesh_gate::Gate);
 
 impl MeshSlot {
     /// The client in use, if a relay runs.
@@ -509,7 +509,14 @@ impl MeshSlot {
     /// Make `client` the one in use; the one it replaced, if any.
     pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
         use crate::no_panic::RwLockExt;
+        // Another hub, perhaps: what the last one answered says nothing of it.
+        self.1.answered();
         self.0.write_or_recover().replace(client)
+    }
+
+    /// How often sends try the hub while it fails (`mesh_gate.rs`).
+    pub fn gate(&self) -> &crate::mesh_gate::Gate {
+        &self.1
     }
 
     /// No client: the relay stopped. The one it removed, if any.
