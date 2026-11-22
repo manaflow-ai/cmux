@@ -11,6 +11,7 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import { loadEmojiShortcodes } from "../src/agent-session/acpmux/emojiShortcodes";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement, MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
 import { teardownDom } from "./support/domTeardown";
@@ -91,9 +92,9 @@ function Chips() {
 
 let chats = 0;
 
-function chat(): AcpmuxSnapshot {
+function chat(others: AcpmuxSessionEntry[] = []): AcpmuxSnapshot {
   const sessionId = `emoji-${++chats}`;
-  return noChat([], {
+  return noChat(others, {
     sessionId,
     summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 1 },
     rows: [user("Add retries", 1)],
@@ -108,13 +109,13 @@ async function settle() {
   });
 }
 
-async function composer(typed: string) {
+async function composer(typed: string, others: AcpmuxSessionEntry[] = []) {
   const sent: string[] = [];
   let handle: ComposerHandle | null = null;
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
-  const snapshot = chat();
+  const snapshot = chat(others);
   await act(async () =>
     root!.render(
       <Composer
@@ -293,4 +294,29 @@ test("an input method's text opens the list once committed, never while it compo
   });
   await settle();
   expect(rows()[0]).toBe("🥺 :pleading_face:");
+});
+
+// The @ list read the caret the same first-paragraph way, so `@` on a later line opened nothing.
+const mentionRows = () => [...host.querySelectorAll<HTMLElement>("#acpmux-mention-menu [role=option]")];
+
+test("@ on a later line lists other chats; Return writes the mention there as one undo step", async () => {
+  const others = [{ sessionId: "other-chat", title: "Release checklist" }];
+  const { field, prompt, sent } = await composer("first line\n\nsecond", others);
+  await type(prompt, " @relea");
+  expect(mentionRows().length).toBeGreaterThan(0);
+  await press(field, "Enter", { keyCode: 13 });
+  expect(sent).toEqual([]);
+  expect(mentionRows()).toEqual([]);
+  expect(prompt.plainText()).toBe('first line\nsecond cmux session "Release checklist" (other-chat) ');
+  await act(async () => prompt.undo());
+  expect(prompt.plainText()).toBe("first line\nsecond @relea");
+});
+
+test("@ inside a code span opens no list", async () => {
+  const others = [{ sessionId: "other-chat", title: "Release checklist" }];
+  await composer("run `@relea` now", others);
+  const prompt = host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
+  await act(async () => prompt.setCaret("run @relea".length));
+  await settle();
+  expect(mentionRows()).toEqual([]);
 });

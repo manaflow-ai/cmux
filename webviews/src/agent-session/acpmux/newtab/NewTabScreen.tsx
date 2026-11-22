@@ -123,6 +123,7 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
+import { useEmojiCompletion } from "../composer/useEmojiCompletion";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
@@ -989,6 +990,9 @@ export function NewTabScreen(props: Props) {
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
   const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // The chat composer's `:` emoji list, the same lifecycle (composer/useEmojiCompletion.tsx). Leo,
+  // 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here."
+  const emoji = useEmojiCompletion({ field, text, off: shell || commandsOpen || profilePick !== undefined });
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
@@ -1261,6 +1265,13 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // The emoji table loads when the field is first focused (idle), so a first paste converts too.
+  const requestEmoji = emoji.request;
+  useEffect(() => {
+    if (!box) return;
+    box.addEventListener("focusin", requestEmoji);
+    return () => box.removeEventListener("focusin", requestEmoji);
+  }, [box, requestEmoji]);
   // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
@@ -1419,6 +1430,8 @@ export function NewTabScreen(props: Props) {
   };
   const edit = (next: string) => {
     touch();
+    emoji.request();
+    emoji.edited();
     setTouched(true);
     // The profile search's text names a profile: no shell mode, no prompt to warm an agent for.
     if (profilePick) {
@@ -1695,6 +1708,8 @@ export function NewTabScreen(props: Props) {
         return;
       }
     }
+    // The emoji list owns arrows, Return, Tab and Esc while it shows, as in the chat composer.
+    if (emoji.keyDown(event)) return;
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2377,16 +2392,20 @@ export function NewTabScreen(props: Props) {
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
-          {commandsOpen && (
+          {(commandsOpen || emoji.menu) && (
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
-                <SlashMenu
-                  matches={commandMatches}
-                  active={commandIndex}
-                  empty={t("composer.noMatchingCommands")}
-                  onHover={setCommandActive}
-                  onPick={pickCommand}
-                />
+                {commandsOpen ? (
+                  <SlashMenu
+                    matches={commandMatches}
+                    active={commandIndex}
+                    empty={t("composer.noMatchingCommands")}
+                    onHover={setCommandActive}
+                    onPick={pickCommand}
+                  />
+                ) : (
+                  emoji.menu
+                )}
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
@@ -2431,7 +2450,11 @@ export function NewTabScreen(props: Props) {
                   setReadyField(field.current);
                 }}
                 onBeforeInput={(data, state) =>
-                  !shell && state.paste && !state.composing ? pastedChips.take(data) : false
+                  shell
+                    ? false
+                    : state.paste && !state.composing
+                      ? pastedChips.take(data)
+                      : emoji.beforeInput(data, state)
                 }
                 onChange={(value) => {
                   // The editor canonicalizes escaping while mounting; that is still the untouched
@@ -2452,6 +2475,8 @@ export function NewTabScreen(props: Props) {
                 onFirstInput={touch}
                 slashNames={commandNames}
                 onSlash={setCommandTrigger}
+                onEmoji={emoji.onEmoji}
+                transformPaste={shell ? undefined : emoji.transformPaste}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
                 attributes={{
@@ -2459,18 +2484,20 @@ export function NewTabScreen(props: Props) {
                   "data-focus-ring": "none",
                   "aria-label": shell ? t("composer.shell") : placeholder,
                   "data-dictation-listening": dictating && !shell ? "" : undefined,
-                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
+                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : emoji.at ? "acpmux-emoji-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current] && current >= firstDrawn
-                      ? `nt-row-${current}`
-                      : undefined,
+                    : emoji.at
+                      ? `acpmux-emoji-${emoji.selected}`
+                      : rows[current] && current >= firstDrawn
+                        ? `nt-row-${current}`
+                        : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
                   // while the slash list shows, as in the chat composer.
-                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
+                  spellcheck: spellChecking && !shell && !commandsOpen && !emoji.at ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
-                  writingsuggestions: commandsOpen ? "false" : undefined,
+                  writingsuggestions: commandsOpen || emoji.at ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages

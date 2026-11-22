@@ -61,7 +61,8 @@ import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
-import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
+import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
+import type { MentionTrigger } from "./composer/emojiTokens";
 import { wantAllSessions } from "./sessionPages";
 import {
   hasOtherChats,
@@ -169,24 +170,13 @@ import { composerFooterControls } from "./composer/footerControls.experiment";
 import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
 // The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
 import "./composerClimbs.css";
-import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
-import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import {
-  closingShortcode,
-  emojiMatches,
-  loadEmojiShortcodes,
-  loadRecentEmoji,
-  rememberEmoji,
-  replaceShortcodes,
-  type EmojiMatch,
-  type EmojiShortcodes,
-  type EmojiTrigger,
-} from "./emojiShortcodes";
+import type { EmojiTrigger } from "./emojiShortcodes";
+import { useEmojiCompletion, type EmojiCompletion } from "./composer/useEmojiCompletion";
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
@@ -680,6 +670,10 @@ function ComposerFrame({
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
+  // The `@word` the caret ends, on any line, as the editor reads it (composer/emojiTokens.ts).
+  const [mentionCaret, setMentionCaret] = useState<MentionTrigger | undefined>();
+  // The emoji list (`useEmojiCompletion`, made further down), for the field's stable callbacks.
+  const emojiNow = useRef<EmojiCompletion | undefined>(undefined);
   // The suggested prompt Esc put away: its chat and PR, so it stays away for this chat only.
   const [suggestionDismissed, setSuggestionDismissed] = useState<string | undefined>();
   // The handle is made once: its notices read the current locale's strings.
@@ -714,12 +708,10 @@ function ComposerFrame({
       onCaret: (at: number) => promptCaret.current(at),
       onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
       onReturnInput: () => promptReturnInput.current(),
-      onEmoji: (trigger: EmojiTrigger | undefined) => setEmojiCaret(trigger),
-      // A paste's `:code:`s as emoji, once the table is in (it loads on the first edit).
-      transformPaste: (pasted: string) => {
-        const data = emojiDataNow.current;
-        return data ? replaceShortcodes(data, pasted, emojiToneNow.current) : pasted;
-      },
+      onEmoji: (trigger: EmojiTrigger | undefined) => emojiNow.current?.onEmoji(trigger),
+      onMention: (trigger: MentionTrigger | undefined) => setMentionCaret(trigger),
+      // A paste's `:code:`s as emoji, once the table is in (it loads when the prompt is focused).
+      transformPaste: (pasted: string) => emojiNow.current?.transformPaste(pasted) ?? pasted,
       onCompositionChange: (value: boolean) => promptComposition.current(value),
       onUnplacedQuotes: (quotes: string[]) => promptUnplacedQuotes.current?.(quotes),
     }),
@@ -1403,7 +1395,7 @@ function ComposerFrame({
     !recalling &&
     (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
     mentionDismissed !== text
-      ? mentionQuery(text, markdownOffset(text, caret))
+      ? mentionCaret
       : undefined;
   const mentionWord = mentionTyped?.query;
   const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
@@ -1454,60 +1446,20 @@ function ComposerFrame({
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
-  // `:` and two letters at a word start, on any line of the draft, list emoji by shortcode; a text
-  // emoticon (`:)`, `:DD`, `<3`) lists its face; Return, Tab or a click writes the highlighted row,
-  // Esc keeps the text; the `:` that closes a known `:code:` writes its emoji, and a paste's
-  // `:code:`s go in as emoji (emojiShortcodes.ts, composer/emojiTokens.ts). Leo, 2026-11-22: "for
-  // some reason i can't do :pleading_face: with the emoji here. we need to actually improve the
-  // ergonomics and lifecycle of that."
-  // The table loads in its own chunk at the first idle moment after the person first types in this
-  // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
-  const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
-  const emojiDataNow = useRef(emojiData);
-  emojiDataNow.current = emojiData;
-  const emojiRequested = useRef(false);
-  const requestEmoji = () => {
-    if (emojiRequested.current) return;
-    emojiRequested.current = true;
-    const load = () =>
-      void loadEmojiShortcodes().then(setEmojiData, () => {
-        emojiRequested.current = false;
-      });
-    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
-    else setTimeout(load, 0);
-  };
-  // The row the arrows or the pointer chose, else the first: a listed emoji is always highlighted, and
-  // Return or Tab writes it (Leo, 2026-11-20: "the thing should know (should highlihgt) that emoji").
-  // Esc, or typing on past the word, leaves the text as typed.
-  const [emojiActive, setEmojiActive] = useState<string | undefined>();
-  const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
-  const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
-  const emojiToneNow = useRef(emojiRecents.tone);
-  emojiToneNow.current = emojiRecents.tone;
-  // The token the field reads at its caret, on whichever line it is (MarkdownField `onEmoji`).
-  const [emojiCaret, setEmojiCaret] = useState<EmojiTrigger | undefined>();
-  const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
-  const emojiTyped = !otherMenu && emojiDismissed !== text ? emojiCaret : undefined;
-  const emojiKey = emojiTyped ? `${emojiTyped.start}:${emojiTyped.token}` : undefined;
-  const emojiRows = useMemo(
-    () => (emojiTyped && emojiData ? emojiMatches(emojiData, emojiTyped, emojiRecents) : []),
-    [emojiTyped, emojiData, emojiRecents],
-  );
-  const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
-  const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
-  const emojiSelected = emojiRows.length === 0 ? -1 : Math.max(0, emojiChosen);
-  useEffect(() => setEmojiActive(undefined), [emojiKey]);
-  // The @ and emoji lists belong to the prompt with the keyboard. Another pane's web view taking it
-  // blurs this window, never the prompt (WebKit keeps the element focused), so the list stayed up
-  // over a prompt that no longer took its keys: Leo's `:plead` list in the next pane while he typed
-  // here (2026-11-22). Closed as Esc closes it, until the text changes.
+  // The `:` emoji list (composer/useEmojiCompletion.tsx), shared with New Tab; not while the `/` or
+  // `@` list, a recalled prompt or shell mode has the keys.
+  const emoji = useEmojiCompletion({ field, text, off: open || Boolean(mentionTyped) || recalling || shell });
+  emojiNow.current = emoji;
+  const emojiAt = emoji.at;
+  const emojiSelected = emoji.selected;
+  const requestEmoji = emoji.request;
+  // The @ list belongs to the prompt with the keyboard. Another pane's web view taking it blurs this
+  // window, never the prompt (WebKit keeps the element focused), so the list stayed up over a
+  // prompt that no longer took its keys (the emoji list's, Leo 2026-11-22). Closed as Esc closes it.
   const textNow = useRef(text);
   textNow.current = text;
   useEffect(() => {
-    const away = () => {
-      setEmojiDismissed(textNow.current);
-      setMentionDismissed(textNow.current);
-    };
+    const away = () => setMentionDismissed(textNow.current);
     window.addEventListener("blur", away);
     return () => window.removeEventListener("blur", away);
   }, []);
@@ -1516,11 +1468,10 @@ function ComposerFrame({
   useEffect(() => {
     const node = form.current;
     if (!node) return;
-    const focused = () => requestEmoji();
+    const focused = () => emojiNow.current?.request();
     node.addEventListener("focusin", focused);
     return () => node.removeEventListener("focusin", focused);
   }, []);
-  const emojiLook = experimentArm(emojiShortcodeLook);
   const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
@@ -1548,7 +1499,7 @@ function ComposerFrame({
     // and emoji lists come back as the / list does.
     setDismissed(undefined);
     setMentionDismissed(undefined);
-    setEmojiDismissed(undefined);
+    emoji.edited();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -1599,20 +1550,10 @@ function ComposerFrame({
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
     rememberMentionPath(recentScope, item);
-    const { markdown, shown } = mentionInsert(item);
-    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
-    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
-    const at = caret - 1 - mentionAt.query.length + shown.length;
-    pendingCaret.current = at;
-    edit(text.slice(0, mentionAt.start) + markdown + after, at);
-    field.current?.focus();
-  };
-  /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed, in place on its
-  /// line as one undo step (⌘Z gives back the typed `:plead`). One space after it: the text's own
-  /// when it already starts with one (a mid-line pick); a line break is not a space.
-  const pickEmoji = (match: EmojiMatch) => {
-    if (!emojiAt || !field.current?.replaceBeforeCaret(emojiAt.token.length, match.emoji, true)) return;
-    setEmojiRecents(rememberEmoji(match.key));
+    // Written over the `@word` in place on its line, as one undo step, and one space after it (the
+    // text's own when one follows): the editor escapes what markdown would read as formatting.
+    const { shown } = mentionInsert(item);
+    if (!field.current?.replaceBeforeCaret(1 + mentionAt.query.length, shown.trimEnd(), true)) return;
     field.current.focus();
   };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
@@ -1898,6 +1839,16 @@ function ComposerFrame({
     // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
     // is markdown, which takes backslash escapes as its own, so a quote in a name is left as is.
     const mentioned = path && /\s/.test(path) ? `"${path}"` : path;
+    // At the editor's own caret, on whatever line it is on (one undo step).
+    const typed = field.current?.textBeforeCaret();
+    if (typed !== undefined && field.current) {
+      const shown = (!typed || /\s$/.test(typed) ? "@" : " @") + (mentioned ? `${mentioned} ` : "");
+      plusDraft.current = undefined;
+      if (field.current.replaceBeforeCaret(0, shown, false)) {
+        field.current.focus();
+        return;
+      }
+    }
     const spaced = !before || /(\s|&#x20;|&#32;|&nbsp;)$/i.test(before);
     const shown = (spaced ? "@" : " @") + (mentioned ? `${mentioned} ` : "");
     // Escaped, the path reads as typed text (`__init__.py` is not bold); the caret counts what shows.
@@ -2190,7 +2141,7 @@ function ComposerFrame({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
-    else if (emojiAt) setEmojiDismissed(text);
+    else if (emojiAt) emoji.dismiss();
   };
   // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
   // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
@@ -2464,7 +2415,7 @@ function ComposerFrame({
   const returnInput = () => {
     if (shell) return;
     if (mentionAt) return mentions[mentionSelected] ? pickMention(mentions[mentionSelected]) : undefined;
-    if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
+    if (emoji.pickSelected()) return;
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
   };
@@ -2553,32 +2504,7 @@ function ComposerFrame({
       }
     }
     // The emoji menu owns arrows (and Ctrl-N/P/J/K), Return and Tab (the highlighted row), and Esc.
-    if (emojiAt) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        setEmojiDismissed(text);
-        return;
-      }
-      const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-      const step =
-        (event.key === "ArrowDown" && plain) || (control && (event.key === "n" || event.key === "j"))
-          ? 1
-          : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
-            ? -1
-            : 0;
-      if (step) {
-        event.preventDefault();
-        setEmojiActive(emojiRows[(emojiSelected + step + emojiRows.length) % emojiRows.length]!.key);
-        return;
-      }
-      const row = emojiRows[emojiSelected];
-      if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
-        event.preventDefault();
-        pickEmoji(row);
-        return;
-      }
-    }
+    if (emoji.keyDown(event)) return;
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && ownQueue(snapshot.queue).length) {
       // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
@@ -2692,16 +2618,8 @@ function ComposerFrame({
   useInsertionEffect(() => {
     promptBeforeInput.current = (data, state) => {
       typedAt.current = performance.now();
-      // The `:` that closes a known `:code:` writes its emoji at once, as Slack and GitHub do; ⌘Z
-      // gives back `:code:` as typed. `:skin-tone-N:` after a toned emoji re-tones it.
-      if (data === ":" && !state.composing && !state.paste && emojiData && field.current) {
-        const before = field.current.textBeforeCaret();
-        const closed = before === undefined ? undefined : closingShortcode(emojiData, before, emojiRecents.tone);
-        if (closed && field.current.typeThenReplace(":", closed.back, closed.emoji)) {
-          setEmojiRecents(rememberEmoji(closed.key, Date.now(), closed.tone));
-          return true;
-        }
-      }
+      // The `:` that closes a known `:code:` writes its emoji (composer/useEmojiCompletion.tsx).
+      if (emoji.beforeInput(data, state)) return true;
       // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`. Not while a Cloud
       // start is out: the started chat has no shell yet, and only the prompt's text reaches it, so `!`
       // stays text.
@@ -3004,6 +2922,7 @@ function ComposerFrame({
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onEmoji: stablePromptCallbacks.onEmoji,
+          onMention: stablePromptCallbacks.onMention,
           transformPaste: stablePromptCallbacks.transformPaste,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
           onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
@@ -3105,19 +3024,7 @@ function ComposerFrame({
                 />
               </ComposerListLayer>
             )}
-            {emojiAt && (
-              <ComposerListLayer>
-                <EmojiMenu
-                  key={emojiAt.start}
-                  look={emojiLook}
-                  matches={emojiRows}
-                  active={emojiSelected}
-                  back={emojiAt.token.length}
-                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
-                  onPick={pickEmoji}
-                />
-              </ComposerListLayer>
-            )}
+            {emoji.menu && <ComposerListLayer>{emoji.menu}</ComposerListLayer>}
           </>
         }
         onCardPress={focusPrompt}

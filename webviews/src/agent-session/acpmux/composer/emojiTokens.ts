@@ -53,6 +53,31 @@ export function emojiTriggerAt(state: EditorState): EmojiTrigger | undefined {
   return { ...token, start: state.selection.from - (before.length - at) };
 }
 
+/// How far back the caret's text is read for an `@` mention: a long path.
+const MENTION_READ_MAX = 256;
+/// `@` at a word start, then the word: no space, no second `@`, no code or attachment.
+const MENTION = /(?:^|\s)@([^\s@\uFFFC]*)$/u;
+
+/// The `@word` the caret ends, `start` the `@`'s document position.
+export interface MentionTrigger {
+  start: number;
+  query: string;
+}
+
+/// The `@word` the caret ends, on any line of the draft, read from the editor as the `:` and `/`
+/// tokens are; undefined with none, a selection, or the caret in code. It read the markdown with a
+/// caret counted in the first paragraph only before, so `@` on a later line opened nothing (the
+/// emoji menu's bug, Leo 2026-11-22: "for some reason i can't do :pleading_face: with the emoji
+/// here").
+export function mentionTriggerAt(state: EditorState): MentionTrigger | undefined {
+  const before = emojiTextBefore(state, MENTION_READ_MAX);
+  if (before === undefined) return undefined;
+  const found = MENTION.exec(before);
+  if (!found) return undefined;
+  const query = found[1]!;
+  return { start: state.selection.from - query.length - 1, query };
+}
+
 /// The edit that writes `insert` over the `back` characters before the caret, the caret after it:
 /// its own undo step, so ⌘Z gives back what was typed. `space` adds one space after it unless the
 /// text after the caret starts with one (a line break is no space).

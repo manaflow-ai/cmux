@@ -126,7 +126,9 @@ const OPENER = /^(?:[\s([{"'“‘]|\p{Extended_Pictographic}|\uFE0F|\p{Emoji_Mo
 /// Whether a word can start right after `before`.
 function startsWord(before: string): boolean {
   if (!before) return true;
-  return OPENER.test([...before.slice(-2)].at(-1)!);
+  // The last code point: a surrogate pair's two units, else the last unit.
+  const last = before.codePointAt(before.length - 2)! > 0xffff ? before.slice(-2) : before.slice(-1);
+  return OPENER.test(last);
 }
 const OPENER_RUN = /^[([{"'“‘]+/;
 const CODE = /^:([a-z0-9_+-]+)$/i;

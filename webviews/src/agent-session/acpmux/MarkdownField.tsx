@@ -30,7 +30,13 @@ import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
-import { emojiEdit, emojiTextBefore, emojiTriggerAt } from "./composer/emojiTokens";
+import {
+  emojiEdit,
+  emojiTextBefore,
+  emojiTriggerAt,
+  mentionTriggerAt,
+  type MentionTrigger,
+} from "./composer/emojiTokens";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { spacedAfterDeeplink } from "./composer/deeplinks";
@@ -248,6 +254,8 @@ export type MarkdownFieldProps = {
   /// The `:shortcode` or emoticon the caret ends, on any line, as it changes (undefined: none), for
   /// the emoji menu (composer/emojiTokens.ts).
   onEmoji?(trigger: EmojiTrigger | undefined): void;
+  /// The `@word` the caret ends, on any line, as it changes (undefined: none), for the @ menu.
+  onMention?(trigger: MentionTrigger | undefined): void;
   /// A paste's text before it goes in (the composer writes its `:shortcode:`s as emoji).
   transformPaste?(text: string): string;
   /// Shift-Enter adds a line (default true).
@@ -311,6 +319,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.slashNames === next.slashNames &&
     previous.onSlash === next.onSlash &&
     previous.onEmoji === next.onEmoji &&
+    previous.onMention === next.onMention &&
     previous.transformPaste === next.transformPaste &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
@@ -748,6 +757,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     slashNames,
     onSlash,
     onEmoji,
+    onMention,
     transformPaste,
     multiline = true,
     literal = false,
@@ -836,6 +846,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onPasteFirst,
     onSlash,
     onEmoji,
+    onMention,
     transformPaste,
   });
   latest.current = {
@@ -856,6 +867,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onPasteFirst,
     onSlash,
     onEmoji,
+    onMention,
     transformPaste,
   };
   const slashNamesNow = useRef(slashNames);
@@ -875,6 +887,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     const told = emojiTold.current;
     if (next?.start === told?.start && next?.token === told?.token) return;
     emojiTold.current = next;
+    tell(next);
+  };
+  /// The `@word` last told to `onMention`.
+  const mentionTold = useRef<MentionTrigger | undefined>(undefined);
+  /// Tells `onMention` the `@word` at the caret, on any line; not while an input method composes.
+  const tellMention = (state: EditorState) => {
+    const tell = latest.current.onMention;
+    if (!tell || composing.current) return;
+    const next = mentionTriggerAt(state);
+    const told = mentionTold.current;
+    if (next?.start === told?.start && next?.query === told?.query) return;
+    mentionTold.current = next;
     tell(next);
   };
   const tellSlash = (state: EditorState) => {
@@ -1126,6 +1150,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   latest.current.onCompositionChange?.(false);
                   tellSlash(_view.state);
                   tellEmoji(_view.state);
+                  tellMention(_view.state);
                   return false;
                 },
                 // A paste that carries images (files, or a data: <img> in its HTML: Chrome's Copy Image
@@ -1307,6 +1332,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               update: (next, previous) => {
                 tellSlash(next.state);
                 tellEmoji(next.state);
+                tellMention(next.state);
                 const whole = wholeSelected(next.state);
                 if (whole !== wholeNow) {
                   wholeNow = whole;
@@ -1508,6 +1534,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
           tellEmoji(view.current.state);
+          tellMention(view.current.state);
           if (pendingFocus.current) focusRoute(view.current, "system", "the editor is ready: its pending focus");
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
