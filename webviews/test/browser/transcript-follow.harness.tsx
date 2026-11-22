@@ -19,6 +19,8 @@ import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "katex/dist/katex.min.css";
+import { TurnActionsContext, type TurnActions } from "../../src/agent-session/acpmux/conversation/turnActions";
+import { setComposerSettings, type AttachmentView } from "../../src/agent-session/acpmux/composerSettings";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/chips/chips.css";
 import "../../src/agent-session/acpmux/previewCard/previewCard.css";
@@ -111,26 +113,46 @@ const readerFor = (id: string) => {
   return registry;
 };
 (window as unknown as { __backgroundReads(): typeof registry }).__backgroundReads = () => ({ ...registry });
+// A sent image's bytes as acpmux reads them back (`__imageReader(urls, delayMs)`, TurnActions.promptImage):
+// each id's data URL after `delayMs`, as a busy daemon answers, so a test sees the slot before the bytes.
+let turnActions: TurnActions = {};
+(window as unknown as { __imageReader(urls: Record<string, string>, delayMs: number): void }).__imageReader = (
+  urls,
+  delayMs,
+) => {
+  // fixed-wait: the read's latency is what the test sets; the slot must hold its box before it answers.
+  turnActions = {
+    promptImage: (id) => new Promise((done) => setTimeout(() => done(urls[id]), delayMs)),
+  };
+  draw();
+};
+// The pane's attachment view (composerSettings.ts `attachmentView`), as Settings sets it.
+(window as unknown as { __attachmentView(view: AttachmentView): void }).__attachmentView = (next) => {
+  setComposerSettings({ attachmentView: next });
+  draw();
+};
 const draw = () =>
   view.render(
-    <BackgroundTaskOutputContext.Provider value={readerFor(sessionId)}>
-      <VirtualTranscript
-        rows={rawRows ? shown : live ? turnView(shown, expanded, { working: true }) : turnView(shown, expanded)}
-        sessionId={sessionId}
-        onToggleActivity={(id) => {
-          expanded = toggleTurnFold(shown, expanded, id);
-          draw();
-        }}
-        expanded={expanded}
-        sends={sends}
-        dock={dock}
-        working={working}
-        loading={loading}
-        openAt={openAt}
-        canLoadOlder={openAt !== undefined}
-        onLoadOlder={() => new Promise<void>(() => {})}
-      />
-    </BackgroundTaskOutputContext.Provider>,
+    <TurnActionsContext.Provider value={turnActions}>
+      <BackgroundTaskOutputContext.Provider value={readerFor(sessionId)}>
+        <VirtualTranscript
+          rows={rawRows ? shown : live ? turnView(shown, expanded, { working: true }) : turnView(shown, expanded)}
+          sessionId={sessionId}
+          onToggleActivity={(id) => {
+            expanded = toggleTurnFold(shown, expanded, id);
+            draw();
+          }}
+          expanded={expanded}
+          sends={sends}
+          dock={dock}
+          working={working}
+          loading={loading}
+          openAt={openAt}
+          canLoadOlder={openAt !== undefined}
+          onLoadOlder={() => new Promise<void>(() => {})}
+        />
+      </BackgroundTaskOutputContext.Provider>
+    </TurnActionsContext.Provider>,
   );
 // The pane's render counters (perf.ts), for a test that counts the rows a toggle draws again
 // (chat-fold-frame-budget-browser.test.ts).
