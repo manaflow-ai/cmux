@@ -345,7 +345,14 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_set_size(surface, size.0, size.1)
         if let pinnedRow { scrollViewport(pinnedRow) }
         // Out of a window nothing shows: the next frame in one draws it.
-        if window != nil { drawNow() }
+        guard window != nil else { return }
+        // A frame at the old size is on screen: replace it in this layout
+        // pass so the rows never show stretched. Before the first frame there
+        // is nothing to replace, and drawing on the main thread there waited
+        // on the GPU while the terminal opened (652.9 ms, InputLatencyUITests
+        // trace b4eef07b: didMoveToWindow -> syncSize -> drawNow ->
+        // waitUntilCompleted). Ask the renderer for the first frame instead.
+        if presents > 0 { drawNow() } else { setNeedsTerminalDraw() }
     }
 
     #if DEBUG
