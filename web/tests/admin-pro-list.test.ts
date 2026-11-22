@@ -157,6 +157,41 @@ describe("Pro roster", () => {
     ]);
   });
 
+  test("scans list cmux NEXT grants with their plan id", async () => {
+    const app = fakeApp({
+      users: [
+        { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "next_pro" }, serverMetadata: {} },
+        { id: "u2", primaryEmail: "b@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "next_max" }, serverMetadata: {} },
+        { id: "u3", primaryEmail: "c@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "next_pro" }, serverMetadata: {} },
+      ],
+      teams: [
+        { id: "t1", displayName: "Acme", clientReadOnlyMetadata: { cmuxVmPlan: "next_max" }, serverMetadata: {} },
+      ],
+    });
+    const users = await scanManualUserGrants(null, { app });
+    expect(users.rows.map((row) => [row.userId, row.plan])).toEqual([["u1", "next_pro"], ["u2", "next_max"]]);
+    const teams = await scanManualTeamGrants(null, { app });
+    expect(teams.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "next_max"]]);
+  });
+
+  test("scans report the classic and NEXT slots of one account", async () => {
+    const app = fakeApp({
+      users: [
+        { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "pro", cmuxNextVmPlan: "next_max" }, serverMetadata: { cmuxAdminNextPlanGrant: { plan: "next_max", byUserId: "admin-1", byEmail: null, at: "2026-11-17T00:00:00.000Z" } } },
+        { id: "u2", primaryEmail: "b@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "free", cmuxNextVmPlan: "next_pro" }, serverMetadata: {} },
+        { id: "u3", primaryEmail: "c@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxNextVmPlan: "pro" }, serverMetadata: {} },
+      ],
+    });
+    const users = await scanManualUserGrants(null, { app });
+    expect(users.rows.map((row) => [row.userId, row.plan, row.manualPlanId, row.nextManualPlanId])).toEqual([
+      ["u1", "pro", "pro", "next_max"],
+      ["u2", "next_pro", null, "next_pro"],
+    ]);
+    expect(users.rows[0]?.lastNextGrant?.plan).toBe("next_max");
+    // NEXT holders are counted from the NEXT slot.
+    expect(users.rows.filter((row) => row.nextManualPlanId !== null).length).toBe(2);
+  });
+
   test("scans teams for paid manual overrides", async () => {
     const app = fakeApp({ teams: [
       { id: "t1", displayName: "Acme", clientReadOnlyMetadata: { cmuxVmPlan: "team" }, serverMetadata: {} },
