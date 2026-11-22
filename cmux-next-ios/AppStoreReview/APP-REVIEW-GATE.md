@@ -1,8 +1,12 @@
 # App Review gate (before Apple sees it)
 
 The app App Review judges is the NEXT iOS app, `cmux-next-ios` (CmuxMobileApp).
-Its public build is project.yml's `AppStore` configuration, bundle `com.cmux.app`,
-which replaces the classic app as an update.
+The App Store submission is cmux INTERNAL (bundle `dev.cmux.app.internal`, ASC
+app 6791408425), built by project.yml's TestFlight configuration (version base
+1.2.0). `com.cmux.app` (ASC 6783338052, project.yml's `AppStore` configuration)
+is not the submission record. The gate below still checks the `AppStore`
+configuration; the INTERNAL submission lane is being built on
+`lane/ios-internal-app-store-lane`.
 
 `.github/workflows/ios-review-gate.yml` answers "would Apple accept this build
 right now?" with one ranked list, in the run summary and in the
