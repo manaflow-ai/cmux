@@ -75,6 +75,7 @@ on:
       # cmux-customize-recipes embeds the recipes guide (in the tree key).
       - docs/cmux-next/customize-recipes.md
       - examples/looks/**
+      - examples/gallery/gallery.json
       - webviews/test/fixtures/**
       # Why: docs/ci/cmux-next-workflow-notes.md#note-489
       - webviews/src/**
@@ -359,6 +360,7 @@ on:
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
       - examples/looks/**
+      - examples/gallery/gallery.json
       - scripts/cmux-next/check-generator-inputs.sh
       # Why: docs/ci/cmux-next-workflow-notes.md#note-526
       - scripts/cmux-next/generated-autofixable.sh
@@ -3383,7 +3385,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 30 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 60 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
