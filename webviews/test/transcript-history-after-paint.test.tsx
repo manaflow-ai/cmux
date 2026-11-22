@@ -6,6 +6,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
+import { until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -64,21 +65,21 @@ const turns = Array.from({ length: 30 }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-
 test("a chat mounts one viewport of history in its first commit and the rest after its first paint", async () => {
   const rows = turnView(turns, new Set());
   const root = createRoot(dom.window.document.getElementById("root")!);
   const mounted = () => dom.window.document.querySelectorAll("[data-row-id]").length;
+  // A turn of the event loop that also lets a frame and the task after it run, and flushes their renders.
+  const turn = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   try {
     await act(async () =>
       root.render(<VirtualTranscript rows={rows} sessionId="session-a" onToggleActivity={() => {}} expanded={new Set()} />),
     );
     const first = mounted();
-    // Past the paint (a frame, then a task): the history above the view mounts in full.
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 150))));
-    const full = mounted();
     expect(first).toBeGreaterThan(0);
-    expect(full).toBeGreaterThan(first * 1.5);
+    // Past the paint (a frame, then a task): the history above the view mounts in full.
+    await until(() => mounted() > first * 1.5, turn);
+    const full = mounted();
     // Another chat opens the same way: one viewport first, the rest after its paint.
     const other = turnView(
       turns.map((one) => ({ ...one, id: `session-b-${one.id}` })),
@@ -88,8 +89,7 @@ test("a chat mounts one viewport of history in its first commit and the rest aft
       root.render(<VirtualTranscript rows={other} sessionId="session-b" onToggleActivity={() => {}} expanded={new Set()} />),
     );
     expect(mounted()).toBeLessThan(full * 0.75);
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 150))));
-    expect(mounted()).toBe(full);
+    await until(() => mounted() === full, turn);
   } finally {
     await act(async () => root.unmount());
   }
