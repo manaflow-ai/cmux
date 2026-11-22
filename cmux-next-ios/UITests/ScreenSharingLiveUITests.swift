@@ -143,6 +143,56 @@ final class ScreenSharingLiveUITests: XCTestCase {
         attach(app, "12-closed")
     }
 
+    /// Connect time only (verify/screen-sharing/connect-timing.sh): `TEST_RUNNER_CMUX_SS_TRIES`
+    /// connects (default 5) to the same Mac, each from the tap on its row until the stats line
+    /// names the WebRTC path, then Close. Prints one `ss-connect: {...}` line per try. The Mac must
+    /// already answer this phone with Always allow (`hub.py TAG approve always_full` on the first try).
+    @MainActor
+    func testConnectTiming() throws {
+        guard environment["CMUX_SS_LIVE"] == "1", let mac = environment["CMUX_SS_MAC"],
+              let email = environment["CMUX_SS_EMAIL"], let password = environment["CMUX_SS_PASSWORD"] else {
+            throw XCTSkip("live rig only (TEST_RUNNER_CMUX_SS_LIVE)")
+        }
+        let tries = Int(environment["CMUX_SS_TRIES"] ?? "") ?? 5
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_STACK_EMAIL"] = email
+        app.launchEnvironment["CMUX_MOBILE_STACK_PASSWORD"] = password
+        if let hub = environment["CMUX_SS_HUB"] { app.launchEnvironment["CMUX_MOBILE_DEVICE_HUB_URL"] = hub }
+        app.launchArguments += ["-cmux-mobile-no-restore"]
+        app.launch()
+        passSetup(app)
+        app.tabBars.buttons["Settings"].tap()
+        let row = app.buttons["settings.screenSharing"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "Screen Sharing row\n\(app.debugDescription)")
+        row.tap()
+        let macRow = app.buttons["screenSharing.mac.\(mac)"].firstMatch
+        XCTAssertTrue(macRow.waitForExistence(timeout: 60), "Mac row \(mac)\n\(app.debugDescription)")
+        XCTAssertTrue(wait(for: macRow, enabled: true, timeout: 60), "Mac \(mac) not shared/online\n\(app.debugDescription)")
+        for attempt in 1...tries {
+            let tapped = Date()
+            macRow.tap()
+            let stats = app.staticTexts["screen.stats"]
+            let up = stats.waitForExistence(timeout: 120)
+            let firstStats = Date()
+            // The path label reads "WebRTC" until ICE reports its pair, then Direct or Relay.
+            let named = NSPredicate { _, _ in stats.label.contains("Direct") || stats.label.contains("Relay") }
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: named, object: nil)], timeout: 10)
+            let label = up ? stats.label : ""
+            let path = label.contains("Relay") ? "relay" : (label.contains("Direct") ? "direct" : "unknown")
+            let line: [String: Any] = [
+                "try": attempt, "connected": up,
+                "tap_to_stats_ms": Int(firstStats.timeIntervalSince(tapped) * 1000),
+                "tap_to_path_ms": Int(Date().timeIntervalSince(tapped) * 1000), "path": path, "stats": label,
+            ]
+            let json = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            print("ss-connect: \(json)")
+            if app.buttons["screen.close"].firstMatch.waitForExistence(timeout: 5) { app.buttons["screen.close"].firstMatch.tap() }
+            XCTAssertTrue(macRow.waitForExistence(timeout: 30), "back on the page after try \(attempt)\n\(app.debugDescription)")
+            XCTAssertTrue(wait(for: macRow, enabled: true, timeout: 30), "Mac row enabled after try \(attempt)")
+            settle(app, 2)
+        }
+    }
+
     // MARK: Helpers
 
     /// The viewer settings: the top bar's options menu.

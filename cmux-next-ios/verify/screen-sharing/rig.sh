@@ -16,6 +16,7 @@
 #                          rig ends it 30 s after "Executed 1 test" so the result bundle and video are written.
 #
 # Environment: HOST (default aws-m4pro-6), DIR (default screen-sharing), SIM_NAME (default cmux-ss-1).
+# ONLY (an -only-testing id; default the see-and-control test), TRIES (testConnectTiming's connects).
 set -euo pipefail
 HOST=${HOST:-aws-m4pro-6}
 DIR=${DIR:-screen-sharing}
@@ -71,10 +72,10 @@ case "${1:-}" in
       rm -rf ss-$label.xcresult ss-$label.mp4; \
       xcrun simctl io \$udid recordVideo --codec=h264 --force ss-$label.mp4 > rec.log 2>&1 & rec=\$!; \
       TEST_RUNNER_CMUX_SS_LIVE=1 TEST_RUNNER_CMUX_SS_MAC='$MAC' TEST_RUNNER_CMUX_SS_EMAIL=\"\$CMUX_UITEST_STACK_EMAIL\" \
-      TEST_RUNNER_CMUX_SS_PASSWORD=\"\$CMUX_UITEST_STACK_PASSWORD\" ${HUB:+TEST_RUNNER_CMUX_SS_HUB=$HUB} \
+      TEST_RUNNER_CMUX_SS_PASSWORD=\"\$CMUX_UITEST_STACK_PASSWORD\" ${HUB:+TEST_RUNNER_CMUX_SS_HUB=$HUB} ${TRIES:+TEST_RUNNER_CMUX_SS_TRIES=$TRIES} \
       xcodebuild test-without-building -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
         -destination id=\$udid -derivedDataPath $products -resultBundlePath ss-$label.xcresult \
-        -only-testing:CmuxMobileAppUITests/ScreenSharingLiveUITests > test-$label.log 2>&1 & xb=\$!; \
+        -only-testing:${ONLY:-CmuxMobileAppUITests/ScreenSharingLiveUITests/testSeeAndControlAMac} > test-$label.log 2>&1 & xb=\$!; \
       ( until grep -q 'Executed 1 test' test-$label.log 2>/dev/null; do sleep 2; done; sleep 30; kill -INT \$xb 2>/dev/null ) & watch=\$!; \
       wait \$xb; rc=\$?; kill \$watch 2>/dev/null; \
       kill -INT \$rec; wait \$rec 2>/dev/null; \
