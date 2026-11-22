@@ -537,6 +537,9 @@ pub struct View {
     grid_below: Option<usize>,
     /// No paint yet: the grid's rows were set for this host state.
     fresh: bool,
+    /// [`Terminal::screen_cleared`] when the grid's rows were set: a clear
+    /// or a switch of screens since gives the rows back to the host's screen.
+    cleared_at: Option<u64>,
 }
 
 impl View {
@@ -560,6 +563,7 @@ impl View {
             rows_below: 0,
             grid_below: None,
             fresh: true,
+            cleared_at: None,
         }
     }
 
@@ -636,6 +640,9 @@ impl View {
             }
         }
         self.fresh = false;
+        if *self.cleared_at.get_or_insert(term.screen_cleared) != term.screen_cleared {
+            self.grid_below = None;
+        }
         if self.settled_host < term.history_dropped {
             // An unsettled line longer than the scrollback lost its start.
             self.needs_reset = true;

@@ -1270,86 +1270,6 @@ fn compare_grid(mac: &Snapshot, phone: &Snapshot) -> Score {
     score
 }
 
-/// Debug: both grids around their differences (PARITY_DUMP=case,case).
-fn dump_grids(title: &str, mac: &Snapshot, phone: &Snapshot) {
-    let row_text = |r: &(Vec<Read>, bool)| -> String {
-        let mut t: String =
-            r.0.iter().map(|c| Key::of(c).text).collect::<String>().trim_end().to_string();
-        let mut runs = String::new();
-        let mut start: Option<(usize, String)> = None;
-        for (x, c) in r.0.iter().enumerate() {
-            let k = Key::of(c);
-            let tag =
-                if k.bg != ColorSpec::Default { format!("{:?}", k.bg) } else { String::new() };
-            match &start {
-                Some((s0, t0)) if *t0 == tag => {
-                    let _ = s0;
-                }
-                _ => {
-                    if let Some((s0, t0)) = start.take()
-                        && !t0.is_empty()
-                    {
-                        let _ = write!(runs, " bg{t0}[{s0}..{x}]");
-                    }
-                    start = Some((x, tag));
-                }
-            }
-        }
-        if let Some((s0, t0)) = start
-            && !t0.is_empty()
-        {
-            let _ = write!(runs, " bg{t0}[{s0}..{}]", r.0.len());
-        }
-        t = format!("{t:?}{runs}");
-        t
-    };
-    let (m, p) = (&mac.rows, &phone.rows);
-    let both = m.len().min(p.len());
-    let mut first_bad = None;
-    for i in 1..=both {
-        let (a, b) = (&m[m.len() - i], &p[p.len() - i]);
-        let w = a.0.len().max(b.0.len());
-        let blank = Key::of(&(Cell::default(), false));
-        let differ = a.1 != b.1
-            || (0..w).any(|x| {
-                a.0.get(x).map(Key::of).unwrap_or_else(|| blank.clone())
-                    != b.0.get(x).map(Key::of).unwrap_or_else(|| blank.clone())
-            });
-        if differ {
-            first_bad = Some(i - 1);
-            break;
-        }
-    }
-    println!(
-        "==== DUMP {title}: mac rows {} cursor-from-bottom {:?} / phone rows {} cursor-from-bottom {:?}; first differing row from bottom {:?}",
-        m.len(),
-        (m.len() - 1 - mac.cursor.0, mac.cursor.1),
-        p.len(),
-        (p.len() - 1 - phone.cursor.0, phone.cursor.1),
-        first_bad
-    );
-    let mut show: Vec<usize> = (0..m.len().max(p.len()).min(45)).collect();
-    if let Some(f) = first_bad {
-        show.extend(f.saturating_sub(6)..f + 10);
-    }
-    show.sort_unstable();
-    show.dedup();
-    let mut last = None;
-    for i in show {
-        if last.is_some_and(|l: usize| l + 1 != i) {
-            println!("   ...");
-        }
-        last = Some(i);
-        let side = |rows: &Vec<(Vec<Read>, bool)>| {
-            rows.len().checked_sub(i + 1).map_or("-".to_string(), |k| {
-                format!("{}{}", if rows[k].1 { "w " } else { "  " }, row_text(&rows[k]))
-            })
-        };
-        println!("  {i:4} M {}", side(m));
-        println!("       P {}", side(p));
-    }
-}
-
 #[derive(Default)]
 struct ResizeRow {
     steps: usize,
@@ -1407,14 +1327,7 @@ fn run_resize_case(case: &ResizeCase) -> ResizeRow {
                     s.cursor_mismatches = 0;
                     s
                 } else {
-                    let s = compare_grid(&mac, &phone);
-                    if (s.mismatched > 0 || s.cursor_mismatches > 0)
-                        && std::env::var("PARITY_DUMP")
-                            .is_ok_and(|d| d.split(',').any(|n| n == case.name))
-                    {
-                        dump_grids(&format!("{} {label} step {step}", case.name), &mac, &phone);
-                    }
-                    s
+                    compare_grid(&mac, &phone)
                 };
                 let size = if last {
                     "after".to_string()
