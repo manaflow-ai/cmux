@@ -91,6 +91,11 @@ extension BackdropSelectionSetting {
     public nonisolated static let displayBackgroundRotationsPath = ["appearance", "displayBackgroundRotations"]
 }
 
+extension BackdropPlacementSetting {
+    /// `appearance.backgroundPlacement`: Where each picture lies in its window or pane (Leo, 2026-11-22: "we also want people to be able to reposition the images easily"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background… and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.
+    public nonisolated static let placementPath = ["appearance", "backgroundPlacement"]
+}
+
 extension PaneBackgroundsSetting {
     /// `appearance.paneBackgrounds`.
     public nonisolated static let configPath = ["appearance", "paneBackgrounds"]

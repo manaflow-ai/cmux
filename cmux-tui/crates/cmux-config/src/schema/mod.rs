@@ -150,6 +150,9 @@ pub enum DomainKind {
     /// `appearance.backgroundMemory`: what each background mode last showed
     /// (`rotate`, `folder`, `off`; Swift `BackdropSelectionSetting.acceptsMemory`).
     BackdropMemory,
+    /// `appearance.backgroundPlacement`: picture ids to placement texts
+    /// (`crate::backdrop_placement`; Swift `BackdropPlacement`).
+    BackdropPlacement,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -426,6 +429,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
+        "domain:backdrop_placement" => Validation::Domain(DomainKind::BackdropPlacement),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),

@@ -59,6 +59,16 @@ public final class WindowMaterialView: NSView {
     /// view, centered, like a macOS wallpaper. Its frame autoresizes with the window, so nothing
     /// is computed per size and nothing jumps while resizing.
     let artView = NSView()
+    /// Adjust Background…'s live placement while the person drags or zooms; nil shows the setting's
+    /// (`WindowMaterialView+Placement.swift`).
+    var previewPlacement: BackdropPlacement? {
+        didSet { if previewPlacement != oldValue { applyPlacement() } }
+    }
+    /// The art's own gravity and placement while a placement draws it (nil: none does), put back
+    /// when it ends.
+    var unplacedArtLook: (gravity: CALayerContentsGravity, placement: NSView.LayerContentsPlacement)?
+    /// Follows `appearance.backgroundPlacement` (``DesignSettings/backgroundPlacements``).
+    var placementWatch: Task<Void, Never>?
     /// Whether this backdrop fills its window, edge to edge (a window's backdrop, not a pane's own
     /// picture): its glass then runs ``glassOutset`` past every edge of the view.
     public let fillsWindow: Bool
@@ -175,6 +185,12 @@ public final class WindowMaterialView: NSView {
         addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
         images.desktop.register(self)
+        observePlacement()
+    }
+
+    override public func layout() {
+        super.layout()
+        applyPlacement()
     }
 
     @available(*, unavailable)
@@ -392,6 +408,7 @@ public final class WindowMaterialView: NSView {
         artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
+        applyPlacement()
         noteGlassSourceChange()
     }
 

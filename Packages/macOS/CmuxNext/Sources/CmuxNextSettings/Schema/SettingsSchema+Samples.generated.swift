@@ -331,6 +331,18 @@ extension SettingsSchemaSamples {
                 .object(["rotate": .number(1)]),
             ]
         ),
+        "domain:backdrop_placement": SampleSet(
+            accept: [
+                .object([:]), .object(["munch-scream": .string("fit")]),
+                .object(["file:/Users/Shared/Harbor.png": .string("fill 0.2 0.8 1.5"), "desktop": .string("center 0.5 0")]),
+            ],
+            refuse: [
+                .string("fit"), .array([]), .object(["munch-scream": .string("cover")]),
+                .object(["munch-scream": .string("fill 2 0")]), .object(["munch-scream": .string("fill 0.5")]),
+                .object(["munch-scream": .string("fill 0.5 0.5 9")]), .object(["": .string("fit")]),
+                .object(["munch-scream": .number(1)]),
+            ]
+        ),
         "domain:backdrop_location": SampleSet(
             accept: [
                 .string("37.77,-122.42"), .string("-33.87, 151.21"), .string("69.65,18.96"),

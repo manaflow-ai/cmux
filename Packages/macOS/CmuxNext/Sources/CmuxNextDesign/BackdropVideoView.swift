@@ -64,11 +64,23 @@ public final class BackdropVideoView: NSView {
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// Where the whole video is drawn in this view when the person placed its picture
+    /// (`appearance.backgroundPlacement`, ``BackdropPlacement``); nil fills the view, centered.
+    public var placedFrame: CGRect? {
+        didSet {
+            guard placedFrame != oldValue else { return }
+            playerLayer.videoGravity = placedFrame == nil ? .resizeAspectFill : .resize
+            playerLayer.autoresizingMask = placedFrame == nil ? [.layerWidthSizable, .layerHeightSizable] : []
+            layer?.masksToBounds = placedFrame != nil
+            needsLayout = true
+        }
+    }
+
     override public func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
+        playerLayer.frame = placedFrame ?? bounds
         CATransaction.commit()
     }
 

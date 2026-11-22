@@ -55,6 +55,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
+        "appearance.backgroundPlacement",
         ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's

@@ -242,6 +242,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
             ),
             SettingDescriptor(
+                BackdropPlacementSetting.placementPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundPlacement", "Background Placement"),
+                help: SettingsText.keyed("settings.appearance.backgroundPlacement.help", "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "position", "fit", "fill", "zoom", "crop"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,

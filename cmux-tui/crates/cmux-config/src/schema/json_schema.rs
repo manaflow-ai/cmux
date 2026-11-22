@@ -176,6 +176,16 @@ fn kind_schema(row: &Row) -> Value {
                 "additionalProperties": false,
             });
         }
+        Validation::Domain(DomainKind::BackdropPlacement) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": "\\S" },
+                "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[ \\t]*(fill|fit|center|stretch)([ \\t]+[0-9.]+[ \\t]+[0-9.]+([ \\t]+[0-9.]+)?)?[ \\t]*$",
+                },
+            });
+        }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }
