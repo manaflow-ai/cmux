@@ -347,6 +347,14 @@ fn each_verb_carries_its_arguments() {
         ["link", "machine", "update", "--socket", "/s"]
     );
     assert_eq!(call(json!({"verb": "machine-pin"})).timeout_seconds, Some(150));
+    let gateway = call(json!({"verb": "inference-gateway-status"}));
+    assert_eq!(
+        (gateway.args, gateway.timeout_seconds),
+        (
+            vec!["inference".to_owned(), "gateway".into(), "status".into(), "--json".into()],
+            Some(10)
+        )
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(

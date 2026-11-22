@@ -5,6 +5,7 @@
 
 mod common;
 
+use sha2::Digest as _;
 use std::path::{Path, PathBuf};
 
 use cmux_server::cli::{Context, dispatch, parse};
@@ -19,6 +20,7 @@ struct Env {
     fetcher: MapFetcher,
     exec: RecordingExec,
     keys: bool,
+    terminal_socket: Option<PathBuf>,
 }
 
 impl Env {
@@ -29,8 +31,51 @@ impl Env {
             fetcher: MapFetcher::default(),
             exec: RecordingExec::default(),
             keys: true,
+            terminal_socket: None,
         };
         std::fs::write(env.exe(), b"#!/bin/sh\necho cmux build A\n").unwrap();
+        // systemd knows no cmux-server.service here (tests answer otherwise).
+        env.runner.answer_always(
+            "--property=LoadState",
+            Output {
+                code: Some(0),
+                stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
+        // The uninstall sweep's daemon: started here, then stopped.
+        env.runner.answer_always(
+            "daemon ensure",
+            Output {
+                code: Some(0),
+                stdout: br#"{"status":"started","session":"main","pid":777}"#.to_vec(),
+                ..Output::default()
+            },
+        );
+        env.runner.answer_always(
+            "--end-terminals",
+            Output {
+                code: Some(0),
+                stdout: br#"{"status":"stopped","session":"main","pid":777}"#.to_vec(),
+                ..Output::default()
+            },
+        );
+        // launchd has no com.cmux.server loaded here.
+        env.runner
+            .answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        env.runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        env.runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
+                ..Output::default()
+            },
+        );
         env
     }
 
@@ -53,6 +98,7 @@ impl Env {
             env: env_for(self.home()),
             now_ms: NOW_MS,
             self_exe: Some(self.exe()),
+            terminal_socket: self.terminal_socket.clone(),
         }
     }
 
@@ -213,4 +259,258 @@ fn uninstall_removes_the_session_unit_and_keeps_the_binary() {
     env.run("uninstall").unwrap();
     assert!(!Path::new(&unit).exists());
     assert!(env.binary().exists(), "the binary stays: cmux clients reuse it over SSH");
+}
+
+/// Uninstall renews every unit file right before it stops the service. For
+/// the session service that must be the session unit cmux renders, never
+/// the store's unit of the same name: had uninstall then failed, the
+/// service would start another program at the next login.
+#[test]
+fn uninstall_stops_the_session_unit_as_cmux_wrote_it() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    let installed = std::fs::read_to_string(&unit).unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let at_stop = std::sync::Arc::clone(&seen);
+    let path = PathBuf::from(&unit);
+    let stop = if cfg!(target_os = "macos") { "launchctl bootout" } else { "disable --now" };
+    env.runner.on_run(stop, move || {
+        *at_stop.lock().unwrap() = std::fs::read_to_string(&path).ok();
+    });
+    env.run("uninstall").unwrap();
+    let seen = seen.lock().unwrap().clone().expect("uninstall never stopped the service");
+    assert_eq!(seen, installed, "the unit at the stop is not the one cmux wrote");
+    let parsed = parse_session_unit(&seen).expect("not a session unit");
+    assert_eq!(parsed.session, "main");
+    assert_eq!(Path::new(&parsed.binary), env.binary());
+}
+
+/// Run in a terminal of the session it uninstalls, uninstall would end that
+/// terminal, and itself with it (SIGHUP), halfway through. It refuses before
+/// it changes anything; so it does in a terminal whose socket is not one of
+/// the default socket paths (a daemon run with `--socket` of its own), since
+/// cmux cannot tell that terminal's session. In a terminal of another session
+/// it runs.
+#[test]
+fn uninstall_refuses_to_run_in_a_terminal_of_the_session() {
+    if skip_as_root() {
+        return;
+    }
+    let uid = unsafe { libc::getuid() };
+    let mut env = Env::new();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    let installed = std::fs::read(&unit).unwrap();
+    let digest = format!("{:x}", sha2::Sha256::digest(b"main"));
+    let refused = [
+        (format!("/tmp/cmux-tui-{uid}/main.sock"), "runs in a terminal of session \"main\""),
+        (
+            format!("/run/user/{uid}/cmux-tui-{uid}/main.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        (
+            format!("/tmp/cmux-tui-hashed-{uid}/{digest}.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        (
+            format!("/tmp/cmux-tui-invalid-{uid}/{digest}.sock"),
+            "runs in a terminal of session \"main\"",
+        ),
+        ("/tmp/custom.sock".to_owned(), "cannot tell"),
+        (format!("/tmp/cmux-tui-{}/other.sock", uid + 1), "cannot tell"),
+        (format!("/tmp/cmux-tui-hashed-{uid}/other.sock"), "cannot tell"),
+    ];
+    for (socket, says) in &refused {
+        env.terminal_socket = Some(socket.into());
+        let before = env.runner.lines().len();
+        let err = env.run("uninstall").unwrap_err().to_string();
+        assert!(err.contains(says) && err.contains("nothing was changed"), "{socket}: {err}");
+        assert_eq!(env.runner.lines().len(), before, "it ran {:?}", &env.runner.lines()[before..]);
+        assert_eq!(std::fs::read(&unit).unwrap(), installed);
+    }
+    env.terminal_socket = Some(format!("/tmp/cmux-tui-{uid}/other.sock").into());
+    env.run("uninstall").unwrap();
+    assert!(!Path::new(&unit).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_planted_next_to_the_binary_is_never_written_through() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let bin = env.home().join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let victim = env.home().join("victim");
+    std::fs::write(&victim, b"keep me").unwrap();
+    // The temporary name an older build used: predictable from the pid.
+    let planted = bin.join(format!(".cmux-tui.{}.tmp", std::process::id()));
+    std::os::unix::fs::symlink(&victim, &planted).unwrap();
+    env.run("install --binary --json").unwrap();
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+    assert_eq!(std::fs::read(env.binary()).unwrap(), std::fs::read(env.exe()).unwrap());
+    assert!(std::fs::symlink_metadata(env.binary()).unwrap().is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_others_can_write_to_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let bin = env.home().join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let err = env.run("install --binary --json").unwrap_err();
+    assert!(format!("{err:?}").contains("chmod go-w"), "{err:?}");
+    assert!(!env.binary().exists());
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    let dir = Path::new(&unit).parent().unwrap().to_owned();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o757)).unwrap();
+    let err = env.run("install --binary --json").unwrap_err();
+    assert!(format!("{err:?}").contains("chmod go-w"), "{err:?}");
+}
+
+#[test]
+fn a_unit_cmux_did_not_write_is_refused_and_left_alone() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let unit = env.run("install --binary --json").unwrap()["unit"].as_str().unwrap().to_owned();
+    env.run("uninstall").unwrap();
+    // A forged header alone does not make a unit cmux's: it must also run cmux.
+    for mine in [
+        "[Service]\nExecStart=/usr/local/bin/my-own-server\n",
+        "# Generated by cmux. Do not edit.\n[Service]\nExecStart=/usr/local/bin/my-own-server\n",
+    ] {
+        std::fs::write(&unit, mine).unwrap();
+        // A new build: the refusal must come before the binary is replaced.
+        std::fs::write(env.exe(), b"#!/bin/sh\necho cmux build C\n").unwrap();
+        let before = env.runner.lines().len();
+        let err = env.run("install --binary --json").unwrap_err();
+        assert!(format!("{err:?}").contains("not written by cmux"), "{err:?}");
+        assert_eq!(std::fs::read_to_string(&unit).unwrap(), mine);
+        assert_eq!(std::fs::read(env.binary()).unwrap(), b"#!/bin/sh\necho cmux build A\n");
+        // Uninstall changes nothing either: no stop, no disable, no removal.
+        let err = env.run("uninstall --purge --json").unwrap_err();
+        assert!(format!("{err:?}").contains("nothing was changed"), "{err:?}");
+        assert_eq!(std::fs::read_to_string(&unit).unwrap(), mine);
+        assert!(env.binary().exists());
+        let lines = env.runner.lines()[before..].join("\n");
+        for verb in ["enable", "start", "disable", "kill", "bootout", "bootstrap", "daemon-reload"]
+        {
+            assert!(!lines.contains(verb), "{verb}: {lines}");
+        }
+        std::fs::write(env.exe(), b"#!/bin/sh\necho cmux build A\n").unwrap();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_unit_systemd_loads_from_elsewhere_is_left_alone() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let elsewhere = || {
+        Output {
+        code: Some(0),
+        stdout: b"LoadState=loaded\nFragmentPath=/usr/lib/systemd/user/cmux-server.service\nTransient=no\n"
+            .to_vec(),
+        ..Output::default()
+    }
+    };
+    env.runner.answer("FragmentPath", elsewhere());
+    let err = env.run("install --binary --json").unwrap_err();
+    assert!(format!("{err:?}").contains("/usr/lib/systemd/user/cmux-server.service"), "{err:?}");
+    assert!(!env.binary().exists(), "refused before the binary was placed");
+    env.runner.answer("FragmentPath", elsewhere());
+    assert!(env.run("uninstall --json").is_err());
+    let lines = env.runner.lines().join("\n");
+    assert!(!lines.contains("disable") && !lines.contains("enable "), "{lines}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_at_the_binary_path_is_replaced_by_a_file() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let elsewhere = env.home().join("elsewhere-cmux");
+    std::fs::copy(env.exe(), &elsewhere).unwrap();
+    std::fs::create_dir_all(env.binary().parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, env.binary()).unwrap();
+    let out = env.run("install --binary --json").unwrap();
+    assert_eq!(out["binary_changed"], true, "{out}");
+    assert!(std::fs::symlink_metadata(env.binary()).unwrap().is_file());
+    assert_eq!(std::fs::read(&elsewhere).unwrap(), std::fs::read(env.exe()).unwrap());
+}
+
+#[test]
+fn install_user_leaves_linger_alone() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    let out = env.run("install --binary --user --json").unwrap();
+    assert_eq!(out["installed"], true, "{out}");
+    let lines = env.runner.lines().join("\n");
+    assert!(!lines.contains("enable-linger"), "{lines}");
+    assert_eq!(env.run("install --user --system").unwrap_err().kind.code(), 2);
+    assert_eq!(env.run("install --label studio").unwrap_err().kind.code(), 2);
+}
+
+#[test]
+fn uninstall_says_what_stays_and_how_to_remove_it() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    env.runner.answer(
+        "show-user",
+        Output { code: Some(0), stdout: b"yes\n".to_vec(), ..Output::default() },
+    );
+    env.run("install --binary").unwrap();
+    env.runner.answer(
+        "show-user",
+        Output { code: Some(0), stdout: b"yes\n".to_vec(), ..Output::default() },
+    );
+    let out = env.run("uninstall --json").unwrap();
+    let notes = out["notes"].to_string();
+    assert!(notes.contains(&format!("rm {}", env.binary().display())), "{out}");
+    if cfg!(target_os = "linux") {
+        assert!(notes.contains("loginctl disable-linger"), "{out}");
+    }
+}
+
+#[test]
+fn logs_shows_the_service_log() {
+    if skip_as_root() {
+        return;
+    }
+    let env = Env::new();
+    assert_eq!(env.run("logs --lines 0").unwrap_err().kind.code(), 2);
+    assert_eq!(env.run("logs --lines many").unwrap_err().kind.code(), 2);
+    if cfg!(target_os = "linux") {
+        // Human output replaces this process with journalctl.
+        let _ = env.run("logs --lines 5 --follow");
+        let requests = env.exec.requests();
+        let last = requests.last().expect("an exec");
+        assert!(last.program.ends_with("journalctl"), "{last:?}");
+        assert_eq!(
+            last.args,
+            ["--user", "--unit", "cmux-server.service", "--lines", "5", "--no-pager", "--follow"]
+        );
+    } else if cfg!(target_os = "macos") {
+        let out = env.run("logs --json").unwrap();
+        assert_eq!(out["lines"], serde_json::json!([]), "{out}");
+    }
 }

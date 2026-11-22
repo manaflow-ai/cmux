@@ -46,6 +46,7 @@ public struct CloudConnectHedge: Sendable {
     /// Attempts of a hedged read in all.
     public var maxAttempts: Int
 
+    // short-gate: a hedge, not a give-up; each attempt keeps the read's own deadline.
     public init(stagger: Duration = .seconds(1), maxAttempts: Int = 3) {
         self.stagger = stagger
         self.maxAttempts = max(1, maxAttempts)
