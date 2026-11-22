@@ -300,6 +300,7 @@
         "Publish verified nightly release metadata": {"nightly_only": "edits published GitHub release metadata (publish-release-assets.py tested by tests/test_github_release_publication.py)"},
         "Upload nightly appcasts to R2": {"nightly_only": "uploads appcasts to R2 (secret)"},
         "Publish the Chromium runtime pack": {"nightly_only": "publishes Chromium runtime to R2"},
+        "Publish the language packs": {"nightly_only": "publishes the language packs to R2 (publish-language-packs.sh; language-packs.py split and verify are tested by tests/test_cmux_next_language_packs.py)"},
         "Publish the nightly-next download to R2": {"nightly_only": "uploads the DMG to the nightly-next R2 bucket with release-next secrets (publish-nightly-next-r2.py tested by tests/test_publish_nightly_next_r2.py)"},
         "Hand the published feed to the GitHub release job": {"plumbing": true},
         "Upload nightly-next appcasts to R2": {"nightly_only": "writes the nightly-next feed to R2 (compare-and-swap tested by tests/test_publish_nightly_next_r2.py)"},
@@ -346,6 +347,8 @@
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push or dispatch"},
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac; its guard is checked by tests/test_nightly_build_runner.py"}},
+      "pick-nightly-next-signer": {
+        "Pick an idle signer Mac, else the one whose build ends soonest": {"nightly_only": "chooses the live nightly-next run's signer from the runner census and active jobs; tests/test_nightly_next_signer_pick.py exercises the same decision with fixtures"}},
       "pick-nightly-sign-runner": {
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1; its guard is checked by tests/test_nightly_sign_runner.py"},
@@ -514,6 +517,7 @@
         "Tag the new build's items from the live Dev ring switch": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
         "Publish the nightly-next download to R2": {"nightly_only": "uploads the DMG to the nightly-next R2 bucket with release-next secrets (publish-nightly-next-r2.py tested by tests/test_publish_nightly_next_r2.py)"},
         "Publish the Chromium runtime pack": {"nightly_only": "publishes Chromium runtime to R2"},
+        "Publish the language packs": {"nightly_only": "publishes the language packs to R2 (publish-language-packs.sh; language-packs.py split and verify are tested by tests/test_cmux_next_language_packs.py)"},
         "Read the live nightly-next feed before the write": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Upload nightly-next appcasts to R2": {"nightly_only": "writes the nightly-next feed to R2 (compare-and-swap tested by tests/test_publish_nightly_next_r2.py)"},
         "Hand the published feed to the GitHub release job": {"plumbing": true},

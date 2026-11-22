@@ -35,4 +35,12 @@ public protocol MenuBarExtraHost: AnyObject {
     func menuBarResumeComputerUse(_ session: String)
     /// Rings Computer Use session `session`'s agent cursor where it is (the menu's Show Cursor).
     func menuBarShowComputerUseCursor(_ session: String)
+    /// Installed extensions' menu bar status items (`cmux.status/1`, `placement: menuBar`), each a fresh
+    /// view of its drawn scene, made as the menu opens; empty when no extension contributes one.
+    func menuBarExtensionRows() -> [NSView]
+}
+
+extension MenuBarExtraHost {
+    /// A host with no extensions shows none.
+    public func menuBarExtensionRows() -> [NSView] { [] }
 }

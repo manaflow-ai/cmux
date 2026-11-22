@@ -452,6 +452,10 @@ fn list_lines(listing: &Listing) -> String {
                 what.push(code.note.clone());
             }
         }
+        if let Some(until) = entry.until_ms {
+            let left = until.saturating_sub(super::now_ms());
+            what.push(format!("trying it on: off by itself in {}", expire::minutes(left)));
+        }
         let words = entry.words.first().map(|w| format!("  \"{w}\"")).unwrap_or_default();
         out.push_str(&format!(
             "{:>3} {} {:width$}  {}{}\n      {}\n",
