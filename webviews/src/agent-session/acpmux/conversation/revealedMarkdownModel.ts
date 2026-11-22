@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
@@ -153,7 +153,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         // renders in a later task, so the first frame back showed the reply as the user left it and
         // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
         if (away) flushSync(() => setShown(next));
-        else setShown(next);
+        else startTransition(() => setShown(next));
       }
       const held = length < target.length;
       if (!current.settled || fresh.length || held) state.handle = revealFrames.request(tick);

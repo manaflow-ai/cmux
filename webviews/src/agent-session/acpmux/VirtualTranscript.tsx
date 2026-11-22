@@ -101,7 +101,7 @@ import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
-import { drewStreamingRow, useStreamingRow } from "./streamingRow";
+import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
@@ -428,6 +428,18 @@ type DrawnHeights = LayeredMap<DrawnHeight>;
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>): boolean {
   for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
+  return false;
+}
+
+/// Whether `updates` move any row from where `current` places it: `changesDrawn` but for a version
+/// alone. Placement never reads a drawn height's version (a streamed token keeps the height placed
+/// at an older one, `queueDrawn`), so a row read again at a newer version and the same height
+/// places nothing new.
+function movesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>): boolean {
+  for (const [id, entry] of updates) {
+    const old = current.get(id);
+    if (!old || !sameDrawn({ ...old, version: entry.version }, entry)) return true;
+  }
   return false;
 }
 
@@ -2059,7 +2071,8 @@ function TranscriptView({
   useCountedRender("transcript");
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
-  const live = useStreamingRow(streams);
+  // `catchUpLive` takes the newest chunk into a synchronous pass that places a grown row (`observer`).
+  const { live, catchUp: catchUpLive } = useStreamingRowCatchUp(Boolean(streams));
   const rows = useMemo(() => {
     if (!streams || !live) return paneRows;
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
@@ -2283,8 +2296,10 @@ function TranscriptView({
     // measured the growth already drew there (`projectedTop`). Its scroll event then drew the whole
     // transcript again for no change, about one pass in four of a streamed reply
     // (test/agent-pane-stream-renders.test.ts).
+    // The browser holds the offset to whole pixels (Chrome floors a projected 512112.75 to 512112):
+    // within a pixel of the drawn offset is the drawn offset.
     const drew = drewScroll.current;
-    if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
+    if (drew && Math.abs(frame.top - drew.top) < 1 && drew.following === followingRef.current) return;
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
@@ -3613,8 +3628,18 @@ function TranscriptView({
               // 29 px; send-stream-motion). A second pass runs only when a height moved under the
               // first, and none while input waits (above): a streamed token still places once.
               // Still moving after them (or input came): the next commit places it.
+              // The streamed chunk still waiting on its transition goes into the same pass: that
+              // pass draws the transcript anyway, and the chunk's own pass then commits nothing. A
+              // reply's line was two whole transcript passes, one for the height and one for the
+              // chunk (test/agent-pane-stream-renders.test.ts: 1.33 passes a chunk, 1.0 now).
+              const placeAndCatchUp = () => {
+                flushDrawn();
+                catchUpLive();
+              };
+              // A pass after the first reads the rows at the chunk it took in: a version alone moved
+              // nothing, and placing it again was a third pass for no change.
               for (let pass = 0; pass <= 3; pass += 1) {
-                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+                if (!(pass > 0 ? movesDrawn : changesDrawn)(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
                   break;
                 }
@@ -3622,12 +3647,12 @@ function TranscriptView({
                   flushDrawn();
                   break;
                 }
-                acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+                acpmuxPerf.timed("flush.drawn", () => flushSync(placeAndCatchUp));
                 measure();
               }
             } else flushDrawn();
           }),
-    [reportRow, flushDrawn],
+    [reportRow, flushDrawn, catchUpLive],
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
