@@ -212,6 +212,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::CHAT_FIX_FROM_LINK_PREPARE, Request),
         untyped(method::CHAT_FIX_FROM_LINK, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
+        request::<session::UsageParams, session::UsageResult>(method::MUX_USAGE),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),

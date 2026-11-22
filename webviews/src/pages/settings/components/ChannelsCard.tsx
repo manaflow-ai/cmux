@@ -98,7 +98,7 @@ function BuildRow({
             {build.commit && build.commit_url && (
               <>
                 {" · "}
-                <a href={build.commit_url} title={labels.commit} className="channel-link font-mono">
+                <a href={build.commit_url} aria-description={labels.commit} className="channel-link font-mono">
                   {build.commit}
                 </a>
               </>
