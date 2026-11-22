@@ -293,7 +293,7 @@ class Capture:
             raise CaptureError(f"block {self.blocks}: {len(self.names)} flips sent, {len(flips)} seen in the video "
                                f"({decoded.get('frames')} frames at {decoded.get('fps')} fps)")
         if self.keep_next:
-            # A clip of this block (tab_switch_restored --keep-clips): the video and each flip's time in it.
+            # A clip of this block (tab_switch_restored.py, unless --no-clips): the video and each flip's time in it.
             os.makedirs(os.path.dirname(self.keep_next), exist_ok=True)
             kept = self.keep_next + (os.path.splitext(video)[1] or ".mov")
             shutil.copyfile(video, kept)

@@ -1225,9 +1225,9 @@ def main(argv=None):
                              "SESSIONSxWORKSPACES, or none")
     parser.add_argument("--seeder", help="the built cmux-tui acpmux example scale_home (needed with --scale)")
     parser.add_argument("--launch-record", type=float, default=8.0, help="seconds recorded after each relaunch")
-    parser.add_argument("--keep-clips", action="store_true",
-                        help="keep the video of the first block of chromium-warm and chromium-restored under idle "
-                             "(OUT/clips/, with each flip's time in it)")
+    parser.add_argument("--no-clips", action="store_true",
+                        help="drop the video of the first block of chromium-warm and chromium-restored under idle "
+                             "(kept by default in OUT/clips/, with each flip's time in it)")
     parser.add_argument("--chat-perf", action="store_true",
                         help="the settle matrix also runs the measured chat page's own capture (agent.chat.perf) over "
                              "each step: its long tasks and layout shift say whether the page did work")

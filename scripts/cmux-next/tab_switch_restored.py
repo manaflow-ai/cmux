@@ -308,7 +308,9 @@ class Restored:
         self.shown_since_launch = set()
         self.notes = []
         self.eval_ok = None
-        self.clips = getattr(h.args, "keep_clips", False)
+        # The first block of each scenario under idle keeps its video (OUT/clips/, a few MB): the one switch a person
+        # reads, beside the numbers. --no-clips drops them.
+        self.clips = not getattr(h.args, "no_clips", False)
 
     # -- build ---------------------------------------------------------------------------------------------------
 

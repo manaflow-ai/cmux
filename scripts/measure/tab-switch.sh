@@ -22,9 +22,7 @@
 #                   pane), L3 (the focused chat is a 100k-row chat, streaming), L4 (every core pinned), L5 (all of
 #                   them plus STRESS: 60 workspaces, 20 printing terminals; run last); also cpu-max, agents-N,
 #                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
-#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab,chromium-warm,chromium-restored
-#                   (default; the last two: ten Chromium tabs switched 20 times live, then after a relaunch restored
-#                   them, reloads and restarted downloads counted, scripts/cmux-next/tab_switch_restored.py), or all: also
+#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
 #                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
 #                   open-while-close; or matrix: the settle matrix (scripts/cmux-next/tab_switch_matrix.py), trigger to
 #                   truly settled over the window, the page side and the sidebar for workspace switches cold and warm,
@@ -37,8 +35,6 @@
 #                   cmux-tui acpmux `examples/scale_home.rs`, built here; 205 of them opened as workspaces, 206 in
 #                   all), SESSIONSxWORKSPACES, or none (default)
 #    launch_record=S  seconds recorded after each launch-restore relaunch (default 8)
-#    clips=1        keep the video of the first five chromium-warm and chromium-restored switches under idle
-#                   (.build/tab-switch/clips/, each flip's time beside it)
 #    chat_perf=1    the settle matrix also runs the chat page's own capture (agent.chat.perf) over each step
 #    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
 #    rows=N         rows of the 100k-row chat (default 100000)
@@ -283,7 +279,7 @@ app_under_test() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
-  local record="" rows="" scale=none launch_record="" chat_perf=0 clips=0
+  local record="" rows="" scale=none launch_record="" chat_perf=0
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -300,7 +296,6 @@ frames_main() {
       scale=*) scale="${arg#scale=}" ;;
       launch_record=*) launch_record="${arg#launch_record=}" ;;
       chat_perf=0|chat_perf=1) chat_perf="${arg#chat_perf=}" ;;
-      clips=0|clips=1) clips="${arg#clips=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -355,7 +350,6 @@ frames_main() {
   [[ "$scale" != none ]] && scenario_args+=(--scale "$scale" --seeder "$tmp/scale_home")
   [[ -n "$launch_record" ]] && scenario_args+=(--launch-record "$launch_record")
   [[ "$chat_perf" == 1 ]] && scenario_args+=(--chat-perf)
-  [[ "$clips" == 1 ]] && scenario_args+=(--keep-clips)
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" tsw_step TSW bench "$TSW_RUN_MAX" "$out/run.log" --stream -- \
