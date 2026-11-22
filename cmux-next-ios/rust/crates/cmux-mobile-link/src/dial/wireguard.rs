@@ -1429,7 +1429,7 @@ impl HybridUnderlay {
     fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
         let Some(impair) = self.options.impair_inbound else { return false };
         let Some(from) = origin.addr else { return false };
-        match impair(origin.path == TURN_PATH, &from) {
+        match impair(origin.path == TURN_PATH, &from, datagram.len()) {
             None => true,
             Some(delay) if delay.is_zero() => false,
             Some(delay) => {
