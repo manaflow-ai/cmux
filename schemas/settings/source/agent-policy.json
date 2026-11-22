@@ -491,7 +491,8 @@
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
-        "experiments.menuRowStates"
+        "experiments.menuRowStates",
+        "experiments.toastsV2"
       ]
     },
     {

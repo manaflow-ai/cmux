@@ -4,6 +4,7 @@
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
+import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
@@ -109,6 +110,7 @@ import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
+import { toastsV2 } from "../ui/toastsV2.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -116,6 +118,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   treeNameFade,
   sessionReplay,
   steerQueueExperiment,
+  statusIslandExperiment,
   chiefDock,
   hoverActions,
   startedSessionCards,
@@ -225,6 +228,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerEmptyHeight,
   menuStyleV2,
   menuRowStates,
+  toastsV2,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
