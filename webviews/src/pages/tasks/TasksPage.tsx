@@ -9,7 +9,8 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuCheckboxItem, MenuGroup, MenuPopup, MenuSeparator } from "../../ui/Menu";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { VirtualList } from "../../ui/VirtualList";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import {
   agentName,
@@ -26,17 +27,7 @@ import {
   type IntentKind,
   type Mirror,
 } from "./model";
-import {
-  AssigneeBadge,
-  AttentionDot,
-  Dot,
-  LabelChips,
-  LabelDots,
-  PriorityMark,
-  Progress,
-  StatusMark,
-  ansi,
-} from "./Glyphs";
+import { AssigneeBadge, AttentionDot, LabelChips, LabelDots, PriorityMark, Progress, StatusMark, ansi } from "./Glyphs";
 import type { TasksStore, TasksSnapshot } from "./store";
 import type { Label, Layout, Session, Status, Task } from "./types";
 
@@ -60,7 +51,7 @@ export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
   // An owner that does not answer is said only once that lasts (ui/lasting.ts): a launch or a daemon
   // restart leaves it unreachable for a few seconds, and the board stays as it was meanwhile. One that
   // never answered names the command that starts it at once: that is the person's to do.
-  const unreachableLasting = useLasting(state.connection === "unreachable");
+  const unreachableLasting = useConnectionQuiet(state.connection === "unreachable");
   if (!state.everConnected && state.connection === "unreachable") {
     return (
       <main className="tasks-page">
@@ -70,13 +61,8 @@ export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
   }
   return (
     <main className="tasks-page" data-layout={layout} aria-busy={state.connection === "connecting"}>
-      {unreachableLasting ? (
-        <output className="tasks-banner">
-          {/* icon-scale-allow: a status dot, not an icon */}
-          <Dot size={6} />
-          {t("owner.lost")}
-        </output>
-      ) : null}
+      {/* A corner mark, out of flow (ui/ConnectionChip.tsx): the list under it never moves. */}
+      {unreachableLasting ? <ConnectionChip text={t("owner.lost")} /> : null}
       {state.scope === "mine" ? (
         <div className="tasks-scope-bar">
           <Icon name="account" size={14} />

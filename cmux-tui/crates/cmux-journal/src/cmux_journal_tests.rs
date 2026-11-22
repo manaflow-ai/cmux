@@ -306,6 +306,41 @@ fn appends_past_the_pending_cap_fail_without_waiting() {
     assert_eq!(journal.append(1, Class::Ack, &too_large), Err(AppendError::TooLarge));
 }
 
+/// A reservation holds its room until its append: appends that reserved room are never refused
+/// for the queue's size, however many threads reserved before any of them appended, and the
+/// rest are refused once the reserved room fills the queue (acpmux's journal store reserves,
+/// writes a chat's log, then appends, with no lock across chats).
+#[test]
+fn a_reserved_append_is_never_refused_for_the_queue() {
+    let storage = SimStorage::new(37);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    // The writer may take the first record at once: fill the queue past its cap with reserves.
+    let mut held = Vec::new();
+    let refused = loop {
+        match journal.reserve(big.len()) {
+            Ok(room) => held.push(room),
+            Err(error) => break error,
+        }
+        assert!(held.len() < 50, "the reserved room never filled the queue");
+    };
+    assert_eq!(refused, AppendError::Backlog);
+    assert_eq!(journal.check_append(big.len()), Err(AppendError::Backlog));
+    assert_eq!(journal.append(1, Class::Ack, &big), Err(AppendError::Backlog));
+    for room in held.drain(..) {
+        room.append(1, Class::Ack, &big).unwrap_or_else(|e| panic!("a reserved append: {e}"));
+    }
+    // A reservation that drops unused gives its room back.
+    storage.set_sync_delay(Duration::ZERO);
+    let lsn = journal.last_lsn();
+    journal.wait_durable(lsn, Duration::from_secs(10)).unwrap_or_else(|e| panic!("{e}"));
+    let room = journal.reserve(big.len()).unwrap_or_else(|e| panic!("{e}"));
+    drop(room);
+    assert_eq!(journal.check_append(big.len()), Ok(()));
+}
+
 /// `check_append` says what `append` would do: a caller that checks under its own lock, writes
 /// elsewhere, then appends, is never refused after it wrote (acpmux's journal store).
 #[test]
