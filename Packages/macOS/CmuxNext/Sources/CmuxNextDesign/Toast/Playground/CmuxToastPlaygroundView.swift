@@ -7,6 +7,8 @@ import AppKit
 final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     private let center: CmuxToastCenter
     private(set) var rows: [CmuxToastPlaygroundRow] = []
+    /// The Corner row: the close toast at each corner on the design scale (Leo, 2026-11-22).
+    private(set) var corners: CmuxToastPlaygroundCorners?
     private let pickedLabel = ThemedLabel(labelWithString: "")
     private let cards: [CmuxToastPlaygroundCard]
     private let openKeycaps: (@MainActor () -> Void)?
@@ -39,6 +41,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
                 center?.pick($0)
             }
         }
+        corners = CmuxToastPlaygroundCorners(themes: themes, tuning: tuning)
         build()
         center.styles.follow(self)
         toastStyleDidChange(center.style)
@@ -55,7 +58,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
             + "Pick makes it the style of every toast and prompt in the app, now and after a relaunch.")
         intro.font = Typography.body
         intro.themeColor = { Palette.textSecondary }
-        let column = NSStackView(views: [pickedLabel, intro] + keycapsRow() + cardsRow() + rows)
+        let column = NSStackView(views: [pickedLabel, intro] + keycapsRow() + cardsRow() + [corners].compactMap { $0 } + rows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 28
@@ -84,7 +87,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
             column.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             intro.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48),
         ]
-        constraints += rows.map { $0.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48) }
+        constraints += (rows + [corners].compactMap { $0 }).map { $0.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48) }
         NSLayoutConstraint.activate(constraints)
     }
 
@@ -156,7 +159,7 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
 
     /// Every sheet's toasts enter, as when they first show.
     func enter() {
-        rows.flatMap(\.sheets).forEach { $0.enter() }
+        (rows.flatMap(\.sheets) + (corners?.sheets ?? [])).forEach { $0.enter() }
     }
 }
 
