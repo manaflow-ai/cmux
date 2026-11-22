@@ -9,6 +9,7 @@ pub(crate) mod cpu;
 #[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
 pub(crate) mod cursor;
+mod display_pick;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
@@ -77,8 +78,10 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
+    // The cursor is in the pictures unless the viewer draws it or asked for none at all.
+    let in_pictures = !cursor_metadata && cfg.show_cursor;
     let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
