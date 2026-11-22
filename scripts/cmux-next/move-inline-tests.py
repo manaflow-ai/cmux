@@ -178,6 +178,7 @@ def main():
         min_bytes = int(args[k + 1])
         del args[k:k + 2]
     total = count = 0
+    written = []
     for path in args:
         text, moves = plan(path, min_bytes)
         if not moves:
@@ -194,7 +195,24 @@ def main():
                     f.write(new_body)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
+            written += [dest for _, _, _, dest, _, _ in moves]
+    if written:
+        rustfmt(written)
     print(f"total {total} bytes in {count} moves")
+
+
+def rustfmt(paths):
+    """Format the moved bodies as CI's autofix would: one level less indentation lets rustfmt join lines it had
+    wrapped, and an unformatted file draws a bot commit that moves the PR's head (cmux#49124 twice). rustfmt finds
+    the nearest rustfmt.toml itself; the edition comes from the workspace (cmux-tui: 2024)."""
+    import shutil
+    import subprocess
+    if not shutil.which("rustfmt"):
+        print("warning: rustfmt not found; the moved files are unformatted", file=sys.stderr)
+        return
+    done = subprocess.run(["rustfmt", "--edition", "2024", *paths], check=False)
+    if done.returncode:
+        print(f"warning: rustfmt exited {done.returncode} on the moved files", file=sys.stderr)
 
 
 main()

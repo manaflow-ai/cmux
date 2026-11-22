@@ -192,10 +192,7 @@ async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
         },
     )
     .await;
-    assert!(matches!(
-        receive_control(&mut daemon_control).await,
-        RelayControl::Registered { .. }
-    ));
+    assert!(matches!(receive_control(&mut daemon_control).await, RelayControl::Registered { .. }));
 
     let mut client_control = server.connect().await;
     send_control(
@@ -263,8 +260,7 @@ async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
         },
     )
     .await;
-    let ready =
-        RelayControl::Ready { circuit: circuit.clone(), lane: lane.clone(), generation };
+    let ready = RelayControl::Ready { circuit: circuit.clone(), lane: lane.clone(), generation };
     assert_eq!(receive_control(&mut client_circuit).await, ready);
     assert_eq!(
         receive_control(&mut daemon_circuit).await,
@@ -275,27 +271,16 @@ async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
         .send(ClientMessage::Binary(Bytes::from_static(b"client ciphertext")))
         .await
         .unwrap();
-    assert_eq!(
-        receive_binary(&mut daemon_circuit).await,
-        Bytes::from_static(b"client ciphertext")
-    );
+    assert_eq!(receive_binary(&mut daemon_circuit).await, Bytes::from_static(b"client ciphertext"));
     daemon_circuit
         .send(ClientMessage::Binary(Bytes::from_static(b"daemon ciphertext")))
         .await
         .unwrap();
-    assert_eq!(
-        receive_binary(&mut client_circuit).await,
-        Bytes::from_static(b"daemon ciphertext")
-    );
+    assert_eq!(receive_binary(&mut client_circuit).await, Bytes::from_static(b"daemon ciphertext"));
 
     assert_eq!(
         server.relay.health().await,
-        HealthSnapshot {
-            status: "ok",
-            daemon_slots: 1,
-            pending_circuits: 0,
-            ready_circuits: 1,
-        }
+        HealthSnapshot { status: "ok", daemon_slots: 1, pending_circuits: 0, ready_circuits: 1 }
     );
 
     daemon_circuit
@@ -367,10 +352,7 @@ async fn register_tickets_outside_lifetime_skew_version_or_signature_are_refused
     let now = unix_timestamp(SystemTime::now()).unwrap();
     let max = RelayTicketClaims::MAX_LIFETIME_SECONDS;
     let refused = [
-        (
-            "lifetime over five minutes",
-            signed_register_ticket(&config, 2, now, now, now + max + 1),
-        ),
+        ("lifetime over five minutes", signed_register_ticket(&config, 2, now, now, now + max + 1)),
         (
             "issued over five minutes ago",
             signed_register_ticket(&config, 2, now - max - 1, now - max - 1, now + 10),
@@ -453,10 +435,7 @@ async fn hmac_provider_and_join_tickets_enforce_permission_lane_and_generation()
         },
     )
     .await;
-    assert!(matches!(
-        receive_control(&mut daemon_control).await,
-        RelayControl::Registered { .. }
-    ));
+    assert!(matches!(receive_control(&mut daemon_control).await, RelayControl::Registered { .. }));
 
     let lane = LaneToken("interactive".into());
     let generation = 19;
@@ -546,9 +525,7 @@ async fn health_endpoint_is_available_without_a_websocket_upgrade() {
         TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
     let mut stream = TcpStream::connect(server.address).await.unwrap();
     stream
-        .write_all(
-            format!("GET /healthz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes(),
-        )
+        .write_all(format!("GET /healthz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes())
         .await
         .unwrap();
     let mut response = Vec::new();
@@ -595,11 +572,8 @@ async fn browser_origin_is_rejected_before_relay_admission() {
     let server = TestServer::start(config).await;
 
     for path in ["/v1/relay", "/ws"] {
-        let mut request =
-            format!("ws://{}{path}", server.address).into_client_request().unwrap();
-        request
-            .headers_mut()
-            .insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
+        let mut request = format!("ws://{}{path}", server.address).into_client_request().unwrap();
+        request.headers_mut().insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
         let error =
             connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
         let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
@@ -626,9 +600,7 @@ async fn partial_http_headers_expire_and_raw_admission_remains_bounded() {
 
     let mut queued = TcpStream::connect(server.address).await.unwrap();
     queued
-        .write_all(
-            format!("GET /healthz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes(),
-        )
+        .write_all(format!("GET /healthz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes())
         .await
         .unwrap();
     let mut first_byte = [0_u8; 1];
@@ -689,8 +661,7 @@ async fn per_slot_pending_circuit_quota_bounds_repeated_connect() {
     };
     let server = TestServer::start(config).await;
     let mut daemon = register_open_daemon(&server, "slot-a").await;
-    let mut client =
-        open_client_control(&server, &mut daemon, "slot-a", "interactive", 1).await;
+    let mut client = open_client_control(&server, &mut daemon, "slot-a", "interactive", 1).await;
     send_control(
         &mut client,
         RelayControl::Connect {
@@ -720,8 +691,7 @@ async fn per_slot_sliding_rate_limit_bounds_repeated_connect() {
     };
     let server = TestServer::start(config).await;
     let mut daemon = register_open_daemon(&server, "slot-a").await;
-    let mut client =
-        open_client_control(&server, &mut daemon, "slot-a", "interactive", 1).await;
+    let mut client = open_client_control(&server, &mut daemon, "slot-a", "interactive", 1).await;
     send_control(
         &mut client,
         RelayControl::Connect {
@@ -781,11 +751,7 @@ async fn register(server: &TestServer, ticket: String) -> TestSocket {
     let mut daemon = server.connect().await;
     send_control(
         &mut daemon,
-        RelayControl::Register {
-            protocol: REMOTE_PROTOCOL_VERSION,
-            slot: "slot-a".into(),
-            ticket,
-        },
+        RelayControl::Register { protocol: REMOTE_PROTOCOL_VERSION, slot: "slot-a".into(), ticket },
     )
     .await;
     assert!(matches!(receive_control(&mut daemon).await, RelayControl::Registered { .. }));
@@ -821,19 +787,12 @@ async fn a_ticket_that_ran_out_unrenewed_answers_connect_with_credential_unavail
     .await;
     tokio::time::sleep(Duration::from_millis(2_100)).await;
     // Before the sweep, the expired registration already says why.
-    assert_eq!(
-        code_of(&connect_answer(&server, &config).await),
-        ("credential-unavailable", true)
-    );
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("credential-unavailable", true));
     server.relay.cleanup_expired(Instant::now()).await;
-    assert_eq!(
-        code_of(&connect_answer(&server, &config).await),
-        ("credential-unavailable", true)
-    );
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("credential-unavailable", true));
 
     let _renewed =
-        register(&server, provider_ticket(&config, RelayPermission::Register, None, None))
-            .await;
+        register(&server, provider_ticket(&config, RelayPermission::Register, None, None)).await;
     assert!(matches!(connect_answer(&server, &config).await, RelayControl::Allocated { .. }));
 }
 
@@ -849,8 +808,7 @@ async fn a_silent_daemon_whose_lease_ran_out_is_slot_offline() {
     };
     let server = TestServer::start(config.clone()).await;
     let _daemon =
-        register(&server, provider_ticket(&config, RelayPermission::Register, None, None))
-            .await;
+        register(&server, provider_ticket(&config, RelayPermission::Register, None, None)).await;
     tokio::time::sleep(Duration::from_millis(1_200)).await;
     assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
     server.relay.cleanup_expired(Instant::now()).await;

@@ -56,8 +56,6 @@ fn light_field_round_trips() {
     let mut rim = CmuxLightRim::default();
     let rect = [0., 0., 400., 1000.];
     // SAFETY: every pointer is valid for its size.
-    assert!(unsafe {
-        cmux_motion_light_rim(&field, xy[0], xy[1], rect.as_ptr(), 1886., &mut rim)
-    });
+    assert!(unsafe { cmux_motion_light_rim(&field, xy[0], xy[1], rect.as_ptr(), 1886., &mut rim) });
     assert!(rim.alpha > 0. && rim.center_x > 1., "the light lies right of a sidebar: {rim:?}");
 }

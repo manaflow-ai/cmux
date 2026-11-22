@@ -62,17 +62,11 @@ fn a_person_cannot_sign_in_over_a_join() {
     machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
     let token = dir.join("token");
     identity::write_private(&token, b"person-token").unwrap();
-    let args = Args::parse(&[
-        "enable".into(),
-        "--stack-token-file".into(),
-        token.display().to_string(),
-    ])
-    .unwrap();
+    let args =
+        Args::parse(&["enable".into(), "--stack-token-file".into(), token.display().to_string()])
+            .unwrap();
     let Err(e) = sign_in_and_register(&args, &dir) else { panic!("signed in over the join") };
-    assert_eq!(
-        e.to_string(),
-        "this machine is joined to p:b; run `acpmux machine leave` first"
-    );
+    assert_eq!(e.to_string(), "this machine is joined to p:b; run `acpmux machine leave` first");
     assert_eq!(
         machine::Joined::load(&dir).unwrap(),
         Some(machine::Joined { acpmux_home: home.clone(), ..Default::default() })
@@ -263,8 +257,8 @@ fn a_dropped_hub_link_stops_the_session_it_served() {
 }
 
 fn consent_dir(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
@@ -429,10 +423,7 @@ fn a_joined_machine_signs_itself_in_registers_and_turns_sharing_on() {
     let join = machine::Join::at(std::path::Path::new("/acpmux-home"), credential, &origin);
     let (hub, account) = sign_in_machine(&dir, &join, None).unwrap();
     assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
-    assert_eq!(
-        account,
-        Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 }
-    );
+    assert_eq!(account, Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 });
     assert_eq!(Account::load(&dir).unwrap(), Some(account));
     assert_eq!(
         machine::Joined::load(&dir).unwrap(),
@@ -474,9 +465,7 @@ fn without_a_join_an_anchored_account_stays() {
     let old = Device::generate("desk").unwrap();
     old.save(&dir).unwrap();
     let hub = "http://127.0.0.1:1".to_owned();
-    Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
-        .save(&dir)
-        .unwrap();
+    Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }.save(&dir).unwrap();
     let kept = join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().unwrap();
     assert_eq!(kept.id, old.id);
     let _ = std::fs::remove_dir_all(&dir);

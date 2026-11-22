@@ -40,14 +40,9 @@ async fn bound_invitation(
 ) -> EnrollmentInvitation {
     let bound =
         BoundDevice::parse(&encode_key(&device.public_key()), name.map(Into::into)).unwrap();
-    auth.create_invitation_for_device(
-        Duration::from_secs(60),
-        Vec::new(),
-        Vec::new(),
-        Some(bound),
-    )
-    .await
-    .unwrap()
+    auth.create_invitation_for_device(Duration::from_secs(60), Vec::new(), Vec::new(), Some(bound))
+        .await
+        .unwrap()
 }
 
 async fn claim(auth: &Arc<AuthDatabase>, request: AuthRequest) -> Result<AuthGrant, String> {
@@ -66,9 +61,8 @@ async fn a_bound_invitation_refuses_another_device_and_queues_nothing() {
     let invitation = bound_invitation(&auth, &bound, None).await;
     assert!(!invitation.approval_required);
 
-    let error = claim(&auth, invitation_request(&invitation.id, &stranger, "stranger"))
-        .await
-        .unwrap_err();
+    let error =
+        claim(&auth, invitation_request(&invitation.id, &stranger, "stranger")).await.unwrap_err();
 
     assert_eq!(error, "invitation is bound to another device");
     assert!(auth.pending_enrollments().await.is_empty());
@@ -132,12 +126,10 @@ async fn a_bound_invitation_survives_a_daemon_restart() {
     assert!(persisted.contains(&encode_key(&device.public_key())), "{persisted}");
 
     let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
-    let error = claim(&auth, invitation_request(&invitation.id, &stranger, "stranger"))
-        .await
-        .unwrap_err();
+    let error =
+        claim(&auth, invitation_request(&invitation.id, &stranger, "stranger")).await.unwrap_err();
     assert_eq!(error, "invitation is bound to another device");
-    let grant =
-        claim(&auth, invitation_request(&invitation.id, &device, "client")).await.unwrap();
+    let grant = claim(&auth, invitation_request(&invitation.id, &device, "client")).await.unwrap();
     assert_eq!(grant.device_id, device.fingerprint());
     assert_eq!(auth.list_devices().await[0].name, "agent-vm");
 }
@@ -148,8 +140,7 @@ async fn revoking_a_device_enrolled_by_a_bound_invitation_cuts_it_off() {
     let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
     let device = StaticIdentity::generate().unwrap();
     let invitation = bound_invitation(&auth, &device, None).await;
-    let grant =
-        claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap();
+    let grant = claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap();
 
     auth.revoke(&grant.device_id).await.unwrap();
 
@@ -175,16 +166,14 @@ async fn revoking_a_device_voids_its_unused_bound_invitations() {
 
     auth.revoke(&grant.device_id).await.unwrap();
 
-    let error =
-        claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
+    let error = claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
     assert_eq!(error, "invitation is unknown or expired");
     assert!(!auth.device_is_active(&grant.device_id).await);
     // Voided durably: a restarted daemon has no such invitation either.
     auth.shutdown().await.unwrap();
     drop(auth);
     let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
-    let error =
-        claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
+    let error = claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
     assert_eq!(error, "invitation is unknown or expired");
     assert!(!auth.device_is_active(&grant.device_id).await);
     // Another device's bound invitation is untouched.
@@ -221,12 +210,7 @@ async fn bound_invitations_keep_the_live_invitation_limit() {
     }
     let bound = BoundDevice::parse(&encode_key(&device.public_key()), None).unwrap();
     let error = auth
-        .create_invitation_for_device(
-            Duration::from_secs(60),
-            Vec::new(),
-            Vec::new(),
-            Some(bound),
-        )
+        .create_invitation_for_device(Duration::from_secs(60), Vec::new(), Vec::new(), Some(bound))
         .await
         .unwrap_err();
     assert!(error.to_string().contains("maximum invitation count"), "{error}");
@@ -333,8 +317,7 @@ fn credential_free_routes_preserve_only_reconnect_material() {
     assert!(ssh.fragment().is_none());
 
     let unix = url::Url::parse(
-        &credential_free_route_hint("unix:///tmp/cmux-remote.sock?ticket=secret#fragment")
-            .unwrap(),
+        &credential_free_route_hint("unix:///tmp/cmux-remote.sock?ticket=secret#fragment").unwrap(),
     )
     .unwrap();
     assert_eq!(unix.path(), "/tmp/cmux-remote.sock");

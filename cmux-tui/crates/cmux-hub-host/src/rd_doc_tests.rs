@@ -56,10 +56,6 @@ fn ice_servers_become_stun_and_udp_turn() {
     assert_eq!(stun, vec!["stun.example:3478"]);
     assert_eq!(
         turn,
-        vec![Turn {
-            addr: "turn.example:3478".into(),
-            username: "u".into(),
-            password: "p".into()
-        }]
+        vec![Turn { addr: "turn.example:3478".into(), username: "u".into(), password: "p".into() }]
     );
 }

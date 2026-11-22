@@ -1,8 +1,7 @@
 use super::*;
 
 fn home(tag: &str, body: Option<&str>) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("cmux-rd-machine-{tag}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("cmux-rd-machine-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     identity::private_dir(&dir).unwrap();
     if let Some(body) = body {
