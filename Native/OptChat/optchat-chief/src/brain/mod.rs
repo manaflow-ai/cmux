@@ -180,10 +180,6 @@ pub enum Input {
         harness: Option<String>,
         /// Acpmux's health and login snapshot, read off the brain thread.
         machines: Vec<crate::place_route::Machine>,
-        /// The subagent numbers (`a<N>`) whose session names acpmux already
-        /// holds, read off the brain thread: a spawn never gives one of them
-        /// (a deleted memory restarts the counter while the old sessions stay).
-        taken: Vec<u64>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -1728,7 +1724,6 @@ impl Brain {
                 place,
                 harness,
                 machines,
-                taken,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1753,7 +1748,6 @@ impl Brain {
                             size.as_deref(),
                             &machines,
                             family,
-                            &taken,
                         )
                     })
                     .map(|mut plan| {
