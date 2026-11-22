@@ -1461,6 +1461,11 @@ class PageId(unittest.TestCase):
         # New Tab tab with no view can take the first new tab's view when nobody used it (its field is empty), and
         # the app gives that view the page focus: entries with the SAME id, of the view while another tab has it.
         # The read after the select comes before those selects: its counts have the entry of the select only.
+        # THE MODEL DOES MORE THAN THE APP: it writes its `moved` entries at ANY change of the shown tab after the
+        # verdict's read of the field; the app gives a view away only when nobody used it and no pane shows its
+        # tab. The field here is empty, so this state is one that the app can have. The row proves the ORDER of
+        # the tool's calls only: it does not test the app's rule, and no row has a tab with a letter that keeps
+        # its view.
         after, moved = [page(PAGE, True, "chromium-key")], [page(PAGE, False, "chromium"), page(PAGE, True, "chromium")]
         for form, notes in (("three-key", CHORD), ("two-key", READY)):
             letters, builder, app = self.letters(notes, {}, after=after, moved=moved, pages=self.MOVED)
