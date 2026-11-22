@@ -238,7 +238,7 @@ export default componentEntry<Props>({
     },
     retry: {
       props: {
-        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: false,
         withRetry: true,
         selfRetrying: false,
@@ -248,7 +248,7 @@ export default componentEntry<Props>({
     },
     retrying: {
       props: {
-        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: true,
         withRetry: true,
         selfRetrying: false,
@@ -331,7 +331,7 @@ export default componentEntry<Props>({
     },
     "too-large": {
       props: {
-        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
+        message: "Update cmux to open this chat, then Retry.",
         initialRetrying: false,
         withRetry: true,
         selfRetrying: false,

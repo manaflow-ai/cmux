@@ -106,7 +106,7 @@ fn redact_peer_row(peer: &mut Value) {
 
 /// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
 /// are its resources, and what its health loop found wrong (`problems`).
-const PEER_RESOURCES: [&str; 10] = [
+const PEER_RESOURCES: [&str; 12] = [
     "cpus",
     "load",
     "ram",
@@ -117,6 +117,8 @@ const PEER_RESOURCES: [&str; 10] = [
     "liveSessions",
     "uptimeSecs",
     "problems",
+    "power",
+    "network",
 ];
 
 /// A harness catalog without values that shape its process. The app and Web

@@ -920,6 +920,7 @@ impl Transcript {
 
     /// Show an error this client raised (not one the daemon logged). A paging transcript keeps it
     /// as a record with no seq, so a rebuild puts it back where it was shown.
+    #[cfg(feature = "tui")]
     pub(crate) fn push_local_error(&mut self, text: String) {
         if self.keeps_records {
             self.raw_events.push(json!({"dir": LOCAL_ERROR, "text": text}));
@@ -928,6 +929,7 @@ impl Transcript {
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.
+    #[cfg(any(test, feature = "tui"))]
     pub(crate) fn push_optimistic(&mut self, text: String, row: Item) {
         self.items.push(row.clone());
         self.optimistic.push(text);

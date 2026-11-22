@@ -405,10 +405,11 @@ MERGE_HEAD_PATH="$("$TOOL_GIT" rev-parse --git-path MERGE_HEAD)"
 IN_MERGE=0
 [[ -f "$MERGE_HEAD_PATH" ]] && IN_MERGE=1
 
-# Register new Python tests that a workflow already runs, so adding a test and
-# its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+# Register new Python tests that a workflow already runs, and move a test whose
+# step a commit removes off linux-guard, so adding or removing a test's
+# workflow step is all a commit needs. Best effort: CI still validates.
 # Only this commit's tests: the ones it adds, and the ones its workflow changes
-# name. Registering every unregistered test the base carries wrote the same
+# add or remove a line for. Registering every unregistered test the base carries wrote the same
 # entries into every pull request, which then conflicted (#21946). A merge
 # adds no test of its own: registering what the base added since the branch
 # point put the base's tests into pull requests (#30071, #30351).
@@ -431,7 +432,7 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     done < <(
         {
             "$TOOL_GIT" diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
-            "$TOOL_GIT" diff --cached -U0 -- .github/workflows | "$TOOL_GREP" -E '^\+' | "$TOOL_GREP" -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
+            "$TOOL_GIT" diff --cached -U0 -- .github/workflows | "$TOOL_GREP" -E '^[+-]' | "$TOOL_GREP" -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
         } | "$TOOL_SORT" -u
     )
     if (( ${#OWN_TESTS[@]} > 0 )); then
@@ -440,7 +441,7 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     fi
     if ! registry_unchanged; then
         "$TOOL_GIT" add -A -- "${REGISTRY[@]}"
-        echo "pre-commit: registered new tests in ${REGISTRY[*]}"
+        echo "pre-commit: updated the test registry (${REGISTRY[*]}) from the workflows"
     fi
 fi
 
