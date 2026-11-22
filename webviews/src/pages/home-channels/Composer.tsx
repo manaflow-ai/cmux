@@ -11,8 +11,7 @@
 // the text and the staged files on one line (attachmentUndo.ts).
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { pasteIsOnlyFileNames } from "../../agent-session/acpmux/attachments";
-import { LazyPromptEditor } from "../../agent-session/acpmux/composer/LazyPromptEditor";
-import type { PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
+import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
 import type { MarkdownFormat } from "../../agent-session/acpmux/markdownFormat";
 import type { EmojiTable } from "../../icon-picker/emojiData";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -412,7 +411,7 @@ export function Composer({
         </Toolbar>
       )}
       <ContextMenu className="hc-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
-        <LazyPromptEditor
+        <PromptEditor
           ref={(handle) => {
             editor.current = handle;
             // Once, on mount: the handle exists before the editor, which applies the focus when ready.

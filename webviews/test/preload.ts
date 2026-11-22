@@ -119,11 +119,11 @@ if (!("Element" in scope)) {
 }
 
 // The chunks a page fetches once it is idle after its first frame (src/lazyChunk.ts: the facts hover
-// card, Home Channels' prompt editor) are in place before a file's first test, as they are on a page
-// by the time anyone points at a card or types: a render draws them at once, with no update outside
-// act. Before the first test, not here: a chunk's modules (Milkdown, ProseMirror, Base UI) read
-// `navigator` once when they load, so they load after the file has installed its window, as they did
-// when they were the file's own imports. A file that imports none of them fetches nothing.
+// card) are in place before a file's first test, as they are on a page by the time anyone points at
+// a card: a render draws them at once, with no update outside act. Before the first test, not here: a
+// chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
+// installed its window, as they did when they were the file's own imports. A file that imports none
+// of them fetches nothing.
 {
   const { beforeAll } = await import("bun:test");
   const { loadLazyChunks } = await import("../src/lazyChunk");
