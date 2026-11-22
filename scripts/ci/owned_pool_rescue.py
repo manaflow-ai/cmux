@@ -552,8 +552,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-post-merge.yml",
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
-    # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
-    # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    # feat-cmux-next only.
     ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
     ".github/workflows/cmux-rd-windows.yml",
