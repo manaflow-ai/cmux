@@ -30,6 +30,7 @@ members = [
     "crates/cmux-history",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
+    "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
@@ -174,6 +175,7 @@ default-members = [
     "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
+    "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
@@ -362,6 +364,7 @@ cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-vm-pool = { path = "crates/cmux-vm-pool" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
+cmux-apps = { path = "crates/cmux-apps" }
 cmux-build-space = { path = "crates/cmux-build-space" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }
