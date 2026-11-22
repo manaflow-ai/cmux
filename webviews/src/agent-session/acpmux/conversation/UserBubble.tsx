@@ -187,9 +187,14 @@ export function UserBubble({
       />
     );
   }
+  // An answered prompt of an agent that forks only from its latest reply keeps the control and says
+  // why, rather than drawing it on the latest prompt alone (Leo, 2026-11-11: "why are only some
+  // chats forkable").
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : fork && own !== undefined ? (
+      <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
@@ -231,13 +236,14 @@ export function UserBubble({
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
+                messageAt={row.at}
                 parts={shownParts!}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
               />
             ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
             )}
           </div>
         ) : null}

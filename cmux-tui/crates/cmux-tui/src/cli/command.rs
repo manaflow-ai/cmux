@@ -115,8 +115,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -1027,7 +1031,9 @@ fn parse_tab_strings(
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            let created_by = list_filter::take_created_by(flags)?;
             request(ResourceOperation::TabList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
         }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
@@ -1041,6 +1047,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1054,6 +1061,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {

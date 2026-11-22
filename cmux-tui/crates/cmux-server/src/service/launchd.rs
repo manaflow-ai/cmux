@@ -49,7 +49,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     let logs = fsx::local(&s.layout.logs());
     fsx::ensure_dir(&logs, 0o700)?;
     private_log(&logs)?;
-    let changed = fsx::write_if_changed(&plist, text.as_bytes(), 0o644)?;
+    let changed = fsx::write_fresh(&plist, text.as_bytes(), 0o644)?;
     s.wrote(&[(plist.clone(), text)])?;
     let mut report = ServiceReport { unit: plist.clone(), changed, ..ServiceReport::default() };
     let was_loaded = loaded(s);
@@ -224,11 +224,27 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
     Ok(())
 }
 
-pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
+/// What uninstall needs to end the session's terminals ([`super::sweep`]).
+pub(super) fn sweep(s: &Services<'_>) -> Result<Option<super::Sweep>> {
+    if s.session.is_none() {
+        return Ok(None);
+    }
+    super::sweep(s, daemon_pid(s)?, &|key| manager_env(s, key))
+}
+
+pub fn uninstall(s: &Services<'_>, sweep: Option<&super::Sweep>) -> Result<Vec<PathBuf>> {
+    // A running daemon ends its own terminals first
+    // ([`super::end_running_daemon_terminals`]); launchd starts a new one at
+    // once, which the bootout ends and the sweep after it cleans up after.
+    if let Some(sweep) = sweep {
+        super::end_running_daemon_terminals(s, sweep)?;
+    }
     // launchd has no bootout bound to a plist (`bootout DOMAIN PATH` reads
     // the label from the file and unloads by label): check the job's source
     // right before the bootout by label, so the gap is that one command
-    // (Codex R-005), which only root or this same account can use.
+    // (Codex R-005). Only root or this same account can load another job in
+    // its gui domain, and no other cmux command runs meanwhile (the service
+    // lock, `Services::lock`).
     check_source(s).map_err(|e| super::outcome(e, "nothing was changed"))?;
     let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
     // A bootout that failed must not let uninstall remove what the job
@@ -252,7 +268,54 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
             target(s)
         )));
     }
+    if let Some(sweep) = sweep {
+        super::end_terminal_hosts(s, sweep, "launchd stopped the service")?;
+    }
     s.remove_unit_files()
+}
+
+/// The pid of the job's process while launchd runs it (`pid = N` in
+/// `launchctl print`; a job launchd does not have, exit 113, or one it has
+/// but does not run, no `pid` line: none). Any other answer refuses: a
+/// daemon that runs must not read as none, or the sweep would take the
+/// manager's environment for the state of a daemon that has its own.
+fn daemon_pid(s: &Services<'_>) -> Result<Option<u32>> {
+    let cmd = launchctl().args(["print", &target(s)]);
+    let out = s.runner.run(&cmd).map_err(|e| Error::io(cmd.display(), e))?;
+    if out.code == Some(NOT_LOADED) {
+        return Ok(None);
+    }
+    if !out.ok() {
+        return Err(Error::rejected(format!(
+            "cmux cannot tell whether launchd runs the daemon of the session service (`{}` failed with {}); run the command again",
+            cmd.display(),
+            out.code.map_or_else(|| "a signal".to_owned(), |c| format!("exit {c}"))
+        )));
+    }
+    let text = out.stdout_text();
+    let Some(pid) = text.lines().find_map(|l| l.trim().strip_prefix("pid = ")) else {
+        return Ok(None);
+    };
+    pid.trim().parse().map(Some).map_err(|_| {
+        Error::rejected(format!("`{}` names pid {pid:?}, not a number", cmd.display()))
+    })
+}
+
+/// `key` as launchd gives its jobs in this account's gui domain (`launchctl
+/// getenv`, which prints the value and a newline, or only the newline for
+/// an unset one): a job gets no variable of the shell that loaded it. The
+/// value is kept byte for byte (a path may end in a space).
+fn manager_env(s: &Services<'_>, key: &str) -> Result<Option<std::ffi::OsString>> {
+    let out = s.runner.check(&launchctl().args(["getenv", key]))?;
+    let mut value = out.stdout;
+    if value.last() == Some(&b'\n') {
+        value.pop();
+    }
+    #[cfg(unix)]
+    let value: std::ffi::OsString = std::os::unix::ffi::OsStringExt::from_vec(value);
+    #[cfg(not(unix))]
+    let value: std::ffi::OsString = String::from_utf8_lossy(&value).into_owned().into();
+    Ok((!value.is_empty()).then_some(value))
 }
 
 pub fn state(s: &Services<'_>) -> ServiceState {

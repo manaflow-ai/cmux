@@ -10,6 +10,14 @@
 //!   had nothing to say about it); a harness's real plan replaces it, as the harness then keeps
 //!   its own.
 //!
+//! A list belongs to the turn that last wrote it (design/chat-plan-lifecycle.md; Leo, 2026-11-22:
+//! "we need to figure out how to do better plans and have them expired"). It stays the chat's
+//! plan through that turn, the gap after it and the next turn, which may finish it; once a turn
+//! that never touched it has ended, it has expired ([`TaskList::current`]): no summary carries it,
+//! so neither the composer's hat nor the sidebar row shows it again. Claude Code keeps its tasks a
+//! whole session and Codex plans per turn: both end the same way. Only a list the Chief (the
+//! person's side) set never expires by turns.
+//!
 //! The list is saved with the session's meta (`SessionMeta::task_list`) and every summary carries
 //! it as `taskList` ([`TaskListSummary`]), so the sidebar row and the chat read one source.
 //! Each step is masked (`secret_scan`) and cut before it is kept: every view shows it.
@@ -74,6 +82,10 @@ pub struct TaskList {
     pub items: Vec<TaskItem>,
     /// When it last changed, Unix ms.
     pub updated_at: u64,
+    /// The chat's turn (`SessionMeta::turn_count`) that last changed it; 0 for a list kept before
+    /// turns were noted, which has expired in any chat past its second turn.
+    #[serde(default)]
+    pub turn: u64,
 }
 
 /// What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the
@@ -99,6 +111,15 @@ pub struct TaskListSummary {
 }
 
 impl TaskList {
+    /// Whether it is still the chat's plan, with `turn_count` turns started and the latest one
+    /// `running` or not: written in the running turn or the one before it, or in the latest turn
+    /// once it ended. A list the Chief keeps always is.
+    pub fn current(&self, turn_count: u64, running: bool) -> bool {
+        self.source == TaskListSource::Chief
+            || turn_count <= self.turn
+            || (running && turn_count == self.turn + 1)
+    }
+
     /// The summary's view of it.
     pub fn summary(&self) -> TaskListSummary {
         let done = self.items.iter().filter(|i| i.status == TaskStatus::Completed).count();
@@ -173,6 +194,7 @@ pub fn after_plan(
     current: Option<&TaskList>,
     items: Vec<TaskItem>,
     now: u64,
+    turn: u64,
 ) -> Option<Option<TaskList>> {
     if items.is_empty() {
         return match current {
@@ -180,24 +202,27 @@ pub fn after_plan(
             _ => None,
         };
     }
-    after_set(current, TaskListSource::Harness, items, now)
+    after_set(current, TaskListSource::Harness, items, now, turn)
 }
 
-/// `current` after `source` set `items` at `now`, or None when nothing changed (the same steps
-/// from the same keeper). An empty list clears it.
+/// `current` after `source` set `items` at `now` in the chat's turn `turn`, or None when nothing
+/// changed (the same steps from the same keeper in the same turn). An empty list clears it. The
+/// same steps again in a later turn keep the list current: the agent went back to it.
 pub fn after_set(
     current: Option<&TaskList>,
     source: TaskListSource,
     items: Vec<TaskItem>,
     now: u64,
+    turn: u64,
 ) -> Option<Option<TaskList>> {
     if items.is_empty() {
         return current.map(|_| None);
     }
-    if current.is_some_and(|list| list.source == source && list.items == items) {
+    if current.is_some_and(|list| list.source == source && list.items == items && list.turn == turn)
+    {
         return None;
     }
-    Some(Some(TaskList { source, items, updated_at: now }))
+    Some(Some(TaskList { source, items, updated_at: now, turn }))
 }
 
 #[cfg(test)]
@@ -221,6 +246,7 @@ mod tests {
                 item("e", TaskStatus::Pending),
             ],
             updated_at: 7,
+            turn: 1,
         };
         let s = list.summary();
         assert_eq!((s.done, s.total), (2, 5));
@@ -266,14 +292,57 @@ mod tests {
             source: TaskListSource::Chief,
             items: vec![item("x", TaskStatus::Pending)],
             updated_at: 1,
+            turn: 4,
         };
-        assert_eq!(after_plan(Some(&kept), vec![], 2), None);
+        assert_eq!(after_plan(Some(&kept), vec![], 2, 4), None);
         let harness = TaskList { source: TaskListSource::Harness, ..kept.clone() };
-        assert_eq!(after_plan(Some(&harness), vec![], 2), Some(None));
-        let replaced =
-            after_plan(Some(&kept), vec![item("y", TaskStatus::InProgress)], 3).unwrap().unwrap();
+        assert_eq!(after_plan(Some(&harness), vec![], 2, 4), Some(None));
+        let replaced = after_plan(Some(&kept), vec![item("y", TaskStatus::InProgress)], 3, 4)
+            .unwrap()
+            .unwrap();
         assert_eq!(replaced.source, TaskListSource::Harness);
-        // The same steps again change nothing, not even the time.
-        assert_eq!(after_plan(Some(&harness), harness.items.clone(), 9), None);
+        // The same steps again in the same turn change nothing, not even the time.
+        assert_eq!(after_plan(Some(&harness), harness.items.clone(), 9, 4), None);
+        // In a later turn they note that the agent went back to the list.
+        let again = after_plan(Some(&harness), harness.items.clone(), 9, 6).unwrap().unwrap();
+        assert_eq!((again.turn, again.updated_at), (6, 9));
+    }
+
+    /// Leo, 2026-11-22, on an "Earlier plan · 0 of 1" over a coordinator's hours-old ops note and a
+    /// sidebar row's "0/1": "we need to figure out how to do better plans and have them expired".
+    #[test]
+    fn a_list_expires_once_a_turn_that_never_touched_it_ends() {
+        let list = TaskList {
+            source: TaskListSource::Harness,
+            items: vec![item(
+                "08:41Z merge cmux#45744 pinned; then close #45720",
+                TaskStatus::Pending,
+            )],
+            updated_at: 1,
+            turn: 5,
+        };
+        // The turn that wrote it, running and ended.
+        assert!(list.current(5, true));
+        assert!(list.current(5, false));
+        // The next turn may finish it while it runs ...
+        assert!(list.current(6, true));
+        // ... but once it ended without touching the list, the list has expired.
+        assert!(!list.current(6, false));
+        assert!(!list.current(7, true));
+        assert!(!list.current(140, false));
+        // The agent's own list (`_acpmux/task_list/set`) expires the same way.
+        let agent = TaskList { source: TaskListSource::Agent, ..list.clone() };
+        assert!(!agent.current(7, true));
+        // The person's side keeps its list until it changes it.
+        let chief = TaskList { source: TaskListSource::Chief, ..list.clone() };
+        assert!(chief.current(140, false));
+        // A list saved before turns were noted reads as turn 0: expired past a chat's second turn.
+        let old: TaskList = serde_json::from_value(json!({
+            "source": "harness", "items": [{"content": "x", "status": "pending"}], "updatedAt": 1,
+        }))
+        .unwrap();
+        assert_eq!(old.turn, 0);
+        assert!(old.current(1, true));
+        assert!(!old.current(2, true));
     }
 }

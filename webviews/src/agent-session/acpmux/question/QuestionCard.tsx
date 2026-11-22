@@ -47,6 +47,7 @@ import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyR
 import { shownPreview, previewText } from "./questionCardModel";
 import { focusRoute } from "../../../ui/focusRoute";
 import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -135,6 +136,7 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
         <button
           type="button"
           className="acpmux-question-status"
+          data-dock-clear=""
           aria-expanded={open}
           aria-controls={cardId}
           onClick={() => setOpen((shown) => !shown)}
@@ -498,17 +500,21 @@ function PendingQuestion({
           </p>
         )}
         <div className="acpmux-question-actions">
-          <button
-            type="button"
-            className="acpmux-question-skip"
-            aria-keyshortcuts="Escape"
-            title={reject.detail}
-            disabled={sent}
-            onClick={skip}
-          >
-            {inlineText(reject.label)}
-            <Keycap>esc</Keycap>
-          </button>
+          <WithFacts facts={[{ value: reject.detail ?? "" }]}>
+            {(facts) => (
+              <button
+                {...facts}
+                type="button"
+                className="acpmux-question-skip"
+                aria-keyshortcuts="Escape"
+                disabled={sent}
+                onClick={skip}
+              >
+                {inlineText(reject.label)}
+                <Keycap>esc</Keycap>
+              </button>
+            )}
+          </WithFacts>
           <button
             type="button"
             className="acpmux-question-submit"

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2312023f63aa795d757d98f53312d8f9387cfa5055c36c0b52e03ca3e5086544. */
+/* cmux-tui mux protocol 12, IR 9490d25fdfc75ed95361a2aac54ff7b25a2e1e27862edd981b551b83bc198b0e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2312023f63aa795d757d98f53312d8f9387cfa5055c36c0b52e03ca3e5086544" as const;
+export const SDK_IR_SHA256 = "9490d25fdfc75ed95361a2aac54ff7b25a2e1e27862edd981b551b83bc198b0e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -116,6 +116,14 @@ export const COMMAND_METADATA = {
       "replay_history_start": {
         "since": null,
         "capability": "attach-replay-history-window-v1"
+      },
+      "resume_generation": {
+        "since": null,
+        "capability": "terminal-resume-v1"
+      },
+      "resume_offset": {
+        "since": null,
+        "capability": "terminal-resume-v1"
       },
       "rows": {
         "since": null,
@@ -16682,6 +16690,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "replay_history_start": {
           "capability": "attach-replay-history-window-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "resume_generation": {
+          "capability": "terminal-resume-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "resume_offset": {
+          "capability": "terminal-resume-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",

@@ -34,7 +34,7 @@ and optionally:
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
     wait      seconds to let the UI settle before the screenshot (default 1.5)
-    shot      false to skip the screenshot
+    shot      false to skip the screenshot; a capture shot object {"name": ...} names it
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and makes the tour degraded, rather than
               letting an incomplete tour look fully verified
@@ -124,6 +124,11 @@ STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "disp
 # answer (`*` every item), `contains` and `absent` lists of text, `empty` true, `count` a number of items, and
 # `within` seconds to ask a read-only rpc again until it matches.
 READBACK_KEYS = {"at", "contains", "absent", "empty", "count", "within"}
+# A capture shot object (`cmux-ci capture`'s CuaDriver shot, e.g. text-inputs-glass/states.py) in a tour this script
+# also runs: a shot named `name`. tour.py already shoots the other windows and never dismisses, so `with_popups` and
+# `dismiss` change nothing here. Rejecting it failed every nightly tour's --check (new-tab-resume.json, 2026-11-21).
+SHOT_OBJECT_KEYS = {"name", "with_popups", "dismiss"}
+SHOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
 # A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
 COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,
@@ -294,9 +299,16 @@ def load_tour(path: Path) -> dict[str, Any]:
         wait = step.get("wait", DEFAULT_WAIT)
         if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= 30:
             raise TourError(f"{where}: `wait` must be 0 to 30 seconds")
-        for key in ("daemon", "shot", "display"):
+        for key in ("daemon", "display"):
             if key in step and not isinstance(step[key], bool):
                 raise TourError(f"{where}: `{key}` must be true or false")
+        shot = step.get("shot", True)
+        if not isinstance(shot, bool) and not (
+                isinstance(shot, dict) and set(shot) <= SHOT_OBJECT_KEYS
+                and isinstance(shot.get("name"), str) and SHOT_NAME.fullmatch(shot["name"])
+                and all(isinstance(shot.get(key, False), bool) for key in ("with_popups", "dismiss"))):
+            raise TourError(f"{where}: `shot` is true, false or a capture shot object "
+                            "{\"name\": lowercase-slug, \"with_popups\": bool, \"dismiss\": bool}")
         if "optional" in step and (not isinstance(step["optional"], str) or not step["optional"].strip()):
             raise TourError(f"{where}: `optional` is the reason the step may fail")
         readback = step.get("readback")
@@ -1240,7 +1252,9 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     screen.follow(app.main_window_frame())
     if step.get("shot", True) or result["status"] == "failed":
         suffix = "-failed" if result["status"] == "failed" else ""
-        path = shots / f"{index:02d}-{slug(step['title'])}{suffix}.png"
+        shot = step.get("shot")
+        name = shot["name"] if isinstance(shot, dict) else slug(step["title"])
+        path = shots / f"{index:02d}-{name}{suffix}.png"
         if step.get("capture"):
             problem = capture_fixture(app, path, step["capture"])
         else:
