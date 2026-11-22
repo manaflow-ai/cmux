@@ -5,6 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { connectClient, FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
 
 const SESSION = "indexed-gap";
@@ -34,13 +35,15 @@ test("a distant rail jump fills every turn between its target and the held tail"
     generation: internal.selectionGeneration,
     tries: 1,
     retryAt: 0,
-    rows: prompts.map((event): AcpmuxRow => ({
-      id: `user-${event.seq}`,
-      version: 1,
-      at: event.at,
-      kind: "user",
-      text: "p",
-    })),
+    heads: PromptHeads.fromRows(
+      prompts.map((event): AcpmuxRow => ({
+        id: `user-${event.seq}`,
+        version: 1,
+        at: event.at,
+        kind: "user",
+        text: "p",
+      })),
+    ),
   };
   const target = prompts[Math.floor(prompts.length / 10)]!.seq;
 
