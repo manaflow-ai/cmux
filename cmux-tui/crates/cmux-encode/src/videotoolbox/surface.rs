@@ -4,11 +4,13 @@
 //! synchronous, so the caller releases its capture lease when it returns.
 
 use std::ffi::c_void;
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 
 use super::{
-    CFRelease, CFTypeRef, CVPixelBufferCreateWithIOSurface, CVPixelBufferRef, IOSurfaceGetHeight,
-    IOSurfaceGetPixelFormat, IOSurfaceGetWidth, PIXEL_420V, VideoToolbox,
+    CFRelease, CFTypeRef, CVPixelBufferCreateWithIOSurface, CVPixelBufferPoolRef, CVPixelBufferRef,
+    IOSurfaceGetHeight, IOSurfaceGetPixelFormat, IOSurfaceGetWidth, PIXEL_420V,
+    VTPixelTransferSessionRef, VideoToolbox, cv_pool_sys, dict,
+    kCVPixelBufferIOSurfacePropertiesKey, number_i32, vt_transfer_sys,
 };
 use crate::Res;
 
@@ -124,7 +126,12 @@ impl SurfaceEncoder for VideoToolbox {
             )
             .into());
         }
-        let resized = self.ensure_session(width, height)?;
+        // The resolution ladder's picture, when it is smaller than the surface: the session
+        // encodes that size from a GPU-scaled copy. Equal (or larger): the surface as it is.
+        let scaled_to =
+            self.picture.filter(|&(w, h)| (w, h) != (width, height) && w <= width && h <= height);
+        let (enc_width, enc_height) = scaled_to.unwrap_or((width, height));
+        let resized = self.ensure_session(enc_width, enc_height)?;
         self.apply_color(frame.color);
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: wraps the live surface in a new pixel buffer (no copy); released below.
@@ -140,7 +147,19 @@ impl SurfaceEncoder for VideoToolbox {
             return Err(format!("CVPixelBufferCreateWithIOSurface failed: {status}").into());
         }
         self.idr_cause = (resized && !force_idr).then_some("resize");
-        let result = self.encode_buffer(pixel_buffer, force_idr || resized, pts_us, out);
+        let source = match scaled_to {
+            None => Ok(pixel_buffer),
+            Some((w, h)) => self.scale(pixel_buffer, w, h),
+        };
+        let result = source.and_then(|buffer| {
+            let r = self.encode_buffer(buffer, force_idr || resized, pts_us, out);
+            if buffer != pixel_buffer {
+                // SAFETY: releasing the scaled buffer `scale` returned (back to its pool);
+                // the encode has completed.
+                unsafe { CFRelease(buffer as CFTypeRef) };
+            }
+            r
+        });
         // SAFETY: releasing the wrapper we created; the encode has completed.
         unsafe { CFRelease(pixel_buffer as CFTypeRef) };
         result
@@ -152,6 +171,129 @@ impl SurfaceEncoder for VideoToolbox {
 
     fn kbps(&self) -> u32 {
         crate::H264Encoder::kbps(self)
+    }
+}
+
+impl VideoToolbox {
+    /// A `width` x `height` copy of `source` scaled on the GPU, in a pooled buffer the caller
+    /// releases. The scaler is made at the first scaled frame and kept.
+    fn scale(
+        &mut self,
+        source: CVPixelBufferRef,
+        width: usize,
+        height: usize,
+    ) -> Res<CVPixelBufferRef> {
+        if self.scaler.is_none() {
+            self.scaler = Some(Scaler::new()?);
+        }
+        let scaler = self.scaler.as_mut().ok_or("no pixel transfer session")?;
+        scaler.scale(source, width, height)
+    }
+}
+
+/// Scales captured surfaces down to the resolution ladder's picture (design D5) with a
+/// VTPixelTransferSession: on the GPU, no CPU copy, into IOSurface-backed NV12 (420v)
+/// buffers from a pool of the picture's size (a new size makes a new pool).
+pub(super) struct Scaler {
+    transfer: VTPixelTransferSessionRef,
+    /// The pool of the last picture size; NULL before the first scaled frame.
+    pool: CVPixelBufferPoolRef,
+    pool_size: (usize, usize),
+}
+
+impl Scaler {
+    fn new() -> Res<Self> {
+        vt_transfer_sys::available()?;
+        cv_pool_sys::available()?;
+        let mut transfer: VTPixelTransferSessionRef = null_mut();
+        // SAFETY: creates a transfer session into our local; released in Drop.
+        let status =
+            unsafe { vt_transfer_sys::VTPixelTransferSessionCreate(null(), &mut transfer) };
+        if status != 0 || transfer.is_null() {
+            return Err(format!("VTPixelTransferSessionCreate failed: {status}").into());
+        }
+        Ok(Self { transfer, pool: null_mut(), pool_size: (0, 0) })
+    }
+
+    /// Makes the pool hand out `width` x `height` buffers, replacing it on a size change.
+    fn ensure_pool(&mut self, width: usize, height: usize) -> Res<()> {
+        if !self.pool.is_null() && self.pool_size == (width, height) {
+            return Ok(());
+        }
+        let mut pool: CVPixelBufferPoolRef = null_mut();
+        // SAFETY: CF statics and numbers in dictionaries released after use (the pool
+        // copies its attributes); the new pool lands in our local.
+        let status = unsafe {
+            let format = number_i32(PIXEL_420V as i32);
+            let w = number_i32(i32::try_from(width).unwrap_or(i32::MAX));
+            let h = number_i32(i32::try_from(height).unwrap_or(i32::MAX));
+            let empty = dict(&[]);
+            let attrs = dict(&[
+                (cv_pool_sys::kCVPixelBufferPixelFormatTypeKey(), format),
+                (cv_pool_sys::kCVPixelBufferWidthKey(), w),
+                (cv_pool_sys::kCVPixelBufferHeightKey(), h),
+                (kCVPixelBufferIOSurfacePropertiesKey(), empty),
+            ]);
+            let s = cv_pool_sys::CVPixelBufferPoolCreate(null(), null(), attrs, &mut pool);
+            CFRelease(attrs);
+            CFRelease(empty);
+            CFRelease(h);
+            CFRelease(w);
+            CFRelease(format);
+            s
+        };
+        if status != 0 || pool.is_null() {
+            return Err(format!("CVPixelBufferPoolCreate {width}x{height} failed: {status}").into());
+        }
+        if !self.pool.is_null() {
+            // SAFETY: releasing our previous pool once; buffers still out keep their own
+            // reference to it.
+            unsafe { CFRelease(self.pool as CFTypeRef) };
+        }
+        self.pool = pool;
+        self.pool_size = (width, height);
+        Ok(())
+    }
+
+    /// `source` scaled into a new pooled buffer, which the caller releases.
+    fn scale(
+        &mut self,
+        source: CVPixelBufferRef,
+        width: usize,
+        height: usize,
+    ) -> Res<CVPixelBufferRef> {
+        self.ensure_pool(width, height)?;
+        let mut target: CVPixelBufferRef = null_mut();
+        // SAFETY: a buffer from our live pool into our local.
+        let status = unsafe {
+            cv_pool_sys::CVPixelBufferPoolCreatePixelBuffer(null(), self.pool, &mut target)
+        };
+        if status != 0 || target.is_null() {
+            return Err(format!("CVPixelBufferPoolCreatePixelBuffer failed: {status}").into());
+        }
+        // SAFETY: both buffers are live; the transfer has completed when it returns.
+        let status = unsafe {
+            vt_transfer_sys::VTPixelTransferSessionTransferImage(self.transfer, source, target)
+        };
+        if status != 0 {
+            // SAFETY: releasing the buffer we took from the pool, unused.
+            unsafe { CFRelease(target as CFTypeRef) };
+            return Err(format!("VTPixelTransferSessionTransferImage failed: {status}").into());
+        }
+        Ok(target)
+    }
+}
+
+impl Drop for Scaler {
+    fn drop(&mut self) {
+        // SAFETY: invalidating and releasing our own transfer session and pool once.
+        unsafe {
+            vt_transfer_sys::VTPixelTransferSessionInvalidate(self.transfer);
+            CFRelease(self.transfer as CFTypeRef);
+            if !self.pool.is_null() {
+                CFRelease(self.pool as CFTypeRef);
+            }
+        }
     }
 }
 
