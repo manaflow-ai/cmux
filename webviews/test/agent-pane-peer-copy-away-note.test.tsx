@@ -1,10 +1,10 @@
 // l10n-allow-file: test fixture machine names, not shipped UI.
 //
-// The banner over a Cloud chat's kept copy waits before it speaks (Leo, 2026-11-14: connectivity says
-// nothing the person can do nothing about). What the app recovers by itself waits LINK_DOWN_SAID_MS
-// (10 s): a dropped link ("offline") and a machine the app wakes on its own ("starting" with no Resume
-// asked here). A paused machine, which has a Resume, and a start the person asked for keep the short
-// RESUME_NOTE_DELAY_MS.
+// The banner over a Cloud chat's kept copy says nothing of what the app recovers by itself, at any
+// duration (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want
+// it to just work"): a dropped link ("offline") and a machine the app wakes on its own ("starting" with
+// no Resume asked here) draw no banner at all. A paused machine, which has a Resume, and a start the
+// person asked for keep the short RESUME_NOTE_DELAY_MS.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -62,22 +62,19 @@ const unmount = () => {
   host.replaceChildren();
 };
 
-test("an offline Cloud chat's banner stays out of sight for 10 s, then shows", async () => {
+test("an offline Cloud chat draws no banner, however long", async () => {
   await mount(undefined);
-  await advance(1_500);
-  expect(shown()).toBe(false);
-  await advance(8_499);
-  expect(shown()).toBe(false);
-  await advance(1);
-  expect(shown()).toBe(true);
+  expect(host.querySelector(".acpmux-peer-copy-slot")).toBeNull();
+  await advance(60 * 60_000);
+  expect(host.querySelector(".acpmux-peer-copy-slot")).toBeNull();
+  expect(host.textContent).toBe("");
 });
 
-test("a machine the app wakes by itself says nothing for 10 s either", async () => {
+test("a machine the app wakes by itself draws no banner either", async () => {
   await mount("starting");
-  await advance(9_999);
-  expect(shown()).toBe(false);
-  await advance(1);
-  expect(shown()).toBe(true);
+  await advance(60 * 60_000);
+  expect(host.querySelector(".acpmux-peer-copy-slot")).toBeNull();
+  expect(host.textContent).toBe("");
 });
 
 test("a paused machine, and a start the person asked for, keep the short delay", async () => {

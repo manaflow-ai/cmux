@@ -34,11 +34,25 @@ under the same name keeps its row), and a row whose unit no longer shows an unbo
 renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
 every run, with or without --base. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
+That is the rule `unbounded`.
+
+The rule `transient` is stricter, for agent chat only. Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray...
+with the spinner, i want it to just work. i dont wanna see reconnecting to the Mac in a toast, i want it to just
+connect." In a chat surface (CHAT_SURFACES: the web agent session, the Mac agent pane, the iOS agent chat and
+conversation) a link coming back by itself draws nothing at any duration: a unit there that says one
+(TRANSIENT_WORDS: connecting, reconnecting, degraded, updating, catching up, restoring, syncing, waking, "sending
+when ready", waiting for the Mac or host) fails, bound or button. It finds the words the same way (copy literals, JSX
+text, string-table keys by their English value, passed on from helpers and strings types). States the person must act
+on (signed out, a paused machine's Resume, update required) and a send that truly failed are not these words.
+Units outside chat surfaces are not judged by it. Its allowlist rows put `transient:` before the unit
+(`transient:webviews/src/…::HostError`); rows without a prefix are `unbounded`. One file, the same shrink-only
+ratchet and stale rows, per rule and unit. --rule runs one rule.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
     python3 scripts/cmux-next/check-connection-notices.py --base HEAD^1       # and the shrink-only ratchet
     python3 scripts/cmux-next/check-connection-notices.py --list              # every hit, gated or not
     python3 scripts/cmux-next/check-connection-notices.py --write-allowlist   # drop the rows that are fixed
+    python3 scripts/cmux-next/check-connection-notices.py --rule transient    # only the chat rule
 """
 from __future__ import annotations
 
@@ -55,7 +69,10 @@ ALLOWLIST = "scripts/cmux-next/connection-notices-allowlist.tsv"
 ALLOWLIST_HEADER = (
     "# check-connection-notices.py allowlist: unit<TAB>surface<TAB>owner<TAB>reason. It only shrinks: a PR that fixes\n"
     "# a unit (a bound, or one action) removes its row in the same change; a stale row fails the check.\n"
+    "# A unit prefixed `transient:` is a row of the chat rule (transient link states draw nothing); no prefix is\n"
+    "# the unbounded rule.\n"
 )
+RULES = ("unbounded", "transient")
 
 # Where cmux NEXT UI lives, by surface. The first matching prefix names the surface.
 SURFACES: tuple[tuple[str, str], ...] = (
@@ -63,6 +80,14 @@ SURFACES: tuple[tuple[str, str], ...] = (
     ("Packages/macOS/CmuxNext/Sources/", "mac"),
     ("cmux-next-ios/", "ios"),
     ("Packages/iOS/", "ios"),
+)
+# Agent chat UI, where the rule `transient` applies. Add a prefix when a chat moves or a new one lands.
+CHAT_SURFACES: tuple[str, ...] = (
+    "webviews/src/agent-session/",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/",
+    "cmux-next-ios/NotificationContent/ConversationPreview",
+    "Packages/iOS/CmuxConversation/",
 )
 SOURCE_SUFFIXES = (".ts", ".tsx", ".swift")
 STRING_TABLE_SUFFIX = ".xcstrings"
@@ -85,6 +110,17 @@ CONNECTION_WORDS = re.compile(
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
     r")"
 )
+# What says a link coming back by itself: the rule `transient`. Not outcomes (failed, not sent) and not states the
+# person acts on (signed out, paused, update required, "Finish connecting GitHub in your browser"); those are other
+# rules' business.
+TRANSIENT_WORDS = re.compile(
+    r"(?i)\b("
+    r"re-?connecting|(?<!finish )connecting|degraded|updating|catching up|restoring|re-?syncing|syncing|waking"
+    r"|send(?:s|ing)? (?:when|once) (?:ready|connected|online|back|it(?:'|’)?s back|the \w+ is back|reconnected)"
+    r"|waiting for (?:the |your )?(?:connection|network|host|machine|mac|server|daemon|agent service|link)"
+    r")"
+)
+WORDS = {"unbounded": CONNECTION_WORDS, "transient": TRANSIENT_WORDS}
 # A string literal that is UI copy, not a state tag, an identifier or a log reason: it starts with a capital (or an
 # opening quote or a format) and is either one word ("Offline", "Reconnecting…") or has a space.
 TEXT_SHAPE = re.compile(r"^[“\"'(%\\]*[A-Z](?:[a-z’'\-]*[a-z](?:…|\.\.\.|\.)?$|.*\s)")
@@ -180,13 +216,21 @@ class Unit:
     gated: bool = False
     acted: bool = False
     literal_grace: list[str] = field(default_factory=list)
+    rule: str = "unbounded"
 
     @property
     def id(self) -> str:
         return f"{self.path}::{self.name}"
 
     @property
+    def key(self) -> str:
+        """Its allowlist unit cell: the id, with `transient:` before it for the chat rule."""
+        return row_key(self.rule, self.id)
+
+    @property
     def ok(self) -> bool:
+        if self.rule == "transient":
+            return not self.hits or not in_chat(self.path)  # no bound or button excuses it in a chat
         return not self.hits or self.acted or (self.gated and not self.literal_grace)
 
 
@@ -200,8 +244,21 @@ class Tree:
         # string tables, a deletion not yet staged): their units, and the strings other units read from them, are
         # unseen, so no verdict on this tree holds (a review read 19 listed rows as stale this way at dec7b89e9efc).
         self.missing: list[str] = []
+        self._files: list[str] | None = None
+        self._sources: dict[str, str] = {}
 
     def files(self) -> list[str]:
+        if self._files is None:
+            self._files = self._list()
+        return self._files
+
+    def source(self, path: str) -> str:
+        """A file's text without comments, read once for every rule."""
+        if path not in self._sources:
+            self._sources[path] = strip_comments(self.read(path))
+        return self._sources[path]
+
+    def _list(self) -> list[str]:
         prefixes = [p for p, _ in SURFACES]
         try:
             out = subprocess.run(
@@ -224,6 +281,34 @@ def surface_of(path: str) -> str | None:
         if path.startswith(prefix):
             return name
     return None
+
+
+def in_chat(path: str) -> bool:
+    return path.startswith(CHAT_SURFACES)
+
+
+def surface_label(path: str) -> str:
+    """The allowlist's surface cell: `web:agent-session`, `mac:CmuxNextAgentPane`, `ios:CmuxMobileAgentChat`."""
+    surface = surface_of(path) or "?"
+    m = re.search(r"/Sources/([^/]+)/", path)
+    if m:
+        return f"{surface}:{m.group(1)}"
+    parts = path.split("/")
+    if path.startswith("webviews/src/") and len(parts) > 3:
+        return f"{surface}:{'/'.join(parts[2:4]) if parts[2] == 'pages' else parts[2]}"
+    return f"{surface}:{parts[1] if len(parts) > 2 else parts[0]}"
+
+
+def row_key(rule: str, uid: str) -> str:
+    return uid if rule == "unbounded" else f"{rule}:{uid}"
+
+
+def split_key(key: str) -> tuple[str, str]:
+    """(rule, unit id) of an allowlist unit cell."""
+    head, sep, rest = key.partition(":")
+    if sep and head in RULES and "::" in rest:
+        return head, rest
+    return "unbounded", key
 
 
 def policy_bound_ms(tree: Tree) -> int:
@@ -252,8 +337,8 @@ def bound_drift(tree: Tree) -> list[str]:
     return problems
 
 
-def connection_keys(tree: Tree, files: list[str]) -> set[str]:
-    """Every string-table key whose English value says a connection state."""
+def connection_keys(tree: Tree, files: list[str], words: re.Pattern[str] = CONNECTION_WORDS) -> set[str]:
+    """Every string-table key whose English value says a connection state (or the rule's words)."""
     keys: set[str] = set()
     for path in files:
         if not path.endswith(STRING_TABLE_SUFFIX):
@@ -271,7 +356,7 @@ def connection_keys(tree: Tree, files: list[str]) -> set[str]:
                 pass
             if not isinstance(english, str):
                 english = key
-            if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and CONNECTION_WORDS.search(english or ""):
+            if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and words.search(english or ""):
                 keys.add(key)
     return keys
 
@@ -281,12 +366,12 @@ def strip_comments(source: str) -> str:
     return "\n".join(LINE_COMMENT.sub(lambda m: m.group(1), line) for line in source.split("\n"))
 
 
-def says_connection(text: str, keys: set[str]) -> bool:
+def says_connection(text: str, keys: set[str], words: re.Pattern[str] = CONNECTION_WORDS) -> bool:
     if KEY_SHAPE.match(text):
         return text in keys  # a dotted string-table key
     if REGEX_SHAPE.search(text):
         return False  # a pattern that reads errors, not words anyone sees
-    return bool(CONNECTION_WORDS.search(text)) and bool(TEXT_SHAPE.match(text))
+    return bool(words.search(text)) and bool(TEXT_SHAPE.match(text))
 
 
 def resolve_spec(importer: str, spec: str) -> str:
@@ -347,9 +432,12 @@ def module_of(path: str) -> str:
     return m.group(1) if m else str(Path(path).parent) + "/"
 
 
-def scan(tree: Tree) -> list[Unit]:
+def scan(tree: Tree, rule: str = "unbounded") -> list[Unit]:
+    """Every unit that says the rule's words, with its hits; a unit for `transient` keeps its gate and action
+    flags, but they do not excuse it in a chat surface."""
+    words = WORDS[rule]
     files = tree.files()
-    keys = connection_keys(tree, files)
+    keys = connection_keys(tree, files, words)
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
@@ -357,7 +445,7 @@ def scan(tree: Tree) -> list[Unit]:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
             continue
-        source = strip_comments(tree.read(path))
+        source = tree.source(path)
         lines = source.split("\n")
         if path.endswith((".ts", ".tsx")):
             imports[path] = [
@@ -367,7 +455,7 @@ def scan(tree: Tree) -> list[Unit]:
             ]
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
-            unit = units.setdefault(uid, Unit(path, name, surface))
+            unit = units.setdefault(uid, Unit(path, name, surface, rule=rule))
             body = lines[first:last + 1]
             base = len(unit.lines)
             unit.lines.extend(body)
@@ -380,7 +468,7 @@ def scan(tree: Tree) -> list[Unit]:
                     said += [m.group(1).strip() for m in JSX_TEXT.finditer(line)]
                 if any(KEY_SHAPE.match(s) and OUTCOME_KEY.search(s) for s in said):
                     continue  # an outcome key and its default English (`defaultValue:`)
-                hit = next((s for s in said if says_connection(s, keys)), None)
+                hit = next((s for s in said if says_connection(s, keys, words)), None)
                 if hit is not None:
                     unit.hits.append(Hit(first + offset + 1, hit, base + offset, 0, path))
     for unit in units.values():
@@ -402,7 +490,8 @@ def scan(tree: Tree) -> list[Unit]:
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
     """Move a provider's unbounded hits to the units that draw them, up to a few hops. A provider with a bound or an
     action keeps its hits (it passes). A map or strings member no unit draws shows nothing and is dropped; a helper
-    function no unit is seen to call keeps its hits (a call the scan cannot follow must not hide it)."""
+    function no unit is seen to call keeps its hits (a call the scan cannot follow must not hide it). For `transient`
+    every provider passes its words on: a bound or button does not excuse them, and the drawing may sit in a chat."""
     by_file: dict[str, list[Unit]] = {}
     for unit in units.values():
         by_file.setdefault(unit.path, []).append(unit)
@@ -410,7 +499,7 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
     for _round in range(4):
         moved = False
         for unit in list(units.values()):
-            if not unit.hits or unit.ok or not is_provider(unit):
+            if not unit.hits or (unit.rule == "unbounded" and unit.ok) or not is_provider(unit):
                 continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
@@ -482,9 +571,23 @@ def read_allowlist(text: str) -> dict[str, tuple[str, str, str]]:
 
 
 def write_allowlist(path: Path, rows: dict[str, tuple[str, str, str]]) -> None:
-    body = "".join(f"{unit}\t{s}\t{o}\t{r}\n" for unit, (s, o, r) in sorted(rows.items(), key=lambda kv: (kv[1][0], kv[0])))
+    def order(kv: tuple[str, tuple[str, str, str]]) -> tuple[int, str, str]:
+        rule, uid = split_key(kv[0])
+        return RULES.index(rule), kv[1][0], uid
+    body = "".join(f"{unit}\t{s}\t{o}\t{r}\n" for unit, (s, o, r) in sorted(rows.items(), key=order))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(ALLOWLIST_HEADER + body, encoding="utf-8")
+
+
+SCRIPT = "scripts/cmux-next/check-connection-notices.py"
+
+
+def base_rules(root: Path, rev: str) -> set[str]:
+    """The rules the check at REV knew: a rule it did not know has no rows to shrink from (the change that lands
+    it seeds them)."""
+    proc = git(root, "show", f"{rev}:{SCRIPT}")
+    text = proc.stdout.decode("utf-8", errors="replace") if proc.returncode == 0 else ""
+    return {"unbounded"} | {rule for rule in RULES if f'"{rule}"' in text}
 
 
 class BaseUnreadable(Exception):
@@ -510,97 +613,148 @@ def base_allowlist(root: Path, rev: str) -> dict[str, tuple[str, str, str]] | No
     return read_allowlist(proc.stdout.decode("utf-8", errors="replace"))
 
 
-def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout) -> int:
+TRANSIENT_WHY = "transient link states draw nothing (Leo 2026-11-22)"
+
+
+def offenders_of(tree: Tree, rules: tuple[str, ...]) -> tuple[list[Unit], dict[str, Unit]]:
+    """Every unit that says a rule's words, and the failing ones by allowlist key."""
+    units = [u for rule in rules for u in scan(tree, rule)]
+    return units, {u.key: u for u in units if not u.ok}
+
+
+def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout,
+          rules: tuple[str, ...] = RULES) -> int:
     tree = Tree(root)
-    units = scan(tree)
+    units, offenders = offenders_of(tree, rules)
     if tree.missing:
         print(f"connection notices: cannot judge this tree: {len(tree.missing)} tracked file(s) are not on disk "
               f"(a sparse or partial checkout?), e.g. {', '.join(tree.missing[:3])}; run it in a full checkout",
               file=out)
         return 2
     path = root / ALLOWLIST
-    allow = read_allowlist(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
-    offenders = {u.id: u for u in units if not u.ok}
+    allow_all = read_allowlist(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
+    allow = {k: v for k, v in allow_all.items() if split_key(k)[0] in rules}  # rows of the rules this run judges
     unit_ids = tree.unit_ids
-    problems: list[str] = bound_drift(tree)
+    problems: list[str] = [f"[unbounded] {p}" for p in bound_drift(tree)] if "unbounded" in rules else []
     # Every unlisted offender is judged on every run, whatever file the change touched: whether a unit offends also
     # depends on files it does not live in (a strings map, a string table, the last in-module user of a Swift strings
     # type), so judging only touched files let an offender in that a later full run then failed on. The base passes
     # a full run, so no change pays for another's debt. --base adds the ratchet on the list's rows.
     try:
-        before = base_allowlist(root, base) if base is not None else None
+        before_all = base_allowlist(root, base) if base is not None else None
     except BaseUnreadable as error:
         print(f"connection notices: cannot judge the change: {error}", file=out)
         return 2
+    before = ({k: v for k, v in before_all.items() if split_key(k)[0] in rules}
+              if before_all is not None else None)
+    known = base_rules(root, base) if before is not None else set(RULES)
     unlisted = set(before) - set(allow) if before is not None else set()
-    for uid, unit in sorted(offenders.items()):
-        if uid in allow:
+    for key, unit in sorted(offenders.items(), key=lambda kv: (RULES.index(kv[1].rule), kv[1].id)):
+        if key in allow:
             continue
         first = unit.hits[0]
+        if unit.rule == "transient":
+            problems.append(f"[transient] {unit.id}: says {first.text!r} (line {first.line}) in a chat surface; "
+                            f"{TRANSIENT_WHY}")
+            continue
         why = (f"a literal grace under the bound ({', '.join(unit.literal_grace)}); name CONNECTION_QUIET_MS"
                if unit.literal_grace else "no action and no time bound")
-        problems.append(f"{unit.path}:{first.line}: {unit.name} shows a connection state ({first.text!r}) with {why}")
-    for uid in sorted(allow):
-        if uid not in offenders:  # every run: the list never holds a fixed unit, whatever file fixed it
-            problems.append(f"{ALLOWLIST}: stale row {uid}: it no longer shows an unbounded connection state; "
+        problems.append(f"[unbounded] {unit.path}:{first.line}: {unit.name} shows a connection state "
+                        f"({first.text!r}) with {why}")
+    for key in sorted(allow):
+        if key not in offenders:  # every run: the list never holds a fixed unit, whatever file fixed it
+            rule = split_key(key)[0]
+            said = ("a transient link state in a chat surface" if rule == "transient"
+                    else "an unbounded connection state")
+            problems.append(f"[{rule}] {ALLOWLIST}: stale row {key}: it no longer shows {said}; "
                             "remove the row in this change")
     if before is not None:
-        # A row whose unit moved (same name and surface, another file, and the old unit no longer exists) is the
-        # same debt, not a new one; each removed row covers one move. The surface comes from the paths, never from
-        # the row's text, which the change writes.
-        def move_key(uid: str) -> tuple[str, str | None]:
+        # A row whose unit moved (same rule, name and surface, another file, and the old unit no longer exists) is
+        # the same debt, not a new one; each removed row covers one move. The surface comes from the paths, never
+        # from the row's text, which the change writes.
+        def move_key(key: str) -> tuple[str, str, str | None]:
+            rule, uid = split_key(key)
             path, name = uid.split("::", 1)
-            return name, surface_of(path)
-        gone = sorted((move_key(uid) for uid in unlisted if uid not in unit_ids), key=str)
-        for uid in sorted(set(allow) - set(before)):
-            key = move_key(uid)
-            if key in gone:
-                gone.remove(key)
+            return rule, name, surface_of(path)
+        gone = sorted((move_key(k) for k in unlisted if split_key(k)[1] not in unit_ids), key=str)
+        for key in sorted(set(allow) - set(before)):
+            if split_key(key)[0] not in known:
+                continue  # the change that lands the rule seeds its rows
+            moved = move_key(key)
+            if moved in gone:
+                gone.remove(moved)
                 continue
-            problems.append(f"{ALLOWLIST}: new row {uid}: the list only shrinks; give the state a bound "
-                            "(CONNECTION_QUIET_MS) or one action instead")
+            fix = ("draw nothing for it instead" if moved[0] == "transient"
+                   else "give the state a bound (CONNECTION_QUIET_MS) or one action instead")
+            problems.append(f"[{moved[0]}] {ALLOWLIST}: new row {key}: the list only shrinks; {fix}")
     if list_all:
-        for unit in sorted(units, key=lambda u: u.id):
-            state = "action" if unit.acted else "bound" if unit.gated and not unit.literal_grace else (
-                "listed" if unit.id in allow else "OFFENDER")
+        for unit in sorted(units, key=lambda u: (RULES.index(u.rule), u.id)):
+            if unit.rule == "transient":
+                state = "outside-chat" if not in_chat(unit.path) else "listed" if unit.key in allow else "OFFENDER"
+            else:
+                state = "action" if unit.acted else "bound" if unit.gated and not unit.literal_grace else (
+                    "listed" if unit.key in allow else "OFFENDER")
             for hit in unit.hits:
-                print(f"{state}\t{unit.surface}\t{unit.path}:{hit.line}\t{unit.name}\t{hit.text}", file=out)
+                print(f"{unit.rule}\t{state}\t{unit.surface}\t{unit.path}:{hit.line}\t{unit.name}\t{hit.text}",
+                      file=out)
     for line in problems:
         print(line, file=out)
     if problems:
-        print(f"connection notices: {len(problems)} finding(s). A connection state the person can do nothing about "
-              "waits CONNECTION_QUIET_MS (useLasting / NoticeTiming.connectionQuiet) or carries one action; see "
-              "cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md", file=out)
+        print(f"connection notices: {len(problems)} finding(s). [unbounded]: a connection state the person can do "
+              "nothing about waits CONNECTION_QUIET_MS (useLasting / NoticeTiming.connectionQuiet) or carries one "
+              "action; see cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md. [transient]: in an "
+              "agent chat a link coming back by itself draws nothing at any duration, bound or button; only a send "
+              "that truly failed, or a state the person must act on, shows.", file=out)
         return 1
-    per = {}
-    for uid in allow:
-        per[allow[uid][0]] = per.get(allow[uid][0], 0) + 1
-    print(f"connection notices: ok ({len(units)} units say a connection state; {len(allow)} listed: "
+    per: dict[str, int] = {}
+    for key, row in allow.items():
+        rule = split_key(key)[0]
+        label = row[0] if rule == "unbounded" else f"{rule} {row[0]}"
+        per[label] = per.get(label, 0) + 1
+    print(f"connection notices: ok ({len(units)} units say a rule's words; {len(allow)} listed: "
           + ", ".join(f"{k} {v}" for k, v in sorted(per.items())) + ")", file=out)
     return 0
+
+
+def seed_row(unit: Unit) -> tuple[str, str, str]:
+    said = unit.hits[0].text
+    if unit.rule == "transient":
+        return (surface_label(unit.path), f"conn-transient-{unit.surface}",
+                f"on feat-cmux-next when the transient rule landed (2026-11-22): says {said!r} in a chat surface")
+    return surface_label(unit.path), "unowned", f"says {said!r} with no bound or action"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--base", help="a revision whose allowlist this one may only shrink from (HEAD^1 on a PR)")
-    parser.add_argument("--list", action="store_true", help="print every unit that says a connection state")
+    parser.add_argument("--list", action="store_true", help="print every unit that says a rule's words")
+    parser.add_argument("--rule", choices=("all", *RULES), default="all",
+                        help="judge one rule (and only its allowlist rows); default all")
     parser.add_argument("--write-allowlist", action="store_true",
                         help="drop rows that are fixed; with --seed, list every offender (the first list only)")
     parser.add_argument("--seed", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    rules = RULES if args.rule == "all" else (args.rule,)
     if args.write_allowlist:
         path = args.root / ALLOWLIST
         allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}
-        offenders = {u.id: u for u in scan(Tree(args.root)) if not u.ok}
-        rows = {uid: row for uid, row in allow.items() if uid in offenders}
+        tree = Tree(args.root)
+        _units, offenders = offenders_of(tree, rules)
+        if tree.missing:
+            # Unseen units would read as fixed and lose their rows.
+            print(f"cannot write {ALLOWLIST}: {len(tree.missing)} tracked file(s) are not on disk (a sparse or "
+                  f"partial checkout?), e.g. {', '.join(tree.missing[:3])}; run it in a full checkout",
+                  file=sys.stderr)
+            return 2
+        rows = {k: row for k, row in allow.items() if split_key(k)[0] not in rules or k in offenders}
         if args.seed:
-            for uid, unit in offenders.items():
-                rows.setdefault(uid, (unit.surface, "unowned", f"says {unit.hits[0].text!r} with no bound or action"))
+            for key, unit in offenders.items():
+                rows.setdefault(key, seed_row(unit))
         write_allowlist(path, rows)
         print(f"wrote {len(rows)} rows to {ALLOWLIST}")
         return 0
-    return check(args.root, args.base, list_all=args.list)
+    return check(args.root, args.base, list_all=args.list, rules=rules)
 
 
 if __name__ == "__main__":

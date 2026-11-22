@@ -6,9 +6,11 @@
 //
 //   - says a paused machine is paused and offers Resume, which runs `cloudMachine.resume` once and
 //     reads the list again;
-//   - spins while the machine starts (after Resume, or a stage on the way up), reading the list
-//     every few seconds, and stops reading once it no longer starts or the banner goes;
-//   - says "offline" as before for a machine the account does not list, or one that is ready;
+//   - spins while the machine starts after its Resume, reading the list every few seconds, and stops
+//     reading once it no longer starts or the banner goes; a start the app makes on its own (a stage
+//     on the way up nobody asked for here) is read the same way but draws no banner;
+//   - draws nothing for a machine the account does not list, or one that is ready: a link acpmux
+//     brings back by itself shows the kept chat as it is (Leo, 2026-11-22: "i want it to just work");
 //   - puts Resume where each arm of `paused-machine-resume` says, the actions row by default.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -96,6 +98,7 @@ async function mount(
         copy={{ peer, offline: true }}
         machine={machine.state}
         onResume={machine.resume}
+        asked={machine.asked}
         onReconnect={onReconnect}
         // Shown at once: this reads the settled banner, not the RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
         noteDelayMs={0}
@@ -129,10 +132,12 @@ test("a paused machine's chat says it is paused and Resume starts it once", asyn
   expect(app.calls.filter(([method]) => method === "cloudMachine.resume")).toEqual([
     ["cloudMachine.resume", { id: "vm_paused" }],
   ]);
-  // The list read after it says booting: the banner spins, with no Resume to click twice.
-  expect(banner()?.dataset.machine).toBe("starting");
-  expect(banner()?.textContent).toContain(t("peerCopy.starting.title", { machine: PEER }));
-  expect(banner()?.querySelector(".cv-spinner")).toBeTruthy();
+  // The list read after it says booting, and the Resume asked here has been answered: the machine
+  // starts on its own now, so no banner, no spinner and no Resume to click twice; the kept chat shows
+  // as it is until the machine answers (Leo, 2026-11-22: "i want it to just work"). While the Resume
+  // itself is in flight the banner says Starting (below).
+  expect(banner()).toBeNull();
+  expect(host.querySelector(".cv-spinner")).toBeNull();
   expect(resumeButton()).toBeUndefined();
 });
 
@@ -150,7 +155,8 @@ test("a starting machine is read again until it leaves the starting stages, and 
   globalThis.clearInterval = ((id: unknown) => void cleared.push(id)) as typeof clearInterval;
   try {
     await mount(PEER, app.call);
-    expect(banner()?.dataset.machine).toBe("starting");
+    // A start nobody asked for here draws no banner; the list is still read while it starts.
+    expect(banner()).toBeNull();
     expect(timers.map((timer) => timer.ms)).toEqual([STARTING_READ_MS]);
     const before = reads(app.calls);
     app.set([{ ...paused, stage: "connecting" }]);
@@ -204,8 +210,9 @@ test("a machine slow to start is read past the old 3-minute cap until it leaves 
       });
     expect(reads(app.calls)).toBe(before + ticks);
     expect(cleared).not.toContain(1);
-    // Still starting, as far as the list knows: the banner keeps saying so, with no Resume.
-    expect(banner()?.dataset.machine).toBe("starting");
+    // Still starting, as far as the list knows: still no banner and no Resume, and the reads go on.
+    expect(banner()).toBeNull();
+    expect(resumeButton()).toBeUndefined();
     expect(timers.length).toBe(1);
   } finally {
     globalThis.setInterval = realSet;
@@ -225,51 +232,30 @@ test("a Resume still running for one machine never makes another read as startin
     await new Promise((resolve) => setImmediate(resolve));
   });
   expect(banner()?.dataset.machine).toBe("starting");
+  expect(banner()?.textContent).toContain(t("peerCopy.starting.title", { machine: PEER }));
+  expect(banner()?.querySelector(".cv-spinner")).toBeTruthy();
+  expect(resumeButton()).toBeUndefined();
   await mount("build-box", call);
   expect(banner()?.dataset.machine).toBe("paused");
   expect(resumeButton()).toBeTruthy();
 });
 
-test("a name two of the account's machines share reads offline, with no Resume", async () => {
+test("a name two of the account's machines share draws no banner and no Resume", async () => {
   const app = fakeApp([paused, { id: "vm_twin", name: "dev-vm-2", stage: "paused" }]);
   await mount(PEER, app.call);
-  expect(banner()?.dataset.machine).toBeUndefined();
+  expect(banner()).toBeNull();
   expect(resumeButton()).toBeUndefined();
   const { peerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
   expect(peerCloudMachine([paused], PEER)?.id).toBe("vm_paused");
   expect(peerCloudMachine([paused, { ...paused, id: "vm_twin" }], PEER)).toBeUndefined();
 });
 
-test("offline peer Reconnect invokes doctor and says plainly that it failed", async () => {
-  const app = fakeApp([]);
-  const calls: string[] = [];
-  await mount(PEER, app.call, async (peer) => {
-    calls.push(peer);
-    throw new Error("peer_unreachable: refused by doctor");
-  });
-  const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === t("sessionInfo.connectors.reconnectAction"),
-  );
-  expect(reconnect).toBeTruthy();
-  await act(async () => {
-    reconnect!.click();
-    await new Promise((resolve) => setImmediate(resolve));
-  });
-  expect(calls).toEqual([PEER]);
-  // doctor's raw text goes to the log, the line says it plainly (Leo, 2026-11-12: "we want good error
-  // states. We don't want busted errors.").
-  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("peerCopy.reconnectFailed"));
-  expect(host.textContent).not.toContain("peer_unreachable");
-  expect(host.querySelector<HTMLButtonElement>('button[data-state="failed"]')?.textContent).toBe(
-    t("sessionInfo.connectors.retry"),
-  );
-});
-
-test("a machine the account does not list, or one that is ready, reads offline as before", async () => {
+test("a machine the account does not list, or one that is ready, draws no banner however long", async () => {
   for (const machines of [[], [{ id: "vm_x", name: "elsewhere", stage: "paused" }], [{ ...paused, stage: "ready" }]]) {
     const app = fakeApp(machines);
     await mount(PEER, app.call);
-    expect(banner()?.textContent).toContain(t("peerCopy.offline.title", { machine: PEER }));
+    expect(banner()).toBeNull();
+    expect(host.textContent).not.toContain(t("peerCopy.offline.title", { machine: PEER }));
     expect(resumeButton()).toBeUndefined();
     expect(reads(app.calls)).toBe(1);
     act(() => root?.unmount());

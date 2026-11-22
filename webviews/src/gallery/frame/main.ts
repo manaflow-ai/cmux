@@ -35,8 +35,7 @@ installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
 setLastingGrace(0);
 // The same for a machine whose link is down: a fixture draws the state the pane says once the drop
-// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane. A fixture of the quiet
-// stretch itself passes its own bound (MachineLinkStatus `quietMs`).
+// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane.
 setLinkDownSaidMs(0);
 
 const params = new URLSearchParams(location.search);

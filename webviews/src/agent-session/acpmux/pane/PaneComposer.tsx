@@ -240,7 +240,6 @@ export type PaneComposerDeps = {
   handshaken: boolean;
   newSession: boolean;
   ComposerChips: React.ComponentType<{ snapshot: AcpmuxSnapshot }> | typeof DefaultComposerChips;
-  reconnectPeer: (peer: string) => Promise<unknown>;
   sessionInfo: ReturnType<typeof useSessionInfo>;
   draft: string | undefined;
   setDraftSettled: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -458,7 +457,6 @@ export function drawPaneComposer({
   handshaken,
   newSession,
   ComposerChips,
-  reconnectPeer,
   sessionInfo,
   draft,
   setDraftSettled,
@@ -861,8 +859,6 @@ export function drawPaneComposer({
               hatShows(hatQuestionList)
             }
             chips={ComposerChips}
-            // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
-            onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}

@@ -509,9 +509,9 @@ import { type SignIn, SignInContext, signedOutHarnesses } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
-import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostLineSlot, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
-import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
+import { AcpmuxRestartGate, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
@@ -6281,19 +6281,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// home's acpmux, or no lookup of this app's acpmux in flight): the line keeps its time and drops
   /// the button until the next wait.
   const [restartUnavailable, setRestartUnavailable] = useState(false);
-  /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
-  /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
-  const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
-  /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
-  /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
-  const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
-  useEffect(() => {
-    const heard = (event: Event) => setHostRestoring(readHostRestoring((event as CustomEvent).detail, Date.now()));
-    window.addEventListener("acpmux-host-status", heard);
-    return () => window.removeEventListener("acpmux-host-status", heard);
-  }, []);
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -7209,9 +7198,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       restartGate,
       setWaitingSince,
       setRestartUnavailable,
-      setRelinkingSince,
       setHostTroubleSince,
-      setHostRestoring,
       runPendingAdoption,
       freshRef,
       inheritedFolderRef,
@@ -9248,7 +9235,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     handshaken,
     newSession,
     ComposerChips,
-    reconnectPeer,
     sessionInfo,
     draft,
     setDraftSettled,
@@ -9364,7 +9350,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostErrorSaid}>
+    // A failure the pane clears by asking again by itself (its machine reconnecting, acpmux starting)
+    // draws nothing at any duration; only one asking again cannot clear keeps its line and action.
+    <Notice id="host-error" tier="error" when={hostErrorSaid && !hostSelfRetrying(hostFailure, acpmuxRestartOffered)}>
       <HostUnavailableLine
         message={hostWords.line}
         detail={hostWords.detail}
@@ -9411,26 +9399,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ) : (
       hostErrorCard
     );
-  // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
-  // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
-  // A Restart acpmux in flight keeps its own line.
-  // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
-  const hostLine = (
-    <HostLineSlot>
-      {restartingAcpmux ? (
-        hostWaitOrError
-      ) : (
-        <HostRecoveringLine
-          relinkingSince={relinkingSince}
-          restoring={hostRestoring}
-          failureShown={hostErrorSaid}
-          // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
-          waitingSince={hostWaitingSince}
-          otherwise={hostWaitOrError}
-        />
-      )}
-    </HostLineSlot>
-  );
+  // While the pane gets its chat back on its own nothing is drawn (no line, no chip, no spinner),
+  // however long it takes (Leo, 2026-11-22: "i want it to just connect"): a long wait for this Mac's
+  // acpmux and a failure past its deadline are the only host lines, each with its one action. They
+  // sit in a slot that is always there (HostLineSlot), out of flow, so no state of it moves a row.
+  const hostLine = <HostLineSlot>{hostWaitOrError}</HostLineSlot>;
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).
   const forkPendingLine = snapshot.forkPending && (

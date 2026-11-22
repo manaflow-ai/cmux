@@ -16,6 +16,7 @@ import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 import { DeliveryFailure } from "./PromptDelivery";
+import { SEND_LATE_MS } from "../sendWhenReady";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -140,19 +141,37 @@ test("a prompt queued behind the running turn never says Queued in its footer: i
   }
 });
 
-test("a queued prompt held while the agent service reconnects still says Sending when ready", async () => {
-  const container = await render(prompt({ state: "sending", sentAt: Date.now(), queued: true, waitingForHost: true }));
-  expect(container.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
-    translate("prompt.delivery.whenReady"),
-  );
+test("a send held while its machine or the agent service comes back says nothing before SEND_LATE_MS", async () => {
+  // Leo, 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just connect".
+  for (const delivery of [
+    { state: "sending", sentAt: Date.now(), waitingForHost: true },
+    { state: "sending", sentAt: Date.now() - SEND_LATE_MS + 5_000, waitingForHost: true, connection: "walk-remote" },
+    { state: "sending", sentAt: Date.now(), queued: true, waitingForHost: true },
+  ] satisfies Array<Partial<PromptDelivery> & Pick<PromptDelivery, "state">>) {
+    const container = await render(prompt(delivery));
+    expect(container.querySelector(".cv-user__pending-state"), JSON.stringify(delivery)).toBeNull();
+    expect(container.textContent).not.toMatch(/Sending when ready|Not sent yet|Reconnecting/);
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
 });
 
-test("a send held while the agent service reconnects says so at once, in the same slot", async () => {
-  const container = await render(prompt({ state: "sending", sentAt: Date.now(), waitingForHost: true }));
-  expect(container.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
-    translate("prompt.delivery.whenReady"),
+test("a send held past SEND_LATE_MS says once, in the same slot, that it goes when its machine is back", async () => {
+  const late = Date.now() - SEND_LATE_MS - 1_000;
+  const named = await render(
+    prompt({ state: "sending", sentAt: late, waitingForHost: true, connection: "walk-remote" }),
   );
-  expect(said(container).age).toBe(0);
+  expect(named.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
+    translate("prompt.delivery.late", { machine: "walk-remote" }),
+  );
+  expect(said(named).age).toBe(0);
+  expect(said(named).pending).toBe(1);
+  await act(async () => root!.unmount());
+  root = undefined;
+  const here = await render(prompt({ state: "sending", sentAt: late, queued: true, waitingForHost: true }));
+  expect(here.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
+    translate("prompt.delivery.lateHere"),
+  );
 });
 
 test("a failed send shows Retry on its card and no sent footer", async () => {
@@ -176,6 +195,7 @@ test("no delivery state draws sent and still sending together", async () => {
     [{ state: "sending", sentAt: now - 30_000, slow: true }, {}],
     [{ state: "sending", sentAt: now - 30_000, queued: true }, {}],
     [{ state: "sending", sentAt: now, waitingForHost: true }, {}],
+    [{ state: "sending", sentAt: now - SEND_LATE_MS - 1_000, waitingForHost: true, connection: "walk-remote" }, {}],
     [{ state: "delivered", acceptedAt: now }, {}],
     [{ state: "read", acceptedAt: now, readAt: now }, {}],
     [

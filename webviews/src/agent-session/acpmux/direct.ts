@@ -11412,7 +11412,11 @@ export class AcpmuxDirectClient {
           waiting: () => {
             heldForHost = true;
             unhold ??= sendsHeldForHost.hold();
-            if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
+            // The machine the chat runs on, when it is not this Mac: the row names it if the wait
+            // runs past SEND_LATE_MS (PromptDelivery.tsx `pendingLabel`).
+            const peer = this.sessions.find((session) => session.sessionId === sessionId)?.peer;
+            if (this.setDelivery(promptId, { waitingForHost: true, ...(peer ? { connection: peer } : {}) }))
+              this.emit();
           },
         },
       );

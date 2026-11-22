@@ -1,20 +1,18 @@
 // l10n-allow-file: gallery fixtures (machine and model names), not shipped UI.
 // The machine link of a chat on another machine, in the composer's quiet row (MachineLinkStatus.tsx;
 // goal remote-reconnect-fast, Leo 2026-11-07: "with a connection UI that says plainly what is
-// happening"). Before, the row's only change 40 s into a dropped link was the model chip's
-// "Unavailable" (`before`). Three looks for a link that is not connected, each in every state:
+// happening"; Leo 2026-11-22: "i dont wanna see connecting to <machine>... with the spinner, i
+// want it to just work"). Every state acpmux brings back by itself is the dot alone, at any duration:
+// no spinner, no words, no Reconnect. Only a step a person must take (a refused sign-in, an update
+// the machine needs) is said, in one of three looks:
 //
-//   - `dot`: the dot alone, the words in its tooltip. Nothing to read without a hover: the probe's
-//     failure, a link down that the screen does not say.
-//   - `words`: the dot and the state's word. Says what happens, not to which machine; a pane beside
-//     another machine's chat reads the same.
-//   - `named` (shipped): the dot, the machine and the state's word, the sidebar header's same word,
-//     with Reconnect when it is down. The words fold out of the dot, so the model chip and the
-//     ring never move; connected folds back to the dot.
+//   - `dot`: the dot alone, the words in its tooltip. Nothing to read without a hover.
+//   - `words`: the dot and the step's words. Says what to do, not on which machine.
+//   - `named` (shipped): the dot, the machine and the step, the sidebar header's same words. The words
+//     fold out of the dot, so the model chip and the ring never move.
 //
 // References: claude/live/sidebar-project-groups-status-dots (a status dot per remote group, words
-// only when there is something to read) and the right sidebar's machine rows (design/machines-section.md:
-// a connected machine needs no word; a spinner while connecting; the word once the link is down).
+// only when there is something to read) and the right sidebar's machine rows (design/machines-section.md).
 import { componentEntry } from "../../gallery/format";
 import type { PeerLink } from "./peerLink";
 import { MachineLinkStatus, type MachineLinkLook } from "./MachineLinkStatus";
@@ -23,8 +21,6 @@ type Props = {
   link: PeerLink | null;
   look?: MachineLinkLook;
   /// The row as it was: the model chip's "Unavailable" and no link.
-  /// How long a link that comes back on its own stays unsaid; 0 (the default here) draws it at once.
-  quietMs?: number;
   before?: boolean;
 };
 
@@ -33,9 +29,11 @@ const connected: PeerLink = { machine: MACHINE, link: "connected" };
 const connecting: PeerLink = { machine: MACHINE, link: "connecting" };
 const reconnecting: PeerLink = { machine: MACHINE, link: "connecting", reconnecting: true };
 const offline: PeerLink = { machine: MACHINE, link: "offline" };
-const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline" };
+const signIn: PeerLink = { machine: MACHINE, link: "offline", why: "authFailed", stuck: true };
+const update: PeerLink = { machine: MACHINE, link: "offline", why: "updateRequired", stuck: true };
+const longName: PeerLink = { ...signIn, machine: "gcp-codex-lane-12-us-central1-a" };
 
-function Row({ link, look, before = false, quietMs = 0 }: Props) {
+function Row({ link, look, before = false }: Props) {
   return (
     <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
       <form className="acpmux-composer" data-foot="">
@@ -53,14 +51,14 @@ function Row({ link, look, before = false, quietMs = 0 }: Props) {
               </button>
             </span>
           </span>
-          {!before && <MachineLinkStatus link={link} look={look} quietMs={quietMs} onReconnect={() => undefined} />}
+          {!before && <MachineLinkStatus link={link} look={look} />}
         </div>
       </form>
     </div>
   );
 }
 
-const states = { connected, connecting, reconnecting, offline } as const;
+const stuck = { "sign-in": signIn, update } as const;
 const looks: MachineLinkLook[] = ["named", "words", "dot"];
 const variants: Record<string, { note: string; props: Props }> = {
   before: {
@@ -68,25 +66,25 @@ const variants: Record<string, { note: string; props: Props }> = {
     props: { link: null, before: true },
   },
   local: { note: "A chat on this Mac: no link, the row as before.", props: { link: null } },
+  connected: { note: "A chat on another machine, connected: the dot alone.", props: { link: connected } },
 };
 for (const look of looks)
-  for (const [state, link] of Object.entries(states))
+  for (const [state, link] of Object.entries(stuck))
     variants[`${look}-${state}`] = {
-      note: `${look === "named" ? "Shipped" : "Alternate"} look \`${look}\`, ${state}.`,
+      note: `${look === "named" ? "Shipped" : "Alternate"} look \`${look}\`, ${state === "sign-in" ? "a refused sign-in" : "an update the machine needs"}: said at once.`,
       props: { link, look },
     };
 variants["named-long-name"] = {
-  note: "A long machine name cuts at its end; the state and Reconnect stay whole.",
+  note: "A long machine name cuts at its end; the step stays whole.",
   props: { link: longName },
 };
 
-// Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
-// 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): the plain dot, no spinner,
-// no words, in every state that heals by itself.
+// A link acpmux brings back on its own is never said here, however long it is down: the plain dot in
+// its connected look, no spinner, no words, no Reconnect, in every state that heals by itself.
 for (const [state, link] of Object.entries({ connecting, reconnecting, offline }))
   variants[`quiet-${state}`] = {
-    note: `${state}, down for less than 10 s: the plain dot; nothing is said yet.`,
-    props: { link, quietMs: 3_600_000 },
+    note: `${state}, at any duration: the plain dot; nothing is said.`,
+    props: { link },
   };
 
 export default componentEntry<Props>({

@@ -7,6 +7,8 @@ moment a retry is scheduled (AutoResumeNotice.tsx), the remote placeholder's "Re
 fixed shape (held for the shared bound, or carrying one action) passes. Then the allowlist: a listed offender passes,
 a stale row fails, a row the base lacks fails, a moved unit keeps its row; and every copy of the bound must say the
 schema's value.
+The rule `transient` (Leo 2026-11-22): a bounded "Reconnecting…" with a button fails in an agent chat and passes
+outside one; a `transient:` row exempts it, and a stale or new one fails.
 
     python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
 """
@@ -585,6 +587,108 @@ class Allowlist(unittest.TestCase):
             ccn.main(["--root", str(tree.root), "--write-allowlist"])
         rows = ccn.read_allowlist((tree.root / ALLOWLIST).read_text(encoding="utf-8"))
         self.assertEqual(list(rows), [self.NOTICE])
+
+
+class Transient(unittest.TestCase):
+    """Leo 2026-11-22: in an agent chat a link coming back by itself draws nothing, bound or button."""
+    BOUNDED = """\
+        import { useConnectionQuiet } from "../../ui/lasting";
+        export function ReconnectingLine({ down, onRetry }: Props) {
+          const lasting = useConnectionQuiet(down);
+          return lasting ? <p>Reconnecting…<button type="button" onClick={onRetry}>Retry</button></p> : null;
+        }
+    """
+    CHAT = f"{WEB}/ReconnectingLine.tsx"
+    ROW = f"transient:{WEB}/ReconnectingLine.tsx::ReconnectingLine"
+
+    def test_a_bounded_reconnecting_line_in_a_chat_fails(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"[transient] {WEB}/ReconnectingLine.tsx::ReconnectingLine: says 'Reconnecting…' (line 4) in "
+                      "a chat surface; transient link states draw nothing (Leo 2026-11-22)", out)
+        self.assertNotIn("shows a connection state", out, "the bound and the button pass the old rule")
+
+    def test_the_same_line_outside_a_chat_passes(self):
+        tree = Tree(self)
+        tree.write(f"{PAGE}/ReconnectingLine.tsx", self.BOUNDED)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_words_through_a_swift_strings_type_land_on_the_chat_view(self):
+        pane = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane"
+        tree = Tree(self)
+        tree.write(f"{pane}/PaneStrings.swift",
+                   'enum PaneStrings {\n    static let catchingUp = "Catching up…"\n}\n')
+        tree.write(f"{pane}/PaneView.swift",
+                   "struct PaneView: View {\n    @State var gate = QuietStatusGate()\n"
+                   "    var body: some View { Text(PaneStrings.catchingUp) }\n}\n")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"[transient] {pane}/PaneView.swift::PaneView: says 'PaneStrings: Catching up…'", out)
+
+    def test_a_prefixed_row_exempts_it_and_only_for_its_rule(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED)
+        tree.allow(self.ROW)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("transient web:test 1", out)
+        rows = ccn.read_allowlist((tree.root / ALLOWLIST).read_text(encoding="utf-8"))
+        self.assertEqual(ccn.split_key(next(iter(rows))), ("transient", f"{WEB}/ReconnectingLine.tsx::ReconnectingLine"))
+
+    def test_a_stale_transient_row_fails(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED.replace("Reconnecting…", "Retry the turn"))
+        tree.allow(self.ROW)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"[transient] {ALLOWLIST}: stale row {self.ROW}", out)
+
+    def test_a_new_transient_row_the_base_lacks_fails(self):
+        tree = Tree(self)
+        tree.write(ccn.SCRIPT, 'RULES = ("unbounded", "transient")\n')  # a base whose check knows the rule
+        tree.write(self.CHAT, self.BOUNDED.replace("Reconnecting…", "Retry the turn"))
+        tree.allow()
+        tree.commit("base")
+        tree.write(self.CHAT, self.BOUNDED)
+        tree.allow(self.ROW)
+        tree.commit("head")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"[transient] {ALLOWLIST}: new row {self.ROW}: the list only shrinks", out)
+
+    def test_the_change_that_lands_the_rule_seeds_its_rows(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED)
+        tree.write(ccn.SCRIPT, 'RULES = ("unbounded",)\n')
+        tree.allow()
+        tree.commit("base: the check without the rule")
+        tree.write(ccn.SCRIPT, 'RULES = ("unbounded", "transient")\n')
+        tree.allow(self.ROW)
+        tree.commit("head: the rule lands with its rows")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 0, out)
+
+    def test_rule_flag_runs_one_rule(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED)
+        for rule, want in (("unbounded", 0), ("transient", 1), ("all", 1)):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = ccn.main(["--root", str(tree.root), "--rule", rule])
+            self.assertEqual(code, want, (rule, out.getvalue()))
+
+    def test_seed_writes_a_prefixed_row_and_keeps_the_other_rules_rows(self):
+        tree = Tree(self)
+        tree.write(self.CHAT, self.BOUNDED)
+        tree.allow(f"{WEB}/Gone.tsx::Gone")
+        with contextlib.redirect_stdout(io.StringIO()):
+            ccn.main(["--root", str(tree.root), "--rule", "transient", "--write-allowlist", "--seed"])
+        rows = ccn.read_allowlist((tree.root / ALLOWLIST).read_text(encoding="utf-8"))
+        self.assertEqual(sorted(rows), sorted([f"{WEB}/Gone.tsx::Gone", self.ROW]))
+        self.assertEqual(rows[self.ROW][:2], ("web:agent-session", "conn-transient-web"))
+        self.assertIn("says 'Reconnecting…' in a chat surface", rows[self.ROW][2])
 
 
 class SharedBound(unittest.TestCase):

@@ -8,8 +8,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
-import { RECONNECT_LINE_AFTER_MS } from "./hostRetry";
+import { HostLineSlot, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { settleReact } from "../../../test/support/domTeardown";
 import {
   cssRules,
@@ -78,24 +77,16 @@ function dock(line: React.ReactNode, slotted = true) {
   );
 }
 
-const LONG = RECONNECT_LINE_AFTER_MS + 2_000;
-
 const draws = (container: HTMLElement) => {
   root ??= createRoot(container);
   return (line: React.ReactNode, slotted = true) => act(async () => root!.render(dock(line, slotted)));
 };
 
-test("the host line moves nothing in any state: connected, reconnecting, restoring, waiting, failed", async () => {
+test("the host line moves nothing in any state: connected, waiting, failed", async () => {
   const container = installDom();
   const draw = draws(container);
   const signature = await drawStates(container, {
-    connected: () => draw(<HostRecoveringLine />),
-    "reconnecting, under the bound": () =>
-      draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />),
-    "reconnecting, past the bound": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} />),
-    "reconnecting, dot": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="dot" />),
-    "reconnecting, corner": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="corner" />),
-    restoring: () => draw(<HostRecoveringLine restoring={{ waitedMs: LONG, at: 0 }} now={0} />),
+    connected: () => draw(null),
     "waiting for the service": () => draw(<HostWaitingLine since={0} now={60_000} onRestart={() => undefined} />),
     "failed, with Retry": () =>
       draw(<HostUnavailableLine message="Update cmux." selfRetrying={false} onRetry={() => undefined} />),
@@ -106,16 +97,12 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   expectSameFlow(signature);
 });
 
-test("nothing shows under the bound, and the chip past it is out of flow", async () => {
+test("a self-retrying wait draws nothing in the slot, however long (Leo, 2026-11-22)", async () => {
   const container = installDom();
   const draw = draws(container);
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />);
-  expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS} />);
-  const chip = container.querySelector(".acpmux-host-chip")!;
-  expect(chip.textContent).toBe("Reconnecting…");
-  expectOutOfFlow(chip);
-  expect(container.querySelector(".acpmux-host-line")).toBeNull();
+  await draw(<HostWaitingLine since={0} now={10 * 60_000} />);
+  await draw(<HostUnavailableLine message="Can't connect." />);
+  expect(container.querySelector("[data-host-slot]")?.textContent).toBe("");
 });
 
 test("the failure's buttons stay, out of flow", async () => {

@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A send in a Cloud chat whose machine is paused, or whose link went down when the machine paused
 // itself, wakes the machine instead of failing (cloudWake.ts): the prompt waits in the pane's hold
-// under "Waking the machine…" with no gesture ticket (one would end with the connection the wake
+// with no note and no gesture ticket (one would end with the connection the wake
 // replaces), goes exactly once when the chat is back, and a failed wake gives it back.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";

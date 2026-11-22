@@ -46,7 +46,6 @@ import { HomeLists } from "../HomeLists";
 import { AgentDotGrid } from "../dotGrid/AgentDotGrid";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
-import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
 import { Inspector, type ExportOutcome } from "../Inspector";
 import { SummaryButton } from "../summary/SummaryButton";
@@ -1394,9 +1393,6 @@ export function drawPaneBody({
                     onResume={peerMachine.resume}
                     asked={peerMachine.asked}
                     onReconnect={reconnectPeer}
-                    // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
-                    // drop that heals on its own says nothing (Leo, 2026-11-14).
-                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
