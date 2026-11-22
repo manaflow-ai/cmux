@@ -9,6 +9,36 @@ const [openWorkspace, setOpenWorkspace] = signal(null)
 const [now, setNow] = signal(Date.now())
 const [query, setQuery] = signal("")
 const [folded, setFolded] = signal({}) // host -> true when its sessions are folded
+// Bound both dimensions: a busy fleet otherwise builds thousands of reactive nodes and
+// exhausts the app host's per-entry budget. Paging keeps every host and session reachable.
+const HOSTS_PER_PAGE = 6
+const SESSIONS_PER_PAGE = 6
+const [hostPage, setHostPage] = signal(0)
+const [pickerPage, setPickerPage] = signal(0)
+const [sessionPages, setSessionPages] = signal({})
+const pageIndex = (page, count, size) => Math.min(page, Math.max(0, Math.ceil(count / size) - 1))
+const pageItems = (items, page, size) => {
+  const start = pageIndex(page, items.length, size) * size
+  return items.slice(start, start + size)
+}
+
+function pager(items, page, setPage, size, label, compact = false) {
+  const current = () => pageIndex(page(), items().length, size)
+  return () => items().length > size ? HStack({ spacing: 6 }, [
+    (compact
+      ? Button(Icon("chevron.left"), () => setPage(current() - 1)).help(`Previous ${label}`)
+      : Button(`Previous ${label}`, () => setPage(current() - 1))
+    ).disabled(() => current() === 0),
+    Text(() => `${current() + 1} / ${Math.ceil(items().length / size)}`).font("caption").monospaced().fixedSize("horizontal"),
+    (compact
+      ? Button(Icon("chevron.right"), () => setPage(current() + 1)).help(`Next ${label}`)
+      : Button(`Next ${label}`, () => setPage(current() + 1))
+    ).disabled(() => (current() + 1) * size >= items().length)
+  ]) : null
+}
+
+const sessionPage = (name) => sessionPages()[name] || 0
+const setSessionPage = (name, page) => setSessionPages((s) => ({ ...s, [name]: page }))
 
 const message = (e) => (e instanceof Error ? e.message : String(e))
 const refused = (what) => (e) => cmux.toast({ title: `Turn on ${what} for Hosts`, message: message(e), tone: "warning" })
@@ -91,7 +121,8 @@ const hosts = computed(() => {
     if (!groups.has(name)) groups.set(name, { name, sessions: [] })
     groups.get(name).sessions.push(c)
   }
-  return [...groups.values()]
+  // Activity still sorts sessions within a host, but must not move hosts between pages.
+  return [...groups.values()].sort((a, b) => a.name === b.name ? 0 : a.name === LOCAL ? -1 : b.name === LOCAL ? 1 : a.name < b.name ? -1 : 1)
 })
 
 function show(chat) {
@@ -158,13 +189,15 @@ function hostHeader(h) {
 function renderHosts() {
   follow()
   return VStack({ spacing: 2 }, [
-    ForEach({ items: hosts, key: (h) => h.name }, (h) =>
+    ForEach({ items: () => pageItems(hosts(), hostPage(), HOSTS_PER_PAGE), key: (h) => h.name }, (h) =>
       VStack({ spacing: 1 }, [
         hostHeader(h),
-        ForEach({ items: () => (folded()[h().name] ? h().sessions.filter(isOpen) : h().sessions), key: (c) => c.id }, session),
+        pager(() => folded()[h().name] ? [] : h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions", true),
+        ForEach({ items: () => pageItems(folded()[h().name] ? h().sessions.filter(isOpen) : h().sessions, sessionPage(h().name), SESSIONS_PER_PAGE), key: (c) => c.id }, session),
         () => (h().sessions.length || folded()[h().name] ? null : Text("No sessions").font("caption").color(cmux.theme.text.tertiary).paddingHorizontal(30))
       ])
     ),
+    pager(hosts, hostPage, setHostPage, HOSTS_PER_PAGE, "hosts"),
     HStack({ spacing: 8 }, [Icon("plus").size(11).color(cmux.theme.text.secondary), Text("Add Host").font(12).color("secondary"), Spacer()])
       .paddingHorizontal(10)
       .frame({ height: 28 })
@@ -185,6 +218,7 @@ const matches = (c) => {
 
 function renderPicker() {
   follow()
+  const matchingHosts = computed(() => hosts().map((h) => ({ ...h, sessions: h.sessions.filter(matches) })).filter((h) => h.sessions.length))
   const counts = computed(() => {
     const words = chats().map((c) => statusOf(c).word)
     return { working: words.filter((w) => w === "working").length, blocked: words.filter((w) => w === "blocked").length, hosts: hosts().filter((h) => h.sessions.length).length }
@@ -197,7 +231,11 @@ function renderPicker() {
       Text(() => `${counts().hosts} ${counts().hosts === 1 ? "host" : "hosts"} ·${counts().working} working · ${counts().blocked} blocked`).font("caption").monospaced().color(cmux.theme.text.secondary)
     ]),
     Panel({ style: "card" }, [
-      TextField(query, { placeholder: "Find a session on any host", onEdit: setQuery, onSubmit: () => {
+      TextField(query, { placeholder: "Find a session on any host", onEdit: (value) => {
+        setPickerPage(0)
+        setSessionPages({})
+        setQuery(value)
+      }, onSubmit: () => {
         const first = chats().filter(matches).sort((a, b) => lastActivity(b) - lastActivity(a))[0]
         if (first) show(first)
       } }),
@@ -207,9 +245,9 @@ function renderPicker() {
         Spacer()
       ])
     ]),
-    ForEach({ items: () => hosts().filter((h) => h.sessions.some(matches)), key: (h) => h.name }, (h) =>
+    ForEach({ items: () => pageItems(matchingHosts(), pickerPage(), HOSTS_PER_PAGE), key: (h) => h.name }, (h) =>
       Panel({ title: () => h().name, style: "card" }, [
-        ForEach({ items: () => h().sessions.filter(matches).slice(0, 8), key: (c) => c.id }, (c) =>
+        ForEach({ items: () => pageItems(h().sessions, sessionPage(h().name), SESSIONS_PER_PAGE), key: (c) => c.id }, (c) =>
           Row({
             title: () => c().title,
             subtitle: () => [statusOf(c()).word, c().step || c().project].filter(Boolean).join(" · "),
@@ -217,9 +255,11 @@ function renderPicker() {
             tint: () => statusOf(c()).tone,
             accessory: () => age(lastActivity(c()))
           }).onTap(() => show(c()))
-        )
+        ),
+        pager(() => h().sessions, () => sessionPage(h().name), (page) => setSessionPage(h().name, page), SESSIONS_PER_PAGE, "sessions", true)
       ])
     ),
+    pager(matchingHosts, pickerPage, setPickerPage, HOSTS_PER_PAGE, "hosts"),
     () => (chats().length ? null : EmptyState({ title: "No sessions yet", message: "Shift-Command-O starts one.", symbol: "terminal" })),
     Spacer()
   ])

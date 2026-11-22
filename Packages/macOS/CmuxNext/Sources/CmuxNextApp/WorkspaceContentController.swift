@@ -295,8 +295,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return
         }
+        DebugLayoutCounters.workspaceApplies &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.workspaceApplies &+= 1
         debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
