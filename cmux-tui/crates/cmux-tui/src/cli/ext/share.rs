@@ -132,6 +132,7 @@ pub(super) fn run_add(
         build_timeout: dev::BUILD_TIMEOUT,
         // A folder of your own builds as `ext dev` builds it; a fetched one never builds.
         bun: if local { dev::find_bun() } else { None },
+        every_size: false,
     };
     let mut outcome = dev::once(global, &dev_options, true);
     if let (true, Some(folder), Some(origin)) = (outcome.ok(), &outcome.folder, &origin)
