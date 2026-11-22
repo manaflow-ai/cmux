@@ -39,8 +39,9 @@
 //! the Cloud API's answer for it): that machine is a disposable sandbox the
 //! person owns, so any agent starts there, Codex and opencode included, in
 //! the person's own start mode (`permission_mode`, [`start_policy`]: policy `ask` only when
-//! that is `ask`). A Mac, an SSH host and a
-//! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
+//! that is `ask`). Under full access a Claude chat with no pick then moves to Claude Code's Auto,
+//! keeping Bypass permissions where Claude Code refuses it ([`cloud_default_mode`]). A Mac, an SSH
+//! host and a team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
 //!
 //! There, and only there, the person's own mode pick (`mode`,
 //! [`AGENT_SESSION_START_MODE_CAPABILITY`]) is what the chat starts in (Leo, 2026-11-10: "but
@@ -986,7 +987,11 @@ fn start_and_bind(
         if picked.is_none() && permission_mode == Some("standard") {
             settle_standard_mode(link, &session);
         }
-        session_family(link, until, &session).map_err(end)?
+        let family = session_family(link, until, &session).map_err(end)?;
+        if let Some(mode) = cloud_default_mode(picked, permission_mode, &family) {
+            settle_cloud_default_mode(link, &session, mode);
+        }
+        family
     } else {
         settle_asking_mode(link, until, &session).map_err(end)?
     };
@@ -1036,6 +1041,33 @@ fn start_policy(
         (true, Some("fullAccess" | "standard")) => None,
         _ => Some("ask"),
     }
+}
+
+/// Claude Code's own mode, Auto (acpmux `claude_stdio::OWN_MODE`).
+const CLAUDE_AUTO: &str = "auto";
+
+/// The mode a start on the caller's own Cloud VM moves its new chat to after it started, when the
+/// person picked none and their start level is full access: Claude Code's Auto for a Claude chat
+/// (Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness"; the
+/// default is Auto where Claude Code takes it, else Bypass permissions). The chat starts at the
+/// machine's full-access level (Bypass permissions) and acpmux takes the move without the person
+/// (`hub/start_mode.rs` `may_move_without_person`); a Claude Code that refuses Auto keeps Bypass
+/// permissions ([`settle_cloud_default_mode`]). Any other family, a pick, and any other level: none.
+fn cloud_default_mode(
+    picked: Option<&str>,
+    permission_mode: Option<&str>,
+    family: &str,
+) -> Option<&'static str> {
+    let claude = family == "claude" || family.starts_with("claude-");
+    (picked.is_none() && permission_mode == Some("fullAccess") && claude).then_some(CLAUDE_AUTO)
+}
+
+/// Moves a new chat on the caller's own Cloud VM to `mode` ([`cloud_default_mode`]). Soft, as
+/// acpmux's start level is: a harness that does not offer it, or refuses it, keeps the mode it
+/// started in.
+fn settle_cloud_default_mode(link: &AcpmuxLink, session: &str, mode: &str) {
+    let params = json!({"sessionId": session, "modeId": mode});
+    let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
 }
 
 /// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
