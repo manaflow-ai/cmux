@@ -190,6 +190,7 @@ import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
+import type { ComposerEditCommand } from "./composerEditCommand";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -224,7 +225,7 @@ const NOT_AN_EDIT_KEY = new Set([
   "CapsLock",
 ]);
 
-export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
+export type { ComposerEditCommand };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
