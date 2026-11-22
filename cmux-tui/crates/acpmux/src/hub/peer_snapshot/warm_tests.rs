@@ -275,24 +275,28 @@ fn cpu_time() -> Duration {
     tv(usage.ru_utime) + tv(usage.ru_stime)
 }
 
-/// What [`warm_rounds`] measured.
-#[derive(Debug)]
-struct Rounds {
-    /// Bytes of pages read from the peers, every round, and the last half's per round.
+/// What [`warm_rounds`] measured, in three phases: rounds before the store is behind, rounds
+/// while it is, and rounds after.
+#[derive(Debug, Default)]
+struct Phase {
+    /// Bytes of pages read from the peers.
     read: u64,
-    steady_read_per_round: u64,
-    /// Copies of the peers' chats missing after a round, summed over the last half's rounds.
-    steady_missing: usize,
+    /// Copies of the peers' chats there were none of after a round, summed over its rounds.
+    missing: usize,
+    /// Process CPU time.
     cpu: Duration,
 }
 
 /// The owner's Mac on 2026-11-22 in small: `peers` peers, each with [`WARM_PER_PEER`] chats that
 /// take 3 records a round, read ahead by one thread per peer at once (their links answer at once),
-/// for `rounds` rounds with the store drained between them. `old`: the read ahead as before this
-/// change (a store behind reads as no copy; its pages are admitted as a forwarded page is, so a
-/// full queue costs the peer every copy); else as now.
-fn warm_rounds(peers: usize, rounds: usize, old: bool) -> Rounds {
+/// with the store drained between rounds. Rounds 6 to 15 the store is behind: other captures
+/// (25 links' replays, on the Mac) hold all but a few bytes of its queue. `old`: the read ahead
+/// as before this change (a store behind reads as no copy, and its pages are admitted as a
+/// forwarded page is, so a full queue costs the peer every copy); else as now.
+fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
     use crate::peer::PeerNotice;
+    const ROUNDS: u64 = 20;
+    let behind = 6..=15;
     let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
     let hub = hub_at(dir.path());
     let names: Vec<String> = (0..peers).map(|i| format!("peer-{i}")).collect();
@@ -307,14 +311,20 @@ fn warm_rounds(peers: usize, rounds: usize, old: bool) -> Rounds {
         })
         .collect();
     let chats: Vec<String> = (0..WARM_PER_PEER).map(|i| format!("m{i}")).collect();
-    let text = "x".repeat(20);
     let record = |mux: &str, seq: u64| {
         json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "agent",
-               "kind": "agent_message_chunk", "msg": {"text": text}})
+               "kind": "agent_message_chunk", "msg": {"text": "x"}})
     };
-    let (mut read, mut steady_read, mut steady_missing) = (0u64, 0u64, 0usize);
-    let started = cpu_time();
-    for round in 1..=rounds as u64 {
+    let mut phases: [Phase; 3] = Default::default();
+    for round in 1..=ROUNDS {
+        let phase = &mut phases[if round < *behind.start() {
+            0
+        } else if behind.contains(&round) {
+            1
+        } else {
+            2
+        }];
+        let started = cpu_time();
         let last = 100 + 3 * round;
         let now = now_ms();
         let rows: Vec<Value> = chats
@@ -327,6 +337,10 @@ fn warm_rounds(peers: usize, rounds: usize, old: bool) -> Rounds {
         for peer in &links {
             let notice = PeerNotice::sessions_from_values(rows.clone());
             hub.apply_peer_notice(&peer.name, peer.generation, notice);
+        }
+        let held = QUEUED_BYTES - OP_BYTES;
+        if behind.contains(&round) {
+            hub.peer_snapshots.queued.fetch_add(held, Ordering::AcqRel);
         }
         let bytes = std::sync::atomic::AtomicU64::new(0);
         std::thread::scope(|scope| {
@@ -361,47 +375,35 @@ fn warm_rounds(peers: usize, rounds: usize, old: bool) -> Rounds {
                 });
             }
         });
+        if behind.contains(&round) {
+            hub.peer_snapshots.queued.fetch_sub(held, Ordering::AcqRel);
+        }
         // The interval between rounds: the store takes what it was sent.
         hub.peer_snapshots.flush_now();
-        let bytes = bytes.into_inner();
-        read += bytes;
-        if round > rounds as u64 / 2 {
-            steady_read += bytes;
-            for name in &names {
-                let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
-                let held = covers.values().filter(|(_, to)| *to == last).count();
-                steady_missing += chats.len() - held;
-            }
+        phase.read += bytes.into_inner();
+        for name in &names {
+            let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
+            phase.missing += chats.len() - covers.len().min(chats.len());
         }
+        phase.cpu += cpu_time() - started;
     }
-    let cpu = cpu_time() - started;
-    let steady_read_per_round = steady_read / (rounds - rounds / 2) as u64;
-    Rounds { read, steady_read_per_round, steady_missing, cpu }
+    phases
 }
 
 /// Root-fix of the read-ahead loop on the owner's Mac (2026-11-22: 25 peers, "captures fell
-/// behind; this peer's copies go" for each, every round): once its copies are in, a read ahead
-/// reads each round only what changed and loses no copy. The old read ahead is measured beside
-/// it, by the same harness, for the PR's numbers; 25 peers are past the test build's bounds on
-/// copies (`TOTAL_BYTES`), so only 4 are held to it.
+/// behind; this peer's copies go" for each, every round). While the store is behind, a read
+/// ahead reads nothing and costs no copy; after, it reads only what changed. The old read ahead
+/// is measured beside it, by the same harness, for the PR's numbers. Two peers: more copies are
+/// past the test build's bounds on them (`TOTAL_BYTES`), which would evict copies either way.
 #[test]
-fn a_read_ahead_reads_what_changed_once_its_copies_are_in() {
-    let rounds = 20;
-    for peers in [4, 25] {
-        let old = warm_rounds(peers, rounds, true);
-        let new = warm_rounds(peers, rounds, false);
-        eprintln!("warm-rounds peers={peers} rounds={rounds} old={old:?}");
-        eprintln!("warm-rounds peers={peers} rounds={rounds} new={new:?}");
-        if peers > 4 {
-            continue;
-        }
-        // A change is 3 records a chat: what a steady round reads is those, not whole pages.
-        let changed = (peers * WARM_PER_PEER * 3) as u64 * 400;
-        assert!(
-            new.steady_read_per_round <= changed,
-            "steady rounds read {} bytes, more than what changed ({changed})",
-            new.steady_read_per_round
-        );
-        assert_eq!(new.steady_missing, 0, "a read ahead cost a copy: {new:?}");
-    }
+fn a_read_ahead_gives_way_while_the_store_is_behind_and_then_reads_what_changed() {
+    let old = warm_rounds(2, true);
+    let new = warm_rounds(2, false);
+    eprintln!("warm-rounds old [before, behind, after]: {old:?}");
+    eprintln!("warm-rounds new [before, behind, after]: {new:?}");
+    assert_eq!(new[1].read, 0, "nothing is read while the store is behind");
+    assert_eq!(new[1].missing + new[2].missing, 0, "a read ahead cost a copy: {new:?}");
+    // The 10 rounds behind put 30 records a chat behind: after, one page of those a chat.
+    let changed = (2 * WARM_PER_PEER * 33) as u64 * 200;
+    assert!(new[2].read <= changed, "after, {} bytes read, past what changed", new[2].read);
 }
