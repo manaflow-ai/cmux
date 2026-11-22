@@ -7,8 +7,8 @@ import Foundation
 /// as what it sends, and this replays that:
 ///
 /// - `idle`: nothing (the default, also when unset);
-/// - `heavy`: a busy Mac's pushes. The shell's driver (`HostLoadDriver`)
-///   updates workspace rows at 20 Hz (8 rows each) and replaces every Mac's
+/// - `heavy`: a busy Mac's pushes, from the first keyboard on. The shell's
+///   driver (`HostLoadDriver`) updates workspace rows at 20 Hz (8 rows each) and replaces every Mac's
 ///   tree once a second, as `onRows` and `onTree` do; and it posts `tick`,
 ///   on which the mock terminal writes a status line (output, as a streaming
 ///   build does) and the mock chat re-sends its status (as the daemon's
