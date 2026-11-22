@@ -130,10 +130,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
-    /// `chat.attach.dropped {kind, names}`: where on this Mac the files of the person's last native
-    /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
-    /// person's files: never logged.
-    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `chat.attach.dropped {kind, names, gestureAt}`: where on this Mac the files of the person's
+    /// native drop or paste taken at `gestureAt` are, for a chat on this Mac (``AgentPaneDroppedPaths``).
+    /// The names are the person's files: never logged.
+    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
     case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
@@ -423,8 +423,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportClose(connection: Int)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
-    /// contract (``AgentPaneGestureIntent``).
-    case transportGesture(AgentPaneGestureIntent?)
+    /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
+    /// why, for the app log (``AgentPaneRefusalLog``).
+    case transportGesture(AgentPaneGestureIntent?, method: String? = nil, refusal: String? = nil)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).

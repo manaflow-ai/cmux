@@ -40,6 +40,8 @@ mod apps_run;
 #[cfg(unix)]
 mod attention;
 #[cfg(unix)]
+mod auth_handoff;
+#[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
 mod automation;
@@ -66,6 +68,8 @@ mod chief_target;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
+mod cloud_auth_handoff_relay;
+#[cfg(unix)]
 mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
@@ -82,6 +86,8 @@ mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
@@ -113,6 +119,8 @@ pub(crate) use completion::refuse_in_help_reader;
 mod community;
 #[cfg(unix)]
 mod customize;
+#[cfg(unix)]
+mod debug_perf;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -152,7 +160,11 @@ mod safe_mode;
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
+mod start_stages;
+#[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_cleanup;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -636,7 +648,9 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
+/// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
+/// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -669,7 +683,7 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
     } else if only_json
-        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_engine_requested(rest))
+        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_runs_in_acpmux(rest))
     {
         // acpmux's global `--json`, right after the scope word: never after a verb whose
         // trailing words are another program's (`acp gh pr list`).
@@ -683,6 +697,18 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
 fn harness_tab_run(words: &[String]) -> bool {
     matches!(words, [harness, run, ..] if harness == "harness" && run == "run")
         && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
+}
+
+/// Whether `args` (`agent VERB …`) runs in acpmux, through the engine grammar or as one of its aliases
+/// (`agent ls`), rather than as one of the app's own `agent` verbs. The engine check comes first: it
+/// reads clap's static subcommand table, while the alias check builds acpmux's whole parser, whose
+/// unoptimized frames pass a 2 MiB test thread's stack.
+fn agent_runs_in_acpmux(args: &[String]) -> bool {
+    #[cfg(unix)]
+    let alias = || agent_acp_scope_args(args).is_some();
+    #[cfg(not(unix))]
+    let alias = || false;
+    agent_engine_requested(args) || alias()
 }
 
 /// Existing terminal agent commands and app actions keep their own dispatch.
@@ -799,6 +825,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm rm NAME --confirm --wait --with-snapshots`, `vm snapshots [--orphaned]` and
+    // `vm snapshot rm ID --confirm`: cleanup in one command (vm_cleanup.rs).
+    #[cfg(unix)]
+    if let Some(code) = vm_cleanup::run_if_requested(args) {
+        return code;
+    }
     // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
     #[cfg(unix)]
     if let Some(code) = vm_short::run_if_requested(args) {
@@ -943,6 +975,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
+        .or_else(|| cloud_pause_all::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_auth::run_if_requested(args))
@@ -950,6 +983,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
@@ -964,6 +998,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| debug_perf::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
