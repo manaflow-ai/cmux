@@ -849,7 +849,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         session.setMacOffline(true)
         #expect(session.connectionState == .offline(mac: "mini"))
         #expect(events.last == .connection(.offline(mac: "mini")))
-        #expect(TerminalConnectionState.offline(mac: "mini").label == "mini is offline")
+        #expect(TerminalConnectionState.offline(mac: "mini").quietLine == "mini is offline")
 
         session.setMacOffline(false)
         #expect(events.last == .connection(.reattaching(mac: "mini")))

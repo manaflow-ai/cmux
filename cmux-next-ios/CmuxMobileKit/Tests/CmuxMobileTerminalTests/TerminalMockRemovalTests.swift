@@ -125,7 +125,7 @@ private final class LiveStub: TerminalSession {
         // Bytes from the Mac mean attached, even without a `.connection` event.
         #expect(connecting.applying(.output(Data("$ ".utf8))) == .attached)
         #expect(TerminalConnectionState.attached.applying(.connection(.reattaching(mac: "mini"))) == .reattaching(mac: "mini"))
-        #expect(TerminalConnectionState.reattaching(mac: "mini").label == "Reattaching…")
-        #expect(TerminalConnectionState.attached.label == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == "Reconnecting to mini…")
+        #expect(TerminalConnectionState.attached.quietLine == nil)
     }
 }

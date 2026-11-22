@@ -40,8 +40,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
-    /// When Home started showing kept rows while its list loads (the "Updating" chip's wait).
-    @State private var updatingSince: Date?
     @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
@@ -452,19 +450,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
-        // "a symbol or short thing, not a sentence. stop layout shifting").
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("home.note.updating")
-            }
-        }
-        .onChange(of: listNote(searching: searching) == .updating, initial: true) { _, updating in
-            updatingSince = ConnectionChip.nextDownSince(updatingSince, down: updating, now: Date())
-        }
+        // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
+        // "just show the cache"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
