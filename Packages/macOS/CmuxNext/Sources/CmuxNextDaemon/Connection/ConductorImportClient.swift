@@ -22,6 +22,12 @@ public struct ConductorImportClient: Sendable {
 
     /// The cheap, read-only source probe used by the Import Suggestions scan. The daemon
     /// returns candidate folders from its project index without building the full adoption plan.
+    /// The read-only source probe on `connection`; nil when there is no connection or the probe fails.
+    public static func detect(on connection: DaemonConnection?) async -> ConductorImportDetection? {
+        guard let connection else { return nil }
+        return try? await ConductorImportClient(connection: connection).detect()
+    }
+
     public func detect() async throws -> ConductorImportDetection {
         try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "conductor_import.plan",
