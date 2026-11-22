@@ -363,7 +363,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                         replacements.observe(object, replyTo: method, connection: connection)
                         if Self.pageWaits(on: object) { awaited += 1 }
                         if Self.answersPage(object) { answers += 1 }
-                    } else if Self.pageWaits(on: fresh) {
+                    } else if Self.pageWaits(on: fresh, method: method) {
                         // Opaque notifications still wake a hidden page for the small set of
                         // delivery-boundary events; their raw text is enough to identify them.
                         awaited += 1
