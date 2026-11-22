@@ -11,6 +11,7 @@ import type { NativePopupDescription, NativePopupEvent } from "../../ui/nativePo
 import { popupAction } from "../../ui/popupDescriptors";
 import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
 import { useEscapingPopup } from "../../ui/popupHost";
+import { usePopupSettle } from "../../ui/popupSettle";
 
 export interface PageMenuItem {
   id: string;
@@ -167,6 +168,8 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   // No room above or below the pointer in the page: past the window's edge (popupHost.ts).
   const host = usePopupHost();
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const settle = usePopupSettle<HTMLElement>(host ? setPopup : undefined);
   useEscapingPopup(host, popup, () => anchor, { side: "bottom", align: "start", gap: 0 });
   // The app's native menu, asked once per opening; a refusal (an older app) draws the page's.
   const [drawn, setDrawn] = useState(() => nativeMenu() === null);
@@ -218,11 +221,7 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           align="start"
           sideOffset={0}
         >
-          <BaseMenu.Popup
-            ref={host ? setPopup : undefined}
-            className="page-menu ui-popup ui-glass"
-            finalFocus={() => opener.current}
-          >
+          <BaseMenu.Popup ref={settle} className="page-menu ui-popup ui-glass" finalFocus={() => opener.current}>
             {items.map((item) => (
               <PageMenuRow key={item.id} item={item} onClose={onClose} />
             ))}

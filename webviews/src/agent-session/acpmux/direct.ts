@@ -11964,6 +11964,9 @@ export class AcpmuxDirectClient {
         : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.listedSessions && !this.fedMode && !this.replayMode && !this.sessionPages.holdsAll
+        ? { sessionsWindowed: true as const }
+        : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.peerCopy
         ? {

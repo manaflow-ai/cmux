@@ -30,6 +30,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
+import { usePopupSettle } from "./popupSettle";
 
 export interface MenuProps {
   open?: boolean;
@@ -402,13 +403,15 @@ export function MenuPopup({
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
   const edges = useScrollEdges();
-  const attachPopup = useCallback(
+  const keepPopup = useCallback(
     (node: HTMLElement | null) => {
       if (node) popupNode.current = node;
       if (host) setPopup(node);
     },
     [host],
   );
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attachPopup = usePopupSettle<HTMLElement>(keepPopup);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
     escapes && (side === "top" || side === "bottom") ? host : null,
