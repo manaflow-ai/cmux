@@ -72,6 +72,16 @@ import UIKit
         func scroll(toTopOf item: Int, plus extra: CGFloat = 0) {
             let y = (list.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame.minY ?? 0) + extra
             list.setContentOffset(CGPoint(x: 0, y: y - list.adjustedContentInset.top), animated: false)
+            scrolled()
+        }
+
+        /// A scroll set by code ends as one in the app does (``PagedListController/scrollEndedByCode()``):
+        /// the list decides whether it still follows its newest row and takes the reader's place.
+        /// Before it, a list the fixture scrolled mid-list still followed its newest row, so no
+        /// change kept the reader (step 1a53607a: removeFirst(10) moved the offset 0).
+        func scrolled() {
+            list.layoutIfNeeded()
+            controller.scrollEndedByCode()
             settle()
         }
 
