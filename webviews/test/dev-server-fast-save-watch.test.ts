@@ -96,7 +96,7 @@ test("stop closes the stream and gives the watcher its own emit back", () => {
   expect(h.seen.filter((line) => line.startsWith("change"))).toHaveLength(2);
 });
 
-test("with the real fs.watch, a write is reported before the watcher's own event", async () => {
+test("with the real fs.watch, a write is reported on the watcher", async () => {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "fast-save-watch-")));
   try {
     fs.mkdirSync(path.join(dir, "src"));
@@ -105,12 +105,13 @@ test("with the real fs.watch, a write is reported before the watcher's own event
     const watcher = new EventEmitter();
     const got = new Promise<string>((resolve) => watcher.on("change", resolve));
     const stop = reportSavesEarly(watcher, dir, (candidate) => candidate === file);
+    // The stream can start after a first write: save a new version every 50 ms until one is reported.
+    let version = 2;
+    const saves = setInterval(() => fs.writeFileSync(file, `export const a = ${version++};\n`), 50);
     try {
-      await Bun.sleep(100); // the stream starts
-      fs.writeFileSync(file, "export const a = 2;\n");
-      const reported = await Promise.race([got, Bun.sleep(3_000).then(() => "timeout")]);
-      expect(reported).toBe(file);
+      expect(await got).toBe(file);
     } finally {
+      clearInterval(saves);
       stop();
     }
   } finally {
