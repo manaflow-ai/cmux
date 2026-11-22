@@ -91,6 +91,8 @@ impl Daemon {
         for sub in ["home", "acpmux", "work"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
+        // acpmux refuses a group-writable ancestor of its home; a 002 umask makes this dir 775.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
