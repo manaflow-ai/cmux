@@ -24,7 +24,7 @@ thread_local! {
 const BUILD: &str = "a3c1b0f6b8f61b1e4d2b8c8f1f0e6a3d5c7b9e2f4a6c8e0b2d4f6a8c0e2b4d6f";
 const OTHER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-struct TempDir(PathBuf);
+pub(crate) struct TempDir(pub(crate) PathBuf);
 
 impl Drop for TempDir {
     fn drop(&mut self) {
@@ -32,7 +32,7 @@ impl Drop for TempDir {
     }
 }
 
-fn temp_dir() -> TempDir {
+pub(crate) fn temp_dir() -> TempDir {
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).unwrap();
     let dir = std::env::temp_dir().join(format!(
@@ -43,7 +43,7 @@ fn temp_dir() -> TempDir {
     TempDir(dir)
 }
 
-fn keypair() -> (Ed25519KeyPair, Key) {
+pub(crate) fn keypair() -> (Ed25519KeyPair, Key) {
     let rng = ring::rand::SystemRandom::new();
     let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
     let pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
@@ -55,7 +55,7 @@ fn trust(keys: Vec<Key>) {
     TEST_KEYS.with(|cell| *cell.borrow_mut() = Some(keys));
 }
 
-fn envelope(payload: &Value, pair: &Ed25519KeyPair, key_id: &str) -> Vec<u8> {
+pub(crate) fn envelope(payload: &Value, pair: &Ed25519KeyPair, key_id: &str) -> Vec<u8> {
     let bytes = serde_json::to_vec(payload).unwrap();
     let b64 = base64::engine::general_purpose::STANDARD;
     let sig = pair.sign(&bytes);

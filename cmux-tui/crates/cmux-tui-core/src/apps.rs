@@ -82,6 +82,8 @@ mod page_calls;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
+mod registry_fetch;
+#[cfg(unix)]
 pub mod registry_trust;
 #[cfg(unix)]
 mod relay;

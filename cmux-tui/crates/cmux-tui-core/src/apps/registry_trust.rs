@@ -41,7 +41,7 @@ pub const REVOCATIONS_FILE: &str = "revocations.sig";
 pub const MARKER: &str = ".cmux-ext-dev.json";
 
 /// The largest signed file read.
-const MAX_BYTES: u64 = 4 * 1024 * 1024;
+pub(super) const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The registry signing keys (`web-ota-pointer.py --keys` format). To add or
 /// rotate one, add its public half here and ship it before the registry
