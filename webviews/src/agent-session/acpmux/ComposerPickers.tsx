@@ -28,6 +28,7 @@ import { ModelPicker } from "./ModelPicker";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
+import { listedNoDefault } from "./newtab/chipDefaults";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
 import type { QuickSetup } from "./quickModelMenuModel";
@@ -436,6 +437,7 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
+  const onNewTab = useContext(OnNewTab);
   // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
   // reports (`confirmedModel`, set while a pick is unconfirmed).
   const shown = summary?.model;
@@ -1268,8 +1270,12 @@ export function ComposerPickers({
         ...(quickDetail ? { detail: quickDetail } : {}),
         ...(quickShort ? { detailShort: quickShort } : {}),
       });
+  // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
+  // on no agent (newTabStart): its chip is Add harness, as with none installed.
+  const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
+    !unpickedNewTab &&
+    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.dialog}
