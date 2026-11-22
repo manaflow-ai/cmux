@@ -48,65 +48,38 @@ say_failure() {
 }
 
 # Fetches the previous commit from one remote. Never lets this hold the build
-# open: terminal prompts are off and `timeout` bounds
-# it (without `timeout` it is not tried). Depth 1 only in a shallow clone
-# (Vercel's): run from a full clone, --depth would write .git/shallow and
-# truncate history for every worktree sharing it. `git diff` only needs both
-# trees, not a connected history between them, so one commit is enough.
+# open: terminal prompts are off and `timeout` bounds it (without `timeout`
+# it is not tried). Depth 1 only in a shallow clone (Vercel's): run from a
+# full clone, --depth would write .git/shallow and truncate history for every
+# worktree sharing it. `git diff` only needs both trees, not a connected
+# history between them, so one commit is enough.
 fetch_previous() {
-  local remote="$1" label="$2" output depth=()
-  command -v timeout >/dev/null 2>&1 || return 1
+  local remote="$1" label="$2" output status depth=()
+  if ! command -v timeout >/dev/null 2>&1; then
+    echo "No timeout command; not fetching from ${label}."
+    return 1
+  fi
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
-  if output="$(GIT_TERMINAL_PROMPT=0 timeout 60 git fetch --no-tags --no-recurse-submodules \
-    --quiet ${depth[@]+"${depth[@]}"} "$remote" "$previous_sha" 2>&1)" \
-    && has_commit "$previous_sha"; then
+  output="$(GIT_TERMINAL_PROMPT=0 timeout 60 git fetch --no-tags --no-recurse-submodules \
+    --quiet ${depth[@]+"${depth[@]}"} "$remote" "$previous_sha" 2>&1)"
+  status=$?
+  if [[ $status -eq 0 ]] && has_commit "$previous_sha"; then
     echo "Fetched the previous Vercel deployment commit from ${label}."
     return 0
   fi
   echo "Could not fetch the previous Vercel deployment commit from ${label}:"
-  say_failure "git fetch exit status or missing commit" "$output"
+  if [[ $status -eq 124 ]]; then
+    say_failure "git fetch timed out after 60 s" "$output"
+  else
+    say_failure "git fetch exit status ${status}" "$output"
+  fi
   return 1
 }
 
-# Vercel builds from a clone 10 commits deep, and main lands commits faster
-# than that, so the previously deployed commit is usually outside it. From
-# 2026-11-15 to 2026-11-22 every commit that left 10 commits since the last
-# build was built and deployed even when nothing it shipped had changed: the
-# fetch from origin below failed in Vercel's container and the script built
-# defensively. Try origin, then the public GitHub URL, which needs no
-# credential.
-if ! has_commit "$previous_sha"; then
-  if git remote get-url origin >/dev/null 2>&1; then
-    fetch_previous origin "origin" || fetch_previous "$public_remote" "$public_remote"
-  else
-    echo "This clone has no origin remote."
-    fetch_previous "$public_remote" "$public_remote"
-  fi
-fi
-
-if has_commit "$previous_sha"; then
-  pathspecs=(".")
-  for path in "${non_inputs[@]}"; do pathspecs+=(":(exclude)${path}"); done
-  for path in "${shared_inputs[@]}"; do pathspecs+=("../${path}"); done
-  git diff --quiet "$previous_sha" "$current_sha" -- "${pathspecs[@]}"
-  case $? in
-    0)
-      echo "No web build inputs changed; skipping the Vercel build."
-      exit 0
-      ;;
-    1)
-      echo "Web build inputs changed; running the Vercel build."
-      exit 1
-      ;;
-  esac
-  echo "git could not compare ${previous_sha} with ${current_sha}; running the build."
-  exit 1
-fi
-
-# Last source: GitHub's compare API lists the paths a range changed. Use it
-# only when the previous commit is an ancestor of the current one (status
-# "ahead" or "identical"), so the list is the same as a tree diff, and only
-# when the list is complete (GitHub returns at most 300 files).
+# GitHub's compare API lists the paths a range changed. Use it only when the
+# previous commit is an ancestor of the current one (status "ahead" or
+# "identical"), so the list is the same as a tree diff, and only when the list
+# is complete (GitHub returns at most 300 files).
 compare_with_github() {
   local current response verdict
   current="$(git rev-parse --verify --quiet "${current_sha}^{commit}")" || {
@@ -161,6 +134,36 @@ compare_with_github() {
   return 2
 }
 
+compare_with_git() {
+  local pathspecs=(".") path
+  for path in "${non_inputs[@]}"; do pathspecs+=(":(exclude)${path}"); done
+  for path in "${shared_inputs[@]}"; do pathspecs+=("../${path}"); done
+  git diff --quiet "$previous_sha" "$current_sha" -- "${pathspecs[@]}"
+  case $? in
+    0)
+      echo "No web build inputs changed; skipping the Vercel build."
+      exit 0
+      ;;
+    1)
+      echo "Web build inputs changed; running the Vercel build."
+      exit 1
+      ;;
+  esac
+  echo "git could not compare ${previous_sha} with ${current_sha}; running the build."
+  exit 1
+}
+
+has_commit "$previous_sha" && compare_with_git
+
+# Vercel builds from a clone 10 commits deep, and main lands commits faster
+# than that, so the previously deployed commit is usually outside it. From
+# 2026-11-15 to 2026-11-22 every commit that left 10 commits since the last
+# build was built and deployed even when nothing it shipped had changed: the
+# fetch from origin failed in Vercel's container (its error went unprinted)
+# and the script built defensively. Ask the compare API first: one request,
+# about a second. A fetch of the previous commit downloads its whole tree
+# (about 12 s from a GitHub runner); try origin, then the public URL, which
+# needs no credential.
 echo "Previous Vercel deployment commit ${previous_sha} is not in this clone; asking GitHub's compare API."
 compare_with_github
 case $? in
@@ -173,5 +176,14 @@ case $? in
     exit 1
     ;;
 esac
+
+if git remote get-url origin >/dev/null 2>&1; then
+  fetch_previous origin "origin" || fetch_previous "$public_remote" "$public_remote"
+else
+  echo "This clone has no origin remote."
+  fetch_previous "$public_remote" "$public_remote"
+fi
+has_commit "$previous_sha" && compare_with_git
+
 echo "Could not tell whether web build inputs changed; running the build."
 exit 1

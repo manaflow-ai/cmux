@@ -350,15 +350,20 @@ for (const replayCase of replay.cases) {
     const built = await commit("built");
     expect(Number(await git("rev-list", "--count", `${deployed}..${built}`))).toBe(replayCase.commits);
 
-    const shallow = await vercelClone(repository);
-    await runChildOk("git", ["remote", "set-url", "origin", unreachableRemote], { cwd: shallow });
-    const lookup = await runChild("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: shallow });
-    expect(lookup.status === 0).toBe(replayCase.commits < vercelCloneDepth);
+    // A fresh clone for each source: a fetch leaves the commit behind, and the
+    // next source would never be asked.
+    const brokenOriginClone = async (): Promise<string> => {
+      const clone = await vercelClone(repository);
+      await runChildOk("git", ["remote", "set-url", "origin", unreachableRemote], { cwd: clone });
+      const lookup = await runChild("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: clone });
+      expect(lookup.status === 0).toBe(replayCase.commits < vercelCloneDepth);
+      return clone;
+    };
 
     const expected = replayCase.webBuildInputsChanged ? 1 : 0;
     // From the public remote.
     expect(
-      await ignoreBuild(deployed, built, shallow, {
+      await ignoreBuild(deployed, built, await brokenOriginClone(), {
         CMUX_VERCEL_IGNORE_PUBLIC_REMOTE: `file://${repository}`,
       }),
     ).toBe(expected);
@@ -372,13 +377,13 @@ for (const replayCase of replay.cases) {
       }),
     );
     expect(
-      await ignoreBuild(deployed, built, shallow, {
+      await ignoreBuild(deployed, built, await brokenOriginClone(), {
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         CMUX_VERCEL_IGNORE_GITHUB_API: "https://api.github.invalid",
       }),
     ).toBe(expected);
     // And with every source down, it still builds.
-    expect(await ignoreBuild(deployed, built, shallow)).toBe(1);
+    expect(await ignoreBuild(deployed, built, await brokenOriginClone())).toBe(1);
   }, 60000);
 }
 
