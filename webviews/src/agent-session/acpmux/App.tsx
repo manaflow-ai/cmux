@@ -7832,6 +7832,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
   const extensionCommands = useExtensionCommands();
+  // The chat list across a reconnect: the pane connects a new client, whose snapshots hold no list until
+  // it has read one (`listedSessions` unset), so the list the composer and its pickers read went empty
+  // and back, twice in a slow reattach, and each drew the composer again (Leo, 2026-11-22: "idk if the
+  // waiting for agent service bullshit has anything to do with it"). The same chat keeps the list it
+  // had until the new client has one.
+  const heldList = useRef<{ sessionId: string; sessions: AcpmuxSnapshot["sessions"] } | undefined>(undefined);
+  const listUnread =
+    snapshot.sessions.length === 0 &&
+    !snapshot.listedSessions &&
+    snapshot.sessionId !== undefined &&
+    heldList.current?.sessionId === snapshot.sessionId;
+  const listShown = listUnread ? heldList.current!.sessions : snapshot.sessions;
+  if (!listUnread)
+    heldList.current = snapshot.sessionId ? { sessionId: snapshot.sessionId, sessions: snapshot.sessions } : undefined;
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7853,6 +7867,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
+      ...(listShown !== snapshot.sessions && { sessions: listShown }),
       commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
@@ -7897,6 +7912,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked,
     cloudModePick,
     extensionCommands,
+    listShown,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -7911,7 +7927,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       machineCatalog === composerSnapshot.catalog ? composerSnapshot : { ...composerSnapshot, catalog: machineCatalog },
     [composerSnapshot, machineCatalog],
   );
-  const composerDrawn = useComposerView(composerOnMachine);
+  // acpmux's queue for the composer's queued cards: the same list while it holds the same prompts, so a
+  // reattach that reads the queue again (a new empty list) leaves the composer be.
+  const composerTurnQueue = useSameValue(snapshot.queue);
+  // The link's state reaches the composer only while it offers Resume, the one thing it draws from it.
+  const composerDrawn = useComposerView(composerOnMachine, interruptedResumeOwner !== undefined);
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -13140,7 +13160,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={snapshot.queue}
+            turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}

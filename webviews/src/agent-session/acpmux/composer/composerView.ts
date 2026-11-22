@@ -41,6 +41,10 @@ const TURN_LIVE = [
   "drewKeptTail",
   "groupedAsks",
   "permissionGroups",
+  // Whether the client has read the chat list yet, and a fork's handoff state: the pane's, never read
+  // by the composer, and each flips on a reconnect.
+  "listedSessions",
+  "handoff",
 ] as const satisfies readonly (keyof AcpmuxSnapshot)[];
 
 /// What another chat changes as it runs (its status, its dot, its times, its unread mark, its latest
@@ -158,24 +162,27 @@ export function sameComposerView(a: AcpmuxSnapshot, b: AcpmuxSnapshot): boolean 
 /// is up, which is all the composer could read of it, and the turn's live fields (`TURN_LIVE`) left
 /// out. The last view while it holds the same members (sameComposerView), so a snapshot that changed
 /// only what the composer does not show leaves it be.
-export function composerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+///
+/// The composer reads the link only to offer Resume (resumeControl.ts); `readsLink` false (no Resume
+/// offered) keeps the view's link up whatever the client says, so a drop and its reconnect ("Waiting
+/// for the agent service") leave the view as it was. Down, the client names each step of a reconnect
+/// ("disconnected", "connecting…", "connecting (attempt 3)…"): each step is the one "disconnected".
+export function composerView(snapshot: AcpmuxSnapshot, readsLink = true): AcpmuxSnapshot {
   const view: AcpmuxSnapshot = {
     ...snapshot,
     rows: composerRows(snapshot.rows),
-    // Down, the client names each step of the reconnect ("disconnected", "connecting…", "connecting
-    // (attempt 3)…"); the composer reads only `linkUp`, so each step drew it again for nothing.
-    connection: linkUp(snapshot.connection) ? "connected" : "disconnected",
+    connection: !readsLink || linkUp(snapshot.connection) ? "connected" : "disconnected",
   };
   for (const key of TURN_LIVE) delete view[key];
   return view;
 }
 
-/// `composerView(snapshot)`, the last one returned while it holds the same members.
-export function useComposerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
-  const last = useRef<{ from: AcpmuxSnapshot; view: AcpmuxSnapshot } | undefined>(undefined);
-  if (last.current?.from === snapshot) return last.current.view;
-  const next = composerView(snapshot);
+/// `composerView(snapshot, readsLink)`, the last one returned while it holds the same members.
+export function useComposerView(snapshot: AcpmuxSnapshot, readsLink = true): AcpmuxSnapshot {
+  const last = useRef<{ from: AcpmuxSnapshot; readsLink: boolean; view: AcpmuxSnapshot } | undefined>(undefined);
+  if (last.current?.from === snapshot && last.current.readsLink === readsLink) return last.current.view;
+  const next = composerView(snapshot, readsLink);
   const view = last.current && sameComposerView(last.current.view, next) ? last.current.view : next;
-  last.current = { from: snapshot, view };
+  last.current = { from: snapshot, readsLink, view };
   return view;
 }
