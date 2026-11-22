@@ -2123,17 +2123,13 @@ test("three chips: the machine chip's dot stays quiet through a link that comes 
       { at: 0, apply: link(down) },
       { at: healsAt, apply: link("connected") },
     ];
-    expect(await labelExposure("machine-chip.connect-800ms", timeline("connecting", 800), 2_000, notConnected)).toBe(0);
-    expect(await labelExposure("machine-chip.reconnect-6s", timeline("reconnecting", 6_000), 8_000, notConnected)).toBe(
-      0,
-    );
-    const lasting = await labelExposure(
-      "machine-chip.lasting-15s",
-      timeline("reconnecting", 15_000),
-      17_000,
-      notConnected,
-    );
-    expect(lasting).toBe(15_000 - CONNECTION_QUIET_MS);
+    // Measured in full before any assertion, so a regression prints every number the PR table quotes.
+    const shown = [
+      await labelExposure("machine-chip.connect-800ms", timeline("connecting", 800), 2_000, notConnected),
+      await labelExposure("machine-chip.reconnect-6s", timeline("reconnecting", 6_000), 8_000, notConnected),
+      await labelExposure("machine-chip.lasting-15s", timeline("reconnecting", 15_000), 17_000, notConnected),
+    ];
+    expect(shown).toEqual([0, 0, 15_000 - CONNECTION_QUIET_MS]);
     expect(dot()?.getAttribute("data-connected")).toBe("true");
     // A refused sign-in needs the person: it is said at once.
     await link("authFailed")();
