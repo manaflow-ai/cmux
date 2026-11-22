@@ -287,14 +287,19 @@ impl Hub {
             .as_ref()
             .map(|(id, _)| id.clone())
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        let (turn_cut, codex_fork) = {
+        let (turn_cut, codex_fork, opencode_fork) = {
             let cfg = self.config.read().await;
             let profile = cfg.profile(&parent_meta.harness);
+            let family = parent_meta
+                .family
+                .clone()
+                .or_else(|| profile.map(|p| crate::config::derive_family(&parent_meta.harness, p)));
             (
                 profile.and_then(|p| crate::config::turn_cut(&parent_meta.harness, p)),
                 // A Codex parent's profile argv, for the HTTP `cmux` entry check.
                 crate::agent_tools::is_codex(&parent_meta, profile)
                     .then(|| profile.map(|p| p.argv.clone()).unwrap_or_default()),
+                family.as_deref() == Some("opencode"),
             )
         };
         if before.is_some() && turn_cut.is_none() {
@@ -540,6 +545,7 @@ impl Hub {
             let entry_env = codex.and_then(|launch| {
                 crate::agent_tools::person_entry_env(&servers, launch, &answer_env, &id)
             });
+            let servers = parent_side_servers(opencode_fork, servers);
             let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers});
             crate::agent_tools::send_person_entry_env(&mut fork_params, entry_env);
             // The parent's folders, as its own start gave them (`additional_dirs.rs`).
@@ -1210,6 +1216,16 @@ fn note_open_tool(open_tools: &mut Vec<(String, String)>, e: &EventRecord) {
 
 /// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
 /// not known yet (the agent never started) count as offered: the agent then answers.
+/// The MCP servers the parent's agent gets with its `session/fork`. OpenCode gets none: its MCP
+/// clients are one set per folder in its process, by name, so the fork's servers (each URL naming
+/// the fork) replaced the parent's own, and the parent's tools then acted as the fork (measured
+/// 2026-11-22, OpenCode 1.19.0: the parent's `list_sessions` answered with the fork's id). Its
+/// forked session in the parent's process never runs a turn: the fork loads it in its own
+/// process, with its own servers (`fork_child`). Starting them there also cost about 0.9 s.
+fn parent_side_servers(opencode: bool, servers: Value) -> Value {
+    if opencode { json!([]) } else { servers }
+}
+
 pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
     caps.is_none_or(|c| c.pointer("/sessionCapabilities/fork").is_some_and(|f| !f.is_null()))
 }
@@ -1255,5 +1271,21 @@ mod same_folder_tests {
         let other = tempfile::tempdir().unwrap();
         assert!(same_folder(dir.path(), &dir.path().join(".")));
         assert!(!same_folder(dir.path(), other.path()));
+    }
+}
+
+#[cfg(test)]
+mod parent_side_servers_tests {
+    use super::parent_side_servers;
+    use serde_json::json;
+
+    /// OpenCode's parent process gets no servers with its `session/fork` (they would replace the
+    /// parent's own); every other agent gets the fork's list as before.
+    #[test]
+    fn only_opencode_forks_without_servers() {
+        let servers =
+            json!([{"name": "acpmux", "type": "http", "url": "http://x/mcp/fork/tools/acpmux"}]);
+        assert_eq!(parent_side_servers(true, servers.clone()), json!([]));
+        assert_eq!(parent_side_servers(false, servers.clone()), servers);
     }
 }
