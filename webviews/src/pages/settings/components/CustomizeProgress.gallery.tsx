@@ -59,7 +59,9 @@ const STATES: Record<State, string> = {
 const variants: Record<string, { note: string; props: Props }> = {};
 for (const layout of Object.keys(LAYOUTS) as ProgressLayout[]) {
   for (const state of Object.keys(STATES) as State[]) {
-    variants[`${layout}-${state}`] = { note: `${LAYOUTS[layout]}; ${STATES[state]}.`, props: { layout, state } };
+    // Variant names are lower kebab case: `newTab` is `new-tab`.
+    const name = layout.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    variants[`${name}-${state}`] = { note: `${LAYOUTS[layout]}; ${STATES[state]}.`, props: { layout, state } };
   }
 }
 
