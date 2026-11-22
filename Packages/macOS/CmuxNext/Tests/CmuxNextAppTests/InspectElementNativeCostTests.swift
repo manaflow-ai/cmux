@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextTestSupport
@@ -192,6 +192,28 @@ import Testing
         }
     }
 
+    /// A real sidebar row answers no hit-test over its body (`SidebarRowView.hitTest`: the list owns the click), so
+    /// the hit lands on the list; the row under the pointer is still the one picked.
+    @Test func aRowThatDeclinesTheHitIsStillPicked() {
+        withInspectorOn {
+            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let list = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 300))
+            window.contentView?.addSubview(list)
+            for (index, id) in ["w1", "w2"].enumerated() {
+                let row = DecliningRow(frame: NSRect(x: 8, y: 240 - CGFloat(index) * 32, width: 200, height: 28))
+                row.setAccessibilityIdentifier("cmux.sidebar.workspace.\(id)")
+                row.setAccessibilityLabel(id == "w1" ? "api" : "web")
+                list.addSubview(row)
+            }
+            let found = UIPointerNativeElement.elements(at: NSPoint(x: 100, y: 222), in: window)
+            #expect(found.first?.kind == .workspace)
+            #expect(found.first?.identifier == "cmux.sidebar.workspace.w2")
+        }
+    }
+
     @Test func movesOverDeepNativeUIAreCheap() {
         withInspectorOn {
             let (window, point) = deepNativeWindow()
@@ -223,4 +245,9 @@ import Testing
             #expect(!inspector.native.isShowing, "unnamed native views drew an outline")
         }
     }
+}
+
+/// A view like `SidebarRowView`: no hit over its body.
+private final class DecliningRow: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

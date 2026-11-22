@@ -241,7 +241,9 @@ public final class UIInspectorController {
             let image = await self.host.capture(window)
             guard self.selectionGeneration == generation else { return }
             let png = image.flatMap { UIPointerNativePicker.crop($0, rect: element.frame, window: window) }
-            self.finish(action: action, name: "UI: \(element.title)", text: text, png: png, preferred: nil)
+            // The pick goes to a chat in the window it was made in, not the first chat of any window.
+            let page = self.host.pages().first { $0.window === window && !$0.isHiddenOrHasHiddenAncestor }
+            self.finish(action: action, name: "UI: \(element.title)", text: text, png: png, preferred: page)
             self.stop()
         }
     }

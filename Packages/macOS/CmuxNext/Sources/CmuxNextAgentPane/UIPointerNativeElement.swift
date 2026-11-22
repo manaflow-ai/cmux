@@ -7,6 +7,22 @@ public struct UIPointerNativeElement: Equatable {
     public enum Kind: String {
         case tab = "Tab", tabStrip = "Tab bar", pane = "Pane", paneToolbar = "Pane toolbar"
         case workspace = "Workspace", sidebarItem = "Sidebar item", control = "Control", view = "View"
+
+        /// The kind as the outline's chip shows it, in the app's language; the report keeps `rawValue` (stable English).
+        public var displayName: String {
+            switch self {
+            case .tab: String(localized: "agentPane.pointer.kind.tab", defaultValue: "Tab", bundle: .localizedModule)
+            case .tabStrip: String(localized: "agentPane.pointer.kind.tabStrip", defaultValue: "Tab bar", bundle: .localizedModule)
+            case .pane: String(localized: "agentPane.pointer.kind.pane", defaultValue: "Pane", bundle: .localizedModule)
+            case .paneToolbar:
+                String(localized: "agentPane.pointer.kind.paneToolbar", defaultValue: "Pane toolbar", bundle: .localizedModule)
+            case .workspace: String(localized: "agentPane.pointer.kind.workspace", defaultValue: "Workspace", bundle: .localizedModule)
+            case .sidebarItem:
+                String(localized: "agentPane.pointer.kind.sidebarItem", defaultValue: "Sidebar item", bundle: .localizedModule)
+            case .control: String(localized: "agentPane.pointer.kind.control", defaultValue: "Control", bundle: .localizedModule)
+            case .view: String(localized: "agentPane.pointer.kind.view", defaultValue: "View", bundle: .localizedModule)
+            }
+        }
     }
 
     public var kind: Kind
@@ -22,7 +38,7 @@ public struct UIPointerNativeElement: Equatable {
         guard let content = window.contentView,
               let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point) else { return [] }
         var chain: [NSView] = []
-        var next: NSView? = hit
+        var next: NSView? = row(under: point, in: hit) ?? hit
         while let view = next {
             if !skip(view) { chain.append(view) }
             if view === content { break }
@@ -141,6 +157,18 @@ public struct UIPointerNativeElement: Equatable {
     private static func label(of view: NSView) -> String? {
         let text = view.accessibilityLabel() ?? view.accessibilityTitle() ?? (view as? NSControl)?.stringValue
         return text.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// A sidebar row answers no hit-test over its body (the list owns the click, `SidebarRowView.hitTest`), so the
+    /// hit lands on the list: the named row of `hit`'s own subviews that holds `point` (window coordinates) is the
+    /// one under the pointer. One pass over `hit`'s subviews, topmost first; nil when none is a row.
+    private static func row(under point: NSPoint, in hit: NSView) -> NSView? {
+        for view in hit.subviews.reversed() where !view.isHidden && view.alphaValue > 0 && !(view is NSButton) {
+            let identifier = view.accessibilityIdentifier()
+            guard identifier.hasPrefix(Self.workspaceID) || identifier.hasPrefix(Self.itemID) else { continue }
+            if view.convert(view.bounds, to: nil).contains(point) { return view }
+        }
+        return nil
     }
 
     private static func descendant(of view: NSView, where match: (NSView) -> Bool) -> NSView? {

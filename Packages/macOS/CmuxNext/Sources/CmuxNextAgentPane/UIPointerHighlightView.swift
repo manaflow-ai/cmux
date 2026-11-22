@@ -36,7 +36,7 @@ public final class UIPointerHighlightView: NSView {
 
     public func show(_ element: UIPointerNativeElement, look: Look, outlineIn rect: NSRect, around frame: NSRect) {
         self.look = look
-        chip = "\(element.kind.rawValue) · \(element.title)"
+        chip = "\(element.kind.displayName) · \(element.title)"
         box = frame.insetBy(dx: -2, dy: -2).offsetBy(dx: -rect.minX, dy: -rect.minY)
         setFrameSize(rect.size)
         needsDisplay = true

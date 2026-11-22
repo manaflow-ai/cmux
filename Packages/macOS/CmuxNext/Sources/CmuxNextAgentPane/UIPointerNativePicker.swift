@@ -21,7 +21,7 @@ public final class UIPointerNativePicker {
     /// The window the outline is in (a key pick crops from it).
     public var window: NSWindow? { hover?.window }
     /// Whether an outline is up (tests: none while idle).
-    public var isShowing: Bool { hover?.highlight.map { !$0.isDismissed } ?? false }
+    var isShowing: Bool { hover?.highlight.map { !$0.isDismissed } ?? false }
 
     /// The element under the pointer and its containers outward (`elements`), the one shown (`level`), its
     /// outline, and a hold that keeps a right-clicked element through the move back from its menu.
