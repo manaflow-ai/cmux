@@ -12,25 +12,51 @@
 //! folder below `/tmp`, one workspace is made by request, and the daemon
 //! gets SIGKILL. Its store's files and its guard file stay, and no daemon
 //! owns them. Then the session's folder and its guard file are copied until
-//! the state root has the wanted count of sessions. The files are new, so
-//! they are in the machine's file cache: a cold cache is NOT measured.
+//! the state root has the wanted count of sessions. The files are new. On
+//! Linux a copy writes the data, so the data is in the machine's file cache.
+//! On a Mac a copy can be a clone that writes no data: the cache's state for
+//! such a copy is NOT KNOWN. A cold cache is NOT measured.
+//!
+//! On a Mac a daemon writes a copy of its program for its terminal hosts.
+//! `CMUX_TUI_HOST_EXE_DIR` puts that copy in the state's folder: it is
+//! deleted with the state, and nothing is written below the user's home.
 //!
 //! The parts, for 800 sessions and then for 2,000 sessions:
 //! (i)  on a new state: ONE `__store-schemas --stored` call with no end time
-//!      and with no stop at the app's 10 s: its time;
+//!      and with no stop at the app's 10 s (this test ends it at 240 s): its
+//!      time;
 //! (ii) 2 runs, each on a new state: the app's rule for its 2 state roots
 //!      (root 1 is the state, root 2 has no session): each call's time, exit
 //!      code and count of sessions read; the end (the numbers or no answer);
 //!      the sum of the time.
 //!
 //! One state is on the disk at a time. Each state's folder is deleted when
-//! its part ends, in each way out (a failed assert too). At its start the
-//! test deletes each folder of its own name prefix below `/tmp` that is
-//! older than 1 hour: a test that the runner ended left one.
+//! its part ends, in each way out of the test's own code (a failed assert
+//! too). A test process that the runner ends deletes nothing. So at its
+//! start the test deletes each folder of its own name prefix below `/tmp`
+//! that is older than 1 hour.
 //!
-//! Each line starts with `ask drill:`. The test fails only when a state of
-//! 800 sessions is not made. A state of 2,000 sessions that is not made
-//! (the disk) is the line `NOT RUN` for that size.
+//! The 2 guards:
+//! - THE DISK, before each state is made: the free bytes of the volume of
+//!   `/tmp`, read with `df -Pk /tmp`. Below 2 times the state's forecast
+//!   size + 10 GB, or when the read gives no number, the state is not made.
+//! - THE TIME: this test's own budget of 25 minutes, checked before each
+//!   state is made and again before each part's measure. The runner ends
+//!   the test at 30 minutes; the longest measure after a check is the 240 s
+//!   of part (i).
+//!
+//! A guard that stops a part gives the line `NOT RUN` with its cause for
+//! the parts that are left of that size, and the test passes.
+//!
+//! Each line starts with `ask drill:`. The test fails in 2 cases: a state
+//! of 800 sessions is not made by a cause that is not a guard; or one of the
+//! test's own file or process calls gives an error (each `unwrap`). A state
+//! of 2,000 sessions that is not made is the line `NOT RUN` for that size.
+//!
+//! What a line can have: counts, times, exit codes, the result of a delete
+//! (an error of the system with no path), and a text of the CLI or of the
+//! daemon. Each such text goes through `safe`. The name of an old folder is
+//! not printed: a different user of `/tmp` can make that name.
 
 #![cfg(unix)]
 
@@ -65,6 +91,17 @@ const PREFIX: &str = "cmux-ask-drill-";
 const OLD: Duration = Duration::from_secs(3600);
 /// No state fills the disk of the machine: 4 GB of copies is the limit.
 const DISK_LIMIT: u64 = 4_000_000_000;
+/// The disk guard's forecast of one session's bytes: with it, a state of
+/// 2,000 sessions is the 4 GB of `DISK_LIMIT`.
+const FORECAST_SESSION_BYTES: u64 = 2_000_000;
+/// The disk guard's margin: the free bytes that stay for the machine.
+const DISK_MARGIN: u64 = 10_000_000_000;
+/// This test's own budget. The runner ends the test at 30 minutes, and a
+/// test that the runner ends cannot delete its folder.
+const BUDGET: Duration = Duration::from_secs(25 * 60);
+/// The limit of part (i)'s one plain call. A call that starts at the end of
+/// the budget ends before the runner's 30 minutes.
+const PLAIN_LIMIT: Duration = Duration::from_secs(240);
 const REGISTRY: &str = "workspace-registry.sqlite3";
 const LOCKS: &str = "session-locks";
 
@@ -120,9 +157,76 @@ fn delete_old_folders() {
             .and_then(|at| SystemTime::now().duration_since(at).ok());
         if age.is_some_and(|age| age >= OLD) {
             say(&format!(
-                "an old folder of this test, /tmp/{name}: the delete: {:?}",
+                "an old folder of this test's name prefix: the delete: {:?}",
                 fs::remove_dir_all(entry.path())
             ));
+        }
+    }
+}
+
+/// Why a part did not run.
+enum Stop {
+    /// A guard of this test (the disk or the time): the test passes.
+    Guard(String),
+    /// The state was not made: for 800 sessions the test fails.
+    NotMade(String),
+}
+
+impl From<String> for Stop {
+    fn from(cause: String) -> Self {
+        Self::NotMade(cause)
+    }
+}
+
+/// The free bytes of the volume of `/tmp` for this user, by `df -Pk /tmp`:
+/// in its second line, the field before the field that ends with `%` is the
+/// count of free blocks of 1024 bytes. `None` = no such number.
+fn free_bytes() -> Option<u64> {
+    let output = Command::new("df")
+        .args(["-Pk", "/tmp"])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let fields = text.lines().nth(1)?.split_whitespace().collect::<Vec<_>>();
+    let percent = fields.iter().position(|field| field.ends_with('%'))?;
+    let blocks = fields.get(percent.checked_sub(1)?)?.parse::<u64>().ok()?;
+    blocks.checked_mul(1024)
+}
+
+/// THE TIME GUARD: `Err` = this test's budget is used.
+fn budget(began: Instant) -> Result<(), Stop> {
+    let used = began.elapsed();
+    if used < BUDGET {
+        return Ok(());
+    }
+    Err(Stop::Guard(format!(
+        "THE TIME: this test ran for {} s, and its budget is {} s",
+        used.as_secs(),
+        BUDGET.as_secs()
+    )))
+}
+
+/// The 2 guards before a state of `sessions` sessions is made: the time,
+/// then the disk. `Err` = the state is not made.
+fn guards(began: Instant, sessions: usize) -> Result<(), Stop> {
+    budget(began)?;
+    let forecast = FORECAST_SESSION_BYTES * u64::try_from(sessions).unwrap();
+    let wanted = 2 * forecast + DISK_MARGIN;
+    match free_bytes() {
+        Some(free) if free >= wanted => Ok(()),
+        Some(free) => Err(Stop::Guard(format!(
+            "THE DISK: the volume of /tmp has {free} free bytes, below the {wanted} bytes that \
+             this test wants for a state of {sessions} sessions (2 times the forecast of \
+             {forecast} bytes + {DISK_MARGIN} bytes)"
+        ))),
+        None => {
+            Err(Stop::Guard("THE DISK: `df -Pk /tmp` gave no count of free blocks".to_string()))
         }
     }
 }
@@ -163,14 +267,16 @@ impl Drop for Folder {
     }
 }
 
-/// This build's CLI with `root` as its state root, and its config and its
-/// log file in the test's folder.
+/// This build's CLI with `root` as its state root, and its config, its log
+/// file and (on a Mac) the daemon's copy of its program for its terminal
+/// hosts in the test's folder.
 fn command(folder: &Folder, root: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
     command
         .env("CMUX_TUI_STATE_DIR", root)
         .env("CMUX_TUI_CONFIG", folder.0.join("config.json"))
         .env("CMUX_TUI_LOG_FILE", folder.0.join("client.log"))
+        .env("CMUX_TUI_HOST_EXE_DIR", folder.0.join("host-exe"))
         .env("LC_ALL", "C")
         .env_remove("CMUX_TUI_SOCKET")
         .env_remove("CMUX_TUI_TERMINAL_ID")
@@ -271,7 +377,7 @@ fn answer_of(run: &Run) -> Answer {
 /// An answer for the log.
 fn form(answer: &Answer, run: &Run) -> String {
     match answer {
-        Answer::Schemas(numbers) => format!("THE NUMBERS {numbers}"),
+        Answer::Schemas(numbers) => format!("THE NUMBERS {}", safe(numbers)),
         Answer::NotReady(read) => {
             format!("not_ready, {read} sessions read: {}", safe(&run.stdout))
         }
@@ -446,9 +552,11 @@ struct State {
 }
 
 impl State {
-    /// `Err` = the state is not made, with the cause. The folder is deleted
-    /// then too (the drop of `folder`).
-    fn new(part: &str, sessions: usize) -> Result<Self, String> {
+    /// `Err` = the state is not made, with the cause: a guard before the
+    /// make, or a failure of the make. The folder is deleted then too (the
+    /// drop of `folder`).
+    fn new(part: &str, sessions: usize, began: Instant) -> Result<Self, Stop> {
+        guards(began, sessions)?;
         let folder = Folder::new(part);
         let owner = Owner::start(&folder, "ask-drill")?;
         // A workspace with no terminal: a journal row and no terminal host.
@@ -486,10 +594,10 @@ impl State {
             .sum::<u64>();
         let all = bytes * u64::try_from(sessions).unwrap();
         if all > DISK_LIMIT {
-            return Err(format!(
+            return Err(Stop::NotMade(format!(
                 "{sessions} sessions of {bytes} bytes each are {all} bytes, above this test's \
                  disk limit of {DISK_LIMIT} bytes"
-            ));
+            )));
         }
         for copy in 1..sessions {
             let name = format!("{session}-{copy:04}");
@@ -515,11 +623,12 @@ impl State {
 }
 
 /// Part (i): ONE plain call with no end time, and with no stop at the app's
-/// 10 s (this test's limit is 300 s). `Err` = the state was not made. The
-/// call's time when it gave the numbers.
-fn part_i(sessions: usize) -> Result<Option<Duration>, String> {
-    let state = State::new(&format!("i-{sessions}"), sessions)?;
-    let run = check(&state.folder, &state.folder.root(), false, Duration::from_secs(300));
+/// 10 s (this test's limit is `PLAIN_LIMIT`). `Err` = the part did not run.
+/// The call's time when it gave the numbers.
+fn part_i(began: Instant, sessions: usize) -> Result<Option<Duration>, Stop> {
+    let state = State::new(&format!("i-{sessions}"), sessions, began)?;
+    budget(began)?;
+    let run = check(&state.folder, &state.folder.root(), false, PLAIN_LIMIT);
     let answer = answer_of(&run);
     say(&format!(
         "({sessions}) (i) {}: ONE PLAIN CALL with no end time and with no stop at 10 s: {} ms, \
@@ -538,15 +647,21 @@ fn part_i(sessions: usize) -> Result<Option<Duration>, String> {
 /// a root gives its (empty) numbers at the first ask. So root 1 gets 5 of
 /// the 6 calls: 4 asks and the plain call (`:41`). With root 2 as the first
 /// root the count is the same: root 2 uses 1 call, and 5 stay. `Err` = the
-/// state was not made.
-fn part_ii(sessions: usize, number: usize, plain: Option<Duration>) -> Result<(), String> {
-    let state = State::new(&format!("r{number}-{sessions}"), sessions)?;
+/// part did not run.
+fn part_ii(
+    began: Instant,
+    sessions: usize,
+    number: usize,
+    plain: Option<Duration>,
+) -> Result<(), Stop> {
+    let state = State::new(&format!("r{number}-{sessions}"), sessions, began)?;
+    budget(began)?;
     let roots =
         [("root 1", state.folder.root()), ("root 2 (no session)", state.folder.second_root())];
     let mut lines = Vec::new();
-    let began = Instant::now();
+    let rule_began = Instant::now();
     let (numbers, calls) = stored(&state.folder, &roots, &mut lines);
-    let sum = began.elapsed();
+    let sum = rule_began.elapsed();
     let against = match plain {
         Some(plain) => format!(
             "the plain call of (i) took {} ms; THE SUM IS ABOVE IT BY MORE THAN 5000 ms: {}",
@@ -569,22 +684,32 @@ fn part_ii(sessions: usize, number: usize, plain: Option<Duration>) -> Result<()
 }
 
 /// The 3 measures of one size, one after the other: one state on the disk
-/// at a time. `Err` = a state was not made, with the cause.
-fn size(sessions: usize) -> Result<(), String> {
-    let plain = part_i(sessions)?;
-    part_ii(sessions, 1, plain)?;
-    part_ii(sessions, 2, plain)
+/// at a time. A part that did not run gives the line `NOT RUN` with its
+/// cause, and the parts after it of this size do not run. `Some` = a state
+/// was not made by a cause that is not a guard, with that cause.
+fn size(began: Instant, sessions: usize) -> Option<String> {
+    let done = part_i(began, sessions).and_then(|plain| {
+        part_ii(began, sessions, 1, plain)?;
+        part_ii(began, sessions, 2, plain)
+    });
+    match done {
+        Ok(()) => None,
+        Err(Stop::Guard(cause)) => {
+            say(&format!("({sessions}) NOT RUN from here: a guard of this test: {cause}"));
+            None
+        }
+        Err(Stop::NotMade(cause)) => {
+            say(&format!("({sessions}) NOT RUN from here: a state was not made: {cause}"));
+            Some(cause)
+        }
+    }
 }
 
 #[test]
 fn rollback_ask_drill_at_a_base_commit() {
+    let began = Instant::now();
     delete_old_folders();
-    let first = size(800);
-    if let Err(cause) = &first {
-        say(&format!("(800) NOT RUN from here: a state was not made: {cause}"));
-    }
-    if let Err(cause) = size(2000) {
-        say(&format!("(2000) NOT RUN from here: a state was not made: {cause}"));
-    }
-    assert!(first.is_ok(), "a state of 800 sessions was not made: {first:?}");
+    let first = size(began, 800);
+    size(began, 2000);
+    assert!(first.is_none(), "a state of 800 sessions was not made: {first:?}");
 }
