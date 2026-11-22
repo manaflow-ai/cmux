@@ -96,7 +96,7 @@ pub(crate) fn for_refusal(
 /// before any `--`, and not added when the caller already detached.
 pub(crate) fn add_detach(args: &mut Vec<String>) {
     let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
-    let detached = args[..end].iter().any(|w| {
+    let detached = args.iter().take(end).any(|w| {
         w == "-d"
             || w == "--detach"
             || (w.starts_with('-') && !w.starts_with("--") && w.contains('d'))
