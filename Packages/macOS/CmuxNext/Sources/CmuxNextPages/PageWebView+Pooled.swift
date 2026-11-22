@@ -46,6 +46,11 @@ extension PageWebView {
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if PageSpareVariant.current == .unmounted {
+            host.configuration.userContentController.addUserScript(
+                WKUserScript(source: PageSpareVariant.deferMountScript, injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true, in: .page))
+        }
         return PooledHostRecipe(served: served, configuration: host.configuration,
                                 inputReadiness: host.inputReadiness, options: options, owner: owner)
     }

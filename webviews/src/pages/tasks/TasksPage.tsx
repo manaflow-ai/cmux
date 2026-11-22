@@ -693,6 +693,8 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
             estimateSize={() => 96}
             // A card grows with its title (up to three lines) and session progress: each slot is measured.
             measureRows
+            // A card keeps its measured height when a card above it moves to another column.
+            itemKey={(index) => tasks[index]!.id}
             renderRow={(index, style, measure) => (
               <BoardCard
                 key={tasks[index]!.id}
