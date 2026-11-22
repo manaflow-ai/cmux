@@ -1206,10 +1206,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         if let bound = tree.agentTabs[tabID]?.session { return bound }
         guard let surface = tree.surfaces[tabID] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
         let workspace = (tree.workspaces + tree.homeWorkspaces).first { $0.tabs.contains { $0.id == tabID } }
-        let folder = tree.directories[tabID] ?? workspace?.tabs.lazy.compactMap { tree.directories[$0.id] }.first
-            ?? workspace?.directory
-        guard let cwd = folder, cwd.hasPrefix("/") else {
-            throw WorkspaceCreationError("This chat has no folder on the Mac. Open a terminal in its workspace, then send again.", isForPerson: true)
+        // The first project folder of the tab, its workspace's tabs, then the workspace: acpmux
+        // refuses a phone's chat in the home folder or above, so those are passed over.
+        let candidates = [tree.directories[tabID]] + (workspace?.tabs.map { tree.directories[$0.id] } ?? []) + [workspace?.directory]
+        guard let cwd = candidates.lazy.compactMap({ $0 }).first(where: { $0.hasPrefix("/") && !Self.isHomeOrAbove($0) }) else {
+            throw WorkspaceCreationError("Open this workspace in a project folder on the Mac, then send again.", isForPerson: true)
         }
         let (harness, session) = try await startAgentSession(AgentChatStart(harness: tree.agentTabs[tabID]?.harness), cwd: cwd, macID: sync.macID)
         willBind(session)

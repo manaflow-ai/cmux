@@ -275,7 +275,7 @@ public final class LiveCoordinator {
         store.macConnection = [:]
         store.teamDataState = .loading
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
-            guard let self else { return UnboundAgentSource(summary: summary, macName: nil) }
+            guard let self else { return UnboundAgentSource(summary: summary, start: nil) }
             // The tab's own Mac (tab ids repeat across Macs); a chat of a Mac
             // whose link is closed opens it, and is rebuilt once its tree lists the tab.
             let owner = self.session(tabID: summary.id, macID: summary.macID.isEmpty ? nil : summary.macID)
