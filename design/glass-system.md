@@ -45,7 +45,7 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
 5. **Legibility floor.** Primary text keeps 4.5:1 and secondary 3:1 against the glass laid over
    pure black and pure white. If a level fails at its tint, the tint goes up for that level; the
    text never gets thinner. The tooltip already works this way (`TooltipSurface.tintAlpha`).
-   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (64% light,
+   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (68% light,
    68% dark, `glassInk` in the design scale) over the glass, which every glass surface's secondary
    tokens (`--cmux-text-secondary`, `--cmux-text-tertiary`, `--agent-muted`, `--page-text-2/3`,
    the composer placeholder and dim words, and a field's own placeholder) read inside `.ui-glass`.
