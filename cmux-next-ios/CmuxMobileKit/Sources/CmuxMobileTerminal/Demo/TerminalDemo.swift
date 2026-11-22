@@ -153,6 +153,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("historyfling") { await historyFling() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -215,6 +216,28 @@ final class TerminalDemoDriver {
         mark("scroll to bottom")
         model.scrollToBottom()
         await wait(1.5)
+    }
+
+    /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
+    /// down from ios". A Mac terminal attaches with its latest rows first; a
+    /// reader's first fling up slows into the top of them and asks for the
+    /// older rows, which come back as a reset and a replay of the whole
+    /// window. The fling runs to its end and the older rows come after it:
+    /// `historyfling done stopped=N fetches=N top=ROW`.
+    private func historyFling() async {
+        model.composerText = "historywindow 150 2000 60"
+        model.send()
+        await wait(3)
+        model.scrollToBottom()
+        await wait(1.5)
+        let before = model.controller?.flingsStoppedByReset ?? 0
+        mark("fling up into the top of the rows held")
+        model.controller?.flingToNearTop()
+        await wait(6)
+        let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
+        let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
+        model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
     }
 
     private func keyboard() async {
