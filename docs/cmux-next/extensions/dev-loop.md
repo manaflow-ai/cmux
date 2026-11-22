@@ -83,6 +83,21 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   The window comes out as an agent sees it, with browser pages and chats masked in gray. The
   extension's own view is not masked.
 
+- **Design warnings** follow the reload line when the first scene breaks a design rule: a font
+  size off the type roles, an Apple text style the web and macOS draw at different sizes, more than
+  two accent colors, a gap or padding off the spacing scale (0 2 4 6 8 12 16 20 24 32 48), a raw or
+  unknown color, text below the contrast minimum, and in a widget more than four type roles or text
+  with no line limit. Each names its fix (`use Caption(...) (12 pt)`, `use 8`). They warn; the load still counts.
+  `--json` carries them as `design`: `{check, message, fix, node, count}`. `cmux ext design FILE...
+  [--widget] [--system cmux-design.json]` runs the same check on recorded scenes (a gallery fixture,
+  a store preview).
+- **Your own design system.** A `cmux-design.json` (`"design": "cmux.design/1"`) in the folder sets
+  your type roles, spacing scale, color names (each a cmux color role) and per-view limits on top of
+  cmux's; `defineDesign` in the SDK reads it, and `DesignSystemView` draws it. `ext dev` then checks
+  against your system and names your roles and steps in each fix. A file that does not read is one
+  `system` warning, and the check uses cmux's system. `examples/extensions/design-system` is a pane
+  that shows yours next to cmux's.
+
 `--json` adds `shot` to the `ext dev --once` fields: `{"path", "width", "height"}`, or
 `{"error"}` when there is no picture.
 
