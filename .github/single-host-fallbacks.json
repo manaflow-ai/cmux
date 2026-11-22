@@ -198,6 +198,7 @@
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
     },
+    "CI_OVERFLOW_LINUX": {"fallback": "an override, not a host: unset sends pr-pipeline's linux job to the cmux-linux label every owned Linux pool host carries (#49280); set, the runner it names", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

@@ -24,12 +24,16 @@ SWITCHES = {
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
 }
+# cmux-next.yml's compile-status roots take the PR control JIT label on a feat-cmux-next push's first attempt
+# (tests/test_cmux_next_push_roots_on_nightly_jit.py owns that arm); it counts as a JIT lead.
+PUSH_ARM = ("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && "
+            "'cmux-gcp-pr-control-jit-x64' || ")
 LEAD = re.compile(
     r"(?:\([^()]*\) && )?(?:github\.event_name != 'pull_request' && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| "
 )
 # (workflow, line number is not pinned) -> why the job does not lead with a JIT label yet.
 EXCEPTIONS = {
-    "cla.yml": "the CLA Assistant moves to the gate label with its policy PR (exact-head human approval)",
+    "pr-checks.yml": "base took the advisory job off cmux-gcp-pr-control-jit-x64 on 2026-11-21 (that label backed up)",
     "backend-migrations.yml": "the required migration checks move to the gate label with their own policy PR",
 }
 
@@ -57,6 +61,8 @@ class WriteTokenJitLabelTests(unittest.TestCase):
             rest = runs_on[len(FORK_BRANCH):] if runs_on.startswith(FORK_BRANCH) else None
             if rest is not None and rest.startswith("github.event_name == 'pull_request' && "):
                 rest = rest.split(" || ", 1)[1]
+            if rest is not None and rest.startswith(PUSH_ARM):
+                continue
             matched = LEAD.match(rest) if rest is not None else None
             if matched is None:
                 failures.append(f"{name}:{number} does not lead with a JIT label: {runs_on}")
