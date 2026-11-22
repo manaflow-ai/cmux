@@ -62,6 +62,7 @@ jobs:
     if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
+    # An explicit rerun replaces the queued run in this PR-only concurrency group.
     # A light job: the persistent cmux-linux pool on every attempt, never GitHub-hosted Ubuntu (it left light
     # jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
@@ -496,9 +497,8 @@ jobs:
     needs: [resolve, fast-check-route, receipt, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
-    # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
-    # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
-    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
+    # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
+    # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
