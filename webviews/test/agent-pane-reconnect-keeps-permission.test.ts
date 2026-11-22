@@ -13,7 +13,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, type CarriedChat } from "../src/agent-session/acpmux/direct";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
@@ -172,8 +172,13 @@ for (const slow of [false, true]) {
       frame += 1;
       if (snapshot.permission) seen = true;
       else if (seen) blinks.push(`frame ${frame}: no permission ask (connection ${snapshot.connection ?? "?"})`);
+      // Nor does the transcript go: a frame with fewer rows than the chat holds is a blank or a shift.
+      if (seen && (snapshot.rows?.length ?? 0) < 2) blinks.push(`frame ${frame}: ${snapshot.rows?.length ?? 0} rows`);
     };
-    const connect = (): Promise<AcpmuxDirectClient> => {
+    // The pane's lost path (App.tsx `onLost`): the lost client hands what it held (`takeCarried`) to
+    // the new one, which connects on this page.
+    let current: AcpmuxDirectClient | undefined;
+    const connect = (carried?: CarriedChat): Promise<AcpmuxDirectClient> => {
       daemon = new Daemon();
       daemon.holding = slow && clients.length > 0;
       const opened = AcpmuxDirectClient.connect(
@@ -186,11 +191,17 @@ for (const slow of [false, true]) {
         },
         listener,
         () => {
-          reconnected = connect();
+          reconnected = connect(current?.takeCarried());
         },
         () => daemon as unknown as WebSocket,
+        undefined,
+        undefined,
+        carried,
       );
-      void opened.then((client) => clients.push(client));
+      void opened.then((client) => {
+        clients.push(client);
+        current = client;
+      });
       return opened;
     };
 
@@ -212,3 +223,38 @@ for (const slow of [false, true]) {
     expect(blinks).toEqual([]);
   }, 30_000);
 }
+
+test("a waiting permission ask stays on screen when the client reconnects by itself", async () => {
+  resetKeptTailsForTests();
+  installHost();
+  let seen = false;
+  const blinks: string[] = [];
+  let frame = 0;
+  const daemons: Daemon[] = [];
+  const listener = (snapshot: AcpmuxSnapshot) => {
+    if (snapshot.type !== "snapshot" || snapshot.sessionId !== CHAT) return;
+    frame += 1;
+    if (snapshot.permission) seen = true;
+    else if (seen) blinks.push(`frame ${frame}: no permission ask (connection ${snapshot.connection})`);
+  };
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://perm.invalid/", token: "t", sessionId: CHAT },
+    listener,
+    undefined,
+    () => {
+      const daemon = new Daemon();
+      daemons.push(daemon);
+      return daemon as unknown as WebSocket;
+    },
+  );
+  clients.push(client);
+  await flush();
+  expect(seen).toBe(true);
+  for (let drop = 1; drop <= 3; drop += 1) {
+    daemons.at(-1)!.drop();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await flush();
+  }
+  expect(daemons.length).toBeGreaterThan(1);
+  expect(blinks).toEqual([]);
+}, 30_000);
