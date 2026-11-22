@@ -126,7 +126,11 @@ def main():
     # H. price schedule mirrored (only a free base price)
     st, cur = req("GET", f"/v1/apps/{APP}/appPriceSchedule")
     print(f"INTERNAL price schedule read: HTTP {st} data={bool((cur or {}).get('data'))}")
-    if st == 404 or not (cur or {}).get("data"):
+    manual = []
+    if st == 200 and (cur or {}).get("data"):
+        manual = get_all(f"/v1/appPriceSchedules/{cur['data']['id']}/manualPrices?limit=50")
+        print(f"INTERNAL manual prices: {len(manual)}")
+    if st == 404 or not (cur or {}).get("data") or not manual:
         sched = get(f"/v1/apps/{REF}/appPriceSchedule")
         mp = get(f"/v1/appPriceSchedules/{sched['data']['id']}/manualPrices?include=appPricePoint,territory&limit=50") if sched else None
         prices = sorted({i["attributes"].get("customerPrice") for i in (mp or {}).get("included", []) if i["type"] == "appPricePoints"})
