@@ -98,13 +98,11 @@ impl Peer {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
         let mut held = self.wanted.wake_until.lock().unwrap_or_else(|e| e.into_inner());
-        let opens = held.is_none_or(|was| was <= now);
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
         let mut ran = self.wanted.hook_at.lock().unwrap_or_else(|e| e.into_inner());
-        // BEFORE (for the PR's before/after run): only a window that opens runs it.
-        let due = opens;
+        let due = ran.is_none_or(|at| at.checked_add(WAKE_FOR).is_none_or(|next| next <= now));
         if due {
             *ran = Some(now);
             drop(ran);
