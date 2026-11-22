@@ -292,8 +292,19 @@ import {
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
+  useCloudSignedIn,
   type CloudMachine,
 } from "./cloudMachines";
+import { AutoArrival } from "./AutoWhere";
+import {
+  AUTO_LOOK,
+  autoTargets,
+  decideAuto,
+  keepCloudLanding,
+  landingMove,
+  takeCloudLanding,
+  type AutoLanding,
+} from "./autoWhereModel";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -5113,9 +5124,39 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudReservation.selected(eligible.replaces);
     } else cloudReservation.abandon();
   };
+  /// Auto (autoWhereModel.ts), this new chat's pick of no place: Send asks this Mac's daemon where it runs
+  /// (`_acpmux/place_chat`), then starts it there the way the explicit pick would. Remembered like
+  /// the other Where picks (lastNewChatPlace.ts), read again for each new chat.
+  const [autoPick, setAutoPick] = useState<{ page: number; on: boolean }>();
+  const autoRemembered = useMemo(
+    () => lastNewChatPlace()?.kind === "auto",
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
+    [newTabGeneration],
+  );
+  const autoOn = autoPick?.page === newTabGeneration ? autoPick.on : autoRemembered;
+  const autoOffered = cloudOfferable && !onOtherMachinePage;
+  const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
+  const pickAuto = (on: boolean) => {
+    setAutoPick({ page: newTabGeneration, on });
+    // Off by another row's pick: that row remembers its own place after this.
+    rememberNewChatPlace(on ? { kind: "auto" } : { kind: "local" });
+  };
+  const autoRow: AutoRow | undefined = autoOffered
+    ? { picked: autoPicked, onPick: (on) => pickAutoRef.current(on), look: AUTO_LOOK }
+    : undefined;
+  const pickAutoRef = useRef(pickAuto);
+  pickAutoRef.current = pickAuto;
+  /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
+  /// daemon has not answered. Kept for the page it was decided on.
+  const [autoArrival, setAutoArrival] = useState<{ page: number; landing: AutoLanding | "deciding" }>();
+  /// The decided send waiting for its mode (cloud or this Mac's), then sent once (the effect below).
+  const autoSend = useRef<{ page: number; went: AutoLanding["went"] } | undefined>(undefined);
+  const autoDecided = useRef<number | undefined>(undefined);
+  const autoSignedIn = useCloudSignedIn();
   const sandboxModeRows = {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
+    ...(autoRow ? { auto: autoRow } : {}),
     /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
       const place = placeOfRunMode(mode);
@@ -5157,8 +5198,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
       ...(sandboxOffered ? {} : { sandbox: false as const }),
       onMode: (mode: RunMode) => composerModePick.current(mode),
+      ...(autoRow ? { auto: autoRow } : {}),
     }),
-    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row's pick reads the latest handler (pickAutoRef)
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered, autoRow !== undefined, autoPicked],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -5734,6 +5777,39 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [sandbox.mode, cloudReservation]);
+  /// Auto decided: the kept prompt sends once the mode is where the daemon said.
+  useEffect(() => {
+    const waiting = autoSend.current;
+    if (!waiting || waiting.page !== newTabGeneration) return;
+    if (sandbox.mode !== (waiting.went === "cloud" ? "cloud" : "persistent")) return;
+    autoSend.current = undefined;
+    sendStartPrompt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sends once per decision
+  }, [sandbox.mode, autoArrival, newTabGeneration]);
+  /// Asks the daemon where an Auto chat runs, says it, and sends there. Never an error: no daemon,
+  /// no Cloud or a failure runs the chat here, and the line says why.
+  const decideAutoSend = (text: string) => {
+    const page = newTabGeneration;
+    autoDecided.current = page;
+    setAutoArrival({ page, landing: "deciding" });
+    void decideAuto(
+      directClient.current?.placeChat,
+      autoTargets({ cloudOffered, ...(autoSignedIn !== undefined ? { signedIn: autoSignedIn } : {}) }),
+    ).then((landing) => {
+      setAutoArrival({ page, landing });
+      autoSend.current = { page, went: landing.went };
+      if (landing.went === "cloud") {
+        // The Cloud chat opens in its own tab: it says the landing there (takeCloudLanding).
+        keepCloudLanding(landing, text);
+        // Auto's choice, not the person's: Cloud is not remembered as their pick.
+        if (sandbox.mode !== "cloud") applyRunMode("cloud");
+        else setAutoArrival({ page, landing });
+      } else if (sandbox.mode !== "persistent") {
+        runModePicked.current = true;
+        sandbox.setMode("persistent");
+      }
+    });
+  };
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
@@ -10867,6 +10943,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
     [moves],
   );
+  // Auto's arrival line, for the page it was decided on; its move only while the chat offers it.
+  const autoArrivalShown = autoArrival?.page === newTabGeneration ? autoArrival.landing : undefined;
+  const autoArrivalMove =
+    autoArrivalShown !== undefined &&
+    autoArrivalShown !== "deciding" &&
+    offloads.includes(landingMove(autoArrivalShown));
+  // A Cloud chat Auto put there says so once, on the page its first prompt opened (keepCloudLanding).
+  const firstPrompt = useMemo(() => {
+    for (const row of snapshot.rows) if (row.kind === "user") return row.text;
+    return undefined;
+  }, [snapshot.rows]);
+  useEffect(() => {
+    if (snapshot.summary?.hostKind !== "cloud" || !firstPrompt) return;
+    const landing = takeCloudLanding(firstPrompt);
+    if (landing) setAutoArrival({ page: newTabGeneration, landing });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per first prompt
+  }, [firstPrompt, snapshot.summary?.hostKind]);
   // Why each offered move would refuse now: the picker greys its row and says it.
   const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
   const toggleSideTabs = () =>
@@ -12815,6 +12908,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
+        <Notice id="auto-arrival" tier="hint" when={autoArrivalShown !== undefined}>
+          {autoArrivalShown !== undefined && (
+            <AutoArrival
+              landing={autoArrivalShown}
+              look={AUTO_LOOK}
+              {...(autoArrivalMove ? { onMove: (kind) => offloadChat(kind, snapshot.sessionId) } : {})}
+              onDismiss={() => setAutoArrival(undefined)}
+            />
+          )}
+        </Notice>
         <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
           <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
@@ -13146,6 +13249,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
+              if (autoPicked && autoDecided.current !== newTabGeneration) {
+                decideAutoSend(text);
+                return false;
+              }
+              if (autoPicked && autoSend.current !== undefined) return false;
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
                 // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
