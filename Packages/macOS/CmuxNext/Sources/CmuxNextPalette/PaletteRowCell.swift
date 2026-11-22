@@ -245,8 +245,7 @@ final class PaletteRowCell: NSTableCellView {
         subtitleHighlights = item.subtitleHighlights
         // A snippet keeps its start, where its words are; a path keeps both ends.
         subtitle.lineBreakMode = subtitleHighlights.isEmpty ? .byTruncatingMiddle : .byTruncatingTail
-        // A subtitle that only says the title again goes, unless it shows the words the row was found by.
-        subtitle.isHidden = item.subtitle.map { subtitleHighlights.isEmpty && $0.restatesTitle(item.title) } ?? true
+        subtitle.isHidden = item.subtitle == nil
         // After the subtitle's text: a snippet draws its words emphasized there.
         applyColors()
         accessory.stringValue = item.accessory ?? ""
