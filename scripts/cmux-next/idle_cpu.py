@@ -57,6 +57,16 @@ DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief
 SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
+def with_cef_switches(prepare, switches: str):
+    """`prepare` (the launch smoke's PREPARE_HOME), then the extra Chromium switches into the launch env."""
+    def run(env: dict) -> None:
+        prepare(env)
+        if switches:
+            env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = switches
+            log(f"idle-cpu: CMUX_NEXT_CEF_EXTRA_SWITCHES={switches}")
+    return run
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
@@ -475,6 +485,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="after each window: one IDLE-CPU-WINDOW line per daemon and `sample` of the busiest process")
     parser.add_argument("--budget-cpu", type=float, default=1.0, help="CPU %% of one core per daemon process")
     parser.add_argument("--budget-wakeups", type=float, default=1.0, help="wakeups per second per daemon process")
+    parser.add_argument("--cef-switches", default="",
+                        help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; development "
+                             "bundles of DEBUG builds), e.g. disable-component-update for an arm without the updater")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
@@ -587,10 +600,10 @@ def main(argv: list[str] | None = None) -> int:
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
-    smoke.PREPARE_HOME = smoke.login_keychain
+    smoke.PREPARE_HOME = with_cef_switches(smoke.login_keychain, args.cef_switches)
     if args.history > 0:
         def prepare(env):
-            smoke.login_keychain(env)
+            with_cef_switches(smoke.login_keychain, args.cef_switches)(env)
             result["history"] = seed_history(Path(env["HOME"]), args.history, args.history_prompt_kb)
             log(f"idle-cpu: home seeded: {json.dumps(result['history'])}")
             if args.writers > 0:
