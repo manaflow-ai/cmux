@@ -236,7 +236,6 @@ export function RecipientField({
             data-selected={selected === index || undefined}
             data-testid="cmux.home.newMessage.token"
             aria-label={format("home.compose.removeRecipient", token.text)}
-            title={token.recipient ? undefined : format("home.compose.unknownRecipient", token.text)}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setSelected(index);

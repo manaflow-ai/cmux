@@ -413,7 +413,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
 /// The `status` words that say a machine is off for now: leo-workspace's host_state.py reads an
 /// `idle-stopped` one (and a `retired` one) as stopped, and reach and the stall reconciler skip it.
 /// `retiring` is still up.
-const STOPPED: [&str; 4] = ["idle-stopped", "stopped", "paused", "retired"];
+const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "restarting", "stale"];
 
 /// Why a machine's registry `status` keeps new work off it: it starts with one of `STOPPED`
 /// (any case). It holds even while its peer link reads connected: a link that comes back for a
@@ -437,6 +437,9 @@ fn stopped(machine: &Value) -> Option<String> {
 /// gcp-codex-swarm-01, which it reached only through the hub). It is listed as passed over with
 /// why, and the pick goes to a host the work can start on.
 pub fn peer_down(row: &Value) -> Option<String> {
+    if row.get("outdated").and_then(Value::as_bool) == Some(true) {
+        return Some("outdated peer build (stale disk copy)".into());
+    }
     if row.get("via").and_then(Value::as_str) == Some("hub") {
         let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
         return Some(hub_only(name));

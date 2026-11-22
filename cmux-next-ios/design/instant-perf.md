@@ -142,7 +142,11 @@ UI half: `scripts/ci/cmux-next-ios-sim.sh test ui=InstantListPerfUITests`.
 In CI, `.github/workflows/cmux-next-ios-kit.yml` skips the bench in the main
 `swift test` and `xcodebuild test` runs, then runs it alone on macOS and on the iOS
 simulator, prints the table to the job log and the job summary, and uploads the
-JSONL as the `instant-perf-*` artifact.
+JSONL as the `instant-perf-*` artifact. Both bench steps are advisory there
+(`continue-on-error`, since 2026-11-21): a miss is a warning on the report step, not a
+red job, because on shared runners the bench was red on most kit runs for code the pull
+request never touched. The rules above still hold when you run it yourself; a known-red
+or a fix is still how a red check is answered.
 
 ## Adding a metric
 
