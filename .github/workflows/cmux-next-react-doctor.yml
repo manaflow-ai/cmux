@@ -159,11 +159,11 @@ jobs:
       # the controller keys every project of this tree itself and, when a green feat-cmux-next push left a signed
       # receipt under the same key, posts it as `cmux/receipt: React Doctor (changed React projects)` on the head, and
       # the scan below is skipped. A pinned file (the gate's own scripts, tool, workflow or tests; a line of base
-      # scripts/ci/check-paths.txt) is never a hit, and any error is a miss: the scan runs. The skip is on only while
-      # the repository variable CI_INPUT_RECEIPT_SKIP is `on`; unset, the job runs in full as before.
+      # scripts/ci/check-paths.txt) is never a hit, and any error is a miss: the scan runs. The skip is on unless the
+      # repository variable CI_INPUT_RECEIPT_SKIP is `off` (Leo, 2026-11-19: "We need to skip more often.").
       - name: Signed receipt
         id: signed
-        if: steps.base.outputs.projects != '' && steps.key.outputs.pinned != 'true' && vars.CI_INPUT_RECEIPT_SKIP == 'on'
+        if: steps.base.outputs.projects != '' && steps.key.outputs.pinned != 'true' && vars.CI_INPUT_RECEIPT_SKIP != 'off'
         continue-on-error: true
         run: python3 scripts/ci/receipt_signed.py lookup react-doctor --output "$GITHUB_OUTPUT"
 
