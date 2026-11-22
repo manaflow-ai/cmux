@@ -512,7 +512,11 @@ class RescueTests(unittest.TestCase):
     def test_the_request_watched_paths_match_the_rescue_workflow(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8"))
         sources = set(workflow["env"]["SOURCE_WORKFLOW_PATHS"].split())
-        self.assertEqual(starved_labels.REQUEST_WATCHED_PATHS, sources - {".github/workflows/cmux-next.yml"})
+        # nightly.yml wakes no rescue of its own any more: the sweeper watches its first attempts
+        # (owned_pool_rescue GitHub.nightly_runs()), and a dispatch would add a second watch that may cancel it.
+        self.assertNotIn(".github/workflows/nightly.yml", sources)
+        self.assertEqual(starved_labels.REQUEST_WATCHED_PATHS,
+                         sources - {".github/workflows/cmux-next.yml"} | {".github/workflows/nightly.yml"})
 
     def test_the_sweep_caps_its_dispatches(self) -> None:
         runs = [{"id": n} for n in range(20, 40)]

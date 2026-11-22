@@ -89,7 +89,9 @@ RESCUE_REPEAT = dt.timedelta(minutes=210)
 # The sources ci-owned-pool-rescue.yml watches on their own `workflow_run: requested` event, in that same group: a
 # dispatch for one of their runs would cancel that watch (perhaps between its cancel and its re-run, leaving a nightly
 # cancelled), so the alert never starts one for them. cmux-next.yml is listed there for `completed` only, whose group
-# has its own suffix. A test keeps this equal to the workflow's SOURCE_WORKFLOW_PATHS less cmux-next.yml.
+# has its own suffix. nightly.yml's first attempts are the sweeper's own watch now (owned_pool_rescue
+# GitHub.nightly_runs()); a dispatch would add a second watch beside it, so it stays here. A test keeps this equal to
+# the workflow's SOURCE_WORKFLOW_PATHS less cmux-next.yml, plus nightly.yml.
 REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml", ".github/workflows/nightly.yml",
                                    ".github/workflows/cmux-next-dev-daily.yml"})
 RESCUE_RUNS_PER_SWEEP = 6

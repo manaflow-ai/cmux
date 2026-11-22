@@ -2210,6 +2210,29 @@ class GitHub:
                       and int(run.get("run_attempt") or 0) > 1]
         return found
 
+    def nightly_runs(self, count: int, main: bool = True) -> list[tuple[int, int]]:
+        """(run id, 1) of unfinished first attempts of nightly.yml the sweeper watches (sweep()): main's push or
+        schedule runs (only with `main`, NIGHTLY_MAIN_OWNED: its build takes the trusted pool only while both
+        trusted variables are set) and nightly-next's push runs, from this repository. Until 2026-11-22 each woke a
+        rescue job of its own through workflow_run `requested` that held a runner for the whole build, mostly only
+        looking (job 137003041727: 7,399 s); the sweeper's thread costs no runner. Later attempts are
+        nightly_reruns()'s and the markers'."""
+        name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
+        found: list[tuple[int, int]] = []
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
+            for run in (data or {}).get("workflow_runs") or []:
+                if not isinstance(run, Mapping) or not run.get("id") or int(run.get("run_attempt") or 0) != 1:
+                    continue
+                head = str((run.get("head_repository") or {}).get("full_name") or "")
+                if head.casefold() != self.repo.casefold():
+                    continue
+                branch, event = run.get("head_branch"), run.get("event")
+                if (main and branch == MAIN_BRANCH and event in NIGHTLY_EVENTS
+                        or branch == "nightly-next" and event == "push"):
+                    found.append((int(run["id"]), 1))
+        return found
+
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
                     pages: int = 1) -> list[tuple[int, int]]:
         """(run id, attempt) of the failed runs of SIDE_WORKFLOW_PATHS created since `oldest` and, when
@@ -5572,7 +5595,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
                          stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env),
                          owned_route=owned_route_from_env(env),
-                         stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")))
+                         stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")),
+                         nightly_main=(env.get("NIGHTLY_MAIN_OWNED") or "").strip() == "1")
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -7183,7 +7207,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           light_rescue: Callable[[], None] | None = None,
           stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,),
           side_label: str = "", owned_route: OwnedRoute | None = None,
-          stall_pull: bool = False) -> dict[str, int]:
+          stall_pull: bool = False, nightly_main: bool = True) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -7391,6 +7415,17 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         for run_id, late in due:
             if not (watching.get(run_id) and watching[run_id].is_alive()):
                 adopt(run_id, late, refusals_known=refusals_listed)
+        # A nightly's first attempt has no marker (GitHub.nightly_runs()): listed every tick, so a refusal or a
+        # stall is seen within a tick, as the workflow_run wake it replaces saw it. Each run is watched once.
+        if hasattr(client, "nightly_runs"):
+            try:
+                nightly = client.nightly_runs(SWEEP_LISTING, main=nightly_main)
+            except READ_ERRORS as error:
+                log(f"could not list nightly runs ({error}); next tick")
+                nightly = []
+            for run_id, _ in nightly:
+                if run_id not in seen:
+                    adopt(run_id, False, refusals_known=refusals_listed)
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
             reruns = client.owned_reruns(SWEEP_LISTING)
