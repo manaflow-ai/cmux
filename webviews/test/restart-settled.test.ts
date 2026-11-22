@@ -32,11 +32,13 @@ describe("link model", () => {
     const got: string[] = [];
     pipe.send("a", (m) => got.push(m));
     pipe.send("b", (m) => got.push(m));
+    // fixed-wait: the pipe's 10 ms one-way delay is what is under test; 40 ms is past both deliveries.
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(got).toEqual(["a", "b"]);
     now = 100;
     pipe.send("c", (m) => got.push(m));
     pipe.close();
+    // fixed-wait: a closed pipe delivers nothing; the assertion is that no delivery comes in this window.
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(got).toEqual(["a", "b"]);
     expect(pipe.bytes).toBe(3);
@@ -64,6 +66,7 @@ describe("restart to settled", () => {
     const rows = [{ id: "a", top: 100 }];
     const frames = [frame(80, rows), frame(96, rows), frame(700, rows)];
     const got = restartSettled(frames, classifyFrames(frames), 650);
+    // motion-allow: a frame time in the fixture, not a motion step.
     expect(got).toEqual({ firstContentMs: 80, settledMs: 650, shifts: 0, shiftPxMax: 0, shiftPxSum: 0 });
   });
 
