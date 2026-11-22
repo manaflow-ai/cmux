@@ -47,6 +47,7 @@
 
 #![cfg(unix)]
 
+pub mod background;
 mod chat;
 pub mod classic_runs;
 mod http;

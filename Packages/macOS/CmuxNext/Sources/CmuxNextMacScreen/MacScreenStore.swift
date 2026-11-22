@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 public import Observation
 import Security
@@ -81,14 +82,16 @@ public final class MacScreenStore {
     }
 
     /// `<Application Support>/<bundle id>/mac-screen.json`; the old link
-    /// pairings were Keychain items under `<bundle id>.mac-screen`.
-    public static func forApplication(bundleIdentifier: String?) -> MacScreenStore {
+    /// pairings were Keychain items under `<bundle id>.mac-screen`, deleted with no UI.
+    public static func forApplication(bundleIdentifier: String?, loginKeychain: LoginKeychain) -> MacScreenStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         let service = "\(bundle).mac-screen"
         return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"), removeLinkPairings: {
-            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+            _ = loginKeychain.withoutUI {
+                SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+            }
         })
     }
 
