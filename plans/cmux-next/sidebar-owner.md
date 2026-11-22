@@ -75,6 +75,7 @@
   steps and one fill past that. A one-line row stays one line; a reported progress bar keeps the foot. The hover card
   is unchanged; `sidebar.taskProgress` still turns it off. VoiceOver: the step and "Step 2 of 5", or "N of M tasks done"
   for the hairline. Regression: `SidebarTaskProgressTests`, `ChiefSubagentTaskCountTests`.
+  The hairline is a nonisolated `SidebarTaskBarLayer` (shape layers), as the package's other `CALayer`s.
 
 - 2026-11-20 (a-chat-task-list): Sidebar-Look: David Beyer, Nov 20 call (via Chief): "a task list that tracks
   what's done and what's next across long agent chats", shown per thread in the sidebar. An agent chat's row shows a

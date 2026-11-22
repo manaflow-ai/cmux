@@ -38,7 +38,7 @@ extension WorkspaceRowView {
 
 /// The task-list hairline (`SidebarTaskBar`): a track and the share done, or one segment per step (done, in progress,
 /// left) for a short list. Shape layers, so a step changing redraws no row content.
-final class SidebarTaskBarLayer: CALayer {
+nonisolated final class SidebarTaskBarLayer: CALayer {
     static let height: CGFloat = 2
     /// The room between two steps' segments.
     static let gap: CGFloat = 2
