@@ -331,6 +331,19 @@ extension SettingsSchemaSamples {
                 .object(["rotate": .number(1)]),
             ]
         ),
+        "domain:backdrop_recents": SampleSet(
+            accept: [
+                .array([]),
+                .array([.string("folder:/Users/Shared/Wallpapers"), .string("file:/Users/Shared/Harbor.png"), .string("daily")]),
+                .array([.string("munch-scream"), .string("desktop"), .string("none"), .string("system:/System/Library/Desktop Pictures/Sonoma.heic")]),
+            ],
+            refuse: [
+                .string("daily"), .object([:]), .array([.string("daily"), .string("daily")]),
+                .array([.string("folder:/")]), .array([.string("folder:relative")]),
+                .array([.string("__not_a_backdrop__")]), .array([.number(1)]),
+                .array([.string("file:/a.png"), .string("file:/b.png"), .string("file:/c.png"), .string("file:/d.png"), .string("file:/e.png"), .string("file:/f.png"), .string("file:/g.png"), .string("file:/h.png"), .string("file:/i.png")]),
+            ]
+        ),
         "domain:backdrop_location": SampleSet(
             accept: [
                 .string("37.77,-122.42"), .string("-33.87, 151.21"), .string("69.65,18.96"),

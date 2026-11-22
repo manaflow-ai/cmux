@@ -85,6 +85,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
     /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
     public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
+    /// `appearance.backgroundRecents`: The backgrounds shown before, newest first (Leo, 2026-11-22: "it was cumbersome back then to switch back"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds…, cmux wallpaper back|recent and the Settings page's Recent strip read it.
+    public nonisolated static let recentsPath = ["appearance", "backgroundRecents"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.

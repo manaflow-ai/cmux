@@ -242,6 +242,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
             ),
             SettingDescriptor(
+                BackdropSelectionSetting.recentsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundRecents", "Recent Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.backgroundRecents.help", "The backgrounds shown before, newest first, so one click goes back."),
+                kind: .stringList,
+                default: nil,
+                keywords: ["wallpaper", "background", "recent", "previous", "history", "folder"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,
