@@ -116,11 +116,12 @@ import Testing
         }
     }
 
-    /// The tree reads by indent: the folder's header is flush with the loose rows (same frame x and width, its glyph
-    /// on their icon column), and its members sit one step (`SidebarStyle.groupGutter`) in, every row ending at the
-    /// loose rows' right edge.
+    /// The tree reads by indent: the folder's header is flush with the loose rows (same frame x and width), and its
+    /// members move in until their text starts on the folder name's column (Chief, 2026-11-21, after the shots showed
+    /// iconless members starting left of the name: "align members under the name"), every row ending at the loose
+    /// rows' right edge.
     @Test(arguments: [GroupTint.none, GroupTint.palette(.blue)])
-    func membersSitOneStepInUnderAFlushHeader(tint: GroupTint) throws {
+    func membersStartOnTheFolderNamesColumn(tint: GroupTint) throws {
         let (sidebar, window) = Self.sidebar(tint: tint)
         defer { window.close() }
         let list = sidebar.list
@@ -129,12 +130,19 @@ import Testing
         #expect(header.frame.minX == loose.frame.minX, "the header starts at \(header.frame.minX), loose rows at \(loose.frame.minX)")
         #expect(header.frame.maxX == loose.frame.maxX, "the header ends at \(header.frame.maxX), loose rows at \(loose.frame.maxX)")
         #expect(!header.glyph.isHidden, "the header shows no folder glyph")
+        let nameX = try Self.penX(header, in: list)
         for id in [Self.memberID, Self.otherID] {
             let member = try Self.row(sidebar, id)
-            let step = member.frame.minX - loose.frame.minX
-            #expect(abs(step - SidebarStyle.groupGutter) < 0.5, "\(id.rawValue) sits \(step) pt in, want one step \(SidebarStyle.groupGutter)")
+            let textX = try Self.penX(member, in: list)
+            #expect(abs(textX - nameX) < 0.5, "\(id.rawValue)'s text starts at \(textX), the folder name at \(nameX)")
             #expect(member.frame.maxX == loose.frame.maxX, "\(id.rawValue) ends at \(member.frame.maxX), loose rows at \(loose.frame.maxX)")
         }
+    }
+
+    /// Where `row` starts drawing its title's text, in `list`'s coordinates.
+    static func penX(_ row: SidebarRowView, in list: NSView) throws -> CGFloat {
+        let pen = try #require(row.titlePenOrigin?.pointValue, "\(type(of: row)) draws no title")
+        return row.convert(pen, to: list).x
     }
 
     /// Folding a folder hides its members and opening it shows them again: every thread stays reachable from the one

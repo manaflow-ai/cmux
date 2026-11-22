@@ -89,6 +89,12 @@ parser.add_argument("--film", type=int, default=0,
                          "frame (`debug.motion record_*`, ScreenCaptureKit), in <out>/films/ and <out>/films.tgz; the probe "
                          "page gets a magenta bar on its right and bottom edges, so a frame where the page's backdrop shows "
                          "past them is a gap frame (scripts/cmux-next/film-page-gap.py counts them)")
+parser.add_argument("--film-actions", default="",
+                    help="with --film: film only these actions (comma list, e.g. zoom,close); the others of the sequence "
+                         "still run between takes, unfilmed, so each filmed action starts from its layout")
+parser.add_argument("--light-pass", action="store_true",
+                    help="with --browser and --page-resize-work-ms: after each layout's rounds and films, the same rounds "
+                         "again with the probe page's resize work off (rows named <layout>-light), in the same app and build")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -186,14 +192,18 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
               ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
-              ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms")]
+              ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms"),
+              # A page that drew ahead for a commit with no fence (CEFCommitPageWait): how its wait ended.
+              ("trk_commit_answered", "tracker", "commit_answered"), ("trk_commit_bound", "tracker", "commit_at_bound"),
+              ("trk_commit_left", "tracker", "commit_left"), ("trk_answer_late", "tracker", "commit_answer_late"),
+              ("trk_answer_failed", "tracker", "commit_answer_failed"), ("trk_answer_ms", "tracker", "commit_answer_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = ([key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
                 + ["gap_frames", "gap_delay_frames", "gap_layout_lag"])
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "fencej", "fencems", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
+                 "fencej", "fencems", "answ", "bound", "left", "late", "fail", "ansms", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
 # --browser: the layout actions whose page gap is measured (`page_gap`): a split, a close, a zoom or unzoom of the panes.
 GAP_ACTIONS = ("split", "close", "split-down", "close-down", "column", "column-close", "zoom", "unzoom")
 
@@ -486,18 +496,33 @@ def perform(name):
 
 def moving_frames(samples):
     """Display frames the layout moved: per frame a screen steps, its `layout.travel` sample (the points its pane and
-    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left). New
+    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left), and the
+    `layout.commit` sample of its commit motion (the animations on the pane layers in flight: a split, a close, a zoom
+    and an unzoom are one commit whose panes move on the render server, PaneCommitMotion, with no spring). New
     Column moves only the camera (a new column never resizes the columns there, column-scroll.md R3b), so a count of
-    `layout.travel` alone read 0 for every New Column. A build without `layout.camera` counts the springs alone."""
+    `layout.travel` alone read 0 for every New Column; a count of the springs and the camera read 0 for every split,
+    close, zoom and unzoom. A tick samples the screen first, then its commit motion (LayoutRootView: `step`, then
+    `zoomDim.step`), so a commit sample right after a counted frame's samples is that frame. A build without
+    `layout.camera` counts the springs alone; one without `layout.commit`, the springs and the camera."""
     samples = samples if isinstance(samples, list) else []
     count = 0
+    counted = -2  # index of the last sample of the last frame counted
     for index, sample in enumerate(samples):
-        if not isinstance(sample, dict) or sample.get("name") != "layout.travel":
+        if not isinstance(sample, dict):
+            continue
+        if sample.get("name") == "layout.commit":
+            if (sample.get("v") or 0) > 0 and counted != index - 1:
+                count += 1
+                counted = index
+            continue
+        if sample.get("name") != "layout.travel":
             continue
         after = samples[index + 1] if index + 1 < len(samples) else None
-        camera = after.get("v") if isinstance(after, dict) and after.get("name") == "layout.camera" else 0
+        paired = isinstance(after, dict) and after.get("name") == "layout.camera"
+        camera = after.get("v") if paired else 0
         if (sample.get("v") or 0) > 0 or (camera or 0) > 0:
             count += 1
+            counted = index + 1 if paired else index
     return count
 
 
@@ -680,7 +705,9 @@ def measure(label, name):
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}  "
-                 f"gap {result['gap_frames']} frames (delay {result['gap_delay_frames']}, lag {result['gap_layout_lag']})")
+                 f"gap {result['gap_frames']} frames (delay {result['gap_delay_frames']}, lag {result['gap_layout_lag']})  "
+                 f"commit wait answered {result['trk_commit_answered']} at bound {result['trk_commit_bound']} left {result['trk_commit_left']}"
+                 f" (answers late {result['trk_answer_late']} failed {result['trk_answer_failed']} {result['trk_answer_ms']} ms)")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
@@ -722,8 +749,12 @@ def film(name, label):
     perform(name)
     time.sleep(1.6)  # test harness: the act and the page's layout land
     rpc("debug.motion", {"action": "record_stop"})
-    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 10):
-        print(f"  (film of {label}: not written in 10 s)", flush=True)
+    # The app writes the files at the stop, not after ScreenCaptureKit's own stop (which can take its 10 s limit):
+    # 30 s is far past any write. Every take is a row, so a film that is missing or incomplete fails the run.
+    counts = wait(lambda: (lambda c: c if c.get("written") else None)(rpc("debug.motion", {"action": "record_read"}) or {}), 30) or {}
+    status = counts.get("movie_status") or "not written in 30 s"
+    detail = "".join(f", {key} {counts[key]}" for key in ("stop_error", "write_error") if counts.get(key))
+    row(f"film {label}: written", "completed", status + detail, status == "completed" and os.path.exists(path))
 
 
 def record(name, label):
@@ -914,40 +945,55 @@ def main():
         print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {label})", flush=True)
         labels.append(label)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
-        for index in range(opts.rounds):
-            for step in sequence:
-                skip = not_applicable(step, columns if name != "stress" else None)
-                if skip:
-                    if index == 0:
-                        print(f"  {label} {step}: not applicable ({skip}), not measured", flush=True)
-                    continue
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
-                    focus_page()  # each pair starts on the Chromium pane
-                run = measure(f"{panes:>2}p {step} #{index}", step)
-                run.update(layout=label, panes=panes, round=index)
-                report["runs"].append(run)
-                if step in WINDOW_ACTIONS and run["error"]:
-                    UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
-                row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
-                if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
-                        str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
-                missed = run["missed"]
-                row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
-                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
-                if opts.json:
-                    json.dump(report, open(opts.json, "w"), indent=1)
-                time.sleep(0.4)  # test harness: idle between runs
+        def run_rounds(label):
+            for index in range(opts.rounds):
+                for step in sequence:
+                    skip = not_applicable(step, columns if name != "stress" else None)
+                    if skip:
+                        if index == 0:
+                            print(f"  {label} {step}: not applicable ({skip}), not measured", flush=True)
+                        continue
+                    if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
+                        focus_page()  # each pair starts on the Chromium pane
+                    run = measure(f"{panes:>2}p {step} #{index}", step)
+                    run.update(layout=label, panes=panes, round=index)
+                    report["runs"].append(run)
+                    if step in WINDOW_ACTIONS and run["error"]:
+                        UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
+                    row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
+                    if step not in STILL:
+                        row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit's render-server move)", "> 0 frames",
+                            str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
+                    missed = run["missed"]
+                    row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+                        f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                    if opts.json:
+                        json.dump(report, open(opts.json, "w"), indent=1)
+                    time.sleep(0.4)  # test harness: idle between runs
+
+        run_rounds(label)
         for wanted in filter(None, opts.sample.split(",")):
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
+        filmed = set(filter(None, opts.film_actions.split(","))) or set(GAP_ACTIONS)
         for take in range(opts.film if opts.browser else 0):
             for step in sequence:
                 if step in GAP_ACTIONS and not not_applicable(step, columns if name != "stress" else None):
                     if step not in ("close", "close-down", "column-close", "unzoom"):
                         focus_page()
-                    film(step, f"{name}-{step}-{take}")
+                    if step in filmed:
+                        film(step, f"{name}-{step}-{take}")
+                    else:
+                        perform(step)  # unfilmed: the next filmed action starts from its layout
+                        time.sleep(1.0)  # test harness: the action and the page's layout land
+        if opts.light_pass and opts.browser and opts.page_resize_work_ms > 0:
+            if page_eval("window.__work = 0, true"):
+                labels.append(f"{label}-light")
+                conditions["layouts"][f"{label}-light"] = state
+                run_rounds(f"{label}-light")
+            else:
+                row(f"{label}: light pass (page resize work off)", "the page answers", "no answer", False)
         if opts.record:
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):

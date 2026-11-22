@@ -29,7 +29,11 @@ struct PointerMenuTrimTests {
             "agent.share", "agent.share.invite", "agentChat.copyIdentifier", "agentChat.subagentLimit",
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
-            "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
+            "closeTabsToRight",
+            // customize.open: Customize…, the row #43407 put on each big part's right-click menu (Leo: "you should
+            // maybe be even able to right click customize on anything").
+            "customize.open",
+            "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
             "home.messageAbout",
             // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
             "macScreen.open", "macScreen.stopViewing",
@@ -83,6 +87,8 @@ struct PointerMenuTrimTests {
             "remote.openRemote",
             // macScreen.open: Open Screen Sharing, the row that #42789 put into the pane menu.
             "macScreen.open",
+            // customize.open: Customize…, the row #43407 put on each big part's right-click menu.
+            "customize.open",
         ]
         // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
         #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))

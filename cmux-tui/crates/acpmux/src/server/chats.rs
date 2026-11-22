@@ -103,6 +103,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
         return super::remote_guard::owner_phone_changed(hub, conn, &params).await;
     }
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }

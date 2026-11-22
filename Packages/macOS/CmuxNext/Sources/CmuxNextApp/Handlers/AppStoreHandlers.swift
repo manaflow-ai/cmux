@@ -62,6 +62,8 @@ enum AppStoreHandlers {
             return AppCommandPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, each running `app.menu.run`.
+        services.apps.client.installMenuRows(in: registry)
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""
