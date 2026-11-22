@@ -1,0 +1,19 @@
+{
+  "family": "run",
+  "ops": {
+    "run.get": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "7a420f985c0a17fe"
+    },
+    "run.list": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "23351567cc8325c6"
+    }
+  }
+}
