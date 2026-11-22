@@ -294,6 +294,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.twoTone",
         "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
