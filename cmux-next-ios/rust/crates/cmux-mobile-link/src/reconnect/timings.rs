@@ -1,7 +1,6 @@
 //! The link controller's timing constants, copied from `LinkController.swift` (and the one in
 //! `LinkMachine.swift`) as they stand. Nothing here uses them yet: the Swift controller still owns
-//! its timers. They become timer effects of [`super::step`] in the follow-up. The one exception is
-//! [`PARK_LEASE`], which the step reads on [`super::Event::ResumeAfter`].
+//! its timers. They become timer effects of [`super::step`] in the follow-up.
 
 use std::time::Duration;
 
@@ -46,5 +45,3 @@ pub const BEAT_TOLERANCE: Duration = Duration::from_millis(50);
 /// How long a link may stay down before terminals say the Mac is offline (twice this for a first
 /// dial). `LinkMachine.Phase.offlineAfter`, `LinkMachine.swift:347`.
 pub const OFFLINE_AFTER: Duration = Duration::from_secs(4);
-/// How long the Mac keeps a parked peer's session for a resume (RFD 0049); the phone's lease.
-pub const PARK_LEASE: Duration = Duration::from_secs(10 * 60);

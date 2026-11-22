@@ -43,10 +43,9 @@ pub fn sample_machines() -> [Machine; 6] {
     })
 }
 
-/// One event per kind, in [`Event::KINDS`] order. Answers carry `generation`, standby and parked
-/// answers `standby`; settings flip away from [`sample_machines`]'; the target is the same online
-/// Mac; a resume comes a minute after the background.
-pub fn sample_events(generation: Generation, standby: Generation) -> [Event; 23] {
+/// One event per kind, in [`Event::KINDS`] order. Answers carry `generation`, standby answers
+/// `standby`; settings flip away from [`sample_machines`]'; the target is the same online Mac.
+pub fn sample_events(generation: Generation, standby: Generation) -> [Event; 20] {
     let reason = || "timeout".to_owned();
     [
         Event::Target(Some(sample_target())),
@@ -69,9 +68,6 @@ pub fn sample_events(generation: Generation, standby: Generation) -> [Event; 23]
         Event::SignedOut { generation },
         Event::StandbyAlive { generation: standby, path: LinkPath::Direct, rtt_millis: Some(40) },
         Event::StandbyLost { generation: standby },
-        Event::ResumeAfter { away: Duration::from_secs(60) },
-        Event::ParkedResumed { generation: standby, path: LinkPath::Direct, rtt_millis: Some(40) },
-        Event::ParkedLost { generation: standby },
     ]
 }
 
@@ -97,10 +93,9 @@ pub fn table() -> Value {
         "version": 1,
         "source": "cmux-next-ios/rust/crates/cmux-mobile-link/src/reconnect/mod.rs",
         "port_of": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkMachine.swift",
-        "samples": "Each phase's machine is WireGuard, foreground, at generation 7, targeting an online Mac (none when idle); connecting and waiting keep a standby at generation 6; none parks (parks is off, the default). Answers carry 7, standby and parked answers 6; resume_after comes 60 s after the background; the target event names the same online Mac; transport, relay_only and block_udp flip their setting.",
-        "stale": "An answer (dial_*, link_*, media_updated, retry_due, probe_failed, signed_out) whose generation is not the current one is refused stale_generation; a standby answer whose generation is not the kept standby's is refused stale_generation, or no_standby when none is kept; a parked answer (parked_*) likewise, or not_resuming when no parked session is being resumed; signed_out refuses every event but target, which it records. A refusal leaves the machine unchanged.",
-        "park_lease_seconds": super::timings::PARK_LEASE.as_secs(),
-        "generations": "Every dial, wait, reset and standby or parked promotion bumps the generation (current + 1); every dial and timer is issued under the new one.",
+        "samples": "Each phase's machine is WireGuard, foreground, at generation 7, targeting an online Mac (none when idle); connecting and waiting keep a standby at generation 6. Answers carry 7, standby answers 6; the target event names the same online Mac; transport, relay_only and block_udp flip their setting.",
+        "stale": "An answer (dial_*, link_*, media_updated, retry_due, probe_failed, signed_out) whose generation is not the current one is refused stale_generation; a standby answer whose generation is not the kept standby's is refused stale_generation, or no_standby when none is kept; signed_out refuses every event but target, which it records. A refusal leaves the machine unchanged.",
+        "generations": "Every dial, wait, reset and standby promotion bumps the generation (current + 1); every dial and timer is issued under the new one.",
         "backoff_seconds": super::BACKOFF.map(|d| d.as_secs()),
         "silent_retries": super::SILENT_RETRIES,
         "phases": Phase::KINDS,

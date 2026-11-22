@@ -15,10 +15,7 @@
     "quick_probe",
     "keep_standby",
     "promote_standby",
-    "close_standby",
-    "resume_parked",
-    "promote_parked",
-    "close_parked"
+    "close_standby"
   ],
   "events": [
     "target",
@@ -40,13 +37,9 @@
     "network_changed",
     "signed_out",
     "standby_alive",
-    "standby_lost",
-    "resume_after",
-    "parked_resumed",
-    "parked_lost"
+    "standby_lost"
   ],
-  "generations": "Every dial, wait, reset and standby or parked promotion bumps the generation (current + 1); every dial and timer is issued under the new one.",
-  "park_lease_seconds": 600,
+  "generations": "Every dial, wait, reset and standby promotion bumps the generation (current + 1); every dial and timer is issued under the new one.",
   "phases": [
     "idle",
     "mac_offline",
@@ -60,17 +53,16 @@
     "signed_out",
     "stale_generation",
     "no_standby",
-    "not_resuming",
     "unchanged",
     "not_connecting",
     "not_connected",
     "not_waiting",
     "nothing_to_do"
   ],
-  "samples": "Each phase's machine is WireGuard, foreground, at generation 7, targeting an online Mac (none when idle); connecting and waiting keep a standby at generation 6; none parks (parks is off, the default). Answers carry 7, standby and parked answers 6; resume_after comes 60 s after the background; the target event names the same online Mac; transport, relay_only and block_udp flip their setting.",
+  "samples": "Each phase's machine is WireGuard, foreground, at generation 7, targeting an online Mac (none when idle); connecting and waiting keep a standby at generation 6. Answers carry 7, standby answers 6; the target event names the same online Mac; transport, relay_only and block_udp flip their setting.",
   "silent_retries": 1,
   "source": "cmux-next-ios/rust/crates/cmux-mobile-link/src/reconnect/mod.rs",
-  "stale": "An answer (dial_*, link_*, media_updated, retry_due, probe_failed, signed_out) whose generation is not the current one is refused stale_generation; a standby answer whose generation is not the kept standby's is refused stale_generation, or no_standby when none is kept; a parked answer (parked_*) likewise, or not_resuming when no parked session is being resumed; signed_out refuses every event but target, which it records. A refusal leaves the machine unchanged.",
+  "stale": "An answer (dial_*, link_*, media_updated, retry_due, probe_failed, signed_out) whose generation is not the current one is refused stale_generation; a standby answer whose generation is not the kept standby's is refused stale_generation, or no_standby when none is kept; signed_out refuses every event but target, which it records. A refusal leaves the machine unchanged.",
   "transitions": [
     {
       "effects": [
@@ -179,21 +171,6 @@
       "event": "standby_lost",
       "from": "idle",
       "refusal": "no_standby"
-    },
-    {
-      "event": "resume_after",
-      "from": "idle",
-      "refusal": "nothing_to_do"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "idle",
-      "refusal": "not_resuming"
-    },
-    {
-      "event": "parked_lost",
-      "from": "idle",
-      "refusal": "not_resuming"
     },
     {
       "effects": [
@@ -311,21 +288,6 @@
       "event": "standby_lost",
       "from": "mac_offline",
       "refusal": "no_standby"
-    },
-    {
-      "event": "resume_after",
-      "from": "mac_offline",
-      "refusal": "nothing_to_do"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "mac_offline",
-      "refusal": "not_resuming"
-    },
-    {
-      "event": "parked_lost",
-      "from": "mac_offline",
-      "refusal": "not_resuming"
     },
     {
       "effects": [],
@@ -461,21 +423,6 @@
       "event": "standby_lost",
       "from": "connecting",
       "to": "connecting"
-    },
-    {
-      "event": "resume_after",
-      "from": "connecting",
-      "refusal": "nothing_to_do"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "connecting",
-      "refusal": "not_resuming"
-    },
-    {
-      "event": "parked_lost",
-      "from": "connecting",
-      "refusal": "not_resuming"
     },
     {
       "effects": [],
@@ -614,24 +561,6 @@
       "refusal": "no_standby"
     },
     {
-      "effects": [
-        "probe"
-      ],
-      "event": "resume_after",
-      "from": "connected",
-      "to": "connected"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "connected",
-      "refusal": "not_resuming"
-    },
-    {
-      "event": "parked_lost",
-      "from": "connected",
-      "refusal": "not_resuming"
-    },
-    {
       "effects": [],
       "event": "target",
       "from": "waiting",
@@ -773,24 +702,6 @@
       "to": "waiting"
     },
     {
-      "effects": [
-        "dial"
-      ],
-      "event": "resume_after",
-      "from": "waiting",
-      "to": "connecting"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "waiting",
-      "refusal": "not_resuming"
-    },
-    {
-      "event": "parked_lost",
-      "from": "waiting",
-      "refusal": "not_resuming"
-    },
-    {
       "effects": [],
       "event": "target",
       "from": "signed_out",
@@ -888,21 +799,6 @@
     },
     {
       "event": "standby_lost",
-      "from": "signed_out",
-      "refusal": "signed_out"
-    },
-    {
-      "event": "resume_after",
-      "from": "signed_out",
-      "refusal": "signed_out"
-    },
-    {
-      "event": "parked_resumed",
-      "from": "signed_out",
-      "refusal": "signed_out"
-    },
-    {
-      "event": "parked_lost",
       "from": "signed_out",
       "refusal": "signed_out"
     }

@@ -62,8 +62,7 @@ fn the_table_holds_every_phase_against_every_event() {
 }
 
 /// Every variation of the sample machines the step reads: background, standby kept or not,
-/// target online, offline, another Mac or none; parking on or off, a link parked or not, a parked
-/// session being resumed or not.
+/// target online, offline, another Mac or none.
 fn variants() -> Vec<Machine> {
     let mut out = Vec::new();
     let targets = [
@@ -76,22 +75,12 @@ fn variants() -> Vec<Machine> {
             for background in [false, true] {
                 for standby in [None, Some(Generation(6))] {
                     for keeps in [true, false] {
-                        for (parks, parked, resuming) in [
-                            (false, None, None),
-                            (true, None, None),
-                            (true, Some(Generation(7)), None),
-                            (true, None, Some(Generation(6))),
-                        ] {
-                            let mut m = base.clone();
-                            m.target = target.clone();
-                            m.is_backgrounded = background;
-                            m.standby = standby;
-                            m.keeps_standby = keeps;
-                            m.parks = parks;
-                            m.parked = parked;
-                            m.resuming = resuming;
-                            out.push(m);
-                        }
+                        let mut m = base.clone();
+                        m.target = target.clone();
+                        m.is_backgrounded = background;
+                        m.standby = standby;
+                        m.keeps_standby = keeps;
+                        out.push(m);
                     }
                 }
             }
@@ -109,22 +98,11 @@ fn all_events(generation: Generation, standby: Generation) -> Vec<Event> {
     events.push(Event::Transport(TransportKind::WireGuard));
     events.push(Event::RelayOnly(false));
     events.push(Event::BlockUdp(false));
-    events.push(Event::ResumeAfter { away: timings::PARK_LEASE - Duration::from_millis(1) });
-    events.push(Event::ResumeAfter { away: timings::PARK_LEASE });
     events
 }
 
-/// Which slot an answer is for: the link, the standby beside a redial, or the parked session.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Slot {
-    Link,
-    Standby,
-    Parked,
-}
-
-/// Whether the event answers a dial, link or timer of a generation (or a standby's, or a parked
-/// session's).
-fn answer_generation(event: &Event) -> Option<(Generation, Slot)> {
+/// Whether the event answers a dial, link or timer of a generation (or a standby's).
+fn answer_generation(event: &Event) -> Option<(Generation, bool)> {
     match event {
         Event::DialSucceeded { generation, .. }
         | Event::DialFailed { generation, .. }
@@ -133,12 +111,9 @@ fn answer_generation(event: &Event) -> Option<(Generation, Slot)> {
         | Event::LinkDropped { generation, .. }
         | Event::RetryDue { generation }
         | Event::ProbeFailed { generation, .. }
-        | Event::SignedOut { generation } => Some((*generation, Slot::Link)),
+        | Event::SignedOut { generation } => Some((*generation, false)),
         Event::StandbyAlive { generation, .. } | Event::StandbyLost { generation } => {
-            Some((*generation, Slot::Standby))
-        }
-        Event::ParkedResumed { generation, .. } | Event::ParkedLost { generation } => {
-            Some((*generation, Slot::Parked))
+            Some((*generation, true))
         }
         Event::Target(_)
         | Event::Transport(_)
@@ -148,15 +123,14 @@ fn answer_generation(event: &Event) -> Option<(Generation, Slot)> {
         | Event::Open
         | Event::Background
         | Event::Resume
-        | Event::ResumeAfter { .. }
         | Event::MacSignaled
         | Event::NetworkChanged => None,
     }
 }
 
 /// Every phase variant against every event, at the current generation and at stale ones: no
-/// panic, a refusal leaves the machine as it was, nothing leaves `signed_out`, a stale answer
-/// never changes the phase or dials, and parked resume holds its own rules (below).
+/// panic, a refusal leaves the machine as it was, nothing leaves `signed_out`, and a stale
+/// answer never changes the phase or dials.
 #[test]
 fn every_phase_against_every_event_holds_the_invariants() {
     let mut steps = 0;
@@ -184,9 +158,8 @@ fn every_phase_against_every_event_holds_the_invariants() {
                     assert!(effects.is_empty());
                 }
                 let stale = match answer_generation(&event) {
-                    Some((g, Slot::Link)) => g != machine.generation(),
-                    Some((g, Slot::Standby)) => Some(g) != machine.standby(),
-                    Some((g, Slot::Parked)) => Some(g) != machine.resuming(),
+                    Some((g, false)) => g != machine.generation(),
+                    Some((g, true)) => Some(g) != machine.standby(),
                     None => false,
                 };
                 if stale {
@@ -199,45 +172,10 @@ fn every_phase_against_every_event_holds_the_invariants() {
                         assert_eq!(*generation, in_place.generation());
                     }
                 }
-                check_parked_rules(&machine, &event, &in_place, &effects);
             }
         }
     }
     assert!(steps > 10_000);
-}
-
-/// Parked resume's rules for one step from `before`: off, nothing parks and a timed resume is
-/// exactly a plain one; a resume from the background that dials either closes first or resumes
-/// a parked link, never neither and never both; only a parked link inside the lease resumes; a
-/// parked answer never dials.
-fn check_parked_rules(before: &Machine, event: &Event, after: &Machine, effects: &[Effect]) {
-    let resumes = effects.iter().filter(|e| matches!(e, Effect::ResumeParked { .. })).count();
-    let dials = effects.iter().filter(|e| matches!(e, Effect::Dial { .. })).count();
-    let closes = effects.contains(&Effect::Close);
-    assert!(dials <= 1 && resumes <= 1, "{event:?}: {effects:?}");
-    if !before.parks {
-        assert_eq!(resumes, 0, "parking is off: {event:?}");
-        if before.parked.is_none() && before.resuming.is_none() {
-            assert_eq!((after.parked, after.resuming), (None, None), "parking is off: {event:?}");
-        }
-        if let Event::ResumeAfter { .. } = event {
-            assert_eq!(step(before, event), step(before, &Event::Resume), "off, a timed resume is a resume");
-        }
-    }
-    if matches!(event, Event::Resume | Event::ResumeAfter { .. }) && before.is_backgrounded && dials == 1 {
-        assert!(closes != (resumes == 1), "a resume dial must close or resume a parked link: {effects:?}");
-    }
-    if resumes == 1 {
-        let Event::ResumeAfter { away } = event else { panic!("{event:?} resumed a parked link") };
-        assert!(*away < timings::PARK_LEASE, "resumed past the lease: {away:?}");
-        assert!(before.parks && before.parked == Some(before.generation()) && before.phase().is_connected());
-        assert_eq!(dials, 1, "a parked resume races exactly one dial: {effects:?}");
-        assert_eq!(after.resuming(), Some(before.generation()));
-    }
-    if matches!(event, Event::ParkedResumed { .. } | Event::ParkedLost { .. }) {
-        assert_eq!(dials, 0, "a parked answer dialed: {effects:?}");
-        assert!(!closes, "a parked answer closed the link: {effects:?}");
-    }
 }
 
 /// xorshift64*: seeded, no dependency.
@@ -266,14 +204,10 @@ fn random_event(rng: &mut Rng, m: &Machine) -> Event {
         (Some(kept), 0..=2) => kept,
         _ => Generation(rng.below(now.0 + 1)),
     };
-    let parked = match (m.resuming(), rng.below(4)) {
-        (Some(kept), 0..=2) => kept,
-        _ => Generation(rng.below(now.0 + 1)),
-    };
     let paths = [LinkPath::Direct, LinkPath::Turn, LinkPath::TurnTls, LinkPath::NoPath];
     let path = paths[rng.below(4) as usize];
     let reason = "x".to_owned();
-    match rng.below(27) {
+    match rng.below(24) {
         0 => Event::Target(None),
         1 => Event::Target(Some(Target { mac_id: "m1".into(), name: "A".into(), is_online: false })),
         2 => Event::Target(Some(Target { mac_id: "m2".into(), name: "B".into(), is_online: true })),
@@ -313,38 +247,25 @@ fn random_event(rng: &mut Rng, m: &Machine) -> Event {
                 Event::StandbyLost { generation: standby }
             }
         }
-        23 => Event::StandbyAlive { generation: standby, path, rtt_millis: None },
-        24 => {
-            // Around the lease's end, inside it most of the time.
-            let away = timings::PARK_LEASE + Duration::from_secs(rng.below(120)) - Duration::from_secs(100);
-            if rng.below(2) == 0 { Event::Background } else { Event::ResumeAfter { away } }
-        }
-        25 => Event::ParkedResumed { generation: parked, path, rtt_millis: None },
-        _ => Event::ParkedLost { generation: parked },
+        _ => Event::StandbyAlive { generation: standby, path, rtt_millis: None },
     }
 }
 
-/// A long seeded walk (parking on for odd seeds): one dial at most per step and per generation,
-/// dial generations strictly increasing, retry delays that follow the backoff table, grow within
-/// a chain and start over after a success; a parked resume races one dial and its answers never
-/// dial.
+/// A long seeded walk: one dial at most per step and per generation, dial generations strictly
+/// increasing, retry delays that follow the backoff table, grow within a chain and start over
+/// after a success.
 #[test]
 fn a_seeded_random_walk_keeps_dials_and_backoff_in_order() {
-    let mut total_parked_resumes = 0;
     for seed in 1..=64u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
         let mut m = Machine::new(TransportKind::WireGuard, false, false);
-        m.parks = seed % 2 == 1;
-        let mut parked_resumes = 0;
         let mut last_dial = Generation(0);
         let mut issued = Generation(0);
         let mut last_delay: Option<Duration> = None;
         let mut retries = 0;
         for _ in 0..5_000 {
             let event = random_event(&mut rng, &m);
-            let before = m.clone();
             let effects = m.handle(&event);
-            check_parked_rules(&before, &event, &m, &effects);
             let dials: Vec<_> = effects.iter().filter(|e| matches!(e, Effect::Dial { .. })).collect();
             assert!(dials.len() <= 1, "seed {seed}: {effects:?}");
             for effect in &effects {
@@ -369,19 +290,12 @@ fn a_seeded_random_walk_keeps_dials_and_backoff_in_order() {
                         last_delay = Some(*after);
                         retries += 1;
                     }
-                    Effect::PromoteStandby { generation } | Effect::PromoteParked { generation } => {
-                        assert_eq!(*generation, m.generation());
-                    }
-                    Effect::ResumeParked { generation } => {
-                        assert!(*generation < m.generation() && m.resuming() == Some(*generation));
-                        parked_resumes += 1;
-                    }
+                    Effect::PromoteStandby { generation } => assert_eq!(*generation, m.generation()),
                     Effect::Close
                     | Effect::Probe { .. }
                     | Effect::QuickProbe { .. }
                     | Effect::KeepStandby
-                    | Effect::CloseStandby
-                    | Effect::CloseParked => {}
+                    | Effect::CloseStandby => {}
                 }
             }
             issued = issued.max(m.generation());
@@ -394,10 +308,5 @@ fn a_seeded_random_walk_keeps_dials_and_backoff_in_order() {
             }
         }
         assert!(retries > 0 || m.phase() == &Phase::SignedOut, "seed {seed} never backed off");
-        if !m.parks {
-            assert_eq!(parked_resumes, 0, "seed {seed}: parked with parking off");
-        }
-        total_parked_resumes += parked_resumes;
     }
-    assert!(total_parked_resumes > 0, "no walk resumed a parked link");
 }

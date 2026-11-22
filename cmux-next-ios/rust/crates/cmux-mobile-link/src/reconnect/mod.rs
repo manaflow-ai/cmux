@@ -16,13 +16,6 @@
 //! (a transport switch, a Mac change, a newer dial) carries an older generation and is refused
 //! ([`Refusal::StaleGeneration`]). A refusal leaves the machine exactly as it was; Swift returns
 //! `[]` for those and changes nothing either.
-//!
-//! Parked resume (RFD 0049, the warm link), off unless [`Machine::parks`] says the Mac keeps a
-//! parked peer's session: a link live when the scene goes to the background is parked, not
-//! closed. A resume within [`timings::PARK_LEASE`] ([`Event::ResumeAfter`]) handshakes the parked
-//! session again from a fresh socket ([`Effect::ResumeParked`]) and races a normal dial beside it;
-//! the first up wins and the loser is closed. Past the lease, with nothing parked, or with it off,
-//! a resume is today's close and dial. Nothing calls it yet (no runner, no FFI, Swift unchanged).
 
 use std::time::Duration;
 
@@ -171,12 +164,6 @@ pub enum Event {
     Background,
     /// The scene became active. Replace any link kept across suspension.
     Resume,
-    /// The scene became active `away` after the latest [`Event::Background`] (the runner's
-    /// monotonic clock). [`Event::Resume`] with a parked link inside [`timings::PARK_LEASE`]
-    /// resumes it ([`Effect::ResumeParked`]); otherwise exactly [`Event::Resume`].
-    ResumeAfter {
-        away: Duration,
-    },
     ProbeFailed {
         generation: Generation,
         reason: String,
@@ -199,21 +186,11 @@ pub enum Event {
     StandbyLost {
         generation: Generation,
     },
-    /// The parked session being resumed ([`Effect::ResumeParked`]) completed its handshake.
-    ParkedResumed {
-        generation: Generation,
-        path: LinkPath,
-        rtt_millis: Option<u32>,
-    },
-    /// The parked session's handshake failed, or went unanswered past [`timings::PROBE_TIMEOUT`].
-    ParkedLost {
-        generation: Generation,
-    },
 }
 
 impl Event {
     /// Every event's name, in the table's order.
-    pub const KINDS: [&'static str; 23] = [
+    pub const KINDS: [&'static str; 20] = [
         "target",
         "transport",
         "relay_only",
@@ -234,9 +211,6 @@ impl Event {
         "signed_out",
         "standby_alive",
         "standby_lost",
-        "resume_after",
-        "parked_resumed",
-        "parked_lost",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -261,9 +235,6 @@ impl Event {
             Event::SignedOut { .. } => "signed_out",
             Event::StandbyAlive { .. } => "standby_alive",
             Event::StandbyLost { .. } => "standby_lost",
-            Event::ResumeAfter { .. } => "resume_after",
-            Event::ParkedResumed { .. } => "parked_resumed",
-            Event::ParkedLost { .. } => "parked_lost",
         }
     }
 }
@@ -276,8 +247,7 @@ pub enum Effect {
         mac_id: String,
         transport: TransportKind,
     },
-    /// Close the current link (if any) and drop its channels; closes the standby link and a
-    /// parked session being resumed too.
+    /// Close the current link (if any) and drop its channels; closes the standby link too.
     Close,
     ScheduleRetry {
         generation: Generation,
@@ -300,23 +270,11 @@ pub enum Effect {
     },
     /// Close the standby link (the redial won, or it died).
     CloseStandby,
-    /// Do not close the parked link of `generation`: handshake its session again from a fresh
-    /// socket to the Mac's last endpoint. A dial follows and races it; the answer is
-    /// [`Event::ParkedResumed`] or [`Event::ParkedLost`] under `generation`.
-    ResumeParked {
-        generation: Generation,
-    },
-    /// The parked session is the link again, under `generation`; cancel the racing dial.
-    PromoteParked {
-        generation: Generation,
-    },
-    /// Close the parked session (the dial won, or its handshake failed) and forget its keys.
-    CloseParked,
 }
 
 impl Effect {
     /// Every effect's name.
-    pub const KINDS: [&'static str; 11] = [
+    pub const KINDS: [&'static str; 8] = [
         "dial",
         "close",
         "schedule_retry",
@@ -325,9 +283,6 @@ impl Effect {
         "keep_standby",
         "promote_standby",
         "close_standby",
-        "resume_parked",
-        "promote_parked",
-        "close_parked",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -340,9 +295,6 @@ impl Effect {
             Effect::KeepStandby => "keep_standby",
             Effect::PromoteStandby { .. } => "promote_standby",
             Effect::CloseStandby => "close_standby",
-            Effect::ResumeParked { .. } => "resume_parked",
-            Effect::PromoteParked { .. } => "promote_parked",
-            Effect::CloseParked => "close_parked",
         }
     }
 }
@@ -358,8 +310,6 @@ pub enum Refusal {
     StaleGeneration,
     /// A standby event while no standby link is kept.
     NoStandby,
-    /// A parked-resume answer while no parked session is being resumed.
-    NotResuming,
     /// The setting already has that value.
     Unchanged,
     /// A dial answer while no dial is in flight.
@@ -373,11 +323,10 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 9] = [
+    pub const ALL: [Refusal; 8] = [
         Refusal::SignedOut,
         Refusal::StaleGeneration,
         Refusal::NoStandby,
-        Refusal::NotResuming,
         Refusal::Unchanged,
         Refusal::NotConnecting,
         Refusal::NotConnected,
@@ -390,7 +339,6 @@ impl Refusal {
             Refusal::SignedOut => "signed_out",
             Refusal::StaleGeneration => "stale_generation",
             Refusal::NoStandby => "no_standby",
-            Refusal::NotResuming => "not_resuming",
             Refusal::Unchanged => "unchanged",
             Refusal::NotConnecting => "not_connecting",
             Refusal::NotConnected => "not_connected",
@@ -432,19 +380,12 @@ pub struct Machine {
     generation: Generation,
     standby: Option<Generation>,
     is_backgrounded: bool,
-    /// The generation of the link live at the latest [`Event::Background`], when [`Self::parks`].
-    parked: Option<Generation>,
-    /// The parked session being resumed beside a dial ([`Effect::ResumeParked`]).
-    resuming: Option<Generation>,
     media: VideoMedia,
     /// Retry delays after the silent retries; the last one repeats.
     pub backoff: Vec<Duration>,
     /// Whether an unanswered probe keeps the link beside the redial. Off only in tests that
     /// measure the old way.
     pub keeps_standby: bool,
-    /// Whether the Mac keeps a parked peer's session, so a resume inside [`timings::PARK_LEASE`]
-    /// resumes the parked link instead of closing it. Off unless the runner says the host parks.
-    pub parks: bool,
 }
 
 /// The next machine and the effects to run, or why nothing changed.
@@ -468,12 +409,9 @@ impl Machine {
             generation: Generation(0),
             standby: None,
             is_backgrounded: false,
-            parked: None,
-            resuming: None,
             media: VideoMedia::Off,
             backoff: BACKOFF.to_vec(),
             keeps_standby: true,
-            parks: false,
         }
     }
 
@@ -502,14 +440,6 @@ impl Machine {
     pub fn is_backgrounded(&self) -> bool {
         self.is_backgrounded
     }
-    /// The generation of the link parked at the latest background ([`Self::parks`]).
-    pub fn parked(&self) -> Option<Generation> {
-        self.parked
-    }
-    /// The generation of the parked session being resumed beside a dial.
-    pub fn resuming(&self) -> Option<Generation> {
-        self.resuming
-    }
     /// The current link's media session, `Off` between links.
     pub fn media(&self) -> &VideoMedia {
         &self.media
@@ -523,7 +453,5 @@ impl Machine {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_parked;
 #[cfg(test)]
 mod tests_props;
