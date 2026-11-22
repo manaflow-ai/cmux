@@ -190,6 +190,8 @@ public struct PagedListLabRoot: View {
                 }
             }
             operation("Banner", "banner") { banner.toggle() }
+            // VoiceOver's three-finger page scroll away from the newest end (no finger, no fling).
+            operation("Page", "vopage") { probe.pageAway?() }
             operation("Reload", "reload") { Task { await model.loadFirst() } }
         }
         .padding(.horizontal, 8)

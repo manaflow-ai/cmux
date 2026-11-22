@@ -84,6 +84,36 @@ final class PagedListUITests: XCTestCase {
         XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the slide does not explain")
     }
 
+    /// VoiceOver's page scroll takes the reader a page away from the newest row with no finger and no
+    /// fling: the list stops following its newest row, so rows that arrive there land above the
+    /// reader and move nothing they read (it used to keep following: the next row slid the list
+    /// back to the top).
+    @MainActor func testDownVoiceOverPageAwayKeepsTheReaderWhenRowsArrive() {
+        let lab = PagedLabDriver.launch("down:normal", test: self)
+        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10))
+        lab.settle(lab.row(0))
+        let top = lab.row(0).frame.minY
+        lab.app.buttons["lab.op.vopage"].tap()
+        lab.waitFor("the page scroll", timeout: 5) { !lab.row(0).exists || lab.row(0).frame.minY < top - 200 }
+        lab.settle(lab.list.cells.firstMatch)
+        let reader = lab.visibleRow()
+        XCTAssertTrue(reader.exists, "no row on screen after the page scroll")
+        lab.settle(reader)
+        let id = reader.identifier
+        let before = reader.frame.minY
+        let rows = lab.reading.rows
+        for _ in 0..<3 { lab.app.buttons["lab.op.insert"].tap() }
+        lab.waitFor("three arrivals", timeout: 5) { lab.reading.rows >= rows + 3 }
+        lab.settle(reader)
+        lab.attach("down-voiceover-page-away")
+        let reading = lab.reading
+        lab.record("down-voiceover-page-away", reading.json)
+        XCTAssertEqual(reading.rows, rows + 3, "the arrivals did not land")
+        XCTAssertTrue(reader.exists, "\(id) left the screen: the list went back to its newest row")
+        XCTAssertEqual(reader.frame.minY, before, accuracy: 0.5, "rows arriving at the newest end moved \(id) \(reader.frame.minY - before) pt")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the scroll does not explain")
+    }
+
     /// A row that arrives under a resting finger (touching the list, not dragging) waits: the rows
     /// under the finger stay, and the new row slides in when it lifts. The spring waits for the
     /// finger instead of stalling or jumping, and the indicator never counts a row the list slid to.

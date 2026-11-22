@@ -99,6 +99,9 @@ public final class PagedListProbe {
     public var slid: ((_ frames: Int) -> Void)?
     /// Rows arrived at the newest end under a resting finger and wait for it to lift.
     public var held: ((_ rows: Int) -> Void)?
+    /// VoiceOver's three-finger page scroll on the list, away from its newest end (set by the list
+    /// while this probe is on it; the lab's `vopage` operation calls it).
+    public internal(set) var pageAway: (() -> Void)?
 
     public init() {}
 }
@@ -293,6 +296,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var showNewest: (() -> Void)?
     var probe: PagedListProbe? {
         didSet {
+            probe?.pageAway = { [weak self] in self?.pageAwayByAccessibility() }
             guard (probe == nil) != (commitWatch == nil) else { return }
             commitWatch = probe == nil ? nil : PagedListCommitWatch { [weak self] in self?.timedSampleCommitted() }
         }
@@ -867,6 +871,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let delta = newestOffset - collectionView.contentOffset.y
         guard abs(delta) > 0.01 else { return }
         correctOffset(by: delta)
+    }
+
+    /// VoiceOver's page scroll away from the newest end: a three-finger swipe up shows the rows
+    /// further down (away from a `.down` list's newest row), a swipe down the rows above.
+    private func pageAwayByAccessibility() {
+        _ = collectionView.accessibilityScroll(direction == .down ? .up : .down)
     }
 
     /// The newest-rows indicator's jump: a windowed model brings its newest rows back first.
