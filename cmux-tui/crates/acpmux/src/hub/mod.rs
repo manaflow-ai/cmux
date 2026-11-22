@@ -862,6 +862,10 @@ pub(super) struct StreamState {
     /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
     pub(super) plan_turn: Option<String>,
     pub(super) plan_shown: bool,
+    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
+    pub(super) agent_worked: bool,
+    pub(super) reply_chars: usize,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
