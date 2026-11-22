@@ -18,9 +18,14 @@ path = "tests/test_cmux_code_mode_mcp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_linux_archive.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_linux_archive.py"
+
+[[test]]
 path = "tests/test_cmux_machine_channel.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
 
 [[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
@@ -29,7 +34,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_arch_layers.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_base_autofix_finishes.py"
@@ -63,12 +68,12 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_codebase_health.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests; run python3 tests/test_cmux_next_codebase_health.py after a change to codebase-health.py or to guardrails.py's diff scope or declaration parser (about 4 s, git only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18); run python3 tests/test_cmux_next_codebase_health.py after a change to codebase-health.py or to guardrails.py's diff scope or declaration parser (about 4 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_compile_trailer.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 25 s, git and loopback HTTP only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 25 s, git and loopback HTTP only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_deferred_terminate.py"
@@ -125,7 +130,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_gate_plan_suite_steps.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks gate-plan.py's CmuxNext suite steps against the cmux-ci controller's ci-step limits; run python3 tests/test_cmux_next_gate_plan_suite_steps.py yourself after changing scripts/cmux-next/gate-plan.py or gate-run.sh (about 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks gate-plan.py's CmuxNext suite steps against the cmux-ci controller's ci-step limits; run python3 tests/test_cmux_next_gate_plan_suite_steps.py yourself after changing scripts/cmux-next/gate-plan.py or gate-run.sh (about 1 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_generated_catch_up.py"
@@ -136,24 +141,29 @@ path = "tests/test_cmux_next_generated_fold.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_git_batch_prefetch.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). git_batch.cat_file runs only in the local pre-push hook and guardrails; run python3 -I tests/test_cmux_next_git_batch_prefetch.py yourself after changing scripts/cmux-next/git_batch.py (a few seconds, git over file:// only, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_guardrails.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails_blocking.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails_observation.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI gates. guardrails.py's observation-onchange and observation-scope rules run only in the local pre-push hook; run python3 -I tests/test_cmux_next_guardrails_observation.py yourself after changing them (about 3 s, git only, no build)."
+reason = "Lawrence 2026-10-23: no new CI gates (lifted 2026-11-18). guardrails.py's observation-onchange and observation-scope rules run only in the local pre-push hook; run python3 -I tests/test_cmux_next_guardrails_observation.py yourself after changing them (about 3 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails_qos.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI gates (lifted 2026-11-18). The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guards_notices_pair.py"
@@ -170,7 +180,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_instant_bench_warm_arm.py"
 lane = "manual"
-reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (kept manual under the 2026-10-23 no-new-CI rule, since lifted)."
 
 [[test]]
 path = "tests/test_cmux_next_ios_test_notes_retry.py"
@@ -183,7 +193,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_main_thread_large_session.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. A GUI regression test (plans/cmux-next/main-thread-scheduling.md 1.5): it builds the LARGE session in a bench app and types real keys, so it needs a quiet fleet mini with the input grant; each step's author runs scripts/measure/main-thread-large-session.sh --mode=test on the fleet before and after the step. --self-test checks its judge with no app."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). A GUI regression test (plans/cmux-next/main-thread-scheduling.md 1.5): it builds the LARGE session in a bench app and types real keys, so it needs a quiet fleet mini with the input grant; each step's author runs scripts/measure/main-thread-large-session.sh --mode=test on the fleet before and after the step. --self-test checks its judge with no app."
 
 [[test]]
 path = "tests/test_cmux_next_media_path_map.py"
@@ -208,12 +218,12 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_summary.py"
 lane = "manual"
-reason = "Run the portable summary regression locally; no new CI tests."
+reason = "Run the portable summary regression locally (kept manual under the 2026-10-23 no-new-CI rule, since lifted)."
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
@@ -250,17 +260,17 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. It pushes a workflow that does not parse through the real pre-push hook in a throwaway repository; CI's Lint every workflow step (actionlint) is the backstop. Run python3 tests/test_cmux_next_prepush_workflow_yaml.py yourself after changing the workflow YAML layer of scripts/cmux-next/prepush-gate.py."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). It pushes a workflow that does not parse through the real pre-push hook in a throwaway repository; CI's Lint every workflow step (actionlint) is the backstop. Run python3 tests/test_cmux_next_prepush_workflow_yaml.py yourself after changing the workflow YAML layer of scripts/cmux-next/prepush-gate.py."
 
 [[test]]
 path = "tests/test_cmux_next_push_roots_on_nightly_jit.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_next_push_roots_on_nightly_jit.py yourself after changing the workflow or script it reads."
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_next_push_roots_on_nightly_jit.py yourself after changing the workflow or script it reads."
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take the reserved cmux-gcp-pr-control-jit-x64 on attempt 1, after the fork and push arms, and that no other job names it; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_reel.py"
@@ -335,6 +345,11 @@ path = "tests/test_cmux_now_epoch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_rd_license_gate.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Unit tests of cmux-rd's license gate and notices list (cmux-tui/crates/cmux-rd-host/scripts/release.py) on fabricated cargo metadata; run python3 tests/test_cmux_rd_license_gate.py yourself after changing release.py (a second, stdlib only). The real release crate tree is checked by cmux-rd-host's tests/release_features.rs, which cmux-rd-release.yml's cargo test runs."
+
+[[test]]
 path = "tests/test_cmux_settings_jsonc.py"
 lane = "linux-guard"
 
@@ -355,13 +370,17 @@ path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_branch_inputs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
-reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. The repo adds no new CI tests (CLAUDE.md, 2026-10-23), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
 
 [[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"
@@ -378,12 +397,12 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_tui_owned_mini_caches.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Pins cmux-tui.yml's owned-mini setup-go cache and rust-cache save-if conditions (#27840); run python3 tests/test_cmux_tui_owned_mini_caches.py yourself after changing that job (under 1 s, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Pins cmux-tui.yml's owned-mini setup-go cache and rust-cache save-if conditions (#27840); run python3 tests/test_cmux_tui_owned_mini_caches.py yourself after changing that job (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
@@ -416,7 +435,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_superseded_gate.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_superseded_gate.py yourself after changing the workflow steps it reads."
+reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_superseded_gate.py yourself after changing the workflow steps it reads."
 
 [[test]]
 path = "tests/test_cmux_tui_superseded_push.py"

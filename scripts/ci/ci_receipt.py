@@ -42,6 +42,7 @@ request job reads it with its own read-only token. The pull request names the ru
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -122,6 +123,60 @@ def pointers(body: str, job: str, repo: str) -> list[str]:
         if match["job"] == job and (match["repo"] in (None, repo)):
             found.append(match["run"])
     return found
+
+
+DISCOVER_DAYS = 2
+DISCOVER_PAGES = 5
+DISCOVER_COMMITS = 100
+# A run cannot test a commit made after it started, so the search starts at the oldest commit's committer date, less
+# this margin for a committer's clock running fast. Main holds about 600 receipt dispatches a day (2026-11-21): from
+# two days back every search read all five pages, about 240 GITHUB_TOKEN calls an hour from this job alone.
+DISCOVER_SKEW = datetime.timedelta(minutes=30)
+
+
+def committed_at(each: dict) -> datetime.datetime | None:
+    try:
+        stamp = datetime.datetime.fromisoformat(str(each["commit"]["committer"]["date"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return stamp if stamp.tzinfo else None
+
+
+def discover(fetch: Fetch, repo: str, pr: int, head: str, now: datetime.datetime | None = None) -> list[str]:
+    """Run ids of successful Fast checks dispatches on main that name a commit of this pull request as the one they
+    tested, oldest first (the order `pointers` gives, so `verify` reads the newest). This is the body pointer found
+    without anyone writing it: the lane that ran the canonical command needs no `CI-Receipt:` line. It only finds
+    candidates; check_run still holds each one to every check a pointed-at run passes (workflow, dispatch on main,
+    conclusion, canonical command, the head's tree, the merge tree), so a candidate that is no receipt is rejected
+    with its reason and a missing one only means the job runs."""
+    commits = [head]
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    window = now - datetime.timedelta(days=DISCOVER_DAYS)
+    since = window.strftime("%Y-%m-%d")
+    try:
+        listed = json.loads(fetch(f"repos/{repo}/pulls/{pr}/commits?per_page={DISCOVER_COMMITS}"))
+        commits += [each.get("sha", "") for each in reversed(listed) if SHA.match(each.get("sha", ""))]
+        dates = [committed_at(each) for each in listed if isinstance(each, dict)]
+        # Every listed commit needs a date (a dateless one could be the oldest), and a full page may hide older ones.
+        if dates and None not in dates and len(listed) < DISCOVER_COMMITS:
+            start = min(dates) - DISCOVER_SKEW
+            if start > window:
+                since = start.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (Rejected, ValueError, AttributeError, TypeError):
+        pass  # the head alone: a commit pushed after the run needs the pointer line
+    wanted = set(commits)
+    found = []
+    for page in range(1, DISCOVER_PAGES + 1):
+        query = (f"event=workflow_dispatch&branch={RECEIPT_WORKFLOW_BRANCH}&status=success&per_page=100&page={page}"
+                 f"&created=%3E%3D{since}")
+        batch = json.loads(fetch(f"repos/{repo}/actions/workflows/fast-checks.yml/runs?{query}")).get("workflow_runs") or []
+        for run in batch:  # newest first
+            tested = TESTED.search(str(run.get("display_title", "")))
+            if tested and tested["repo"] == repo and tested["sha"] in wanted:
+                found.append(str(run["id"]))
+        if len(batch) < 100:
+            break
+    return list(reversed(found))
 
 
 def same_command(text: str, job: str) -> bool:
@@ -295,7 +350,8 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None) -> dict:
     out = {"valid": "false", "audit": "false", "base": "", "run_url": "", "producer": "", "reason": ""}
     body = Path(args.body_file).read_text(encoding="utf-8") if args.body_file else os.environ.get("PR_BODY", "")
     runs = pointers(body, args.job, args.repo)
-    if not runs:
+    pr = getattr(args, "pr", None)
+    if not runs and not pr:
         out["reason"] = f"no CI-Receipt: {args.job} line in the pull request body"
         return out
     for value in (args.head, args.base, args.head_tree, args.merge_tree):
@@ -308,6 +364,15 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None) -> dict:
             out["reason"] = "no GH_TOKEN to read the receipt run"
             return out
         fetch = github_fetch(token)
+    if not runs:
+        try:
+            runs = discover(fetch, args.repo, pr, args.head)
+        except (Rejected, ValueError, KeyError, TypeError, AttributeError) as error:
+            out["reason"] = f"no CI-Receipt: {args.job} line in the pull request body, and the search for a run failed ({error})"
+            return out
+        if not runs:
+            out["reason"] = f"no CI-Receipt: {args.job} line in the pull request body, and no passing Fast checks run of this pull request's commits"
+            return out
     reasons = []
     # The last line names the newest receipt; read back from it.
     for run_id in reversed(runs[-3:]):
@@ -474,6 +539,8 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--body-file", help="the pull request body (default: $PR_BODY)")
     check.add_argument("--audit-percent", type=lambda v: int(v) if v.strip() else DEFAULT_AUDIT_PERCENT,
                        default=DEFAULT_AUDIT_PERCENT)
+    check.add_argument("--pr", type=int, help="the pull request's number: with no CI-Receipt line in the body, find "
+                       "the passing Fast checks run of one of its commits (discover)")
     check.add_argument("--output", type=Path)
     check.add_argument("--workspaces", type=Path, help=".github/rust-workspaces.toml (rust-workspaces, from the base)")
     args = parser.parse_args(argv)

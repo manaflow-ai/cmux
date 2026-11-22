@@ -21,21 +21,151 @@
 //! host below the level again (a launcher of an older binary) never makes it move at every idle
 //! point. Nothing moves while idle hibernation is off (`ACPMUX_IDLE_CHILD_SECS=0`): an agent the
 //! daemon is told to keep, it keeps.
+//!
+//! A host on this build moves the same way when no daemon of this level started it and its chat
+//! is no person's (`Hub::host_moves`): what a start asks of the agent is the daemon's to decide,
+//! and an older daemon decided it for a host of the new binary while an update waited out its
+//! restart window. Each start this daemon makes keeps its level in the chat's meta
+//! (`SessionMeta::start_level`, `note_start_level`) for the next daemon.
+//!
+//! Who a start is for (`Hub::start_params`): Claude Code reads whether to suggest next prompts
+//! once, at `initialize`, and honours the per-turn pause only under a server-side flag of its own
+//! that is off by default, so the start is where suggestions are decided. A start for no person
+//! asks for none.
 
 use crate::hub::*;
+
+/// `Session::start_for`: a person's start.
+pub(super) const FOR_A_PERSON: u8 = 1;
+/// `Session::start_for`: a start for no person.
+pub(super) const FOR_NO_PERSON: u8 = 2;
+
+/// `Session::start_for` of a start for queued prompt `run` (`provenance`: its turn's effective
+/// one, `prompt_sender::person_turn`).
+pub(super) fn start_for(run: &super::queue::PromptRun, provenance: Option<&Value>) -> u8 {
+    if super::prompt_sender::person_turn(run, provenance) { FOR_A_PERSON } else { FOR_NO_PERSON }
+}
+
+/// `Session::start_for` of the first start of a chat that records no creator (`created_by.rs`:
+/// an adopt, a move's target), which `person` (`NewRequest::person`) says the person asked for or
+/// not. Counted as the person's before, so a lane's adopt (a failover, a successor) asked Claude
+/// Code for a suggestion after every turn: on one lane Mac most chats made on 2026-11-20 and 21
+/// had no creator (sr2 audit).
+pub(super) fn start_for_creator(person: bool) -> u8 {
+    if person { FOR_A_PERSON } else { FOR_NO_PERSON }
+}
+
+/// Whether a chat created by `created_by` (`person`: `NewRequest::person`) is the person's at
+/// creation: the person made it, or it records no creator and the person asked for it. A pooled
+/// Claude Code is taken only by such a chat (`lifecycle.rs` `shaped`): the pool started it for
+/// the person, with suggestions, so a lane's chat that took one kept them for the process's life.
+/// On two Cloud agent machines 81 of the chats scripts made had taken one (sr2 audit,
+/// 2026-11-22: about 20 suggestions an hour through one team gateway).
+pub(super) fn made_for_a_person(
+    created_by: Option<&crate::store::CreatedBy>,
+    person: bool,
+) -> bool {
+    match created_by {
+        Some(c) => c.kind == crate::store::CreatorKind::Person,
+        None => person,
+    }
+}
 
 /// How long a chat whose host must move waits idle first: long enough that what follows its turn
 /// (a queued notice, a script's next prompt) comes first, short against the idle period.
 pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Hub {
+    /// Whether the agent start of `session` beginning now is a person's: the chat on a person's
+    /// screen (`seen.rs` `shown`), else what asked for it (`Session::start_for`): their own
+    /// prompt, their typing or open (`wake_for`), a chat with no creator the person asked for
+    /// (`start_for_creator`), else, for a start nothing marked (the one `session/new` makes),
+    /// whoever created the chat (`created_by.rs`): the person, or one from before creators
+    /// were kept (a fork the person made records none either); never an agent or a script.
+    pub(super) fn for_a_person(&self, session: &Session) -> bool {
+        if self.shown(session) {
+            return true;
+        }
+        match session.start_for.load(Ordering::SeqCst) {
+            FOR_A_PERSON => true,
+            FOR_NO_PERSON => false,
+            _ => session
+                .meta()
+                .created_by
+                .as_ref()
+                .is_none_or(|c| c.kind == crate::store::CreatorKind::Person),
+        }
+    }
+
+    /// The `initialize` params of a start of `session`'s agent. One that is no person's asks
+    /// Claude Code for no next-prompt suggestions (`prompt_suggestions::NO_SUGGESTIONS`): Claude Code honours the
+    /// per-turn pause (`claude_stdio/prompt_suggestions.rs`) only under a server-side flag of its
+    /// own, `tengu_chomp_sable`, off by default ("a CLI build where this is not yet enabled
+    /// acknowledges and keeps generating"), and reads `promptSuggestions` once, at `initialize`:
+    /// a later one only turns it on. So a process started for another agent's message, which no
+    /// person reads, suggested a next prompt after every turn, about $0.10 each (sr2 audit,
+    /// 2026-11-21: 1,022 an hour, 15:30-16:30Z, after both host fixes had reached the lanes). A
+    /// process a person started keeps them for its whole life, agent turns included; one an
+    /// agent started has none until it hibernates and a person's prompt, typing or open starts
+    /// it again.
+    pub(super) fn start_params(&self, session: &Session) -> Value {
+        let mut params = super::pool::initialize_params();
+        if !self.for_a_person(session) {
+            params["_meta"] =
+                json!({"acpmux": {crate::claude_stdio::prompt_suggestions::NO_SUGGESTIONS: true}});
+        }
+        params
+    }
+
+    /// Keeps in `session`'s meta (saved by the caller) that this daemon started `child`'s host
+    /// at [`crate::agent_host::HOST_LEVEL`], when `asked_right`: its `initialize` asked what
+    /// `start_params` asks for this chat. A pooled agent a chat takes started for the person
+    /// (`pool/start.rs`), so it is right only for a person's chat. Nothing for an agent this
+    /// daemon runs as its own child: no host outlives it.
+    pub(super) fn note_start_level(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        asked_right: bool,
+    ) {
+        let level =
+            child.host_record().filter(|_| asked_right).map(|record| crate::store::StartLevel {
+                incarnation: record.incarnation,
+                level: crate::agent_host::HOST_LEVEL,
+            });
+        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).start_level = level;
+    }
+
     /// Whether `session`'s live host moves at its next idle point (module docs). False while a
-    /// start or stop holds the child's slot.
+    /// start or stop holds the child's slot. Also a host on this build that no daemon of this
+    /// level started, for a chat that is no person's: during an update the new binary is in
+    /// place up to an hour before the daemon restarts on it (`cli/host_update.rs`
+    /// `RESTART_WINDOW_SECS`), and each host started meanwhile ran the new build but was asked,
+    /// by the old daemon, for a next-prompt suggestion after every turn. Its record says this
+    /// build's level, so it never moved: on one lane, starts with suggestions until 20:37Z,
+    /// about 80 minutes after its new binary came (sr2 audit, 2026-11-21).
     pub(super) fn host_moves(&self, session: &Session) -> bool {
-        let below = session.child.try_lock().ok().is_some_and(|child| {
-            child.as_ref().is_some_and(|c| c.host_below(crate::agent_host::HOST_LEVEL))
-        });
-        below
+        let level = crate::agent_host::HOST_LEVEL;
+        let (below, incarnation) = session
+            .child
+            .try_lock()
+            .ok()
+            .and_then(|child| {
+                child
+                    .as_ref()
+                    .map(|c| (c.host_below(level), c.host_record().map(|r| r.incarnation)))
+            })
+            .unwrap_or((false, None));
+        let started_below = || {
+            incarnation.as_ref().is_some_and(|incarnation| {
+                !session.read_meta(|m| {
+                    m.start_level
+                        .as_ref()
+                        .is_some_and(|s| s.incarnation == *incarnation && s.level >= level)
+                })
+            }) && !self.for_a_person(session)
+        };
+        (below || started_below())
             && !self
                 .host_moved
                 .lock()
@@ -58,157 +188,5 @@ impl Hub {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session.id.clone());
-    }
-}
-
-/// What the daemon last told a host below the level about next-prompt suggestions
-/// ([`Hub::old_host_suggestions`]), for that host only (its start nonce).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Told {
-    /// Turned off for a turn no person started; the chat's own pick is on.
-    Off,
-    /// The host refused the option or did not answer in time: never asked again.
-    Refused,
-}
-
-/// How long a turn's prompt waits for a host below the level to take the option: Claude Code,
-/// idle between turns, answers its control request at once.
-const OPTION_ANSWER: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// The value to set the chat's `prompt-suggestions` option to on a host below the level before a
-/// turn (`true`: on), or None when the host already has it. `pick`: the chat's own pick;
-/// `person`: a person's own prompt starts the turn (`prompt_sender::person_turn`); `told`: what
-/// this daemon last set on this host.
-pub(super) fn suggestion_step(pick: bool, person: bool, told: Option<Told>) -> Option<bool> {
-    // Off by the chat's own pick: the host has it off already, and keeps it so.
-    if !pick || told == Some(Told::Refused) {
-        return None;
-    }
-    let off = !person;
-    (off != (told == Some(Told::Off))).then_some(!off)
-}
-
-impl Hub {
-    /// Before a turn on a host below the level (its translator suggests a next prompt after every
-    /// turn), what a host at the level does itself: Claude Code suggests one only after a
-    /// person's own turn (`claude_stdio/prompt_suggestions.rs`). The chat's `prompt-suggestions`
-    /// option, which every host since it came (2026-11-03) takes, goes off before any other
-    /// turn and on again before the person's: its host pauses Claude Code's suggestions with it.
-    /// That reaches a chat that never moves (always at work, or a process of its own under it),
-    /// without a restart. The off is the daemon's, never the chat's pick: the chat's saved
-    /// options keep the pick ([`Self::unpaused_options`]), and a person's own write of the option
-    /// takes over ([`Self::person_set_suggestions`]).
-    pub(super) async fn old_host_suggestions(
-        &self,
-        session: &Session,
-        child: &crate::agent::ChildAgent,
-        agent_sid: &str,
-        person: bool,
-    ) {
-        if !child.host_below(crate::agent_host::HOST_LEVEL) {
-            return;
-        }
-        let Some(nonce) = child.host_record().map(|r| r.start_nonce) else { return };
-        let pick = {
-            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !crate::claude_stdio::steers_by_info(meta.agent_info.as_ref()) {
-                return;
-            }
-            crate::claude_stdio::prompt_suggestions::chat_pick(
-                super::model_options::current_option(
-                    &meta,
-                    crate::claude_stdio::prompt_suggestions::OPTION,
-                ),
-            )
-        };
-        let told = self.told_suggestions(&session.id, &nonce);
-        let Some(on) = suggestion_step(pick, person, told) else { return };
-        let params = json!({
-            "sessionId": agent_sid,
-            "configId": crate::claude_stdio::prompt_suggestions::OPTION,
-            "value": if on { "on" } else { "off" },
-        });
-        let answer = child.request_within(
-            crate::rpc::method::SESSION_SET_CONFIG_OPTION,
-            params,
-            OPTION_ANSWER,
-        );
-        let told = match answer.await {
-            Some(Ok(_)) => (!on).then_some(Told::Off),
-            Some(Err(e)) => {
-                tracing::info!(session = %session.id, "old host refused prompt-suggestions: {}", e.message);
-                Some(Told::Refused)
-            }
-            None => {
-                tracing::warn!(session = %session.id, on, "old host did not take prompt-suggestions in time");
-                Some(Told::Refused)
-            }
-        };
-        let mut all =
-            self.suggestions_told.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match told {
-            Some(told) => all.insert(session.id.clone(), (nonce, told)),
-            None => all.remove(&session.id),
-        };
-    }
-
-    /// What this daemon last set on `session`'s host with start nonce `nonce`.
-    fn told_suggestions(&self, session: &str, nonce: &str) -> Option<Told> {
-        let all = self.suggestions_told.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        all.get(session).filter(|(n, _)| n == nonce).map(|(_, told)| *told)
-    }
-
-    /// A person (a client) writes `session`'s `prompt-suggestions` option: their value is the
-    /// chat's pick from now on, and the daemon's own off is forgotten.
-    pub(super) fn person_set_suggestions(&self, session: &Session, params: &Value) {
-        if params.get("configId").and_then(Value::as_str)
-            == Some(crate::claude_stdio::prompt_suggestions::OPTION)
-        {
-            self.suggestions_told
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&session.id);
-        }
-    }
-
-    /// `options`, a host's config options for `session`, as the chat keeps them: while the
-    /// daemon has turned suggestions off for a turn no person started, the option says the
-    /// chat's pick (on), never that off.
-    pub(super) fn unpaused_options(&self, session: &Session, mut options: Value) -> Value {
-        let off = self
-            .suggestions_told
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&session.id)
-            .is_some_and(|(_, told)| *told == Told::Off);
-        if off && let Some(list) = options.as_array_mut() {
-            for option in list {
-                if option.get("id").and_then(Value::as_str)
-                    == Some(crate::claude_stdio::prompt_suggestions::OPTION)
-                {
-                    option["currentValue"] = json!("on");
-                }
-            }
-        }
-        options
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_old_host_is_off_for_every_turn_but_the_persons_and_never_against_the_chats_pick() {
-        // The chat's pick on: off before an agent's turn, on again before the person's.
-        assert_eq!(suggestion_step(true, false, None), Some(false));
-        assert_eq!(suggestion_step(true, false, Some(Told::Off)), None, "already off");
-        assert_eq!(suggestion_step(true, true, Some(Told::Off)), Some(true));
-        assert_eq!(suggestion_step(true, true, None), None, "on already");
-        // The chat's pick off, or a host that refused: nothing is sent.
-        assert_eq!(suggestion_step(false, false, None), None);
-        assert_eq!(suggestion_step(false, true, Some(Told::Off)), None);
-        assert_eq!(suggestion_step(true, false, Some(Told::Refused)), None);
-        assert_eq!(suggestion_step(true, true, Some(Told::Refused)), None);
     }
 }

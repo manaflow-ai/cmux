@@ -11,6 +11,7 @@ import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 import { installSwipeNavigation } from "../../swipeNavigation/install";
 import { installPageHealth } from "./pageHealth";
 import { installBusyWatchdog } from "./busyWatchdog";
+import { installAppLanguage } from "./appLanguage";
 
 export interface PageError extends Error {
   code: string;
@@ -380,6 +381,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     if (typeof document !== "undefined") installPageHealth(client);
     // A main thread busy for 30 s names its scripts in `cmux errors` (busyWatchdog.ts).
     if (typeof window !== "undefined") installBusyWatchdog(window);
+    // Settings > General > Language: the host switches the page's strings live (appLanguage.ts).
+    installAppLanguage();
     return client;
   }
   return fallback ? fallback() : null;

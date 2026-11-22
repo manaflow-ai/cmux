@@ -305,8 +305,9 @@ fn normalize_sessions(raw: Value, machine_id: Option<&str>) -> Value {
             .or_else(|| row.get("id"))
             .and_then(Value::as_str)?
             .to_owned();
-        let title = row.get("title").or_else(|| row.get("name")).and_then(Value::as_str)
-            .unwrap_or(&id).to_owned();
+        // A null `title` (no title yet, or another machine's row that did not say) falls back.
+        let text = |key: &'static str| row.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+        let title = text("title").or_else(|| text("name")).unwrap_or(id.as_str()).to_owned();
         let state = row.get("status").or_else(|| row.get("state")).and_then(Value::as_str)
             .unwrap_or("unknown").to_owned();
         Some(json!({"id": id, "title": title,

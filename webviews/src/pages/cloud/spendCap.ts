@@ -5,6 +5,7 @@
 // sentence names what the person can do (an admin raises the cap, or it resets on its date).
 import type { CloudMachine, CloudPlan } from "./ops";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 type Translate = (key: string) => string;
 
@@ -42,15 +43,15 @@ export function capBanner(cap: SpendCap | null | undefined): CapBanner | undefin
 }
 
 export function usd(value: number, language: string): string {
-  return new Intl.NumberFormat(language, { style: "currency", currency: "USD" }).format(value);
+  return intl.NumberFormat(language, { style: "currency", currency: "USD" }).format(value);
 }
 
 export function clockTime(ms: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(ms);
+  return intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(ms);
 }
 
 export function day(ms: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(ms);
+  return intl.DateTimeFormat(language, { dateStyle: "medium" }).format(ms);
 }
 
 /** "$51.20 of $50.00 spent this period.", or nothing when either amount is unknown. */
