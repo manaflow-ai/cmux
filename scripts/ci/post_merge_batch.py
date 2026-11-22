@@ -53,8 +53,12 @@ PROBE = "probe"
 RUNS_PAGE = 60
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
-# A probe run with no verdict (cancelled, runner lost) is tried again this many times.
-MAX_PROBE_RETRIES = 1
+# A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
+# runners within the hour (runs 44966393364 and 44980687386).
+MAX_PROBE_RETRIES = 2
+# A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
+# until this many batch runs sit on that tip.
+MAX_TIP_BATCHES = 2
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
@@ -136,16 +140,29 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api) -> None:
-    """Creates branch at sha, a commit GitHub already has, through the REST API. The revert then reaches it as an
-    update, which GitHub checks for workflow changes over that one commit; a git push that creates the branch is
-    checked against the whole branch and timed out every time on this repository (drill-5 run 44897813534,
-    drill-6 run 44906887225, four tries each). A branch left by an earlier try is reused."""
-    try:
-        api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha})
-    except RuntimeError as error:
-        if "already exists" not in str(error):
-            raise
+def push_token() -> str:
+    """The token that creates and pushes the revert branch: PUSH_TOKEN, minted with workflows write, else GH_TOKEN.
+    A branch based on feat-cmux-next differs from main in its workflow files, and GitHub refuses or times out a
+    token with no workflows permission that creates one (cmux-next-batch.yml's push token says the same)."""
+    return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45)) -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
+    then reaches it as an update. With the job token, a git push that creates the branch timed out every time
+    (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
+    44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    for wait in (*waits, None):
+        try:
+            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[push_token()])
+            return
+        except RuntimeError as error:
+            text = str(error)
+            if "already exists" in text:
+                return
+            if wait is None or not re.search(r"HTTP 5\d\d", text):
+                raise
+            sleep(wait)
 
 
 def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
@@ -255,8 +272,9 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int) -> tuple[str, str]:
-    """(action, reason): action is 'dispatch' or 'skip'."""
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True) -> tuple[str, str]:
+    """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it."""
     batches = [r for r in runs if is_batch(r)]
     live = [r for r in batches if r.get("status") != "completed"]
     if live:
@@ -265,6 +283,9 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         return "dispatch", "no batch run yet"
     newest = batches[0]
     if newest.get("head_sha") == tip:
+        on_tip = [r for r in batches if r.get("head_sha") == tip]
+        if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
+            return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
@@ -295,7 +316,10 @@ def tick(args: argparse.Namespace) -> int:
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
+    def judged(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+
+    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged)
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(

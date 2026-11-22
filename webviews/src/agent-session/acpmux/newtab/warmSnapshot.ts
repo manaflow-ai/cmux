@@ -13,8 +13,11 @@ import { deviceChats, setDeviceChats, subscribeDeviceChats, type DeviceChat } fr
 
 /// Enough of the newest chats for every template's cards and their folded children.
 const KEPT = 100;
-/// Coalesces a streaming turn's snapshots (one per row) into one post.
-const POST_DELAY_MS = 400;
+/// Coalesces a streaming turn's snapshots (one per row) into one post. The list only seeds the
+/// next New Tab page's first frame (its own list replaces the rows in place), so a post every two
+/// seconds while chats stream is enough: each post is up to 512 KB of text the host keeps, and at
+/// 400 ms a few streaming chats made every New Tab page post 2.5 times a second (2026-11-21).
+const POST_DELAY_MS = 2000;
 
 type Sessions = AcpmuxSnapshot["sessions"];
 
@@ -74,17 +77,19 @@ export function shownNewTabSessions(
 let listed: Sessions | undefined;
 let posted: string | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
-let post: ((warm: { sessions: Sessions; device: DeviceChat[] }) => void) | undefined;
+let post: ((warm: string) => void) | undefined;
 let unsubscribe: (() => void) | undefined;
 
 /// Each snapshot the page's connection makes. Once it has listed the chats, the carried ones are
 /// done. A New Tab page (`posts`: one is always alive, the prewarmed spare) then posts the newest
 /// chats of a list this Mac's daemon sent, for the next New Tab page, and again after each device
 /// chats push; coalesced, and only when what would be posted changed. Chat pages post nothing, so
-/// a streaming turn does not make every open page serialize the list.
+/// a streaming turn does not make every open page serialize the list. The post is the JSON text
+/// (`{sessions, device}`) the page made to compare with the last one: the host keeps it as it is,
+/// and never parses and writes it again on its main thread.
 export function publishWarmNewTab(
   snapshot: Pick<AcpmuxSnapshot, "origin" | "listedSessions" | "sessions">,
-  send: (warm: { sessions: Sessions; device: DeviceChat[] }) => void,
+  send: (warm: string) => void,
   posts = true,
 ): void {
   if (!snapshot.listedSessions) return;
@@ -110,11 +115,11 @@ function schedule(): void {
     if (!listed || !post) return;
     // The same chats the live list has (a peer's and Cloud's too), so its arrival changes no row.
     const sessions = [...listed].sort((a, b) => (activityTime(b) ?? 0) - (activityTime(a) ?? 0)).slice(0, KEPT);
-    const next = { sessions, device: deviceChats() };
+    const next: { sessions: Sessions; device: DeviceChat[] } = { sessions, device: deviceChats() };
     const text = JSON.stringify(next);
     if (text === posted) return;
     posted = text;
-    post(next);
+    post(text);
   }, POST_DELAY_MS);
 }
 
