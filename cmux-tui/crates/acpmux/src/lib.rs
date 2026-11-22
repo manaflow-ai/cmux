@@ -70,6 +70,7 @@ mod codex_auth_file;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
+pub mod codex_repo_gate;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
