@@ -120,13 +120,13 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
 
   afterAll(() => {
     const lines = [
-      "| case | arm | phases | shape (frames @ median px/frame) | max px/frame | net px | travel px | settle frames |",
-      "|---|---|---|---|---|---|---|---|",
+      "| case | arm | phases | shape (frames @ median px/frame) | max px/frame | net px | travel px | settle frames | end gap px |",
+      "|---|---|---|---|---|---|---|---|---|",
     ];
     for (const [key, report] of map) {
       const [scenario, arm] = key.split("|");
       lines.push(
-        `| ${scenario} | ${arm} | ${report.phases} | ${report.shape} | ${report.maxJump.toFixed(1)} | ${report.net.toFixed(1)} | ${report.travel.toFixed(1)} | ${report.settleFrames} |`,
+        `| ${scenario} | ${arm} | ${report.phases} | ${report.shape} | ${report.maxJump.toFixed(1)} | ${report.net.toFixed(1)} | ${report.travel.toFixed(1)} | ${report.settleFrames} | ${report.endGap.toFixed(1)} |`,
       );
     }
     console.log(`compound-motion map:\n${lines.join("\n")}`);

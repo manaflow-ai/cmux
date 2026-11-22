@@ -42,7 +42,8 @@ createRoot(root).render(<CompoundPane sessionId="compound-motion" bind={(set) =>
 
 export type RowTop = { id: string; top: number; height: number };
 /// `opened`: the toggled call's line reads open (the fold cases' click landed).
-export type Sample = { t: number; phase: string; rows: RowTop[]; middle: number; opened: boolean };
+/// `bottom`: the viewport's bottom edge (the latest row's gap to it is where the case ends).
+export type Sample = { t: number; phase: string; rows: RowTop[]; middle: number; bottom: number; opened: boolean };
 
 const samples: Sample[] = [];
 let phase = "idle";

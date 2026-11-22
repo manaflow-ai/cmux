@@ -23,6 +23,8 @@ export type RunReport = {
   settleFrames: number;
   /// The toggled call's line read open in the window (the fold cases' click landed).
   opened: boolean;
+  /// The latest row's bottom against the viewport's bottom in the case's last frame, px (where it ends).
+  endGap: number;
 };
 
 const median = (values: readonly number[]) => {
@@ -30,6 +32,11 @@ const median = (values: readonly number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+};
+
+const endGap = (sample: Sample) => {
+  const last = [...sample.rows].sort((a, b) => b.top + b.height - (a.top + a.height))[0];
+  return last ? sample.bottom - (last.top + last.height) : 0;
 };
 
 export function analyzeRun(samples: readonly Sample[], step: string, windowFrames: number): RunReport | undefined {
@@ -78,6 +85,7 @@ export function analyzeRun(samples: readonly Sample[], step: string, windowFrame
     maxJump: Math.max(0, ...deltas.map(Math.abs)),
     settleFrames: lastMove + 1,
     opened: samples.slice(event, event + windowFrames).some((sample) => sample.opened),
+    endGap: endGap(samples.at(-1)!),
   };
 }
 
@@ -92,6 +100,7 @@ export type CaseReport = {
   settleFrames: number;
   /// Every run's toggled line opened.
   opened: boolean;
+  endGap: number;
   /// The median run's phases, for the map ("frames x median px/frame").
   shape: string;
 };
@@ -109,6 +118,7 @@ export function summarize(runs: readonly RunReport[]): CaseReport {
     travel: pick((run) => run.travel),
     settleFrames: pick((run) => run.settleFrames),
     opened: runs.every((run) => run.opened),
+    endGap: pick((run) => run.endGap),
     shape:
       typical?.phases
         .map(
