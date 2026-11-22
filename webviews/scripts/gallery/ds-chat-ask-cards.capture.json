@@ -1,0 +1,271 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "trust-ask",
+      "entry": "agent-pane.trust-ask",
+      "variant": "ask",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-ask-repo",
+      "entry": "agent-pane.trust-ask",
+      "variant": "ask-repo",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-ask-private",
+      "entry": "agent-pane.trust-ask",
+      "variant": "ask-private",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-failed-with-reason",
+      "entry": "agent-pane.trust-ask",
+      "variant": "failed-with-reason",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-remote",
+      "entry": "agent-pane.trust-ask",
+      "variant": "remote",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-trusted",
+      "entry": "agent-pane.trust-ask",
+      "variant": "trusted",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "trust-declined-repo",
+      "entry": "agent-pane.trust-ask",
+      "variant": "declined-repo",
+      "width": 620,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "cloud-first-login-inline",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "first-login",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "inline"
+        }
+      }
+    },
+    {
+      "name": "cloud-codex-device-inline",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "codex-device",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "inline"
+        }
+      }
+    },
+    {
+      "name": "cloud-first-login-sheet",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "first-login",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "sheet"
+        }
+      }
+    },
+    {
+      "name": "cloud-codex-device-sheet",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "codex-device",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "sheet"
+        }
+      }
+    },
+    {
+      "name": "cloud-first-login-banner",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "first-login",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "banner"
+        }
+      }
+    },
+    {
+      "name": "cloud-codex-device-banner",
+      "entry": "agent-pane.cloud-start-ask",
+      "variant": "codex-device",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "clip": ".acpmux-cloud-ask-row",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "armQuery": {
+        "now": {
+          "exp": "cloud-start-ask",
+          "arm": "banner"
+        }
+      }
+    },
+    {
+      "name": "stack-stacked",
+      "entry": "agent-pane.asks-stack",
+      "variant": "stacked",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "stack-stacked-answered",
+      "entry": "agent-pane.asks-stack",
+      "variant": "stacked-answered",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "stack-stacked-material",
+      "entry": "agent-pane.asks-stack",
+      "variant": "stacked-material",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "stack-stacked-shadcn",
+      "entry": "agent-pane.asks-stack",
+      "variant": "stacked-shadcn",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 1,
+      "clip": "[data-trust-fixture], [data-asks-stack-fixture], .acpmux-cloud-start",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}
