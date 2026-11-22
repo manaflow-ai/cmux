@@ -6,7 +6,8 @@ import Network
 /// `initialize` goes through the relay's own frame check (the one that refused every chat after
 /// cmux#46563, 737 times, `transport.intent_invalid`), then to the acpmux daemon this build runs,
 /// on a fresh connection. The decision on the result is Rust (cmux-install-check).
-public nonisolated enum AcpmuxInstallCanary {
+public nonisolated struct AcpmuxInstallCanary {
+    public nonisolated init() {}
     /// What the hello found.
     public enum Outcome: Equatable, Sendable {
         /// The relay took the hello and the daemon answered it.
