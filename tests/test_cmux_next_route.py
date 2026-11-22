@@ -2120,52 +2120,17 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: portable-placement's hot-only route step, then tooling-tests' runs-on.
+    # cmux-next-guards.yml: tooling-tests takes one Linux route, hot-only or not.
 
-    def guards_route(self, changed: list[str], labels: str = "") -> dict:
-        step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
-        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        return values
-
-    def test_guards_hot_route_reads_the_router(self):
-        self.assertEqual(self.guards_route(self.HOT)["hot_only"], "true")
-        self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
-
-    def test_tooling_tests_skips_the_mini_only_when_hot(self):
+    def test_tooling_tests_takes_cmux_linux_whatever_the_route(self):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
-        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
-        # empty, never 'false'), and a skipped or failed placement still runs the tests.
-        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
-        legs = job["runs-on"].split(" || ")
-        mini = [leg for leg in legs if "outputs.mini_runner" in leg]
-        linux = [leg for leg in legs if "outputs.linux_runner" in leg]
-        self.assertEqual(len(mini), 1, legs)
-        self.assertTrue(mini[0].startswith("needs.portable-placement.outputs.hot_only != 'true' && "), mini[0])
-        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
-        self.assertEqual(len(linux), 1, legs)
-        self.assertNotIn("hot_only", linux[0])
-        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
-        # The route is a step of portable-placement since 2026-11-21 (cmuxterm-hq#16094), not a job of its own.
-        self.assertNotIn("hot-route", guards["jobs"])
-        place = guards["jobs"]["portable-placement"]
-        self.assertNotIn("macos", place["runs-on"])
-        self.assertEqual(place["outputs"]["hot_only"], "${{ steps.hot-route.outputs.hot_only }}")
-        steps = {step.get("name"): step for step in place["steps"]}
-        route = steps["Route the pull request (cmux_next_route.py --hot-only)"]
-        checkout = steps["Check out the merge commit and its base (hot-only route)"]
-        for step in (route, checkout):
-            self.assertIn("github.event_name == 'pull_request'", step["if"])
-            self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the placement
-        self.assertEqual(route["working-directory"], checkout["with"]["path"])
-        self.assertEqual(checkout["with"]["fetch-depth"], 2)
-        # The placement stays the last step.
-        self.assertEqual(place["steps"][-1]["id"], "place")
+        self.assertEqual(job["needs"], "coalesce")
+        self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
+        self.assertNotIn("needs.", job["runs-on"])
+        self.assertNotIn("hot_only", job["runs-on"])
+        self.assertNotIn("portable-placement", guards["jobs"])
 
     # fleet-test-compile.yml: the plan step.
 

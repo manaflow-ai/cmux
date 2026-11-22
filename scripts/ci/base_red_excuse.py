@@ -1112,9 +1112,6 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")),
                ("ios-e2e.yml", "ios-e2e-status"))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
-# Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
-# own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
-ROLLUP_PLACEMENT_JOBS = frozenset({"portable-placement"})
 ROLLUPS_FILE = Path(__file__).with_name("base_red_rollups.json")
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 # The repo whose workflows sit beside this script: its contract is ROLLUPS_FILE.
@@ -1528,8 +1525,6 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 raise Refused(f"{where}: a routed rollup's workflow must be called only, with inputs")
             routes = {}
             for need in needs:
-                if need in ROLLUP_PLACEMENT_JOBS:
-                    continue
                 condition = jobs[need].get("if")
                 route = None
                 if condition is not None:
@@ -5217,7 +5212,6 @@ GUARD_WORKFLOWS = {
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",
-        "portable-placement": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
@@ -5232,12 +5226,11 @@ GUARD_WORKFLOWS = {
         "workflow-guard-history": "reads the pull request's commit history, not only the tree",
         "workflow-guard-cli-scripts": "runs the CLI scripts over product code",
         "workflow-guard-source-lints": "lints product source",
-        "portable-placement": _PLACE,
         "guard-status": "a routed rollup (ROUTED_ROLLUPS), judged by the jobs under it",
     },
     "cmux-next.yml": {
         **dict.fromkeys(("push-head-preflight", "path_route", "dev-daily-tree-wait",
-                         "macos-placement", "portable-placement", "app-compile-placement",
+                         "macos-placement", "app-compile-placement",
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",

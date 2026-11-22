@@ -71,7 +71,7 @@ class RunnerSetTests(unittest.TestCase):
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
+            ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):

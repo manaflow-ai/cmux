@@ -264,8 +264,8 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         return workflow["jobs"]["ci-guard-group"]
 
     def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
-        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
+        # Linux only: fleet Linux, then Blacksmith at its measured size. Never a mini: on one 24 of its steps
+        # went red (no python3.9 or node, temp-cwd scripts).
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
