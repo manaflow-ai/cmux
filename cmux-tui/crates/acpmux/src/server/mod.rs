@@ -631,7 +631,23 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
+        }
         self.out.push(line.to_owned());
+    }
+
+    /// The perf watch's meter (`perf_watch.rs`, on only): `what` went to this client.
+    fn perf_bytes(&self, what: impl FnOnce() -> String, bytes: usize) {
+        crate::perf_watch::bytes(
+            crate::perf_watch::channel_of(self.origin),
+            || {
+                let name = self.name.lock_or_recover();
+                let client = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+                format!("{} \u{2192} {client}", what())
+            },
+            bytes,
+        );
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
@@ -660,6 +676,12 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
+                if crate::perf_watch::on() {
+                    self.perf_bytes(
+                        || crate::wire_size::What::of(msg, reply_to).label(),
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -733,6 +755,11 @@ impl Conn {
         // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
         if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
+        }
+        // The perf watch's meter after the queue's lock: its tail-file append is no wait for the queue.
+        drop(queue);
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| what.label(), bytes);
         }
         whole
     }
@@ -1799,8 +1826,7 @@ async fn serve_connection_from(
         dual_principal,
         list_stream: link_v2.is_some(),
         device_mesh: StdMutex::new(web_device::Slot::Empty),
-        page_origin: page_origin
-            .filter(|_| origin == Origin::Web && auth == ConnAuth::ListenerToken),
+        page_origin: page_origin.filter(|_| web_device::keeps_page_origin(origin, auth)),
         browser_sign_in: StdMutex::new(None),
         fan_flush,
     });
@@ -1961,6 +1987,7 @@ async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
+                    let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
@@ -2040,6 +2067,7 @@ async fn serve_connection_from(
                     } else {
                         dual_requests::finish(first, None);
                     }
+                    crate::perf_watch::request_done(perf_started, &m, conn.origin);
                     if let Some(from) = attach_from {
                         crate::gauges::attach_latency().record(from.elapsed());
                     }
@@ -2537,6 +2565,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;
 mod plan_build;

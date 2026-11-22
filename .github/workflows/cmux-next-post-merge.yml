@@ -186,7 +186,9 @@ jobs:
 
   judge:
     needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
+    # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
+    if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
