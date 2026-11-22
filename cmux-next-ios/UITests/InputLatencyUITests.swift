@@ -74,7 +74,15 @@ final class InputLatencyUITests: XCTestCase {
         app.launch()
         open(Self.chatWorkspace, in: app)
         let field = app.textViews["chat.composer.field"]
-        XCTAssertTrue(field.waitForExistence(timeout: 30), "the chat composer\n\(app.debugDescription)")
+        // A chat that opens on a question card folds the composer into "Reply to Claude"
+        // (ComposerGrowUpUITests): that button's tap opens the field.
+        let reply = app.buttons["Reply to Claude"].firstMatch
+        let deadline = Date().addingTimeInterval(30)
+        while !field.exists, !reply.exists, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        if !field.exists, reply.exists { reply.tap() }
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the chat composer\n\(app.debugDescription)")
         field.tap()
         for index in 0 ..< 5 {
             field.typeText("check the link framing \(index)")
@@ -82,6 +90,8 @@ final class InputLatencyUITests: XCTestCase {
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the chat's Send button\n\(app.debugDescription)")
             send.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(1))
+            if !field.exists, reply.exists { reply.tap() }
+            XCTAssertTrue(field.waitForExistence(timeout: 10), "the chat composer after send \(index)\n\(app.debugDescription)")
             field.tap()
         }
         _ = waitFor(app, timeout: 10) { ($0["chat_send_visible"] as? [String: Any]).flatMap { $0["n"] as? Int } ?? 0 >= 5 }
