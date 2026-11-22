@@ -127,8 +127,10 @@ test("the person's turn: the header over its work is the row its end draws, one 
   expect(phaseOf(running)).toBe("running");
   expect(phaseOf(done)).toBe("ended");
   // In the same place: right under the prompt, in both phases.
-  expect(live(personTurn).indexOf(running!)).toBe(1);
-  expect(ended(personEnded).indexOf(done!)).toBe(1);
+  expect(live(personTurn).findIndex((each) => each.id === running!.id)).toBe(1);
+  expect(ended(personEnded).findIndex((each) => each.id === done!.id)).toBe(1);
+  // One id across the turn's end.
+  expect(running!.id).toBe(done!.id);
 });
 
 // Another agent's message started the turn: its header stands from the turn's first frame (decided
@@ -220,6 +222,23 @@ test("the header's clock has one start and one formula, running and ended, and n
   const done = header(ended(continuedEnded), "cu");
   expect(done!.durationMs).toBe(30_000 - 20_000);
   expect(answered!.durationMs).toBe(done!.durationMs);
+});
+
+test("the header's clock never decreases, tick by tick, across the answer and the turn's end", () => {
+  // What the header reads at `now`: its fixed duration once set, else the time since its start.
+  const reads = (rows: readonly AcpmuxRow[], now: number) => {
+    const found = header(rows, "cu")!;
+    expect(found).toBeDefined();
+    return found.durationMs ?? now - found.at;
+  };
+  const frames: number[] = [];
+  for (let now = 22_000; now < 30_000; now += 500) frames.push(reads(live(continued, now), now));
+  for (let now = 30_000; now <= 31_000; now += 250) frames.push(reads(live(continuedAnswered, now), now));
+  frames.push(reads(ended(continuedEnded), 60_000));
+  for (let index = 1; index < frames.length; index += 1)
+    expect({ index, decreased: frames[index]! < frames[index - 1]! }).toEqual({ index, decreased: false });
+  // And one id the whole way.
+  expect(header(live(continued, 22_000), "cu")!.id).toBe(header(ended(continuedEnded), "cu")!.id);
 });
 
 test("a run's summary line keeps its phrases in the order they came as the run grows", () => {
