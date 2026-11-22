@@ -176,6 +176,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var workspaceLookup: (@MainActor (String) -> Workspace?)?
 
     /// Whether the tab would get a live session now (the tree lists its surface).
+    /// Whether a Mac's link is up (nil: no links to wait on).
+    var macLinkUp: (@MainActor (_ macID: String) -> Bool)?
+    private var missingTabs = MissingGrace<String>()
     var hasLiveSession: (@MainActor (_ tabID: String, _ macID: String?) -> Bool)?
 
     private func canGoLive(_ id: String) -> Bool {
@@ -221,7 +224,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
-        for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
+        // A tab missing from one publish (a reconnect resyncs in pieces) keeps its host: scrollback
+        // place, focus and sheets. It goes once it stays missing on a connected Mac.
+        let mine = workspaceOwner.filter { $0.value == workspace.id }.map(\.key)
+        let linkUp = macLinkUp?(workspace.macID) ?? true
+        for id in missingTabs.expired(held: mine, present: open, linkUp: linkUp) {
             // Its Mac attach goes too: a closed tab's session kept waiting to
             // reattach after the next drop (V5-5).
             release(id)

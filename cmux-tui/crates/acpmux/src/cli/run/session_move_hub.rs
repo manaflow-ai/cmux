@@ -45,6 +45,8 @@ pub(super) async fn run(
             resumed: Ok(false),
             carried: None,
             error: None,
+            error_code: None,
+            preflight: preflight::Preflight::default(),
         };
         if let Err(e) = steps(src, key, args, home, &daemon, &host, &mut o).await {
             o.error = Some(format!("{e:#}"));

@@ -734,7 +734,8 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.cmuxPressFill)
+                // The interactive glass disc is the press; a wash here drew a square around it.
+                .buttonStyle(.cmuxPressGlass)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -785,7 +786,7 @@ public struct AgentChatBottomStack: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillCapsule)
                     .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
