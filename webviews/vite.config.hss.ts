@@ -1,6 +1,7 @@
 // Measurement only (not committed): vite.config.ts plus an in-page stage probe.
 import base from "./vite.config";
 import fs from "node:fs";
+import { fastSaveWatch } from "./dev-server/fastSaveWatch";
 const LOG = process.env.HSS_LOG ?? "/tmp/hss-probe.ndjson";
 const log = (o: object) => fs.appendFileSync(LOG, JSON.stringify({ srv: Date.now(), ...o }) + "\n");
 const PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT ?? 4417);
@@ -19,6 +20,7 @@ window.__hss.S({ ev: "load", t: window.__hss.T() });`;
 export default {
   ...base,
   plugins: [
+    ...(process.env.HSS_FAST ? [fastSaveWatch()] : []),
     ...(base.plugins ?? []),
     {
       name: "hss-probe",

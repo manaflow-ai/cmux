@@ -3,6 +3,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { createServer } from "vite";
+import { fastSaveWatch } from "./dev-server/fastSaveWatch.ts";
 const webviews = process.cwd();
 const RUNS = Number(process.argv[2] || 12);
 const PORT = Number(process.env.PORT || 4417);
@@ -14,7 +15,7 @@ const now = () => performance.now();
 const marks = {};
 const server = await createServer({ configFile: path.join(webviews, "vite.config.ts"), root: webviews,
   server: { port: PORT, strictPort: true, host: "127.0.0.1" }, logLevel: "warn",
-  plugins: [{ name: "stage-probe", enforce: "pre", hotUpdate() { marks.hot ??= now(); },
+  plugins: [...(process.env.HSS_FAST ? [fastSaveWatch()] : []), { name: "stage-probe", enforce: "pre", hotUpdate() { marks.hot ??= now(); },
     transform(code, id) { if (marks.save && /SettingsApp|ComposerFoot/.test(id)) { marks.transformStart ??= now(); } } },
     { name: "stage-probe-post", enforce: "post", transform(code, id) { if (marks.save && /SettingsApp|ComposerFoot/.test(id)) marks.transformEnd = now(); } }] });
 await server.listen();
