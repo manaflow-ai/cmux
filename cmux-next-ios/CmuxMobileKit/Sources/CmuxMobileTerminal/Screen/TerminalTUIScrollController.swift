@@ -1,16 +1,28 @@
 #if os(iOS)
 import UIKit
 
-/// T-SCROLL-12: in a full-screen app (the alternate screen) a vertical drag
-/// scrolls the app, like a Mac trackpad in Ghostty, and the page stays
-/// pinned. The drag and its fling become wheel events on the surface
-/// (`TerminalTUIScroll`, `TerminalTUIMomentum`); Ghostty turns them into
-/// what the app asked for. A tap still focuses the terminal, a long press
-/// still selects and a selection handle still moves: this pan starts only
-/// on a vertical drag that no selection gesture owns. A new touch stops a
-/// fling, as on a trackpad, and a tap that stops one does nothing else (it
-/// does not focus the terminal). The wheel stays at the cell where the drag
-/// began, like the pointer during a trackpad scroll.
+/// T-SCROLL-12: in a full-screen app (the alternate screen) an explicit
+/// two-finger vertical drag scrolls the app, like a Mac trackpad in Ghostty,
+/// and the page stays pinned. The drag and its fling become wheel events on
+/// the surface (`TerminalTUIScroll`, `TerminalTUIMomentum`); Ghostty turns
+/// them into what the app asked for.
+///
+/// A one-finger pan is reading, and reading is local (Leo, 2026-11-22: "if
+/// the data was sent through... why cant you simply scroll through the
+/// depiction that was already given?"; design ios-terminal-projection: "One
+/// finger pans (never forwarded)"). It sends the app nothing: no wheel, no
+/// SGR report, no cursor key, so no round trip to the Mac and no redraw of
+/// the app's screen. It is still a drag (``readPan``): never the app's
+/// click, never a tap, and the quiet after it holds a tap's click back the
+/// same way a wheel does. Scrolling the app itself is the two-finger drag
+/// or the key bar (PgUp/PgDn, arrows).
+///
+/// A tap still focuses the terminal, a long press still selects and a
+/// selection handle still moves: the pans start only on a vertical drag
+/// that no selection gesture owns. A new touch stops a fling, as on a
+/// trackpad, and a tap that stops one does nothing else (it does not focus
+/// the terminal). The wheel stays at the point where the drag began, like
+/// the pointer during a trackpad scroll.
 @MainActor
 final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognizerDelegate {
     /// The app is on the alternate screen and the surface is in the TUI host.
@@ -21,7 +33,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var dragBegan: () -> Void = {}
 
     private weak var surface: TerminalSurfaceView?
+    /// The two-finger drag that scrolls the app.
     private(set) var pan: UIPanGestureRecognizer?
+    /// The one-finger drag: reading, which sends the app nothing.
+    private(set) var readPan: UIPanGestureRecognizer?
     private var scroll = TerminalTUIScroll()
     private var momentum: TerminalTUIMomentum?
     /// Where the drag began: every wheel of the drag and its fling is there.
@@ -42,12 +57,30 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         self.tap = tap
         tap.delegate = self
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
-        pan.maximumNumberOfTouches = 1
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 2
         pan.delegate = self
         host.addGestureRecognizer(pan)
+        let readPan = UIPanGestureRecognizer(target: self, action: #selector(read(_:)))
+        readPan.maximumNumberOfTouches = 1
+        readPan.delegate = self
+        host.addGestureRecognizer(readPan)
         // A touch that becomes a drag is never also a tap.
         tap.require(toFail: pan)
+        tap.require(toFail: readPan)
         self.pan = pan
+        self.readPan = readPan
+    }
+
+    /// One finger reading: nothing goes to the app. The touch is a drag,
+    /// so a tap right after it is not the app's click either.
+    @objc private func read(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began, .changed, .ended:
+            tapClick.scrolled(at: CACurrentMediaTime())
+        default:
+            break
+        }
     }
 
     /// What the host's tap, recognized at `location` (host points), does.
@@ -134,7 +167,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             stopMomentum()
             flingStopTouch = touch
         }
-        guard gestureRecognizer === pan else {
+        guard gestureRecognizer === pan || gestureRecognizer === readPan else {
             if gestureRecognizer === tap, let view = gestureRecognizer.view {
                 tapDown = (touch.location(in: view), touch.timestamp)
             }
@@ -144,7 +177,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === pan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        guard gestureRecognizer === self.pan || gestureRecognizer === readPan,
+              let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         guard isEnabled(), !selectionOwns(nil) else { return false }
         // The translation so far (a slow drag can report no velocity yet).
         let moved = pan.translation(in: pan.view)
