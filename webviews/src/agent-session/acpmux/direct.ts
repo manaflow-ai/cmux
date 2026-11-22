@@ -269,6 +269,7 @@ import {
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
+import { FRAME_CODEC, OrderedFrames, offersFrameCompression } from "./frameInflate";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -344,14 +345,16 @@ export function newSessionHost(
 /// The page's `initialize` params. The app's relay checks them against its params rule
 /// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
 /// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
+export function initializeParams(compressedFrames = false) {
   return {
     protocolVersion: 1,
     clientInfo: { name: "cmux-react-agent-pane", version: "1" },
     clientCapabilities: {},
     // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
     // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-    _meta: { acpmux: { peerRowBatches: true } },
+    // `compression`: a page whose own socket crosses a network reads large messages as zlib frames
+    // (frameInflate.ts); an acpmux before it ignores the key and sends text.
+    _meta: { acpmux: { peerRowBatches: true, ...(compressedFrames ? { compression: [FRAME_CODEC] } : {}) } },
   };
 }
 
@@ -4554,8 +4557,18 @@ export class AcpmuxDirectClient {
       };
       // A socket this client replaced still answers what was asked on it (an export that watches for
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
-      socket.onmessage = (message) =>
-        acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
+      // A Binary frame is a zlib message (frameInflate.ts), only on a socket that asked for them; frames after
+      // one wait for it to inflate, so nothing reorders. A text frame with nothing waiting goes at once.
+      const frames = new OrderedFrames(
+        (text) => acpmuxPerf.timed("client.receive", () => this.receive(text, this.socket !== socket)),
+        (error) => {
+          if (this.socket !== socket || this.closed || this.endedSocket === socket) return;
+          this.wire.lifecycle("error", { message: error instanceof Error ? error.message : String(error) });
+          this.connectionEnded(socket, "compressed frame refused");
+          socket.close();
+        },
+      );
+      socket.onmessage = (message) => frames.push(message.data);
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
       this.dropTailDrawnWhileConnecting(error);
@@ -4579,7 +4592,7 @@ export class AcpmuxDirectClient {
       // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
       const initialized = await this.request(
         "initialize",
-        initializeParams(),
+        initializeParams(offersFrameCompression(this.host.transport, this.host.endpoint)),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
       this.canFork = servesOperation(initialized, FORK_OP);

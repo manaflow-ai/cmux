@@ -13,8 +13,9 @@
 # session's PTY, reattached by a new client the way the Mac app's TerminalAttachment does, on the same link model
 # and profiles (webviews/bench/link-profiles.json). Its TERMINAL_RESTART_JSON: first content, settled.
 #
-#   cmux-ci test --setup rust -- 'scripts/measure/restart-settled-linux.sh [links=local,rtt50,rtt200,throttled]
-#     [rounds=5] [turns=120] [down=0] [only=chat|terminal] [zlib=0|1]'
+#   cmux-ci test --setup rust -- scripts/measure/restart-settled-linux.sh [links=local,rtt50,rtt200,throttled]
+#     [rounds=5] [turns=120] [down=0] [only=chat|terminal] [zlib=0|1]
+# (each word its own argument: cmux-ci quotes argv, so one quoted string runs nothing)
 #
 # zlib=1 runs the chat's link compressing lines of 16 KiB or more (LINK_ZLIB=1, bench/linkModel.ts `zlibWire`), as
 # the machine link carrying a chat on another machine does once both ends support it.
