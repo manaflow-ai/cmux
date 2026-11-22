@@ -54,7 +54,8 @@ pub struct SessionSummary {
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    // Listed even when false, so every row lists the same keys (`hub/mesh_book.rs` `ROW_KEYS`).
+    #[serde(default)]
     #[schemars(default)]
     pub name_given: bool,
     /// The names it had before its renames, oldest first: each still names it where no session
@@ -122,6 +123,14 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// Whether the chat forks, and edits, through any completed turn, not only its latest: its
+    /// harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+    /// family name its profile carries. Absent when unknown (the configuration was being written
+    /// as the summary was built) and from a peer on an older acpmux: a client then falls back to
+    /// the family, never reads absence as false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub forks_any_turn: Option<bool>,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.

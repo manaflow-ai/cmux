@@ -47,7 +47,7 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// chat is never left out (``AcpmuxPaneSocket/setAsleep(_:)``). A false match only keeps a frame.
     func named(in text: String) -> Bool {
         let sessions = state.withLock { $0.sessions }
-        return sessions.contains { !$0.isEmpty && text.contains("\"\($0)\"") }
+        return sessions.contains { !$0.isEmpty && text.utf8Contains("\"\($0)\"") }
     }
 
     /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
@@ -148,7 +148,7 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// A daemon frame: when it answers a starting request, its sessions are the pane's; when it
     /// answers a handoff request, the pane learns the handoff's source.
     public func observe(_ text: String) {
-        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.contains("\"result\""),
+        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.utf8Contains("\"result\""),
               let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
         observe(object)
     }
