@@ -35,6 +35,10 @@
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
       },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
+      },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
         reads: "tab.list"
@@ -46,6 +50,10 @@
       "agent.changed": {
         docs: "An agent's state changed (working, blocked, idle, done).",
         reads: "agent.list"
+      },
+      "media.changed": {
+        docs: "What plays changed: another track, play or pause, a seek, or new artwork.",
+        reads: "media.get"
       },
       "agent_chat.changed": {
         docs: "An agent chat was added, closed, renamed, read or changed state.",
@@ -491,6 +499,10 @@
         class: "read"
       },
       "cloud.machine.pause": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
+      "cloud.machine.pause_all": {
         scope: "cloud:write",
         class: "mutation"
       },
@@ -1060,6 +1072,14 @@
       },
       "mail.threads.peek": {
         scope: "mail:read",
+        class: "read"
+      },
+      "media.control": {
+        scope: "media:control",
+        class: "mutation"
+      },
+      "media.get": {
+        scope: "media:read",
         class: "read"
       },
       "memory_app.cycle_variant": {
@@ -1726,6 +1746,14 @@
         scope: "stash:write",
         class: "mutation"
       },
+      "system_calendar.events": {
+        scope: "system_calendar:read",
+        class: "read"
+      },
+      "system_calendar.request_access": {
+        scope: "system_calendar:read",
+        class: "mutation"
+      },
       "tab_group.add_tabs": {
         scope: "tab_group:write",
         class: "mutation"
@@ -2178,6 +2206,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2304,6 +2335,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
@@ -2416,7 +2448,8 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line
   } = g;
   var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
   var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));

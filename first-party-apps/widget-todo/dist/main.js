@@ -36,6 +36,10 @@
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
       },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
+      },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
         reads: "tab.list"
@@ -47,6 +51,10 @@
       "agent.changed": {
         docs: "An agent's state changed (working, blocked, idle, done).",
         reads: "agent.list"
+      },
+      "media.changed": {
+        docs: "What plays changed: another track, play or pause, a seek, or new artwork.",
+        reads: "media.get"
       },
       "agent_chat.changed": {
         docs: "An agent chat was added, closed, renamed, read or changed state.",
@@ -495,6 +503,10 @@
         scope: "cloud:write",
         class: "mutation"
       },
+      "cloud.machine.pause_all": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
       "cloud.machine.rename": {
         scope: "cloud:write",
         class: "mutation"
@@ -903,6 +915,18 @@
         scope: "group:read",
         class: "read"
       },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
+      },
       "group.rename": {
         scope: "group:write",
         class: "mutation"
@@ -1049,6 +1073,14 @@
       },
       "mail.threads.peek": {
         scope: "mail:read",
+        class: "read"
+      },
+      "media.control": {
+        scope: "media:control",
+        class: "mutation"
+      },
+      "media.get": {
+        scope: "media:read",
         class: "read"
       },
       "memory_app.cycle_variant": {
@@ -1715,6 +1747,14 @@
         scope: "stash:write",
         class: "mutation"
       },
+      "system_calendar.events": {
+        scope: "system_calendar:read",
+        class: "read"
+      },
+      "system_calendar.request_access": {
+        scope: "system_calendar:read",
+        class: "mutation"
+      },
       "tab_group.add_tabs": {
         scope: "tab_group:write",
         class: "mutation"
@@ -1830,6 +1870,38 @@
       "team.ai_limit.get": {
         scope: "team:read",
         class: "read"
+      },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
       },
       "team.device.compliance": {
         scope: "team:read",
@@ -2135,6 +2207,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2170,6 +2245,8 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_connect",
+      "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
@@ -2259,6 +2336,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
@@ -2294,6 +2372,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2302,6 +2383,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2400,8 +2483,11 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line
   } = g;
+  var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
+  var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
   var EVENT_STREAMS = Object.keys(events_default.events);
   var en_default = {
     clear: "Clear",

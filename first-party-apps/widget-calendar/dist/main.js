@@ -51,6 +51,10 @@
         docs: "An agent's state changed (working, blocked, idle, done).",
         reads: "agent.list"
       },
+      "media.changed": {
+        docs: "What plays changed: another track, play or pause, a seek, or new artwork.",
+        reads: "media.get"
+      },
       "agent_chat.changed": {
         docs: "An agent chat was added, closed, renamed, read or changed state.",
         reads: "agent_chat.list"
@@ -495,6 +499,10 @@
         class: "read"
       },
       "cloud.machine.pause": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
+      "cloud.machine.pause_all": {
         scope: "cloud:write",
         class: "mutation"
       },
@@ -1064,6 +1072,14 @@
       },
       "mail.threads.peek": {
         scope: "mail:read",
+        class: "read"
+      },
+      "media.control": {
+        scope: "media:control",
+        class: "mutation"
+      },
+      "media.get": {
+        scope: "media:read",
         class: "read"
       },
       "memory_app.cycle_variant": {
@@ -2319,6 +2335,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
