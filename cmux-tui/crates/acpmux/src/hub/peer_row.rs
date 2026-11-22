@@ -383,6 +383,11 @@ impl PeerRow {
     }
 
     /// Its `(mux.parent, mux.handle)` tags.
+    /// Whether its pair tag (`pair`) is the same as `other`'s, with no copy.
+    pub fn same_pair(&self, other: &PeerRow) -> bool {
+        self.hot.pair == other.hot.pair
+    }
+
     pub fn pair(&self) -> Option<(String, String)> {
         self.hot.pair.as_ref().map(|(parent, handle)| (parent.to_string(), handle.to_string()))
     }

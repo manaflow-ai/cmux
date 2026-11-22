@@ -1149,7 +1149,13 @@ impl Hub {
                         let mut map = self.remote_sessions.write();
                         current.purge_tombstones.changed(&mux_id);
                         let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
-                        let previous = old_id.as_ref().and_then(|key| map.take(key));
+                        // Under the same key the row is replaced in place by the insert below
+                        // (`RemoteRows::insert_shared`), so it is not taken out first.
+                        let previous = match &old_id {
+                            Some(key) if *key == id => map.get(key).cloned(),
+                            Some(key) => map.take(key),
+                            None => None,
+                        };
                         if previous.as_ref().map(Arc::as_ptr) != base.as_ref().map(Arc::as_ptr) {
                             // A writer came between the check and the lock: built here, as before.
                             summary = Self::retain_summary_tools(
