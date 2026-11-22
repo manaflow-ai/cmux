@@ -193,6 +193,13 @@ struct AttachState {
     reserved: HashSet<(u64, SurfaceId)>,
 }
 
+impl AttachState {
+    /// The client's attached and reserved tabs (the proxy-author trust check reads it; no cap does).
+    fn count(&self, client: u64) -> usize {
+        self.attachments.keys().chain(self.reserved.iter()).filter(|(c, _)| *c == client).count()
+    }
+}
+
 impl AgentSessions {
     /// The attachments of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_proxy_authors`.
     pub(crate) fn new(publish_proxy_authors: bool) -> Self {
@@ -965,7 +972,6 @@ impl Refusal {
         match error {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }

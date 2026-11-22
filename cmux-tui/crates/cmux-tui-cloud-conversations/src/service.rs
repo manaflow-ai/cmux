@@ -1829,7 +1829,7 @@ mod presence_order_tests {
         let service = CloudConversations::new(Arc::new(NoBackend));
         let past_old_cap = 65;
         for index in 0..past_old_cap {
-            let target = Target::Conversation(format!("conv_{index}"));
+            let target = Target::Conversation(format!("conv_{index:026}"));
             service.subscribe(1, target).expect("subscribe past the old cap");
         }
         let open = service.inner.subscriptions.lock().unwrap().len();

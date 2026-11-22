@@ -12,7 +12,6 @@ use super::ClientScope;
 
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_ROUTES: usize = 1_024;
 
 #[derive(Debug, Clone)]
 struct Route {
@@ -49,13 +48,8 @@ impl RouteManager {
             return Err(RpcError::new("invalid-route", "route port cannot be zero"));
         }
         resolve_allowed(&host, port, policy).await?;
+        // A route is a dial target (a host and a port); it holds no socket until a dial.
         let mut routes = self.routes.write().await;
-        if routes.len() >= MAX_ROUTES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("route limit of {MAX_ROUTES} reached"),
-            ));
-        }
         let id = RouteId(self.next_id.fetch_add(1, Ordering::Relaxed));
         routes.insert(id, Arc::new(Route { owner, workspace, host: host.clone(), port, policy }));
         Ok(WorkspaceResponse::RouteCreated { route: id, host, port })
@@ -175,6 +169,28 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::*;
+
+    /// A client may hold any number of routes (the old cap refused the 1025th).
+    #[tokio::test]
+    async fn routes_past_the_old_cap_are_created_and_closed() {
+        let routes = RouteManager::default();
+        for port in 1..=1100u16 {
+            let response = routes
+                .create(
+                    ClientScope::local(),
+                    WorkspaceId("workspace".into()),
+                    "127.0.0.1".into(),
+                    port,
+                    RoutePolicy::LoopbackOnly,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(response, WorkspaceResponse::RouteCreated { .. }));
+        }
+        assert_eq!(routes.routes.read().await.len(), 1100);
+        routes.close_client(&ClientScope::local()).await;
+        assert!(routes.routes.read().await.is_empty());
+    }
 
     #[tokio::test]
     async fn loopback_route_dials_and_forwards_bytes() {

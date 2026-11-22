@@ -2874,6 +2874,9 @@ const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
+/// Connections served at once. Measured: a `mux-conn` thread each on the default 2 MiB
+/// stack (virtual), and each may queue up to `OUTBOUND_CONNECTION_BYTE_CAPACITY` (8 x the
+/// 32 MiB attach budget) of output, all of them together `OUTBOUND_GLOBAL_BYTE_CAPACITY`.
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -2927,6 +2930,8 @@ const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const RESOURCE_WORKER_STACK_BYTES: usize = 256 * 1024;
 /// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
 /// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+/// Measured: a `mux-events-out` thread each on the default 2 MiB stack (virtual) plus
+/// its mailbox, for the life of the connection; not yet given a small stack.
 const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
 const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
