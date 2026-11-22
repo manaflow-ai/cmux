@@ -132,12 +132,15 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
             result.elements.map((element) => element.name),
             where,
           ).toEqual(reference.elements.map((element) => element.name));
+          // Every element off its scaled size, named with both sizes, so one run shows them all.
+          const off: string[] = [];
           for (const [index, element] of result.elements.entries())
-            for (const dimension of ["width", "height"] as const)
-              expect(
-                Math.abs(element[dimension] - reference.elements[index]![dimension] * result.scale),
-                `${where} ${element.name} ${dimension}`,
-              ).toBeLessThanOrEqual(1);
+            for (const dimension of ["width", "height"] as const) {
+              const expected = reference.elements[index]![dimension] * result.scale;
+              if (Math.abs(element[dimension] - expected) > 1)
+                off.push(`${element.name} ${dimension} ${element[dimension].toFixed(2)} vs ${expected.toFixed(2)}`);
+            }
+          expect(off, where).toEqual([]);
           for (const [index, button] of result.buttons.entries())
             for (const [property, value] of Object.entries(button)) {
               expect(
