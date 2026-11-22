@@ -24,17 +24,3 @@ reduce_motion_app_verdict() {
   printf '%s\n' "${seen:-not logged}"
   [[ "$seen" == true ]]
 }
-
-# sim_a11y_on UDID KEY NOTIFICATION [SET]: another com.apple.Accessibility switch on in a booted
-# simulator (reducetransparency=1: EnhancedBackgroundContrastEnabled; increasecontrast=1:
-# DarkenSystemColors), posted and read back inside it; prints the value read, fails unless it is 1.
-sim_a11y_on() {
-  local udid=$1 key=$2 notification=$3 set=${4:-} value
-  local c=(xcrun simctl)
-  [[ -z "$set" ]] || c+=(--set "$set")
-  "${c[@]}" spawn "$udid" defaults write com.apple.Accessibility "$key" -bool true || return 1
-  "${c[@]}" spawn "$udid" notifyutil -p "$notification" >/dev/null 2>&1 || true
-  value="$("${c[@]}" spawn "$udid" defaults read com.apple.Accessibility "$key" 2>&1)" || true
-  printf '%s\n' "$value"
-  [[ "$value" == 1 ]]
-}

@@ -15,24 +15,51 @@ final class TerminalComposerLookUITests: XCTestCase {
         try checkLook(name: "terminal-composer")
     }
 
-    /// Reduce Transparency on: the step's `reducetransparency=1` turns it on in the
-    /// simulator (com.apple.Accessibility, read back there); launch arguments alone do
-    /// not reach UIKit's accessibility settings. Skipped in a step without it.
+    /// Reduce Transparency on. The fleet step's controller takes no simulator
+    /// accessibility switch but reducemotion=1, and launch arguments do not reach
+    /// UIKit's accessibility settings, so the test turns it on in the simulator's
+    /// com.apple.Accessibility domain itself (the app launches after it and reads it
+    /// fresh), reads it back, and turns it off again after.
     @MainActor
     func testTerminalComposerLookIsConstantWithReduceTransparency() throws {
-        try XCTSkipUnless(Self.stepTurnedOn("reducetransparency"), "run the step with reducetransparency=1")
-        XCTAssertTrue(UIAccessibility.isReduceTransparencyEnabled, "Reduce Transparency is on in this simulator")
+        let readout = try Self.turnOn("EnhancedBackgroundContrastEnabled",
+                                      notifications: ["com.apple.accessibility.cache.enhance.background.contrast"])
+        defer { Self.turnOff("EnhancedBackgroundContrastEnabled") }
         try checkLook(name: "reduce-transparency", arguments: ["-UIAccessibilityReduceTransparencyEnabled", "YES"],
-                      note: "isReduceTransparencyEnabled=\(UIAccessibility.isReduceTransparencyEnabled)")
+                      note: "\(readout) runner isReduceTransparencyEnabled=\(UIAccessibility.isReduceTransparencyEnabled)")
     }
 
-    /// Increase Contrast on (`increasecontrast=1` in the step, as above).
+    /// Increase Contrast on, the same way.
     @MainActor
     func testTerminalComposerLookIsConstantWithIncreaseContrast() throws {
-        try XCTSkipUnless(Self.stepTurnedOn("increasecontrast"), "run the step with increasecontrast=1")
-        XCTAssertTrue(UIAccessibility.isDarkerSystemColorsEnabled, "Increase Contrast is on in this simulator")
+        let readout = try Self.turnOn("DarkenSystemColors",
+                                      notifications: ["com.apple.accessibility.cache.darken.system.colors.enabled",
+                                                      "com.apple.accessibility.darken.system.colors.status"])
+        defer { Self.turnOff("DarkenSystemColors") }
         try checkLook(name: "increase-contrast", arguments: ["-UIAccessibilityDarkerSystemColorsEnabled", "YES"],
-                      note: "isDarkerSystemColorsEnabled=\(UIAccessibility.isDarkerSystemColorsEnabled)")
+                      note: "\(readout) runner isDarkerSystemColorsEnabled=\(UIAccessibility.isDarkerSystemColorsEnabled)")
+    }
+
+    private static let accessibilityDomain = "com.apple.Accessibility" as CFString
+
+    /// `key` on in the simulator's com.apple.Accessibility, read back; skips when the
+    /// write does not take (the runner could not reach the domain).
+    private static func turnOn(_ key: String, notifications: [String]) throws -> String {
+        CFPreferencesSetValue(key as CFString, kCFBooleanTrue, accessibilityDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        CFPreferencesSynchronize(accessibilityDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        for name in notifications {
+            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name as CFString), nil, nil, true)
+        }
+        Thread.sleep(forTimeInterval: 1)
+        let value = CFPreferencesCopyValue(key as CFString, accessibilityDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        let on = (value as? Bool) == true
+        try XCTSkipUnless(on, "\(key) did not take in com.apple.Accessibility (read back \(String(describing: value)))")
+        return "\(key) read back=\(on)"
+    }
+
+    private static func turnOff(_ key: String) {
+        CFPreferencesSetValue(key as CFString, nil, accessibilityDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        CFPreferencesSynchronize(accessibilityDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
     }
 
     /// A light backdrop: the terminal demo's page in a light terminal theme (the Mac's
@@ -45,10 +72,6 @@ final class TerminalComposerLookUITests: XCTestCase {
                       arguments: ["-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                   "-CmuxMobileTerminalDemoPhases", "none", "-CmuxMobileTerminalDemoLight"],
                       demo: false, lightBackdrop: true)
-    }
-
-    private static func stepTurnedOn(_ setting: String) -> Bool {
-        (ProcessInfo.processInfo.environment["CMUX_SIM_A11Y"] ?? "").split(separator: " ").contains { $0 == setting }
     }
 
     /// Types 1 to 8 lines, measures the field's empty glass at 1, 3, 4 and 8, attaches
