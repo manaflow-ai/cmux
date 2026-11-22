@@ -1014,7 +1014,9 @@ fn rate_limited_line() -> Value {
 #[tokio::test]
 async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them_once() {
     crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    hold::TEST_MIN_HOLD_MS.store(1_500, std::sync::atomic::Ordering::SeqCst);
+    // A hold outlasts the test, and the test lifts each one (`hold::lift`) once it has seen what
+    // it waits for: a 1.5 s hold ended under load before the messages sent during it were held.
+    hold::TEST_MIN_HOLD_MS.store(600_000, std::sync::atomic::Ordering::SeqCst);
     let config = scratch("rate-hold");
     let transcript = config.join("sid-429.jsonl");
     std::fs::write(&transcript, "").unwrap();
@@ -1096,20 +1098,27 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     );
     assert!(events.iter().any(|e| e.kind == "rate_limit_held"), "the chat is held");
 
-    // Two more messages while it is held: neither reaches the app now.
-    // The third is sent once the second is held, so "in the order they came" has one order.
-    let (second, second_accepted) = send("p-two", "second report");
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while second_accepted.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    // Two more messages while it is held, the second once the first is accepted (the order they
+    // came): neither reaches the app now.
+    let accepted = |seen: &Arc<Mutex<Option<Value>>>| {
+        let seen = seen.clone();
+        async move {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                if let Some(v) = seen.lock().unwrap().clone() {
+                    return v;
+                }
+                assert!(std::time::Instant::now() < deadline, "accepted within 20 s");
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
         }
-    })
-    .await
-    .expect("the second message is held within 5 s");
-    let (third, _) = send("p-three", "third report");
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    };
+    let (second, second_accepted) = send("p-two", "second report");
+    assert_eq!(accepted(&second_accepted).await["state"], "held");
+    let (third, third_accepted) = send("p-three", "third report");
+    assert_eq!(accepted(&third_accepted).await["state"], "held");
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1, "held, not sent into the app");
-    assert_eq!(second_accepted.lock().unwrap().as_ref().unwrap()["state"], "held");
+    hold::lift(&session.id);
 
     // At the reset: one message carries both, after the line that the last turn was cut.
     let second = second.await.unwrap().unwrap();
@@ -1151,6 +1160,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     assert_eq!(fifth["_meta"]["acpmux"]["held"], true, "{fifth}");
     assert!(fifth["_meta"]["acpmux"]["rateLimitedUntil"].as_u64().is_some(), "{fifth}");
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 3, "still held");
+    hold::lift(&session.id);
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while inbox.load(std::sync::atomic::Ordering::SeqCst) < 4 {
         assert!(std::time::Instant::now() < deadline, "the held message went at the reset");
