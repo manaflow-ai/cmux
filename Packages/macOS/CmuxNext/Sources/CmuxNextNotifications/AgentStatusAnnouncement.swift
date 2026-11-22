@@ -9,7 +9,8 @@ package import CmuxNextSettings
 /// without moving focus. A banner that shows is not said again (VoiceOver reads the banner), and nothing
 /// is said for a pane in view, a muted workspace, quiet hours or Quiet After Typing; the policy's
 /// decision already carries those.
-package enum AgentStatusAnnouncement {
+package struct AgentStatusAnnouncement {
+    package init() {}
     package enum Kind: Equatable, Sendable {
         case needsYou, failed, finished
     }
