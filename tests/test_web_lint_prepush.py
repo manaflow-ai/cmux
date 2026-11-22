@@ -2510,5 +2510,65 @@ class TrustBoundaryTests(unittest.TestCase):
                                                     lint.package_directories(package)), [])
 
 
+class FreeMemoryHeavyTests(unittest.TestCase):
+    """A no-heavy host that names a free-memory floor runs the type check when it has the memory and no other push
+    on the host holds the lock (Leo, 2026-11-22: "should've been caught and fixed faster")."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parent.parent)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.release)
+
+    def release(self):
+        if self.lint._heavy_lock is not None:
+            self.lint._heavy_lock.close()
+            self.lint._heavy_lock = None
+
+    def meminfo(self, kib):
+        path = self.tmp / "meminfo"
+        path.write_text(f"MemTotal: 999999999 kB\nMemAvailable: {kib} kB\n")
+        return str(path)
+
+    def env(self, floor):
+        return {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": floor, "XDG_RUNTIME_DIR": str(self.tmp),
+                "GITHUB_ACTIONS": "", "CI": ""}
+
+    def run_it(self, floor, kib):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, self.env(floor)), mock.patch("sys.stderr", err):
+            return self.lint.free_memory_heavy("pre-push", self.meminfo(kib)), err.getvalue()
+
+    def test_unset_stays_light(self):
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": "",
+                                          "GITHUB_ACTIONS": "", "CI": ""}):
+            self.assertFalse(self.lint.local_heavy_checks())
+
+    def test_enough_free_memory_runs_heavy_and_holds_the_lock(self):
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertTrue(ok)
+        self.assertIn("running the type check", err)
+        self.assertIsNotNone(self.lint._heavy_lock)
+
+    def test_under_the_floor_stays_light(self):
+        ok, err = self.run_it("16", 8 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("under 16 GiB", err)
+
+    def test_a_second_push_while_one_holds_the_lock_stays_light(self):
+        import fcntl
+        holder = open(self.tmp / self.lint.HEAVY_LOCK, "a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("another push", err)
+
+    def test_a_bad_floor_stays_light(self):
+        ok, err = self.run_it("lots", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("not a number", err)
+
+
 if __name__ == "__main__":
     unittest.main()
