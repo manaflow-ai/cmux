@@ -14,6 +14,41 @@
       }
     }
   },
+  "macScreen.readout.codec": {
+    "source": "Codec",
+    "identityLocales": {
+      "da": {
+        "reason": "Codec is the standard technical term in Danish.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "de": {
+        "reason": "Codec is the standard technical term in German.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "fr": {
+        "reason": "Codec is the standard technical term in French.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "it": {
+        "reason": "Codec is the standard technical term in Italian.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Codec is the standard technical term in Brazilian Portuguese.",
+        "values": [
+          "Codec"
+        ]
+      }
+    }
+  },
   "settings.choice.groupGradientAurora": {
     "source": "Aurora",
     "identityLocales": {
