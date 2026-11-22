@@ -139,18 +139,25 @@ fn dispatch_command(
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-                restart,
-            )
-        }
+        Command::ShutdownDaemon {
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        } => cmd_server::shutdown_daemon(
+            mux,
+            client,
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        ),
         Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
