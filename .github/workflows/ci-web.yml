@@ -436,7 +436,7 @@ jobs:
 
       - name: Install headless engines
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Run the real-daemon pane checks
         working-directory: webviews
@@ -726,7 +726,7 @@ jobs:
         id: engines
         continue-on-error: true
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # The fixture copies the real webviews tree, so a finding already on the base fails it too: #48230's experiment
       # id agent-pane.high-contrast-look made it red on feat-cmux-next, and every web-view pull request's shard 1 went
@@ -750,6 +750,29 @@ jobs:
           python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
             "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
+      # A pull request's red gate that is red on its merge parent too is the base's, not the change's: it warns, and
+      # it never skips the tests. The gates below run whole-repo checks, so one base red (an experiment id with a dot,
+      # #48230) reded every web pull request into feat-cmux-next and, with the skip below, hid their test verdicts.
+      # Only failed gates run again, so a green pull request pays nothing (scripts/ci/gate_base_again.py).
+      - name: Judge red gates against the base
+        id: gate-base
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          SOURCE_BUILD: ${{ steps.source-build.outcome }}
+          BUNDLES: ${{ steps.bundles.outcome }}
+          MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
+          PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+        run: |
+          python3 scripts/ci/gate_base_again.py \
+            --gate "SOURCE_BUILD=./scripts/build-webviews-app.sh --check --skip-typecheck" \
+            --gate "BUNDLES=./scripts/cmux-next/build-web-bundles.sh --force" \
+            --gate "MERGE_DRIVER=python3 tests/test_install_git_hooks.py" \
+            --gate "POST_EDIT_FORMAT=python3 tests/test_format_post_edit.py" \
+            --gate "PR_SCOPED_RULES=python3 scripts/tests/test_pr_scoped_webviews_checks.py"
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -771,9 +794,11 @@ jobs:
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: >-
           ${{ !cancelled() && steps.engines.outcome != 'failure' && !(github.event_name == 'pull_request' && (
+          steps.webviews-check.outcome == 'failure' || steps.gate-base.outputs.own_red == 'true' ||
+          (steps.gate-base.outcome != 'success' && (
           steps.source-build.outcome == 'failure' || steps.bundles.outcome == 'failure' ||
           steps.merge-driver.outcome == 'failure' || steps.post-edit-format.outcome == 'failure' ||
-          steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure')) }}
+          steps.pr-scoped-rules.outcome == 'failure')))) }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -921,6 +946,9 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          # A pull request's gates that are red on the merge parent too (gate_base_again.py): warnings.
+          GATE_BASE_OUTCOME: ${{ steps.gate-base.outcome }}
+          GATE_BASE_REDS: ${{ steps.gate-base.outputs.base }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
@@ -956,6 +984,10 @@ jobs:
             if [ "${!var}" = "failure" ]; then
               if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
                 echo "::warning::Style gate reported findings (warn-only); see the step '${gate#*|}'."
+                continue
+              fi
+              if [ "$GATE_BASE_OUTCOME" = success ] && [[ " $GATE_BASE_REDS " == *" $var "* ]]; then
+                echo "::warning::Gate red on the base too, not this change's; see the step '${gate#*|}'."
                 continue
               fi
               echo "::error::Gate failed; see the step '${gate#*|}'."
@@ -1096,7 +1128,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.pick.outputs.files != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # The base check's replay with the head's runner and no retry, at the head shards' widths (the base check
       # replays one at a time; one at a time here, shard 1's 600 s file plus the others ran past the head shards).
@@ -1151,7 +1183,8 @@ jobs:
   # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    # A red shard still gets its tests judged against the base: one red (a gate, a base red) never hides the verdict.
+    if: ${{ !cancelled() && needs.react-apps-check-shard.result != 'skipped' && github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
@@ -1314,7 +1347,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
       # the job's verdict is the last step's. A red the base passed is replayed there again, at most
@@ -1467,7 +1500,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun

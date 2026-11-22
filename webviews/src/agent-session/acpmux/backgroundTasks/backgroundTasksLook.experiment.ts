@@ -5,7 +5,7 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// in the gallery's `agent-pane.background-tasks`. `nested` is Claude Desktop's shape, the one Leo
 /// pointed at (2026-10-29: "i like these tasks"), and ships.
 export const backgroundTasksLook = defineExperiment({
-  id: "background-tasks-panel",
+  id: "background-tasks.panel",
   title: "Background tasks panel",
   description:
     "An agent's tasks: under a counts line that opens them (Claude Desktop's), listed flat under the agent, or opened from counts on the agent's own line.",

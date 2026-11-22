@@ -28,7 +28,7 @@ if [ ! -s "$present" ]; then
 fi
 (cd webviews && bun install --frozen-lockfile) || exit 0
 ./scripts/cmux-next/build-web-bundles.sh --force || exit 0
-(cd webviews && ./node_modules/.bin/playwright install --with-deps webkit) || exit 0
+(cd webviews && ../scripts/ci/playwright-install-deps.sh webkit) || exit 0
 # The shards read CMUX_CHROME_HEADLESS_SHELL from $GITHUB_ENV, which only a later step sees: export it here, from the
 # helper's last line, as run-webviews-tests.sh does off CI, so every probe runs the headless shell the shards ran.
 chrome_out="$("$runner/ensure-system-chrome.sh")" || exit 0
