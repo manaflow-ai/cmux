@@ -102,9 +102,12 @@ fn schema<'a>(tools: &'a Value, name: &str) -> Option<&'a Value> {
 
 /// The values `property` lists, for itself or for its entries.
 fn listed_values(property: &Value) -> (Vec<&str>, bool) {
-    let of = |v: &Value| -> Vec<&str> {
+    // A nested fn, not a closure: the strings borrow from the value given, and a closure cannot
+    // say that its input and its output share one lifetime (rustc: "lifetime may not live long
+    // enough").
+    fn of(v: &Value) -> Vec<&str> {
         v.as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default()
-    };
+    }
     match property.get("enum") {
         Some(e) => (of(e), false),
         None => {
