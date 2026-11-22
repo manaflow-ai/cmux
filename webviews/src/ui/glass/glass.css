@@ -304,14 +304,6 @@
 .ui-popup.ui-glass {
   background: var(--glass-tint);
 }
-/* A hover card the same way: desktop.css's bare .ui-card is the solid popup surface with no blur, one
-   class, so whichever sheet loads last won a .ui-card.ui-glass that is not also a tooltip (the chat
-   header's tool preview drew solid where desktop.css came after this sheet). */
-.ui-card.ui-glass {
-  background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
-}
 
 /* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
    Ours is not f***ing pretty"). The one look web glass takes to read as macOS's own Liquid Glass,
@@ -625,7 +617,8 @@
   box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
 }
 /* A hover card that is not a tooltip popup (the header icons' preview, the thread minimap's card) is
-   the same glass: desktop.css's solid .ui-card fill never wins over it, whichever sheet loads last. */
+   the same glass: desktop.css's bare .ui-card is the solid popup surface with no blur, one class, so
+   whichever sheet loaded last won (the chat header's tool preview drew solid); this rule always wins. */
 .ui-card.ui-glass {
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
