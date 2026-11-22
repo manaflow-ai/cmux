@@ -87,6 +87,7 @@ export function SurgeHoldRow({
   const heldText = t("surge.held", { n: held });
   const needText = t("surge.needYou", { n: needYou });
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any control inside (search, filters, threads) closes the open panel; the controls themselves take the keyboard.
     <section
       className="acpmux-surge"
       data-open={open || undefined}
@@ -101,7 +102,7 @@ export function SurgeHoldRow({
       }}
     >
       {open && (
-        <div id={panelId} className="acpmux-surge-panel" role="region" aria-label={t("surge.title")}>
+        <section id={panelId} className="acpmux-surge-panel" aria-label={t("surge.title")}>
           <label className="acpmux-surge-search">
             <Magnifier size={14} />
             <input
@@ -117,14 +118,14 @@ export function SurgeHoldRow({
             />
           </label>
           {needYou > 0 && (
-            <div className="acpmux-surge-filters" role="group">
+            <fieldset className="acpmux-surge-filters">
               <button type="button" aria-pressed={!onlyNeed} onClick={() => setOnlyNeed(false)}>
                 {heldText}
               </button>
               <button type="button" aria-pressed={onlyNeed} onClick={() => setOnlyNeed(true)}>
                 {needText}
               </button>
-            </div>
+            </fieldset>
           )}
           <div className="acpmux-surge-threads">
             {listing.state === "loading" ? (
@@ -162,7 +163,7 @@ export function SurgeHoldRow({
               </PromptMarksSession.Provider>
             )}
           </div>
-        </div>
+        </section>
       )}
       <div className="acpmux-surge-line">
         <button

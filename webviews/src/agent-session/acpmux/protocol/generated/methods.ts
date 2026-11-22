@@ -202,6 +202,9 @@ export interface AcpmuxRequests {
   "_acpmux/inbox_threads": { params: unknown; result: unknown };
   "_acpmux/inbox_thread": { params: InboxThreadParams; result: unknown };
   "_acpmux/inbox_reply": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscription_set": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscription_remove": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscriptions": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
   "_acpmux/computer_use_call": { params: unknown; result: unknown };
   "_acpmux/computer_use_machines": { params: unknown; result: unknown };
@@ -593,6 +596,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/inbox_threads", kind: "request", acp: false, typed: false },
   { name: "_acpmux/inbox_thread", kind: "request", acp: false, typed: true },
   { name: "_acpmux/inbox_reply", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscription_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscription_remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscriptions", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_call", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_machines", kind: "request", acp: false, typed: false },
