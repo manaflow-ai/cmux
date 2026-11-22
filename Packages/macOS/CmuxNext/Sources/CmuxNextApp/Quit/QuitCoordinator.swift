@@ -103,11 +103,13 @@ final class QuitCoordinator {
                                        button: QuitStrings.shortcutQuestionQuit, suppresses: CmuxConfigSnapshot.warnBeforeQuitShortcutPath)
     }
 
+    /// The guard disarmed while asking: only a quit does that (a second or held Cmd-Q, a quit the guard
+    /// lets through), so the question ends as Quit and a checked "Don't ask again" still counts.
     private func endShortcutQuestion() {
         let id = shortcutQuestion
         shortcutAsk = nil
         shortcutQuestion = nil
-        if let id { CmuxDialogCenter.shared.dismiss(id) }
+        if let id { CmuxDialogCenter.shared.press(id, button: DestructiveConfirmation.confirmID) }
     }
 
     /// Records the origin, then starts AppKit's termination. A quit already
