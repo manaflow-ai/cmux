@@ -278,21 +278,25 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
     // Spread over the whole chat, oldest to newest and back, never the same place twice in a row.
     const index = Math.floor(((sample * 0.618034) % 1) * (count - 2)) + 1;
     // The rail follows the transcript, and history still filling in after the last click moves it: scroll it to the
-    // tick again each frame until the tick is drawn and still.
-    await rail.evaluate(async (node, index) => {
+    // tick again each frame until the tick is drawn and still. Each write comes with a wheel event on the list, as a
+    // person's wheel over the rail does, so the rail holds the place it was browsed to (`railBrowsing`) and does not
+    // follow the transcript away from the tick under the pointer before the press.
+    // The box is read in the same frame it was found drawn in: a locator's box, read after, can find the tick gone
+    // again as the rail moves under it.
+    const target = await rail.evaluate(async (node, index) => {
       for (let frame = 0; frame < 300; frame += 1) {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
         node.scrollTop = index * 10 - node.clientHeight / 2;
         await window.cmuxPaintFrame();
         const tick = node.querySelector(`[data-tick="${index}"]`);
         const box = tick?.getBoundingClientRect();
         const view = node.getBoundingClientRect();
-        if (box && box.height > 0 && box.top >= view.top && box.bottom <= view.bottom) return;
+        if (box && box.height > 0 && box.top >= view.top && box.bottom <= view.bottom)
+          return { x: box.left, y: box.top, width: box.width, height: box.height };
       }
+      return null;
     }, index);
-    const tick = rail.locator(`[data-tick="${index}"]`);
-    await tick.waitFor({ timeout: 5_000 });
-    const target = await tick.boundingBox();
-    if (!target) throw new Error(`Tick ${index} has no box`);
+    if (!target) throw new Error(`Tick ${index} was not drawn in the rail's view in 300 frames`);
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
     await page.evaluate(
       ({ index, loadMs, trace }) => {
@@ -304,8 +308,15 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
         const prompt = `Turn ${label.match(/Turn (\d+):/)?.[1] ?? "?"}:`;
         addEventListener(
           "pointerdown",
-          () => {
+          (event) => {
             const start = performance.now();
+            if (trace) {
+              const hit = (event.target as Element | null)?.closest?.("[data-tick]");
+              const box = document.querySelector(`[data-tick="${index}"]`)?.getBoundingClientRect();
+              ((window as any).__frames ??= []).push(
+                `down at ${event.clientX},${event.clientY} hit=${hit?.getAttribute("data-tick") ?? (event.target as Element)?.className} tick=${box ? `${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone"}`,
+              );
+            }
             let frames = 0;
             window.cmuxAfterPaint(() => {
               frames += 1;
