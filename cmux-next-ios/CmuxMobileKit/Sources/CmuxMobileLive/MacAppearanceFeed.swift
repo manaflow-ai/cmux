@@ -73,7 +73,7 @@ public final class MacAppearanceFeed {
     private func fetchPicture(of appearance: CmuxMobileMacAppearance, macID: String) {
         pictureFetch?.cancel()
         pictureFetch = nil
-        guard theme.needsChatWallpaper(appearance), let wallpaper = appearance.chatWallpaper,
+        guard theme.needsChatWallpaper(appearance), let wallpaper = appearance.wallpaper,
               let fetch = fetchers[macID] else { return }
         // task-owner: pictureFetch; one picture per frame or focus, cancelled by the next one.
         pictureFetch = Task { [weak self] in

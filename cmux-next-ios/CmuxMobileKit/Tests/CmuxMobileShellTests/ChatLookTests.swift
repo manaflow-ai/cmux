@@ -10,7 +10,7 @@ import UIKit
 /// Leo, 2026-11-17: "the lack of themeing/background inheriting (these need to be improved)". The
 /// agent chat draws hostd's `chat` look (the Mac's theme, its picture under the window's tint, its
 /// picked bubble colors); a Mac at its defaults, a host that sends no `chat`, or Match Mac theme
-/// off keeps today's stock chat. The rest of the app's chrome stays stock either way.
+/// off keeps today's stock chat.
 @MainActor
 @Suite struct ChatLookTests {
     static func theme() -> CmuxMobileMacTheme {

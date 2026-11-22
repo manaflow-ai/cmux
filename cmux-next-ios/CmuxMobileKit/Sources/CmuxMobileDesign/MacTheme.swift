@@ -280,13 +280,14 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
 
 #if os(iOS)
 /// The Mac's theme on this phone: Settings > Appearance > Match Mac theme (on by default). While on,
-/// the accent of an install that never picked one comes from the last theme a Mac sent
-/// (``CmuxMobileMacPalette``), live while one is connected and from the cache otherwise. The app's
-/// own chrome (lists, sidebar, Home) stays the stock black and white whatever the Mac shows. The
-/// agent chat alone follows the Mac's chat (``chatLook``: hostd's `chat`, the theme's ground, the
-/// Mac's picture under its tint, its bubble colors) while this switch is on and the Mac shows a look
-/// the person chose. SwiftUI views that read the accent or the chat look in their body redraw when
-/// it changes (Observation).
+/// the app's chrome (backgrounds, surfaces, text, fills, status colors: ``token(_:_:)``), the
+/// accent of an install that never picked one, and the ground of the sidebar and Home (the Mac's
+/// wallpaper under its tint, ``wallpaper``) come from the last theme a Mac sent
+/// (``CmuxMobileMacPalette``), live while one is connected and from the cache otherwise. Off, the
+/// chrome is the stock black and white. The agent chat follows the Mac's chat (``chatLook``:
+/// hostd's `chat`, the theme's ground, the Mac's picture under its tint, its bubble colors) while
+/// this switch is on and the Mac shows a look the person chose. SwiftUI views that read these in
+/// their body redraw when they change (Observation).
 ///
 /// The palette is set at once on the main actor (a derivation, no disk). The JSON write runs off the
 /// main actor, one after another in order.
@@ -301,7 +302,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     /// The last queued disk job: each one waits for it, so writes land in order.
     @ObservationIgnored private var diskTail: Task<Void, Never>?
 
-    /// Whether the accent follows the Mac's theme.
+    /// Whether the chrome, the accent and the wallpaper follow the Mac's theme.
     public var matchesMac: Bool {
         didSet { defaults.set(matchesMac, forKey: Self.settingKey) }
     }
@@ -328,7 +329,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         if let cached = cache.load() {
             appearance = cached
             macPalette = CmuxMobileMacPalette(cached)
-            if let id = cached.chatWallpaper?.id { loadPicture(id, bytes: nil) }
+            if let id = cached.wallpaper?.id { loadPicture(id, bytes: nil) }
         }
     }
 
@@ -340,9 +341,18 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         return CmuxMobileChatLook(chat: chat, palette: macPalette, picture: picture)
     }
 
-    /// Whether `appearance`'s chat picture must be fetched: no file under its id (an existence check).
+    /// The Mac's wallpaper behind the sidebar and Home, with the tint the Mac lays over it: nil while
+    /// Match Mac theme is off, when the Mac shows none, or before its picture is on this phone.
+    public var wallpaper: (image: UIImage, tint: Double)? {
+        guard matchesMac, let wallpaper = appearance?.wallpaper, chatPictureID == wallpaper.id,
+              let chatPicture else { return nil }
+        return (chatPicture, wallpaper.tintOpacity)
+    }
+
+    /// Whether `appearance`'s picture (the Mac's wallpaper, which the chat may also show) must be
+    /// fetched: no file under its id (an existence check).
     public func needsChatWallpaper(_ appearance: CmuxMobileMacAppearance) -> Bool {
-        guard matchesMac, let id = appearance.chatWallpaper?.id, id != heldPictureID else { return false }
+        guard matchesMac, let id = appearance.wallpaper?.id, id != heldPictureID else { return false }
         return !cache.hasChatWallpaper(id: id)
     }
 
@@ -387,7 +397,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         guard keep else { return }
         let cache = cache
         enqueue { cache.save(appearance) }
-        let newID = appearance.chatWallpaper?.id
+        let newID = appearance.wallpaper?.id
         // Load only when the picture changed, just arrived, or is still missing: a color change keeps it.
         if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) {
             loadPicture(newID, bytes: chatWallpaper)

@@ -1,3 +1,4 @@
+import CryptoKit
 @testable import CmuxMobileDesign
 @testable import CmuxMobileLive
 import CmuxMobileTransport
@@ -8,7 +9,7 @@ import Testing
 import UIKit
 
 /// ask-87d30da8e5: each Mac's `appearance` frames; the focused Mac's reach the theme store (the
-/// accent), every Mac's reach its terminals, and no wallpaper is taken.
+/// chrome, the accent and the wallpaper behind the sidebar and Home), every Mac's reach its terminals.
 @MainActor
 @Suite struct MacAppearanceFeedTests {
     static func theme() -> CmuxMobileMacTheme {
@@ -38,20 +39,32 @@ import UIKit
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#202020"))
     }
 
-    /// A Mac that shows a wallpaper: its theme still applies, and the phone keeps no picture.
-    @Test func aFrameNamingAWallpaperAppliesItsThemeAndKeepsNoPicture() async throws {
+    /// Leo, 2026-11-22: "if someone adjusted their mac, the entire fucking point is that it follows
+    /// on the phone". A Mac that shows a wallpaper (and no chat look): its theme applies, its picture
+    /// is fetched and shown behind the sidebar and Home under the Mac's tint; Match Mac theme off
+    /// hides it.
+    @Test func aFrameNamingAWallpaperShowsItBehindTheChromeWhileMatchMacIsOn() async throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("MacAppearanceFeedTests-\(UUID().uuidString)", isDirectory: true)
         let name = "MacAppearanceFeedTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))
         let theme = CmuxMobileMacTheme(defaults: defaults, cache: CmuxMobileMacAppearanceCache(folder: folder))
         let feed = MacAppearanceFeed(theme: theme)
+        let picture = try #require(UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }.pngData())
+        let id = SHA256.hash(data: picture).map { String(format: "%02x", $0) }.joined()
         feed.focus(macID: "mac")
-        feed.apply(Self.frame(background: "#101010", wallpaper: ("ab12", 8)), macID: "mac")
+        feed.apply(Self.frame(background: "#101010", wallpaper: (id, picture.count)), macID: "mac") { _ in picture }
+        await feed.pictureFetch?.value
         await theme.settled()
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#101010"))
-        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        #expect(files == ["appearance.json"])
+        let shown = try #require(theme.wallpaper)
+        #expect(shown.tint == 0.6)
+        theme.matchesMac = false
+        #expect(theme.wallpaper == nil)
+        #expect(theme.palette == nil)
     }
 
     @Test func anUnusableFrameChangesNothing() async {
