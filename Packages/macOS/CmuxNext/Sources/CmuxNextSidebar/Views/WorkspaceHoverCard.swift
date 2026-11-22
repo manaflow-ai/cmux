@@ -58,6 +58,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
     var timelineSource: SidebarTimelineSource?
+    /// The workspace's split layout, read when its card opens (the shaped preview); the App injects it.
+    var layoutSource: SidebarPaneLayoutSource?
     /// How many moments a card reads: its stats count them all, its list shows `maxRows`.
     static let timelineReadLimit = 100
     /// The shown card's custom content and its workspace; released when the card hides or moves.
@@ -175,6 +177,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         }
         // A row's ✕ closes its tab and the card stays: the workspace's next tabs reach it through
         // `contentChanged` (Leo 2026-11-02: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW").
+        body.layoutPreview.onSelect = body.tabList.onSelect
         body.tabList.onClose = { [weak list] tabID in
             guard let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
             list.model.send(.closeTab(workspace: ws, tab: tabID))
@@ -218,6 +221,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        body.configureLayout(layoutSource?(ws), tabs: workspace.tabs)
         return content
     }
 
@@ -257,7 +261,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
-        guard bodyID == id, body?.isDetailsExpanded == true else { return }
+        // The shaped preview's rows carry each tab's numbers from the first look (Leo 2026-11-22: "the ram and cpu
+        // used by a given thing ... in the initial preview"), so a split workspace samples while its card shows.
+        guard bodyID == id, body?.isDetailsExpanded == true || body?.showsLayoutPreview == true else { return }
         startSampling(id)
     }
 
@@ -279,6 +285,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         resources.close()
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
+        body?.layoutPreview.onSelect = nil
         body?.tabList.onClose = nil
         body?.onDetailsChanged = nil
         bodyID = nil
@@ -290,7 +297,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     private func detailsChanged(_ id: HoverTargetID) {
-        if body?.isDetailsExpanded == true {
+        if body?.isDetailsExpanded == true || body?.showsLayoutPreview == true {
             startSampling(id)
         } else {
             resources.close()
@@ -351,6 +358,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
 final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardTextReporting {
     enum TabPlacement { case afterTitle, afterStatus, afterDetails }
     let tabList: WorkspaceTabHoverCardView
+    /// The shaped preview of a split workspace, in the tab list's place (`configureLayout`).
+    let layoutPreview = WorkspaceLayoutPreviewView()
     private let tabPlacement: TabPlacement
 
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool { tabList.handleHoverCardKeyDown(event) }
@@ -567,7 +576,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         var rows: [NSView] = [customSlot, titleRow, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
         let tabIndex = tabPlacement == .afterTitle ? 3 : (tabPlacement == .afterStatus ? 5 : 9)
         rows.insert(tabList, at: tabIndex)
-        rows.insert(detailsToggle, at: tabIndex + 1)
+        rows.insert(layoutPreview, at: tabIndex + 1)
+        rows.insert(detailsToggle, at: tabIndex + 2)
+        layoutPreview.isHidden = true
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -575,6 +586,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         stack.spacing = HoverCardStyle.shared.rowGap
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
+        stack.setCustomSpacing(Metrics.space2, after: layoutPreview)
         stack.setCustomSpacing(Metrics.space1, after: titleRow)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
@@ -595,6 +607,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             bottomInset,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            layoutPreview.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -651,7 +664,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The text the card shows, one entry per row (tests, accessibility).
     var lines: [String] {
-        if !customSlot.isHidden { return ["custom card"] + (hostLabel.isHidden ? [] : [hostLabel.stringValue]) + Self.texts(in: customSlot) + tabList.reportedLines }
+        if !customSlot.isHidden { return ["custom card"] + (hostLabel.isHidden ? [] : [hostLabel.stringValue]) + Self.texts(in: customSlot) + tabLines }
         var lines = [[titleLabel.stringValue, hostLabel.isHidden ? "" : hostLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
@@ -661,7 +674,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
-        return lines + tabList.reportedLines
+        return lines + tabLines
     }
 
     /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
@@ -869,6 +882,22 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
                                     unread > 0 ? Strings.unreadCount(unread) : nil].compactMap { $0 }.joined(separator: " · ")
     }
 
+    /// The shaped preview for `layout`, in the tab list's place when the workspace is split; the tab list otherwise.
+    /// Its height is fixed here, from the layout and the card's width: samples later change only its numbers.
+    func configureLayout(_ layout: SidebarPaneLayout?, tabs: [SidebarTab]) {
+        contentChanged()
+        let shows = layoutPreview.configure(layout, tabs: tabs, width: width - 2 * Self.padding)
+        layoutPreview.isHidden = !shows
+        tabList.isHidden = shows
+        applyEdgeInsets()
+    }
+
+    /// The tab rows' lines, from whichever of the list and the preview shows.
+    private var tabLines: [String] { showsLayoutPreview ? layoutPreview.reportedLines : tabList.reportedLines }
+
+    /// True while the shaped preview stands in for the tab list.
+    var showsLayoutPreview: Bool { !layoutPreview.isHidden }
+
     /// The tab rows' fill reaches past the content's edges (`WorkspaceTabHoverCardRow.fillOutset`): a point
     /// there belongs to the list, not to the card around it.
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -885,7 +914,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
-            if view === detailsToggle { return true }
+            if view === detailsToggle || view === layoutPreview { return true }
             if view === customSlot, detailsExpanded { return true }
             hit = view.superview
         }
@@ -984,6 +1013,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     func setResources(_ report: ResourceReport?) {
         contentChanged()
+        layoutPreview.setResources(report)
         // A redraw hands the same report again; only a new sample adds a bar.
         if let report, report != lastSampled, let cpu = report.total.cpu {
             lastSampled = report
@@ -1067,6 +1097,7 @@ extension WorkspaceHoverCardView {
     /// adopt and on every change of that scope.
     func applyColors() {
         tabList.applyColors()
+        layoutPreview.applyColors()
         detailsToggle.applyColors()
         performWithTheme {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of

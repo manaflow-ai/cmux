@@ -220,7 +220,7 @@ extension SidebarMapping {
                                       brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
                                       folder: listed?.folder,
                                       state: blank ? .idle : state,
-                                      host: blank || tab.kind != .browser ? nil : Self.pageHost(tab.url),
+                                      host: blank || tab.kind != .browser ? nil : Self.webHost(tab.url),
                                       branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
                                       lastActivity: (listed?.lastActivityMs ?? 0) == 0 ? nil : Self.date(ms: listed?.lastActivityMs ?? 0))
                 // Its chat's running subagents and commands, which the tab row counts.

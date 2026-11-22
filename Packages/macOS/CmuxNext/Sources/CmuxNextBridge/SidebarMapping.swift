@@ -413,6 +413,13 @@ public struct SidebarMapping {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
+    /// A web page's host for its tab row's place; nil for a cmux page (`cmux://remote-view?host=...`, whose URL host is
+    /// the page's name, not a place: Leo 2026-11-22 saw a Cloud desktop's row read "remote-view").
+    static func webHost(_ url: String?) -> String? {
+        guard let scheme = url.flatMap({ URL(string: $0)?.scheme?.lowercased() }), scheme == "http" || scheme == "https" else { return nil }
+        return pageHost(url)
+    }
+
     private static func trimmingSlash(_ path: String) -> String {
         path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
     }

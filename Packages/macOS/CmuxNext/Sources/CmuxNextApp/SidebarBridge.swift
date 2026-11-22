@@ -101,13 +101,13 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization
-        // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
-        // mirror when a card opens.
+        // The workspace card's history (u3320) and its split layout (the shaped preview), read from the
+        // workspace's daemon and the acpmux mirror when a card opens.
         let timelines = WorkspaceTimelineReader(turns: AgentTurnStateStore.shared)
         container.sidebarView.timelineSource = { [weak services] id, limit in
-            guard let found = services?.machines.workspace(id: id.rawValue) else { return [] }
-            return timelines.entries(found.0, agents: found.1.store.agents, limit: limit)
+            services?.machines.workspace(id: id.rawValue).map { timelines.entries($0.0, agents: $0.1.store.agents, limit: limit) } ?? []
         }
+        container.sidebarView.layoutSource = { [weak services] id in services?.machines.workspace(id: id.rawValue).flatMap { SidebarPaneLayout.make($0.0) } }
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()

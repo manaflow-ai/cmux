@@ -85,7 +85,7 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now)
+        return splitPreviewCards(now: now) + layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now)
             + workCards(now: now) + originCards(now: now) + richCards
     }
 
@@ -236,6 +236,74 @@ public struct WorkspaceHoverCardGallery {
         }
     }
 
+    // MARK: Shaped split preview
+
+    /// Leo's layout (2026-11-22, "i have this layout. so. the preview should be able to depict that."): a chat pane with
+    /// its tabs, a terminal pane and a browser pane side by side; `stacked` puts the terminal over the browser instead.
+    static func splitLayout(stacked: Bool = false) -> SidebarPaneLayout {
+        let tail: SidebarPaneLayout.Node = .split(right: !stacked, ratio: 0.5, a: .leaf("term"), b: .leaf("web"))
+        return SidebarPaneLayout(root: .split(right: true, ratio: stacked ? 0.5 : 0.42, a: .leaf("chat"), b: tail), panes: [
+            .init(id: "chat", tabs: [TabID("claude"), TabID("codex"), TabID("notes")], active: 0),
+            .init(id: "term", tabs: [TabID("zsh"), TabID("cargo")], active: 1),
+            .init(id: "web", tabs: [TabID("localhost"), TabID("pr")], active: 0),
+        ], focused: "chat")
+    }
+
+    static let splitTabs: [SidebarTab] = {
+        var claude = SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, brand: "claude", state: .working)
+        claude.folder = "~/Projects/todo-app"
+        var localhost = SidebarTab(id: TabID("localhost"), title: "Todo App", kind: .browser, host: "localhost")
+        localhost.path = "/"
+        return [
+            claude,
+            SidebarTab(id: TabID("codex"), title: "Review the diff", kind: .agentChat, brand: "codex"),
+            SidebarTab(id: TabID("notes"), title: "Plan", kind: .conversation),
+            SidebarTab(id: TabID("zsh"), title: "zsh", kind: .terminal, folder: "~/Projects/todo-app"),
+            SidebarTab(id: TabID("cargo"), title: "npm run dev", kind: .terminal, folder: "~/Projects/todo-app", state: .working),
+            localhost,
+            SidebarTab(id: TabID("pr"), title: "Pull request #12", kind: .browser, host: "github.com"),
+        ]
+    }()
+
+    /// Each tab's numbers; nil CPU on the first sample (CPU is a delta), as the sampler's first report.
+    static func splitReport(sampled: Bool) -> ResourceReport {
+        let usage: [(String, Double, UInt64)] = [
+            ("claude", 0.04, 212 << 20), ("codex", 0.0, 168 << 20), ("notes", 0.0, 36 << 20), ("zsh", 0.0, 9 << 20),
+            ("cargo", 1.38, 1_270 << 20), ("localhost", 0.12, 384 << 20), ("pr", 0.01, 241 << 20),
+        ]
+        let tabs = usage.map { id, cpu, bytes in
+            TabResourceReport(id: id, title: id, kind: .terminal, usage: ResourceUsage(cpu: sampled ? cpu : nil, memoryBytes: bytes),
+                              processCount: 1, sharedWithTabs: 0, available: true)
+        }
+        return ResourceReport(tabs: tabs, total: ResourceUsage(cpu: sampled ? 1.55 : nil, memoryBytes: 2_320 << 20), processCount: 9)
+    }
+
+    /// A split workspace's card with the shaped preview in `style`, before or after its first CPU sample.
+    @MainActor static func splitPreviewCard(_ style: WorkspaceLayoutPreviewView.StatsStyle, stacked: Bool = false, sampled: Bool = true,
+                                            now: Date = Date()) -> WorkspaceHoverCardView {
+        var workspace = SidebarWorkspace(id: WorkspaceID("split"), machineID: .local, title: "todo-app")
+        workspace.tabs = splitTabs
+        let card = WorkspaceHoverCardView()
+        card.layoutPreview.statsStyle = style
+        card.configure(.make(workspace, machine: nil, now: now), now: now)
+        card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now)
+        card.configureLayout(splitLayout(stacked: stacked), tabs: workspace.tabs)
+        card.setResources(splitReport(sampled: false))
+        if sampled { card.setResources(splitReport(sampled: true)) }
+        return card
+    }
+
+    @MainActor static func splitPreviewCards(now: Date) -> [(name: String, view: NSView)] {
+        let cards: [(String, WorkspaceHoverCardView)] = [
+            ("Split preview · numbers · first sample", splitPreviewCard(.numbers, sampled: false, now: now)),
+            ("Split preview · numbers", splitPreviewCard(.numbers, now: now)),
+            ("Split preview · symbols", splitPreviewCard(.symbols, now: now)),
+            ("Split preview · memory first", splitPreviewCard(.memoryFirst, now: now)),
+            ("Split preview · stacked · numbers", splitPreviewCard(.numbers, stacked: true, now: now)),
+        ]
+        return cards.map { name, card in (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() }) }
+    }
+
     /// Who made the workspace and why, in each `WorkspaceHoverCardOrigin.Style` (Leo 2026-11-19:
     /// "acpmux should expose these a lot better"): an agent with every field, an agent with no purpose, a
     /// script, and a workspace the person made, which shows nothing new. The shipped style says so in its name.
@@ -282,6 +350,5 @@ public struct WorkspaceHoverCardGallery {
         view.detailsToggle.performClick(nil)
         return view
     }
-
 }
 #endif
