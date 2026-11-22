@@ -33,6 +33,11 @@
   --cv-codeblock-ring: var(--ds-surface-card-line);
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
+  /* --cv-code-edge-fade: a look's fade where a long code line runs past the card's right edge
+     (style-tokens.json). initial leaves it unset, so --cv-code-edge-mask is invalid and the card's
+     mask (highlightedCodeModel.ts) computes to none: no look, a hard edge as before. */
+  --cv-code-edge-fade: initial;
+  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade));
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
   --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */
@@ -253,7 +258,8 @@
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
+  /* --cv-user-bubble-radius: a look's corner (schemas/agent-pane/style-tokens.json, paint only). */
+  border-radius: var(--cv-user-bubble-radius, calc(3 * var(--grid-base) * var(--cv-bubble-scale)));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -273,17 +279,18 @@
 .cv-user__bubble {
   /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
      outline is removed. The fill remains liquid glass; it is not a solid message plate. */
-  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* --cv-user-bubble-tint and --cv-user-bubble-edge: a look's fill and hairline (style-tokens.json). */
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 10%, transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
   /* No rim in any glass mode: the edge is Plain's whole rim, and --glass-rim 0 clears Lens's and
      Spectrum's specular line, lower shade and colour fringes (ui/glass/glass.css --glass-rim-shadow). */
-  --glass-edge: transparent;
+  --glass-edge: var(--cv-user-bubble-edge, transparent);
   --glass-rim: 0;
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--agent-text) 14%, transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
 }
@@ -2630,6 +2637,14 @@ pre.cv-math-source {
 :root[data-borders="none"] {
   --cv-codeblock-ring: transparent;
   --cv-card-ring: transparent;
+}
+/* A look's card paint (--cv-card-fill, --cv-card-ring on :root, schemas/agent-pane/style-tokens.json)
+   becomes the card level for everything under the page. Read one element down, the two names hold
+   :root's computed values: the look's, or the level itself when no look sets them, so the default
+   is unchanged and nothing refers back to itself. */
+body {
+  --ds-surface-card: var(--cv-card-fill);
+  --ds-surface-card-line: var(--cv-card-ring);
 }
 
 /* "Worked for 15s ›": one muted disclosure line over a hairline. */
@@ -7362,7 +7377,7 @@ a.cv-sha:focus-visible {
     transparent var(--acpmux-view-top, 0px),
     #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
-    transparent var(--acpmux-view-foot)
+    transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
   -webkit-mask-image:
     var(--acpmux-view-mask),
@@ -8666,6 +8681,16 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+/* A chat widget under a tool call (ToolWidget.tsx): an installed extension's scene, on the tool row's
+   text column like the row's other cards, framed by a hairline so it reads as the extension's and not
+   cmux's own text. The scene draws with the sections' renderer, so its rows and type match them. */
+.cv-tool-widget {
+  margin: 4px 0 8px var(--cv-tool-text-inset);
+  max-inline-size: 420px;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
 }
 
 /* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for

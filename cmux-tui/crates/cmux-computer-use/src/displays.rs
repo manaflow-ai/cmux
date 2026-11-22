@@ -80,7 +80,7 @@ mod tests {
         let v = serde_json::to_value(&a).unwrap();
         assert!(v.get("builtin").is_none() && v.get("virtual").is_none());
         let mut list = [a.clone(), Display { id: "m".into(), main: true, ..a }];
-        list.sort_by(|a, b| b.main.cmp(&a.main));
+        list.sort_by_key(|d| std::cmp::Reverse(d.main));
         assert_eq!(list[0].id, "m");
     }
 }
