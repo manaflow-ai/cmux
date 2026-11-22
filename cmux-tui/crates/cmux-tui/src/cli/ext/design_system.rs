@@ -3,9 +3,12 @@
 //! not set: it overrides or adds type roles, replaces the spacing scale, names cmux color
 //! roles and moves the limits. The SDK reads the same file (`defineDesign`, `design.ts`) and
 //! draws its viewer (`DesignSystemView`).
+//!
+//! A system is built in layers, each in this format and each merged over the ones below it
+//! (`design_layers.rs`): cmux's, the active theme file's `design` layer, the person's
+//! `~/.config/cmux/design.json`, then the extension folder's `cmux-design.json`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use serde_json::Value;
 
@@ -15,7 +18,7 @@ use super::design::Finding;
 pub(super) const FILE: &str = "cmux-design.json";
 
 /// The format a design system file declares.
-const FORMAT: &str = "cmux.design/1";
+pub(super) const FORMAT: &str = "cmux.design/1";
 
 /// cmux's type roles: name, the SDK helper that draws it (`widget.ts`, `TYPE_ROLES`), point
 /// size, weight. Apple's widget text styles, and the sizes the web scene renders.
@@ -49,6 +52,8 @@ pub(super) struct Role {
     pub helper: Option<&'static str>,
     pub size: f64,
     pub weight: String,
+    /// Monospaced digits and letters.
+    pub monospaced: bool,
 }
 
 impl Role {
@@ -88,6 +93,7 @@ impl System {
                     helper: Some(helper),
                     size: *size,
                     weight: (*weight).into(),
+                    monospaced: false,
                 })
                 .collect(),
             space: CMUX_SPACE.to_vec(),
@@ -97,27 +103,15 @@ impl System {
         }
     }
 
-    /// The system folder `dir` declares in `cmux-design.json`, or cmux's when it has none.
-    /// A file that does not read is a `system` finding, and the check uses cmux's system.
-    pub(super) fn load(dir: &Path) -> (Self, Option<Finding>) {
-        let path = dir.join(FILE);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Self::cmux(), None),
-            Err(e) => return (Self::cmux(), Some(problem_finding(&e.to_string()))),
-        };
-        match serde_json::from_str::<Value>(&text)
-            .map_err(|e| e.to_string())
-            .and_then(|value| Self::from_json(&value))
-        {
-            Ok(system) => (system, None),
-            Err(problem) => (Self::cmux(), Some(problem_finding(&problem))),
-        }
-    }
-
     /// A `cmux.design/1` document merged over cmux's system; the error names the field and its fix.
     pub(super) fn from_json(value: &Value) -> Result<Self, String> {
-        let mut system = Self::cmux();
+        Self::cmux().merge(value)
+    }
+
+    /// A `cmux.design/1` document merged over this system: what it sets wins, the rest stays.
+    /// A document that does not hold changes nothing; the error names the field and its fix.
+    pub(super) fn merge(&self, value: &Value) -> Result<Self, String> {
+        let mut system = self.clone();
         let doc = value.as_object().ok_or("the file is not a JSON object")?;
         match doc.get("design").and_then(Value::as_str) {
             Some(FORMAT) => {}
@@ -144,10 +138,19 @@ impl System {
                         })?
                     }
                 };
-                if role.get("monospaced").is_some_and(|m| !m.is_boolean()) {
-                    return Err(format!("type.{name}.monospaced must be true or false"));
-                }
-                let role = Role { name: name.clone(), helper: None, size, weight: weight.into() };
+                let monospaced = match role.get("monospaced") {
+                    None | Some(Value::Null) => false,
+                    Some(m) => m
+                        .as_bool()
+                        .ok_or_else(|| format!("type.{name}.monospaced must be true or false"))?,
+                };
+                let role = Role {
+                    name: name.clone(),
+                    helper: None,
+                    size,
+                    weight: weight.into(),
+                    monospaced,
+                };
                 match system.roles.iter_mut().find(|r| r.name == *name) {
                     Some(existing) => *existing = role,
                     None => system.roles.push(role),
@@ -210,6 +213,30 @@ impl System {
         Ok(system)
     }
 
+    /// The system as a whole `cmux.design/1` document: every role, the scale, the color names
+    /// and the limits, so a reader (the SDK's `defineDesign`, the Settings page) needs nothing else.
+    pub(super) fn to_json(&self) -> Value {
+        let types: serde_json::Map<String, Value> = self
+            .roles
+            .iter()
+            .map(|role| {
+                let mut style = serde_json::json!({ "size": role.size, "weight": role.weight });
+                if role.monospaced {
+                    style["monospaced"] = Value::Bool(true);
+                }
+                (role.name.clone(), style)
+            })
+            .collect();
+        serde_json::json!({
+            "design": FORMAT,
+            "name": self.name,
+            "type": types,
+            "space": self.space,
+            "colors": self.colors,
+            "limits": { "typeRoles": self.max_roles, "accents": self.max_accents },
+        })
+    }
+
     /// The role a point size and weight are, if any.
     pub(super) fn role_of(&self, size: f64, weight: &str) -> Option<&Role> {
         let weight = if weight.is_empty() { "regular" } else { weight };
@@ -241,7 +268,7 @@ impl System {
     /// The scale as a fix prints it: `SPACE: 0 2 4 ...` for cmux's, `space: ...` for a person's.
     pub(super) fn scale_text(&self) -> String {
         let steps = self.space.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(" ");
-        if self.name == "cmux" {
+        if self.space == CMUX_SPACE {
             format!("SPACE: {steps}")
         } else {
             format!("{} space: {steps}", self.name)
@@ -249,12 +276,13 @@ impl System {
     }
 }
 
-fn problem_finding(problem: &str) -> Finding {
+/// A layer that does not read: one `system` warning naming its file, the field and the fix.
+pub(super) fn layer_problem(file: &str, problem: &str, instead: &str) -> Finding {
     Finding {
         check: "system",
         node: None,
-        message: format!("{FILE}: {problem}; checking against cmux's design system instead"),
-        fix: format!("fix {FILE} (format {FORMAT}: type, space, colors, limits)"),
+        message: format!("{file}: {problem}; {instead}"),
+        fix: format!("fix {file} (format {FORMAT}: type, space, colors, limits)"),
         count: 1,
     }
 }

@@ -1259,13 +1259,14 @@ impl Session {
                 match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
-                        let (system, problem) = super::design_system::System::load(&pkg.dir);
-                        outcome.design = problem
+                        let resolved = super::design_layers::Resolved::for_folder(&pkg.dir);
+                        outcome.design = resolved
+                            .problems
                             .into_iter()
                             .chain(super::design::check_in(
                                 &[&ops],
                                 super::design::Surface::of(&interface),
-                                &system,
+                                &resolved.system,
                             ))
                             .collect();
                     }

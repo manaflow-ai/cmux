@@ -109,15 +109,20 @@ fn a_tie_rounds_to_the_larger_step_as_the_sdk_does() {
 
 #[test]
 fn a_folder_without_a_file_uses_cmuxs_system_and_a_broken_one_says_so() {
+    use super::super::design_layers::{Resolved, Source};
+    let load = |dir: &std::path::Path| {
+        let resolved = Resolved::from_sources(&[Source::folder(dir)]);
+        (resolved.system, resolved.problems.into_iter().next())
+    };
     let dir = tempfile::tempdir().unwrap();
-    assert_eq!(System::load(dir.path()), (System::cmux(), None));
+    assert_eq!(load(dir.path()), (System::cmux(), None));
     std::fs::write(dir.path().join(FILE), "{ not json").unwrap();
-    let (system, problem) = System::load(dir.path());
+    let (system, problem) = load(dir.path());
     assert_eq!(system, System::cmux());
     let problem = problem.expect("a system finding");
     assert_eq!(problem.check, "system");
     assert!(problem.message.starts_with(FILE), "{}", problem.message);
     // A file that is there but does not read as text is a finding too, not "no file".
     std::fs::write(dir.path().join(FILE), [0xff, 0xfe, 0x00]).unwrap();
-    assert_eq!(System::load(dir.path()).1.map(|f| f.check), Some("system"));
+    assert_eq!(load(dir.path()).1.map(|f| f.check), Some("system"));
 }

@@ -45,9 +45,10 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 /// keeps it out of the list of theme files.
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
-/// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 6] =
-    ["name", "description", "$schema", "colors", "ghostty", "density"];
+/// Keys a theme file reads that are not settings. `design` is the pack's design-system layer
+/// (`cmux.design/1`: type roles, spacing), which `cmux ext design` and `ext dev` read.
+pub const RESERVED_KEYS: [&str; 7] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "design"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed, the saved
