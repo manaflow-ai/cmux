@@ -433,7 +433,7 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
+            if holdsOwnTab || isOwnTabHost, runtime.hosts[key] === self { runtime.hosts[key] = nil }
         }
         // A lent tab closed while its window was still being made: the placeholder goes too.
         if isAgentHost { retireIfUnused() }

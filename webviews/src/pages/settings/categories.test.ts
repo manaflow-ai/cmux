@@ -25,12 +25,14 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
-// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// In sidebar-section order (user 2026-10-30, "sections"): General, Customize (every customization
+// one click away, Leo 2026-11-22) and Updates, then Look and Feel,
 // Tools, AI, Interaction, Accounts and Devices, then More, closed until opened (one settings area,
 // David Beyer 2026-11-20: Settings felt overwhelming).
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
+    "customize",
     "updates",
     // Appearance holds the theme, the background and density; old Theme and Personalization links
     // open it (next tests).

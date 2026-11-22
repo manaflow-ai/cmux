@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
+from cmux_next_step_text import step_run  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -888,7 +889,7 @@ class PathRoutingStructure(unittest.TestCase):
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
         route_step = next(step for step in route["steps"] if step.get("id") == "route")
-        self.assertIn("scripts/ci/cmux_next_route.py", route_step["run"])
+        self.assertIn("scripts/ci/cmux_next_route.py", step_run(route_step))
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
@@ -1079,7 +1080,32 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
         self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
         self.assertIn("exit 1", fail["run"])
-        self.assertNotIn("autofix", fail["run"])
+        # No autofix of its own: only the "autofixed" verdict of what the PR autofix repairs (next test).
+        self.assertNotIn("autofix", fail["run"].replace("generated-autofixable", "").replace("autofixed", ""))
+
+    def test_stale_generated_files_the_pr_autofix_repairs_report_autofixed(self):
+        """Stale files the PR autofix regenerates from the pull request's own changes and pushes as a commit
+        pass as autofixed (cmux #48531's clippy pattern), only on a same-repo feat-cmux-next pull request while
+        the autofix push is on; an autofixed run records no pass, and the shared-build verdict says the same."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = ("github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
+                "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1'")
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn(gate, fail["env"]["AUTOFIXED_OK"])
+        self.assertIn('[[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"', fail["run"])
+        # The catalog failure (fresh exports fail too) stays red before the autofixed branch.
+        self.assertLess(fail["run"].index("a catalog failure"), fail["run"].index("AUTOFIXED_OK"))
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            step = next(s for s in jobs["generated-files"]["steps"] if s.get("name") == name)
+            self.assertIn("steps.stale.outputs.autofixed != 'true'", step["if"])
+        for host in ("swift-test", "daemon-test"):
+            verdict = next(s for s in jobs[host]["steps"] if s.get("id") == "generated-files-verdict")
+            self.assertIn(gate, verdict["env"]["AUTOFIXED_OK"])
+            self.assertIn("verdict=autofixed", verdict["run"])
+        shared = jobs["generated-verdict"]["steps"][0]["run"]
+        self.assertIn("autofixed)", shared)
+        self.assertIn("(autofixed)", shared)
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2440,6 +2466,29 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+
+    def test_a_seed_key_names_the_path_its_restore_writes(self):
+        """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
+        argument only says which tree to read. A job that restores the seed at the owned seed root must key that
+        root, or the key holds the runner's checkout path and no restore matches: generated files passed the root
+        as SEED_KEY_WORKSPACE and built cold on every mini (r2 "no entry", 2026-11-22)."""
+        root = "${{ steps.spm-root.outputs.root || github.workspace }}"
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        checked = []
+        for name, job in jobs.items():
+            steps = job.get("steps") or []
+            keys = [s for s in steps if "scripts/cmux-next/fast-tier-cache-key.sh" in str(s.get("run", ""))]
+            at_root = any(is_cache_restore(s) and "steps.spm-root.outputs.root" in str(s.get("with", {}).get("path", ""))
+                          for s in steps)
+            for step in keys:
+                if not at_root:
+                    continue
+                checked.append(name)
+                with self.subTest(job=name):
+                    self.assertEqual(step.get("env", {}).get("CMUX_FAST_CACHE_WORKSPACE"), root,
+                                     "the key's place is the root the restore writes, not the runner's checkout")
+        self.assertIn("generated-files", checked)
+        self.assertIn("fast-tier", checked)
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
