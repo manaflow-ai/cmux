@@ -2027,6 +2027,10 @@ def main():
         parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
     if args.diff_scroll and not args.diff_tab:
         parser.error("--diff-scroll needs --diff-tab")
+    if args.release_hidden_chats > 0 and args.socket:
+        # It turns agents.hiddenChats.discard on through settings.set, which writes the app's cmux.json: an attached
+        # app is the person's own, and it would keep discarding their hidden chats after the run.
+        parser.error("--release-hidden-chats needs an app that this run launches (no --socket)")
     if args.diff_tab and args.socket:
         # An attached app would keep the tab open on a repository that this run removes.
         parser.error("--diff-tab needs an app that this run launches (no --socket)")
