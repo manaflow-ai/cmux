@@ -6,6 +6,7 @@
 //   pinned question reads ("Needs your input" with Dismiss), so the stack reads as one family.
 // - chip: the name as a small pill over the card, and no Open (the tray opens it).
 // - foot: the card first, then the line with Open under it.
+import looks from "virtual:cmux-gallery/looks";
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxPermission } from "../model";
 import { ChildAsk } from "./ChildAsk";
@@ -61,6 +62,9 @@ function ChildAskInPane({ look, deep = false, more = 0 }: Props) {
 
 const variant = (look: Look, note: string, extra: Partial<Props> = {}) => ({ note, props: { look, ...extra } });
 
+// The same line under a whole look from examples/looks (the Material one): the card and its Open take the look's tokens.
+const material = looks.looks.find((entry) => entry.id === "material-addon");
+
 export default componentEntry({
   id: "agent-pane.child-ask",
   title: "Agent pane: a sub-session's ask in the chat above it",
@@ -80,6 +84,14 @@ export default componentEntry({
     ),
     "line-deep": variant("line", "Shipped: a grandchild's ask reads Related · its name.", { deep: true }),
     "line-more": variant("line", "Shipped: two more asks below wait behind this one.", { more: 2 }),
+    ...(material
+      ? {
+          "line-material": {
+            ...variant("line", "Shipped: the same line and card under the Material look."),
+            look: material,
+          },
+        }
+      : {}),
     chip: variant("chip", "Alternative: the name as a pill over the card, no Open."),
     foot: variant("foot", "Alternative: the card first, the line with Open under it."),
   },

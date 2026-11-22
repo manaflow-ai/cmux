@@ -1,4 +1,5 @@
 // l10n-allow-file: synthetic geometry fixtures, never user data.
+import looks from "virtual:cmux-gallery/looks";
 import { componentEntry } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { AgentMessageRow } from "./AgentMessageRow";
@@ -49,6 +50,8 @@ function TranscriptGridCards() {
   );
 }
 
+const material = looks.looks.find((entry) => entry.id === "material-addon");
+
 export default componentEntry({
   id: "agent-pane.transcript-grid-cards",
   title: "Transcript grid cards",
@@ -61,5 +64,14 @@ export default componentEntry({
   load: async () => TranscriptGridCards,
   variants: {
     grid: { props: {}, note: "Opened message, nested sub-session and live agent card with changing command counts." },
+    ...(material
+      ? {
+          "grid-material": {
+            props: {},
+            note: "The same cards under the Material look (examples/looks).",
+            look: material,
+          },
+        }
+      : {}),
   },
 });

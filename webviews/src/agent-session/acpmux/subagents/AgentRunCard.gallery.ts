@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures with synthetic commands, sessions and replies, not shipped UI.
 // AgentRunCard is reserved for a child session explicitly recorded by acpmux. Shell commands
 // without that signal are covered by ShellAgentIdentity.gallery.ts and stay normal tool rows.
+import looks from "virtual:cmux-gallery/looks";
 import { agentPaneEntry } from "../../../gallery/format";
 import { chat, session, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -55,6 +56,8 @@ function tracked(completed: boolean, failed = false) {
   };
 }
 
+const material = looks.looks.find((entry) => entry.id === "material-addon");
+
 export default agentPaneEntry({
   id: "agent-pane.agent-runs",
   title: "Recorded child sessions",
@@ -70,6 +73,15 @@ export default agentPaneEntry({
       note: "The child session's turn-end record supplies its reply; its card header opens the recorded session.",
       snapshot: tracked(true),
     },
+    ...(material
+      ? {
+          "card-done-material": {
+            note: "The finished card under the Material look (examples/looks).",
+            snapshot: tracked(true),
+            look: material,
+          },
+        }
+      : {}),
     "card-failed": {
       note: "A failed tracked session retains the error from its explicit turn-end record.",
       snapshot: tracked(true, true),

@@ -1,0 +1,94 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["light", "light"],
+    ["dark", "light"],
+    ["light", "dark"],
+    ["dark", "dark"],
+    ["light", "busy"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "child-ask",
+      "entry": "agent-pane.child-ask",
+      "variant": "line",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-pending-ask",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "child-ask-material",
+      "entry": "agent-pane.child-ask",
+      "variant": "line-material",
+      "width": 640,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-pending-ask",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "agent-run",
+      "entry": "agent-pane.agent-runs",
+      "variant": "card-done",
+      "width": 720,
+      "height": 620,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-disclosure",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "setup": "document.querySelector('.cv-disclosure__toggle')?.click()"
+    },
+    {
+      "name": "agent-run-material",
+      "entry": "agent-pane.agent-runs",
+      "variant": "card-done-material",
+      "width": 720,
+      "height": 620,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-disclosure",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      },
+      "setup": "document.querySelector('.cv-disclosure__toggle')?.click()"
+    },
+    {
+      "name": "agent-card",
+      "entry": "agent-pane.transcript-grid-cards",
+      "variant": "grid",
+      "width": 1000,
+      "height": 700,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-agent-card",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "agent-card-material",
+      "entry": "agent-pane.transcript-grid-cards",
+      "variant": "grid-material",
+      "width": 1000,
+      "height": 700,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-agent-card",
+      "margin": 16,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}
