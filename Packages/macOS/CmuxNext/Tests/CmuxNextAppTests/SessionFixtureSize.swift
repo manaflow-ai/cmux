@@ -25,10 +25,10 @@ import Testing
 ///     CMUX_TEST_SESSION_SIZES=real swift test --filter "LargeSessionObservationTests|LargeSessionSpinnerWakeTests"
 ///     CMUX_TEST_SESSION_SIZES=large,real swift test --filter ...
 ///
-/// Why `real` is not a default arm: CI runs the default, and this must add no CI time and no CI red (no new gate or
-/// test in CI; each owner runs the `real` arm on a mini and writes the result in its row). A test that is O(session)
-/// at 826 is a finding for the owner of that path; it must not turn the base red for everyone. The variable picks a
-/// test arm; the app does not read it.
+/// Why `real` is not a default arm: CI runs the default, and this must add no CI time and no CI red (each owner runs
+/// the `real` arm on a mini and writes the result in its row; written under the 2026-10-23 no-new-CI rule, since
+/// lifted). A test that is O(session) at 826 is a finding for the owner of that path; it must not turn the base red
+/// for everyone. The variable picks a test arm; the app does not read it.
 ///
 /// `nonisolated`: a value and pure functions of it; a `@Test(arguments:)` list and a tree builder's closure read it off
 /// the main actor.

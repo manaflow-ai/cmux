@@ -11,7 +11,11 @@ description = "The panic log of cmux's background processes: one JSON line per p
 workspace = true
 
 [dependencies]
+flate2.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rustc-demangle = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

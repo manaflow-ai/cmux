@@ -109,9 +109,16 @@ impl Hub {
 
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
-        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        let ended = {
+            let mut tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            tree.end_background();
+            tree.take_orphans()
+        };
         // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
-        self.subagents_lost(session);
+        let lost: HashSet<String> = self.subagents_lost(session).into_iter().collect();
+        // Every other one that ran ends in the log too, or a client reads it running forever
+        // (`subagents::expiry`, `harness_exit`).
+        self.end_subagents(session, ended.into_iter().filter(|e| !lost.contains(&e.id)).collect());
         self.refresh_work_below(session);
         // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
         self.subagent_notices_sweep(session);
@@ -124,7 +131,9 @@ impl Hub {
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
     /// subagents of the one before, and a turn start the foreground ones, as live.
-    pub(super) fn seed_subagents_from_log(&self, session: &Session) {
+    /// This is the read of the whole log, run off the executor (`hosts.rs` `read_whole_log`);
+    /// [`Hub::seed_subagents`] applies what it found.
+    pub(super) fn subagents_in_log(&self, session: &Session) -> crate::subagents::SubagentTree {
         let meta = session.meta();
         let mut tree = crate::subagents::SubagentTree::default();
         tree.set_own(meta.agent_session_id.as_deref());
@@ -132,6 +141,7 @@ impl Hub {
             meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
         );
         let _ = self.store.scan_heads(&session.id, &mut |head| {
+            tree.set_clock(head.at);
             if head.dir == "mux" {
                 match head.kind {
                     "host_started" | "stopped" | "exited" => tree.end_background(),
@@ -151,6 +161,11 @@ impl Hub {
             }
             true
         });
+        tree
+    }
+
+    /// The live tree takes what [`Hub::subagents_in_log`] read.
+    pub(super) fn seed_subagents(&self, session: &Session, tree: crate::subagents::SubagentTree) {
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();
@@ -160,6 +175,11 @@ impl Hub {
         if running_after != running_before {
             self.subagents_running(session, running_after);
         }
+        // What the log left running past a harness exit, or quiet past the bound, ends now
+        // (`subagents::expiry`).
+        let orphans = session.subagents.lock().unwrap_or_else(|e| e.into_inner()).take_orphans();
+        self.end_subagents(session, orphans);
+        self.sweep_aged_subagents(session, true);
         self.refresh_work_below(session);
     }
 

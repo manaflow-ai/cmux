@@ -615,6 +615,22 @@ mod tests {
     }
 
     #[test]
+    fn masked_by_rebuild_matches_both_ends_by_their_own_mount() {
+        let rebuilt = rebuilt();
+        let (home, alias) = (Path::new("/home/u/.ssh"), Path::new("/alias/u/.ssh"));
+        assert!(masked_by_rebuild(home, 1, alias, 57, &rebuilt));
+        assert!(masked_by_rebuild(alias, 57, home, 1, &rebuilt));
+        // The source reached through a mount that is not its view's.
+        assert!(!masked_by_rebuild(home, 57, alias, 57, &rebuilt));
+        assert!(!masked_by_rebuild(home, 99, alias, 57, &rebuilt));
+        // The alternate reached through a mount that is not its view's.
+        assert!(!masked_by_rebuild(home, 1, alias, 1, &rebuilt));
+        // A view root itself, and the same view at both ends, never match.
+        assert!(!masked_by_rebuild(Path::new("/home/u"), 1, Path::new("/alias/u"), 57, &rebuilt));
+        assert!(!masked_by_rebuild(home, 1, home, 1, &rebuilt));
+    }
+
+    #[test]
     fn a_writable_root_named_at_the_second_view_is_accepted_and_its_root_is_not() {
         let cwd = [(Path::new("/alias/u/Projects/repo"), 57, true)];
         let reasons = check_rebuilt(&cwd, SECOND_HOME);

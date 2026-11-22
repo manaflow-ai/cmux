@@ -1,5 +1,7 @@
-/* Settings sizes use the host density, including values below one. */
-:root:has(.settings) {
+/* Settings and the pages that mark their root `data-page-density` (the diff viewer) size their chrome
+   with the host density, including values below one. */
+:root:has(.settings),
+:root[data-page-density] {
   --page-density: var(--cmux-density-scale, var(--cmux-interface-scale, 1));
   --page-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   --ui-px: calc(1px * var(--page-density));

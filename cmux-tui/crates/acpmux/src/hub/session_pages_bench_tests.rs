@@ -73,10 +73,12 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     // Warm the closed rows' cached bytes equally for both paths. No agents or peers are started.
     let _ = read(&hub, "_acpmux/sessions", json!({"limit": 1})).await;
     let (full, before_bytes, before_ms) = read_whole(&hub, "_acpmux/sessions", json!({})).await;
-    assert_eq!(full["sessions"].as_array().unwrap().len(), 3000);
+    // The peer's 1,400 idle rows and its newest closed ones (`peer_closed_bound.rs`).
+    let kept = crate::hub::peer_closed_bound::CLOSED_KEPT;
+    assert_eq!(full["sessions"].as_array().unwrap().len(), 200 + 1400 + kept);
     assert_eq!(
         full["sessions"].as_array().unwrap().iter().filter(|s| s["status"] == "closed").count(),
-        1500
+        100 + kept
     );
     let mut params = json!({"localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId", "limit": 64});
     let (mut count, mut bytes, mut ms, mut pages) = (0, 0, 0.0, 0);
@@ -99,7 +101,7 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     println!("PERF census bytes={before_bytes}->{bytes} ms={before_ms:.3}->{ms:.3} pages={pages}");
     let (_, watch_bytes, watch_ms) = read(&hub, "_acpmux/watch", json!({"enabled": true})).await;
     let (exact, exact_bytes, exact_ms) =
-        read(&hub, "_acpmux/resolve", json!({"exactSessionId": true, "sessionId": "remote-0"}))
+        read(&hub, "_acpmux/resolve", json!({"exactSessionId": true, "sessionId": "remote-2798"}))
             .await;
     assert_eq!(exact["session"]["status"], "closed");
     assert_eq!(exact["session"]["cwd"], "/remote/work");

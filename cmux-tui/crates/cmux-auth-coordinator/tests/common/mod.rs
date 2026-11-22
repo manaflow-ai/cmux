@@ -24,12 +24,14 @@ pub struct Driver {
     pub c: Coordinator,
     /// Every effect since the driver was built, in order.
     pub log: Vec<Effect>,
+    /// Every event sent, in order.
+    pub events: Vec<Event>,
 }
 
 impl Driver {
     pub fn new(launch: LaunchOptions, persisted: Persisted) -> Self {
         let (c, fx) = Coordinator::new(launch, persisted, 7);
-        Self { c, log: fx }
+        Self { c, log: fx, events: Vec::new() }
     }
 
     pub fn signed_out() -> Self {
@@ -45,6 +47,7 @@ impl Driver {
     }
 
     pub fn send(&mut self, event: Event) -> Vec<Effect> {
+        self.events.push(event.clone());
         let fx = self.c.reduce(event);
         self.log.extend(fx.iter().cloned());
         fx
@@ -116,9 +119,15 @@ impl Driver {
         }
     }
 
+    /// Answers the current sign-out's capture.
+    pub fn local_cleared(&mut self) -> Vec<Effect> {
+        let sign_out_epoch = self.c.sign_out_revision();
+        self.send(Event::SignOutLocalCleared { sign_out_epoch })
+    }
+
     pub fn sign_out(&mut self) -> Vec<Effect> {
         let mut fx = self.send(Event::SignOutRequested);
-        fx.extend(self.send(Event::SignOutLocalCleared));
+        fx.extend(self.local_cleared());
         fx
     }
 }

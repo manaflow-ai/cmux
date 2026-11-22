@@ -99,7 +99,17 @@ a person named), or no pending work the host can see.
 
 ## State
 
-- Built and landed: changes 1 and 2, with red tests first.
-- Live after-numbers: run `chief_loop_stats.py` for the first full week on a nightly with both
-  changes, and compare to the baseline table.
-- Next: 3, 4 and 5 (each is small and has its measure above).
+| Item | State | Landed | Measure now | Measure after the next nightly |
+| --- | --- | --- | --- | --- |
+| 1 Waiting reports wake no turn | Landed | 93dbdfe..64c5052 | replay: -739 turns a week (-36%) | report and untold turns a day |
+| 2 Own stop/sleep keeps the session | Landed | 93dbdfe..64c5052 | tests | `layout.kept` share, first-request cache write |
+| 3 Open-items list | Landed | 8ba0679..0fdebc8 | 726 of 1,310 sleep notes carry "owed" prose | that count; posts naming one subagent a day |
+| 4 No refused posts | Landed | 0af7217..20852ed | replay: 112 refusals -> 50; 4 of Nov 19's 5 post | `chief.reply_too_long` a week |
+| 5 No second copy of the prompt | Landed | 0fdebc8..6dacbcb | 33 KB (about 8k tokens) less a Chief turn, 15 KB less a subagent's first prompt | first-request cache write |
+| 6 First reply sooner | chief-responsiveness lane | | | |
+| 7 Landed work told in its turn | Built (sleep/stop refused once until named) | see commit | 176 of 382 landed reports told in the turn that saw them; told p50 23 s, p90 379 s | that share; report -> told p90 |
+| 8 Keep cap | chief-responsiveness lane (160k) | | | |
+| 9 No turn lost to a restart | No change needed | | Nov 12-19: all 14 restart-cut turns ran again (`RESUMED`); all 22 error-ended turns were retried (max gap 44 min, a model-endpoint wait) | |
+
+Item 7 changed after a new measure: reports reach a turn in 0.5 s (p50), so the queue order was not the
+cause; the turn that saw a landed report often ended with `sleep` and told it in a later turn.

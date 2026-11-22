@@ -61,6 +61,9 @@ sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
+# A dev build's cloud build space (src/build_space.rs): the one rule every Rust cloud client
+# of the Mac shares.
+cmux-build-space = { path = "../../../cmux-tui/crates/cmux-build-space" }
 # The longest socket path every host binds (src/acpmux_daemon.rs).
 cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
 # The settings file's path and JSONC dialect (src/agent_memory/settings.rs),

@@ -188,7 +188,7 @@ test("the card names each session as a chip that opens its chat, with its branch
   expect(page.querySelector(".cv-who-else__where")?.textContent).toBe("codex · lane/crate-split");
   expect(page.querySelector(".cv-who-else__pr")?.textContent).toBe("#36001");
   expect([...page.querySelectorAll(".cv-who-else__ago")].map((a) => a.textContent)).toEqual(["4m ago", "3h ago"]);
-  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Not asked: studio-mac");
+  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Couldn't check studio-mac");
   await act(async () => chips[0]!.click());
   expect(opened).toEqual(["s-codex"]);
 });
@@ -217,4 +217,49 @@ test("an answer with nobody says so in one line", async () => {
   const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(empty) });
   const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
   expect(page.textContent).toBe("No other session works on these files");
+});
+
+// Leo, 2026-11-21, on a row reading "topic: above, background, message, rows, summary, tasks,
+// wait": "we cannot afford to have this kind of formatting".
+test("a topic match says what the session works on, never the words it matched", async () => {
+  const topical = {
+    ...ANSWER.sessions[1]!,
+    sessionId: "s-swift",
+    name: "codex-swift-generated",
+    ref: "codex-swift-generated",
+    title: "Regenerate the Swift action surfaces",
+    filesInCommon: 0,
+    files: [],
+    topicWords: ["above", "background", "message", "rows", "summary", "tasks", "wait"],
+  };
+  const t = translatorFor("en");
+  expect(whatText(t, topical)).toBe("Regenerate the Swift action surfaces");
+  expect(whatText(t, { ...topical, title: undefined })).toBe("working on something similar");
+  const answer = { ...ANSWER, sessions: [topical], unreached: [] };
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(answer) });
+  const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
+  expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("1 other session works on something similar");
+  expect(page.textContent).not.toContain("topic");
+  expect(page.textContent).not.toContain("background");
+});
+
+test("an answer with a file in common keeps the files line beside a topic match", async () => {
+  const topical = { ...ANSWER.sessions[1]!, sessionId: "s-swift", filesInCommon: 0, files: [], topicWords: ["wait"] };
+  const mixed = { ...ANSWER, sessions: [ANSWER.sessions[0]!, topical], unreached: [] };
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(mixed) });
+  const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
+  expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("2 other sessions work on these files");
+});
+
+test("machines that did not answer read as one list", async () => {
+  const two = {
+    ...ANSWER,
+    unreached: [
+      { host: "studio-mac", error: "x" },
+      { host: "build-box", error: "y" },
+    ],
+  };
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(two) });
+  const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
+  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Couldn't check studio-mac and build-box");
 });

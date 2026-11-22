@@ -119,6 +119,11 @@ pub struct Session {
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
+    /// The account's rate limit holds every turn until its reset (`rate_hold.rs`).
+    pub(super) rate_hold: rate_hold::RateHold,
+    /// A continuation folded into the queue's next turn at a reset leaves its words here
+    /// (`rate_hold.rs` `rate_hold_due`); that turn takes them.
+    pub(super) rate_note: StdMutex<Option<String>>,
     pub(super) turn_lock: Mutex<()>,
     /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
     /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.
@@ -160,6 +165,10 @@ pub struct Session {
     /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
     /// 23e76b07, F2). Taken under `append_lock`.
     pub(super) kept_read: AtomicBool,
+    /// The held tool output bodies an earlier run left beside the log are read back
+    /// (`Hub::take_back_held`), or there were none: until they are, the chat is not caught up.
+    /// Taken under `append_lock`.
+    pub(super) held_read: AtomicBool,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
@@ -174,6 +183,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
+    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
@@ -362,6 +373,12 @@ pub struct Session {
     /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
     /// keep that cancel and end the next turn with it.
     pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
+    /// The agent message that holds its turn's start in an idle chat for the gather window, by
+    /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
+    pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
+    /// (`person_hold.rs`).
+    pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -508,6 +525,11 @@ pub struct Session {
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// Whom the agent's next start is for (`host_level.rs` `for_a_person`): 0 not known (the
+    /// chat's creator decides), 1 a person (their prompt, typing or open), 2 no person (another
+    /// agent's message or acpmux's own prompt). A start for no person asks Claude Code for no
+    /// next-prompt suggestions.
+    pub(super) start_for: std::sync::atomic::AtomicU8,
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
