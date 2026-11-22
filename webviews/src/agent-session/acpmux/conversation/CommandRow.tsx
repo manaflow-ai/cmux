@@ -4,10 +4,9 @@
 // has one, else "Ran <command>" with the command in mono (Lucas, 2026-11-06: the command, as Codex
 // draws it), cut to the row without the setup it starts with (`export PATH=…;`, a leading
 // `cd <folder> &&`, which its Shell block names) and the plumbing after it (`2>/dev/null | head`),
-// then its exit status and run time (the check and time on hover only),
-// opening to its Shell block. A command that went on in the background shows how it stands there
-// instead (BackgroundMark.tsx), and its time once it ends; while it serves a page, the page's chip
-// (PreviewChip.tsx).
+// how long it has run while it runs (RunningTime.tsx), opening to its Shell block, which says how
+// long it took once it ended. A command that went on in the background shows how it stands there
+// too (BackgroundMark.tsx); while it serves a page, the page's chip (PreviewChip.tsx).
 import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState, useContext } from "react";
@@ -18,6 +17,7 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
+import { RunningTime } from "./RunningTime";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
 import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
@@ -68,7 +68,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
-  const duration = toolDuration(t, tool);
+  // How long it took, said in its opened Shell card once it ended (RunningTime.tsx says it while it runs).
+  const took = running ? undefined : toolDuration(t, tool);
   // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
   // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
   // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
@@ -192,7 +193,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           {!foreground && !tag && tool.background && <BackgroundMark background={tool.background} />}
-          {running && duration && <span className="cv-command__time">{duration}</span>}
+          {/* How long it has run, counting each second (RunningTime.tsx). */}
+          {running && <RunningTime startedAt={tool.startedAt} background={!foreground} />}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
@@ -208,6 +210,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
             reveal={reveal}
             live={running}
+            took={took}
           />
         </div>
       )}

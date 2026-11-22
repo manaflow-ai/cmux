@@ -24,6 +24,8 @@ use serde_json::{Value, json};
 use super::OutputMode;
 use crate::localization::AutomationMessages;
 
+#[path = "automation_secret.rs"]
+mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
 mod events;
@@ -51,7 +53,9 @@ fn now() -> i64 {
 
 /// `Some(exit code)` when `args` is `automation …` (or `automations …`).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = super::parse_globals(args).ok()?;
+    // A `--machine` after `automation` is the verb's own (`create … --target cloud --machine
+    // vm_…` names the Cloud machine); before it, it is still the global option.
+    let (global, command_args) = super::parse_action_globals(args).ok()?;
     let (first, rest) = command_args.split_first()?;
     if first != "automation" && first != "automations" {
         return None;
@@ -1701,6 +1705,9 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
     };
     if verb == "teleport" || verb == "move" {
         return teleport::run(rest, global, out, true);
+    }
+    if verb == "secret" || verb == "secrets" {
+        return automation_secret::run(rest, global, out);
     }
     let mut valued = SPEC_VALUED.to_vec();
     valued.extend(["limit", "key", "editor", "machine", "repo", "ref"]);

@@ -112,6 +112,9 @@ public final class SettingsHarnesses {
                     "source": .string(row.source), "problem": row.problem.map(JSONValue.string) ?? .null,
                     "version": health?["version"]?.stringValue.map(JSONValue.string) ?? .null,
                     "latest": health?["latest"]?.stringValue.map(JSONValue.string) ?? .null,
+                    // Which install it is: two profiles of one binary get one update card.
+                    "path": health?["path"]?.stringValue.map(JSONValue.string) ?? .null,
+                    "package": health?["package"]?.stringValue.map(JSONValue.string) ?? .null,
                     "outdated": .bool(health?["outdated"]?.boolValue ?? false),
                     "auth": .string(health?["auth"]?.stringValue ?? "unknown"),
                     "update": update ?? .null,

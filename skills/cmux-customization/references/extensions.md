@@ -15,6 +15,9 @@ agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
 errors and `scene` (an outline of what rendered). Before saying it is done, it runs
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+To share one, `cmux ext share` prints the link; `cmux ext add LINK` (or `OWNER/NAME`, a git URL,
+a folder) installs someone else's, and `cmux ext search` lists the ones tagged `cmux-extension`
+on GitHub. To find what a person wants, search before building it.
 
 To share it from a git repository, scaffold with `cmux ext new NAME --repo OWNER/REPO`
 (or inside a clone of the person's empty GitHub repository, whose `origin` names it): the
@@ -51,6 +54,7 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `design-links` | Figma, FigJam, Linear, Notion and Docs links: paste one, its file name becomes the row, a click opens it in a cmux browser tab beside the code. | `storage:local` (keep the links), `actions:run` (open) |
 | `media-player` | A radio player: SomaFM's stations (no key) with the song on now, read every 30 s; a Now playing card with previous, play and next; favorites first, with a Favorites only switch. Play opens the stream in one cmux browser tab, whose speaker button mutes it and whose close stops it; previous and next move that tab instead of opening a second stream. | `net:somafm.com` (the stations), `actions:run` (play), `browser:read` (is the stream tab open), `browser:write` (switch stations in that tab), `storage:local` (your station and favorites) |
 | `start-page` | A start page of your own, as a pane: a greeting and the time, New chat, Terminal and Browser buttons (the actions cmux's New Tab page runs), your workspaces (`cmux.watch("workspace.list")`) and your PRs (`cmux.watch("github.pulls")`), plus a Start row in the sidebar that opens it. Cmd-T still opens cmux's own New Tab page. | `workspace:read` and `integration:github:read` (granted at install), `actions:run` (the buttons, a PR, the sidebar row), `workspace:write` (show a workspace) |
+| `newtab-cards`, `newtab-calm`, `newtab-threads`, `newtab-console` | Whole New Tab pages (`cmux.newtab/1`): the Cards, Default (Calm), Threads and Console layouts cmux no longer ships as templates, now yours to edit. Each has a field that starts a chat (`newTab.submit`) and your chats from `agent_chat.list`: three as cards; the chats that need you over a few recent ones with the field at the foot; every chat as a list; every chat as monospace lines after a `>` prompt. Copy one to `~/.config/cmux/customize`, then `cmux settings set tabs.newTabApp local/customize`. | `agent_chat:read`, `actions:run` (start or open a chat), `workspace:write` (show a chat's workspace) |
 | `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at

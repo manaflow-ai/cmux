@@ -85,6 +85,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The settled stack height a deferred spring is about to take (`stackHeightFrame`).
+    private var springTarget: CGFloat?
     /// The stack height the transcript's bottom inset was last set from. The inset's change
     /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
     /// only the move carries a scrolled-up reader's view (`updateInsets`).
@@ -652,6 +654,37 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// timing never has to match SwiftUI's.
     private func stackHeightFrame(_ height: CGFloat) {
         guard abs(stackHeight - height) > 0.01 else { return }
+        // A frame of the stack's own spring toward the height it settles at
+        // (`surface.stackHeight`, its laid-out height): the transcript takes that
+        // height once, on a UIKit spring with the stack's timing
+        // (`cmuxMobileSmooth`), so the render server moves the newest turn.
+        // Setting the inset and offset on every frame laid out the list and its
+        // hosted rows each frame, alongside the keyboard: 27 main-thread
+        // iterations of 4 ms and more per show (KeyboardMotionBenchUITests with
+        // `-cmux-mobile-input-latency`, step 517bb683).
+        if let target = surface.stackHeight, target > 0, abs(target - height) > 0.5,
+           view.window != nil, !UIAccessibility.isReduceMotionEnabled {
+            guard abs(stackHeight - target) > 0.01,
+                  springTarget.map({ abs($0 - target) > 0.01 }) ?? true else { return }
+            // This runs inside SwiftUI's graph update (an Animatable setter);
+            // laying out the hosted stack from here aborts in AttributeGraph
+            // (step a9eaae4e), so the spring starts on the next main-queue turn.
+            springTarget = target
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.springTarget == target else { return }
+                self.springTarget = nil
+                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                    self.applyStackHeight(target)
+                    self.view.layoutIfNeeded()
+                }
+            }
+            return
+        }
+        springTarget = nil
+        applyStackHeight(height)
+    }
+
+    private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
         dockContainer?.interactiveHeight = height
         dockHeightConstraint?.constant = height
@@ -930,7 +963,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
         // A jump ends the reader's own drag and fling first, before its layout pass.
         scrollView.haltScrollMomentum()
-        let id = ChatTranscriptList.rowID(findBlock: findBlock)
+        var id = ChatTranscriptList.rowID(findBlock: findBlock)
+        // A match in a turn's folded work opens its "Worked for", and the reader goes to its line.
+        var position = position
+        if let fold = list.openFold(holding: id) {
+            id = fold
+            position = 0
+        }
         list.layOutNow(id)
         view.layoutIfNeeded()
         guard let top = list.layout.top(of: id) else { return }

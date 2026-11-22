@@ -126,17 +126,18 @@ enum Outcome {
 /// The line a send prints for `outcome`: none once the chat has an address, or for a failure
 /// the daemon already reported to an earlier send (`repeat`).
 fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
+    let program = crate::cli::entry::program();
     let v = match outcome {
         Outcome::Answer(v) => v,
         Outcome::Refused(why) => {
             return Some(format!(
-                "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start ({why}); run `acpmux register {name}` in this shell, then the `--code` line it delivers"
+                "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start ({why}); run `{program} register {name}` in this shell, then the `--code` line it delivers"
             ));
         }
         // A manual `register` now would send a second code, which replaces the first.
         Outcome::NoAnswer => {
             return Some(format!(
-                "the receiver cannot reply to this chat until it is registered; registering it did not answer within {}s, and a one-time code may still arrive in this chat's inbox (a message from acpmux): run the `acpmux register ... --code ...` line it gives",
+                "the receiver cannot reply to this chat until it is registered; registering it did not answer within {}s, and a one-time code may still arrive in this chat's inbox (a message from acpmux): run the `{program} register ... --code ...` line it gives",
                 WAIT.as_secs()
             ));
         }
@@ -149,11 +150,11 @@ fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
     // for is the one to finish. A step another send started has none yet.
     match v.get("name").and_then(Value::as_str) {
         Some(name) => Some(format!(
-            "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `acpmux register {name} --code ...` it gives, and replies then reach {host}/{name}"
+            "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `{program} register {name} --code ...` it gives, and replies then reach {host}/{name}"
         )),
-        None => Some(
-            "the receiver cannot reply to this chat until it is registered: a one-time code is coming to this chat's inbox (a message from acpmux); run the `acpmux register ... --code ...` line it gives, and replies then reach the name it names on this machine".to_owned()
-        ),
+        None => Some(format!(
+            "the receiver cannot reply to this chat until it is registered: a one-time code is coming to this chat's inbox (a message from acpmux); run the `{program} register ... --code ...` line it gives, and replies then reach the name it names on this machine"
+        )),
     }
 }
 

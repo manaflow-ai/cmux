@@ -621,6 +621,9 @@ async function main() {
       "fixed-stagger":
         ".acpmux-minimap__list { --acpmux-minimap-first: 0 !important; --acpmux-minimap-rows: 1 !important; }",
       "no-entrance": ".acpmux-minimap__bar, .acpmux-minimap__dot { animation: none !important; }",
+      // The app's see-through window (data-cmux-see-through on the root): the preview card's glass
+      // makes the transcript blur itself under it (ui/glass/seeThroughBlur.ts).
+      seethrough: "",
     };
     for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",")) {
       if (!(arm in arms)) throw new Error(`Unknown benchmark arm ${arm}`);
@@ -632,6 +635,8 @@ async function main() {
       await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
       await idle(page);
       if (arms[arm]) await page.addStyleTag({ content: arms[arm]! });
+      if (arm === "seethrough")
+        await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
       const rail = page.locator(".acpmux-minimap__list");
       await rail.waitFor();
       let count = Number(await rail.locator("[aria-setsize]").first().getAttribute("aria-setsize"));
@@ -653,6 +658,80 @@ async function main() {
           }),
       );
       const frameMs = pct(cadence, 0.5);
+      // RAIL_BENCH_RESTYLE=1: instead of timing, how many elements each style recalc of a rail hover and
+      // a rail click restyles, and the invalidations behind them (Chromium's invalidation tracking).
+      // RAIL_BENCH_RESTYLE=TEXT first deletes every :has() rule whose selector contains TEXT, to find
+      // which rule a whole-pane recalc comes from (handbook: pane-level-has-restyles-every-row).
+      const restyle = process.env.RAIL_BENCH_RESTYLE;
+      if (restyle) {
+        if (restyle !== "1")
+          console.log(
+            "RAIL_RESTYLE removed",
+            await page.evaluate((needle) => {
+              const removed: string[] = [];
+              const walk = (list: CSSRuleList) => {
+                for (let i = list.length - 1; i >= 0; i--) {
+                  const rule = list[i] as CSSStyleRule & { cssRules?: CSSRuleList };
+                  if (rule.selectorText?.includes(needle) && rule.selectorText.includes(":has(")) {
+                    removed.push(rule.selectorText.slice(0, 120));
+                    if (rule.parentRule && "deleteRule" in rule.parentRule)
+                      (rule.parentRule as CSSGroupingRule).deleteRule(i);
+                    else rule.parentStyleSheet?.deleteRule(i);
+                  } else if (rule.cssRules) walk(rule.cssRules);
+                }
+              };
+              for (const sheet of document.styleSheets) walk(sheet.cssRules);
+              return removed;
+            }, restyle),
+          );
+        for (const phase of ["hover", "click"]) {
+          const index = Math.floor(count / 3);
+          await rail.evaluate(async (node, index) => {
+            node.scrollTop = index * 10 - node.clientHeight / 2;
+            await window.cmuxPaintFrame();
+            await window.cmuxPaintFrame();
+          }, index);
+          const tick = rail.locator(`[data-tick="${index}"]`);
+          if (phase === "click") await tick.hover();
+          await page.waitForTimeout(500);
+          await browser.startTracing(page, {
+            categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+          });
+          if (phase === "hover") await tick.hover();
+          else await tick.click();
+          await page.waitForTimeout(400);
+          const trace = JSON.parse((await browser.stopTracing()).toString()) as {
+            traceEvents: { name: string; ph: string; cat: string; args?: Record<string, any> }[];
+          };
+          const reasons = new Map<string, number>();
+          const recalcs: number[] = [];
+          for (const event of trace.traceEvents) {
+            if (event.name === "UpdateLayoutTree" && event.ph === "X") recalcs.push(event.args?.elementCount ?? 0);
+            if (!event.cat.includes("invalidationTracking")) continue;
+            const data = event.args?.data ?? {};
+            const key = [
+              event.name,
+              data.reason,
+              data.nodeName?.slice(0, 70),
+              data.changedPseudo && `pseudo ${data.changedPseudo}`,
+              data.selectors && JSON.stringify(data.selectors).slice(0, 200),
+            ]
+              .filter(Boolean)
+              .join(" | ");
+            reasons.set(key, (reasons.get(key) ?? 0) + 1);
+          }
+          console.log(
+            "RAIL_RESTYLE",
+            JSON.stringify({ arm, phase, elements: recalcs.reduce((sum, n) => sum + n, 0), recalcs }),
+          );
+          for (const [key, times] of [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20))
+            console.log("RAIL_RESTYLE", phase, times, key);
+          await page.mouse.move(1000, 50);
+          await idle(page);
+        }
+        await page.close();
+        continue;
+      }
       const cdp = await page.context().newCDPSession(page);
       await cdp.send("Performance.enable");
       console.log(`RAIL_BENCH_START ${arm}${paged ? "-paged" : ""} turns=${turns} samples=${samples}`);
@@ -759,7 +838,7 @@ async function main() {
       await page.close();
     }
     // The cold open of the same chat, paged, with the prompt index answering 150 ms after it asks.
-    {
+    if (!process.env.RAIL_BENCH_RESTYLE) {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);

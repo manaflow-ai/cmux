@@ -1,3 +1,4 @@
+import { envForObject } from "../build-space.ts"
 import * as slack from "./brain-slack.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
@@ -5,7 +6,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai"
 import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
@@ -32,7 +33,8 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
-import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { chiefJobWake, chiefPlanWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import type { PlanNotice } from "../plan-checkout.ts"
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
@@ -222,7 +224,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.harness)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
@@ -624,6 +627,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
   async chiefJob(j: ChiefJob): Promise<JobDelivery> {
     return chiefJobWake(this, j)
+  }
+
+  /** A plan bought through this Chief's checkout link is on (plan-checkout.ts): its note starts a turn here. */
+  async chiefPlan(n: PlanNotice): Promise<JobDelivery> {
+    return chiefPlanWake(this, n)
   }
 
   /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */

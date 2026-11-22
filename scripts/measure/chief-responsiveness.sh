@@ -128,7 +128,7 @@ for r in $(seq 1 "$rounds"); do
   driver_pid=$!
   wait "$driver_pid" || rs=$?
   driver_pid=""
-  grep -E '\] probe ' "$out.log" | sed "s/^/CHIEF-RESP-ROUND $r /" || true
+  grep -E '\] probe[ -]' "$out.log" | sed "s/^/CHIEF-RESP-ROUND $r /" || true
   if ! grep -q "acpmux cleanup: .*no process holds its locks" "$out.log"; then
     echo "CHIEF-RESP round $r: acpmux cleanup not confirmed" >&2
     rs=1
@@ -139,7 +139,7 @@ for r in $(seq 1 "$rounds"); do
     status=1
   fi
 done
-python3 -I Native/OptChat/optchat-chief/measure/responsive.py report "${dirs[@]}" \
+python3 -I Native/OptChat/optchat-chief/measure/responsive.py report ${dirs[@]+"${dirs[@]}"} \
   --label "$(git rev-parse --short=12 HEAD) $harness $model $effort ${host_env[*]+"${host_env[*]}"}" \
   --json "$work/report.json" || status=1
 exit "$status"

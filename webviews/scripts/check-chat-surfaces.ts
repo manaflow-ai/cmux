@@ -71,7 +71,7 @@ export function rawChatFills(): Record<string, string[]> {
 
 const STATE = /:(hover|active|focus-visible)\b|\[(aria-expanded|aria-pressed)(=["']?true["']?)?\]|\[data-popup-open\]/g;
 const NOT = /:not\((?:[^()]|\([^()]*\))*\)/g;
-const STATE_FILL = /var\(--ds-color-(hover|pressed)\)/;
+const STATE_FILL = /var\(--ds-(color-hover|color-pressed|surface-hover)\)/;
 
 /// The rules of `css` as [selector, body], comments blanked, selector lists split at top-level commas.
 function* selectorRules(css: string): Generator<[string, string]> {

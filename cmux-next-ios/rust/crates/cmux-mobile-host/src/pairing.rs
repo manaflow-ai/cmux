@@ -207,6 +207,9 @@ pub struct Pairing {
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
     /// What other machines did here (`activity.rs`).
     pub activity: Arc<crate::activity::Activity>,
+    /// The requests this hostd asked the app about and still waits on, which another of the
+    /// person's paired devices may answer (`pair_requests.rs`).
+    pub waiting: Arc<crate::pair_requests::Waiting>,
 }
 
 impl Pairing {
@@ -226,6 +229,7 @@ impl Pairing {
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
+            waiting: Arc::default(),
         }
     }
 
@@ -602,6 +606,11 @@ fn is_pair_token(token: &str) -> bool {
         && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// An app bundle id as a phone states it: 1 to 155 ASCII letters, digits, `.` and `-`.
+fn is_bundle_id(id: &str) -> bool {
+    (1..=155).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+}
+
 fn new_nonce() -> Result<String, Refused> {
     use ring::rand::SecureRandom;
     let mut bytes = [0u8; 32];
@@ -690,6 +699,11 @@ async fn authenticate(
         return Err(("bad_request", "keys must be 65-byte uncompressed P-256 points as hex".into()));
     }
     let name: String = text("name").chars().filter(|c| !c.is_control()).take(64).collect();
+    // The phone app's bundle id, forwarded with a pairing request for the app's DEBUG-only dev
+    // auto-approve. A machine's, or one of another shape, is dropped (never refused: an older
+    // or odd phone is only asked, as before).
+    let bundle_id =
+        Some(text("bundleId")).filter(|id| !kind.is_machine() && is_bundle_id(id)).map(str::to_owned);
     let Some(pairing) = pairing else {
         // Unsupervised: no app to approve; every link is served as before.
         // A machine is never admitted here: only an app can grant it anything.
@@ -783,6 +797,9 @@ async fn authenticate(
         Err(_) => return Err(("unavailable", "the Mac app has not loaded its paired iPhones yet".into())),
     }
     let mut asked = false;
+    // Held while this `auth` waits for the answer, so another paired device may give it
+    // (`pair_requests.rs`); dropped however the wait ends.
+    let mut held = None;
     let result = tokio::time::timeout(APPROVAL_WAIT, async {
         loop {
             let current = trust.borrow_and_update().clone().unwrap_or_default();
@@ -824,8 +841,17 @@ async fn authenticate(
                     registered_at_ms,
                     // A pairing code pre-approves phones only: a machine always asks.
                     pair_token: if kind.is_machine() { None } else { pair_token.clone() },
+                    bundle_id: bundle_id.clone(),
                     kind,
                 });
+                held = Some(pairing.waiting.hold(crate::pair_requests::WaitingRequest {
+                    device_id: phone.to_owned(),
+                    name: name.clone(),
+                    kind,
+                    identity_key: identity_key.to_owned(),
+                    approval_key: approval_key.to_owned(),
+                    since: Instant::now(),
+                }));
                 send(sender, json!({"pending": true})).await;
             }
             if trust.changed().await.is_err() {
@@ -834,6 +860,7 @@ async fn authenticate(
         }
     })
     .await;
+    drop(held);
     match result {
         Ok(Ok(())) => {
             if let Some(push_key) = push_key {
@@ -877,6 +904,16 @@ async fn send(sender: &ChannelSender, value: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bundle_id_is_forwarded_only_in_its_plain_shape() {
+        assert!(is_bundle_id("dev.cmux.mobile.my-tag-v2"));
+        assert!(is_bundle_id("com.cmux.app"));
+        assert!(!is_bundle_id(""));
+        assert!(!is_bundle_id("dev.cmux.mobile.a b"));
+        assert!(!is_bundle_id("dev.cmux.mobile.\u{202e}x"));
+        assert!(!is_bundle_id(&"a".repeat(156)));
+    }
 
     #[test]
     fn the_challenge_is_fixed() {

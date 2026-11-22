@@ -6,11 +6,11 @@ import Foundation
 /// badge or Allow/Deny of an agent's request. A click still opens the tab, in its incognito window.
 extension DesktopNotifier {
     package static var incognitoTitle: String {
-        String(localized: "notifications.incognito.title", defaultValue: "Incognito", table: "NotificationsPanel", bundle: .module)
+        String(localized: "notifications.incognito.title", defaultValue: "Incognito", table: "NotificationsPanel", bundle: .localizedModule)
     }
 
     package static var incognitoBody: String {
         String(localized: "notifications.incognito.body", defaultValue: "A tab in an incognito window needs you.",
-               table: "NotificationsPanel", bundle: .module)
+               table: "NotificationsPanel", bundle: .localizedModule)
     }
 }

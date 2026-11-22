@@ -333,8 +333,7 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             # Read only the validated publication.  Do not instantiate a
             # client: missing queue data must not fall through to an artifact
             # API request and spend the installation budget.
-            runners = [*state["repository_runners"],
-                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            runners = pool.census_runners(state)
             snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
             return runners, snapshot
         except Exception as error:  # noqa: BLE001 - fail open to the overflow route

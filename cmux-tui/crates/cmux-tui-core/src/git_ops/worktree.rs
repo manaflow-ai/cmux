@@ -1,6 +1,7 @@
 //! `git.worktree.create`: a chat's own worktree, so an agent works on a
 //! branch of its own while the user's checkout stays as it is. The worktree
-//! is `~/.cmux/worktrees/<project>/<name>` on a new branch `cmux/<name>`,
+//! is `~/.cmux/worktrees/<project>/<name>` (with `agentPane.sessionWorktrees`
+//! set to `project`, `<project>/.claude/worktrees/<name>`) on a new branch `cmux/<name>`,
 //! made from `base` (default: the current branch, else HEAD's commit) with
 //! `git worktree add` in the user's environment, so their post-checkout hook
 //! and filters run as in a terminal. The base is recorded as
@@ -34,6 +35,7 @@ use super::{MAX_SMALL_OUTPUT_BYTES, Repository, worktree_recipe, worktree_setup}
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_config::session_worktrees::{self, SessionWorktrees};
 use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.create";
@@ -69,7 +71,15 @@ pub(super) fn dispatch(
         let attempt = match journal.attempt::<Attempt>(&fingerprint) {
             Some(attempt) => attempt,
             None => {
-                let attempt = plan(repository, target.common_dir(), &request.fields)?;
+                let setting = cmux_config::Target::Key(session_worktrees::KEY.to_string());
+                let place = mux.with_settings(|state| {
+                    SessionWorktrees::parse(
+                        state.get(&setting).row.and_then(|row| row.value).as_ref(),
+                    )
+                });
+                // The folder is chosen once: a retry reads the root the journal kept.
+                let folder = storage_folder(target.common_dir(), place)?;
+                let attempt = plan(repository, &folder, &request.fields)?;
                 journal.start(&fingerprint, &attempt)?;
                 attempt
             }
@@ -102,10 +112,58 @@ pub(super) fn dispatch(
     })
 }
 
+/// The folder this project's worktrees go in: `~/.cmux/worktrees/<project>`,
+/// or with `place` Project, `<project>/.claude/worktrees`, made with a
+/// `.gitignore` of `*` so the main checkout's status never lists them (and
+/// the ignore file ignores itself; the repository's own settings are never
+/// edited).
+fn storage_folder(common_dir: &Path, place: SessionWorktrees) -> Result<PathBuf, ResourceError> {
+    if place.in_project() {
+        let Some(main) = main_root(common_dir) else {
+            let message = "this repository has no main checkout to keep worktrees in";
+            return Err(refused(OPERATION, "no_project_folder", message, Value::Null));
+        };
+        let folder = session_worktrees::PROJECT_FOLDER
+            .iter()
+            .fold(main.to_path_buf(), |path, name| path.join(name));
+        let fail = |error: std::io::Error| {
+            let message = format!("cannot prepare {}: {error}", folder.display());
+            refused(OPERATION, "no_worktree_root", message, Value::Null)
+        };
+        if let Some(parent) = folder.parent() {
+            std::fs::create_dir_all(parent).map_err(fail)?;
+        }
+        match std::fs::create_dir(&folder) {
+            Ok(()) => {
+                use std::io::Write as _;
+                std::fs::File::create_new(folder.join(".gitignore"))
+                    .and_then(|mut file| file.write_all(b"*\n"))
+                    .map_err(fail)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::symlink_metadata(&folder).map_err(fail)?.is_dir() {
+                    return Err(fail(std::io::Error::other("not a folder")));
+                }
+            }
+            Err(error) => return Err(fail(error)),
+        }
+        return Ok(folder);
+    }
+    let Some(home) = crate::platform::home_dir() else {
+        let message = "the session host has no home folder for worktrees";
+        return Err(refused(OPERATION, "no_home", message, Value::Null));
+    };
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
+        refused(OPERATION, "no_worktree_root", message, Value::Null)
+    })?;
+    Ok(root.join(project(common_dir)))
+}
+
 /// The base, and the first free name in this project's worktree folder.
 fn plan(
     repository: &Repository,
-    common_dir: &Path,
+    folder: &Path,
     fields: &Map<String, Value>,
 ) -> Result<Attempt, ResourceError> {
     let base = match fields.get("base").and_then(Value::as_str) {
@@ -126,15 +184,6 @@ fn plan(
     // A branch is recorded by name, so the later diff follows it; anything
     // else (`HEAD~1`, a tag that may move) by the commit it names now.
     let base = if repository.branch_ref(&base).is_some() { base } else { base_commit.clone() };
-    let Some(home) = crate::platform::home_dir() else {
-        let message = "the session host has no home folder for worktrees";
-        return Err(refused(OPERATION, "no_home", message, Value::Null));
-    };
-    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
-        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
-        refused(OPERATION, "no_worktree_root", message, Value::Null)
-    })?;
-    let folder = root.join(project(common_dir));
     let name = fields
         .get("name")
         .and_then(Value::as_str)

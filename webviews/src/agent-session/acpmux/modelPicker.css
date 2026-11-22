@@ -482,7 +482,6 @@
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   scroll-padding-block: var(--ds-space-2);
-  scrollbar-width: none;
 }
 .acpmux-quick-placement-symbols .acpmux-quick-rail-tab { position: relative; scroll-snap-align: start; }
 /* Themed: each harness's symbol in the theme's text colours (AgentMark `tint`), muted at rest; the

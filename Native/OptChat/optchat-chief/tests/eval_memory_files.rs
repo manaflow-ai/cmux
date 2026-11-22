@@ -269,7 +269,7 @@ fn check_ins_come_on_the_cloud_schedule_and_only_with_open_loops() {
     assert!(
         text.starts_with("[check-in]")
             && text.contains("loops/renew-domain.md")
-            && text.contains("stop()"),
+            && text.contains("nothing(reason)"),
         "{text}"
     );
 }
@@ -379,4 +379,191 @@ fn another_persons_loops_stay_theirs_and_the_review_takes_rules_only_from_the_pe
             .body
             .contains("Leo")
     );
+}
+
+#[test]
+fn loops_close_by_their_checkable_condition_and_wake_settings_persist() {
+    use optchat_chief::check_in::{CloseWhen, WakeSettings, close_conditions, report_is_final};
+    let dir = tempfile::tempdir().unwrap();
+    let files = MemoryFiles::open_in(dir.path()).unwrap();
+    files
+        .write(
+            "loops/fix-hover.md",
+            "sidebar hover color back",
+            "Asked (2026-11-19, msg 9): fix hover\nLeft: land\nCloses when: agent a1220 done",
+            Trust::Person,
+            "t",
+        )
+        .unwrap();
+    files
+        .write(
+            "loops/renew.md",
+            "renew cmux.dev",
+            "Left: renew\nCloses when: pr manaflow-ai/cmux#123 merged; follow-up sent",
+            Trust::Person,
+            "t",
+        )
+        .unwrap();
+    assert_eq!(
+        close_conditions("x\n- closes when: agent a7 done"),
+        [CloseWhen::AgentDone("a7".into())]
+    );
+    assert_eq!(
+        close_conditions(&files.get("loops/renew.md").unwrap().unwrap().body),
+        [
+            CloseWhen::PrMerged("manaflow-ai/cmux#123".into()),
+            CloseWhen::FollowUpSent
+        ]
+    );
+    // A report that asks back, is blocked or did not land is not final.
+    assert!(!report_is_final(
+        "[a1220] Which color do you want back, the old or the new?"
+    ));
+    assert!(!report_is_final(
+        "[a1220] Blocked on the Xcode 27 runner; needs you to approve"
+    ));
+    assert!(report_is_final(
+        "[a1220] Landed 7c24c83 on feat-cmux-next; hover color restored"
+    ));
+    // Matching ignores case, Markdown and end punctuation, and refuses a
+    // PR that could be a gh flag.
+    assert_eq!(
+        close_conditions("**Closes when:** `PR manaflow-ai/cmux#123 merged.`"),
+        [CloseWhen::PrMerged("manaflow-ai/cmux#123".into())]
+    );
+    assert!(close_conditions("Closes when: pr o/r#--web merged").is_empty());
+    assert!(close_conditions("Closes when: agent a12x done").is_empty());
+    // The person's wake settings live in the store.
+    let s = WakeSettings {
+        mode: Some(optchat_chief::check_in::Mode::Mornings),
+        quiet: Some("22:00-08:00".into()),
+        cost_limit_usd: Some(0.5),
+    };
+    files.put_wake_settings(&s).unwrap();
+    assert_eq!(files.wake_settings(), s);
+}
+
+#[test]
+fn quiet_hours_and_follow_up_times_are_the_persons_local_time() {
+    use optchat_chief::check_in::{after_quiet, follow_up_due, follow_up_id, in_quiet};
+    let at = |s: &str| chrono::DateTime::parse_from_rfc3339(s).unwrap();
+    let q = Some("22:00-08:00");
+    assert!(in_quiet(q, at("2026-11-19T23:10:00-08:00")));
+    assert!(in_quiet(q, at("2026-11-20T07:59:00-08:00")));
+    assert!(!in_quiet(q, at("2026-11-20T08:00:00-08:00")));
+    assert_eq!(
+        after_quiet(q, at("2026-11-19T23:10:00-08:00")),
+        at("2026-11-20T08:00:00-08:00")
+    );
+    assert_eq!(
+        after_quiet(q, at("2026-11-20T06:00:00-08:00")),
+        at("2026-11-20T08:00:00-08:00")
+    );
+    assert_eq!(
+        after_quiet(None, at("2026-11-19T23:10:00-08:00")),
+        at("2026-11-19T23:10:00-08:00")
+    );
+    let now = at("2026-11-19T21:40:00-08:00");
+    // A local `at` is read in this machine's zone on its own date (a
+    // daylight-saving change counts); compare as instants.
+    let local =
+        chrono::NaiveDateTime::parse_from_str("2026-11-20T09:00", "%Y-%m-%dT%H:%M").unwrap();
+    use chrono::TimeZone;
+    let want = chrono::Local
+        .from_local_datetime(&local)
+        .earliest()
+        .unwrap();
+    assert_eq!(
+        follow_up_due(now, Some("2026-11-20T09:00"), None).unwrap(),
+        want
+    );
+    assert_eq!(
+        follow_up_due(now, Some("2026-11-20T09:00:00-08:00"), None).unwrap(),
+        at("2026-11-20T09:00:00-08:00")
+    );
+    assert!(follow_up_due(now, None, Some("99999999999999d")).is_err());
+    assert_eq!(
+        follow_up_due(now, None, Some("2h")).unwrap(),
+        at("2026-11-19T23:40:00-08:00")
+    );
+    assert!(follow_up_due(now, Some("tomorrow"), None).is_err());
+    assert!(follow_up_due(now, Some("2026-11-20T09:00"), Some("2h")).is_err());
+    assert_eq!(
+        follow_up_id("renew", 1_000_000, None),
+        follow_up_id("renew", 1_010_000, None),
+        "the same minute is one follow-up"
+    );
+}
+
+#[test]
+fn a_wake_run_budget_prices_tokens_at_the_measured_rate() {
+    let mut rates = std::collections::BTreeMap::new();
+    rates.insert("claude-opus-5-5".to_owned(), 0.000_01);
+    let budget = optchat_chief::turn::Budget {
+        limit_usd: 0.5,
+        rates,
+        fallback: 0.000_02,
+    };
+    let req = |model: Option<&str>, input: u64, output: u64, cache_read: u64| {
+        optchat_chief::fold::Request {
+            id: "r".into(),
+            model: model.map(str::to_owned),
+            usage: optchat_chief::fold::Usage {
+                input,
+                cache_read,
+                cache_write: 0,
+                output,
+            },
+            headers_ms: None,
+            ttft_ms: None,
+            session: None,
+        }
+    };
+    // 1,000 input + 5 x 2,000 output + 0.1 x 100,000 cache read = 21,000 units.
+    let spent = budget.spent(&[req(Some("claude-opus-5-5"), 1_000, 2_000, 100_000)]);
+    assert!((spent - 0.21).abs() < 1e-9, "{spent}");
+    let unknown = budget.spent(&[req(None, 1_000, 0, 0)]);
+    assert!((unknown - 0.02).abs() < 1e-9, "{unknown}");
+}
+
+#[test]
+fn wake_runs_of_the_first_layout_move_to_the_spec_names_when_the_store_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(optchat_chief::memory_files::FILE);
+    {
+        // The landing-3 layout: `at` and one `text`.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE wake_runs (id TEXT PRIMARY KEY, at INTEGER NOT NULL, reasons TEXT NOT NULL,
+               outcome TEXT NOT NULL, text TEXT NOT NULL, cost_usd REAL, limit_usd REAL, stopped TEXT NOT NULL DEFAULT '');
+             INSERT INTO wake_runs VALUES ('t1', 9000000000000, '[check-in]', 'nothing', 'nothing is due', 0.02, 0.5, '');
+             INSERT INTO wake_runs VALUES ('t2', 9000000000001, '[follow-up]', 'ask', 'Renew for 1 year?', NULL, NULL, '');
+             INSERT INTO wake_runs VALUES ('t3', 9000000000002, '[wake]', 'send', '', 0.04, NULL, '');
+             INSERT INTO wake_runs VALUES ('t4', 9000000000003, '[check-in]', 'none', '', 0.61, 0.5, 'cost limit');
+             INSERT INTO wake_runs VALUES ('t5', 9000000000004, '[follow-up]', 'cut', '', NULL, NULL, '');",
+        )
+        .unwrap();
+    }
+    let files = MemoryFiles::open(&path).unwrap();
+    let runs = files.wake_runs(10).unwrap();
+    let by = |id: &str| runs.iter().find(|r| r.id == id).cloned().unwrap();
+    assert_eq!(by("t1").outcome_text, "nothing is due");
+    assert_eq!(by("t1").started_at, 9_000_000_000_000);
+    assert_eq!(by("t1").cost_usd, Some(0.02));
+    assert_eq!(by("t1").limit_usd, Some(0.5));
+    assert_eq!(by("t2").outcome_text, "Renew for 1 year?");
+    assert!(by("t2").result.is_empty());
+    assert_eq!(by("t3").scheduled_at, None);
+    // `reasons` is `wake_reasons`; `stopped` is the spec's `state` and `reason`.
+    assert_eq!(by("t1").wake_reasons, "[check-in]");
+    assert_eq!(by("t1").state, "succeeded");
+    assert!(by("t1").reason.is_empty());
+    // A second open finds the new layout and changes nothing.
+    drop(files);
+    let again = MemoryFiles::open(&path).unwrap();
+    assert_eq!(by("t4").state, "cancelled");
+    assert_eq!(by("t4").reason, "cost_limit");
+    assert_eq!(by("t5").state, "cancelled");
+    assert_eq!(by("t5").reason, "superseded");
+    assert_eq!(again.wake_runs(10).unwrap().len(), 5);
 }

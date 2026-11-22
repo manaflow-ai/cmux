@@ -89,5 +89,15 @@ class PlanWithoutTheApi(unittest.TestCase):
         self.assertNotIn("migrations=false", output)
 
 
+class GateSkipsWithoutMigrationChanges(unittest.TestCase):
+    """A succeeded plan with no migration change starts no gate VM: the skipped job keeps its name and
+    reads as success for the required check. A failed plan or a migration change still runs it."""
+
+    def test_the_gate_skips_only_on_a_clean_plan(self):
+        gate = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["gate"]
+        self.assertIn("!(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')", gate["if"])
+        self.assertIn("always()", gate["if"])
+
+
 if __name__ == "__main__":
     unittest.main()

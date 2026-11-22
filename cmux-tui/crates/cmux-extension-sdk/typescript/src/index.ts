@@ -28,7 +28,7 @@ export const API_VERSION: string = scopeTable.apiVersion
 // share their names with DOM types when the author's tsconfig loads the DOM lib: name all three.
 type Globals = Omit<typeof globalThis, "Text" | "Image"> & {
   cmux: CmuxGlobal
-  Text(text: Bindable<string | number | null | undefined>): CmuxView
+  Text(text: Bindable<string | number | null | undefined> | CmuxDateText): CmuxView
   Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 }
 const g = globalThis as unknown as Globals
@@ -45,7 +45,7 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
   Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
-  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
+  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line
 } = g
 
 /** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
@@ -221,6 +221,12 @@ export interface Live<T> {
 
 export type Workspace = Cmux.WorkspaceSnapshot
 export type Agent = Cmux.AgentSnapshot
+/** Whether the extension may read the person's calendar (`cmux.system_calendar.events`, `cmux.system_calendar.request_access`). */
+export type CalendarAccess = CmuxCalendarAccess
+/** One event of the person's calendar; `start` and `end` are epoch ms. */
+export type CalendarEvent = CmuxCalendarEvent
+/** `cmux.system_calendar.events`' answer. */
+export type CalendarEvents = CmuxCalendarEvents
 /** An agent chat as the sidebar shows it. */
 export interface Chat {
   id: string

@@ -109,6 +109,8 @@ pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
         super::sync_model::synced(file, false);
         return Err(std::io::Error::other("a failed sync (a test)"));
     }
+    #[cfg(debug_assertions)]
+    super::disk_fault::sync();
     let result = if all { file.sync_all() } else { file.sync_data() };
     #[cfg(test)]
     counted(&result);

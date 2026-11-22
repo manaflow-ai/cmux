@@ -301,6 +301,26 @@ async fn a_network_change_waits_on_the_old_socket_only_a_few_round_trips() {
     assert!(roamed_ms < 800.0, "the roam took {roamed_ms} ms: {roamed:?}");
 }
 
+/// Regression (ask-48f698fc26): a network change is proof that the old path's socket is gone, as
+/// Chromium treats an IP address change for its TCP sockets (`ERR_NETWORK_CHANGED`): the phone
+/// reaches the chat's first event within two round trips plus the dial itself, with no wait on
+/// the old socket (before: four of its round trips, about 500 ms at an 80 ms round trip).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timed rig: run alone with --ignored"]
+async fn a_network_change_reaches_the_first_event_within_two_round_trips_and_a_dial() {
+    let rig = Rig::start().await;
+    rig.settle().await;
+    rig.path.cut();
+    let steps = rig.network_change().await;
+    let outside_the_dial = steps["first_event"] - (steps["dialed"] - steps["roamed"]);
+    let budget = 2.0 * ms(RTT) + 40.0;
+    assert!(!steps.contains_key("roam:signaling:stale"), "the roam waited on the old socket: {steps:?}");
+    assert!(
+        outside_the_dial <= budget,
+        "the first event came {outside_the_dial} ms past the dial's own time (budget {budget} ms): {steps:?}"
+    );
+}
+
 /// A network change in the foreground (Wi-Fi to cellular): the old path's socket is silent, the
 /// app roams (`network_changed`) and then dials, as `.networkChanged` does for a link that failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -311,6 +331,18 @@ async fn network_change() {
     for sample in 0..SAMPLES {
         rig.settle().await;
         rig.path.cut();
+        let steps = rig.network_change().await;
+        println!("RECONNECT {}", json!({"scenario": "network_change", "sample": sample, "steps": steps}));
+        samples.push(steps);
+    }
+    summarize("network_change", &samples);
+}
+
+impl Rig {
+    /// What `.networkChanged` does after the path changed: roam, then dial, then the first
+    /// channel's first event. Every step in ms from the change.
+    async fn network_change(&self) -> BTreeMap<String, f64> {
+        let rig = self;
         let start = Instant::now();
         let roamed = rig
             .pool
@@ -332,8 +364,6 @@ async fn network_change() {
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"first".to_vec() });
         steps.insert("first_event".into(), ms(start.elapsed()));
         handle.close();
-        println!("RECONNECT {}", json!({"scenario": "network_change", "sample": sample, "steps": steps}));
-        samples.push(steps);
+        steps
     }
-    summarize("network_change", &samples);
 }

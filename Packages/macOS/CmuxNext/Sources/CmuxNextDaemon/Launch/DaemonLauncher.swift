@@ -161,7 +161,16 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        // A DEV build runs the owner under "cmux Files (dev)" (docs/cmux-files-host.md), so its
+        // terminals' Files and Folders checks are one identity's for every DEV build.
+        // The helper check reads the disk, so it runs with the ensure, not here.
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        var launcher = DaemonLauncher(configuration: configuration, environment: {
+            let ownerEnvironment = filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                                        processEnvironment: processEnvironment)
+                .merging(daemonEnvironment) { _, given in given }
+            return await environment().merging(ownerEnvironment) { _, owner in owner }
+        })
         launcher.health = health
         return launcher
     }
@@ -193,11 +202,26 @@ public struct DaemonLauncher: Sendable {
         let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        let filesHost: @Sendable () -> [String: String] = {
+            filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                 processEnvironment: processEnvironment)
+        }
         if let ownerEnvironment {
-            return DaemonLauncher(configuration: configuration, environment: { chiefEnvironment(await ownerEnvironment()) })
+            return DaemonLauncher(configuration: configuration, environment: {
+                chiefEnvironment(await ownerEnvironment()).merging(filesHost()) { _, host in host }
+            })
         }
         let environment = chiefEnvironment(processEnvironment)
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(configuration: configuration, environment: { environment.merging(filesHost()) { _, host in host } })
+    }
+
+    /// `CMUX_TUI_OWNER_LAUNCHER` for `server ensure` when the app at `bundleURL` is a DEV build that embeds
+    /// "cmux Files (dev)" (``FilesHost``), else nothing.
+    static func filesHostEnvironment(bundleURL: URL, bundleIdentifier: String?,
+                                     processEnvironment: [String: String]) -> [String: String] {
+        FilesHost(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                  environment: processEnvironment)?.ownerEnvironment ?? [:]
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
@@ -208,9 +232,14 @@ public struct DaemonLauncher: Sendable {
     /// writes, as the app's own daemon does. Also the
     /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
     /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
-    static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
+    ///
+    /// `CMUX_BUILD_SPACE` is kept: it is this build's cloud data space (cmux-tui `cmux-build-space`), not an
+    /// identity that would make the owner another build's, and without it a dev build's Chief (its conversations,
+    /// automations and hands) would reach nightly's cloud data. A dev build's own Chief home
+    /// (``ChiefHome``) makes the owner this build's alone, so no other build or space shares it.
+    public static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey]
         var environment = base.filter { kept.contains($0.key) }
         // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
         let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -226,6 +255,9 @@ public struct DaemonLauncher: Sendable {
         }
         return environment
     }
+
+    /// The variable that carries a build's cloud data space to its Rust children (cmux-tui `cmux-build-space`).
+    public static let buildSpaceKey = "CMUX_BUILD_SPACE"
 
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
