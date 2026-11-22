@@ -32,6 +32,9 @@ pub const OPTION: &str = "prompt-suggestions";
 /// The `_meta.acpmux` key that says a person's own prompt started the turn
 /// (`hub/prompt_sender.rs`, which sets it).
 pub const PERSON_TURN: &str = "personTurn";
+/// The `initialize` field (`_meta.acpmux`) that asks for no suggestions in this process: the hub
+/// sends it for a start no person asked for (`hub/host_level.rs` `start_params`).
+pub const NO_SUGGESTIONS: &str = "noPromptSuggestions";
 /// Longest suggestion passed on; a longer one is not a next prompt.
 const MAX_CHARS: usize = 2_000;
 

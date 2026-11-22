@@ -301,6 +301,7 @@ declare namespace Cmux {
   type KeybindingEntry = { index: number; keys: Array<string>; command: string; when: string | null; args: Record<string, Cmux.JsonValue> | null; removal: boolean }
   type KeybindingsSnapshot = { path: string; revision: string; entries: Array<Cmux.KeybindingEntry>; diagnostics: Array<Cmux.KeybindingDiagnostic> }
   type KeybindingTarget = { key: string; when?: string; command?: string }
+  type LanguagePackState = { state: "bundled" | "ready" | "unavailable"; root?: string; chromium_pak?: string; code?: "language_packs.offline" | "language_packs.verify" | "language_packs.bad_manifest" | "language_packs.io"; message?: string }
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
   type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId>; gone_ids?: Array<string> }
@@ -397,7 +398,7 @@ declare namespace Cmux {
   type ResourceUpsert = { kind: "upsert"; sequence: number; resource: Cmux.ResourceKind; id: Cmux.ResourceChangeId; value: Cmux.ResourceEntitySnapshot }
   type Revision = string
   type RoomDeleteResult = { id: Cmux.StateId; moved_to: Cmux.StateId | null; unpinned: Array<Cmux.WorkspaceRef> }
-  type RoomSnapshot = { id: Cmux.StateId; name: string; color: string | null; icon: string | null; theme: string | null; index: number; browser_profile_id: string | null; default_session_id: string | null; follows: Array<string>; pins: Array<Cmux.WorkspaceRef> }
+  type RoomSnapshot = { id: Cmux.StateId; name: string; color: string | null; icon: string | null; theme: string | null; index: number; browser_profile_id: string | null; default_session_id: string | null; follows: Array<string>; pins: Array<Cmux.WorkspaceRef>; created_by?: { kind: string; session?: string; session_name?: string; host?: string; purpose?: string } }
   type Run = { id: Cmux.RunId; automation: Cmux.AutomationId; automation_version: number; owner: Cmux.TeamId; trigger: { id: Cmux.TriggerId | null; type: string; scheduled_at?: number; delivery_id?: string; parent_run?: Cmux.RunId; root_run?: Cmux.RunId; depth?: number }; state: Cmux.RunState; step: number; created_at: number; started_at: number | null; finished_at: number | null; error: Cmux.RunError | null; outcome: { goal_met: boolean; summary?: string } | null }
   type RunError = { code: string; message: string }
   type RunId = string
@@ -860,6 +861,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ cursor?: string; limit?: number }, { machines: Array<Cmux.CloudMachine>; next_cursor: string | null; revision: Cmux.Revision }>
       /** `cloud.machine.pause` (mutation, scope `cloud:write`): Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
       pause: CmuxOp<{ machine: Cmux.MachineId; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
+      /** `cloud.machine.pause_all` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): List the current team machines and pause each through cloud.machine.pause, including already paused machines so automatic wakes remain held until explicit resume. Returns per-machine outcomes; a failure does not prevent the remaining pauses. Retryable target failures can be retried with the returned idempotency_key; completed targets are kept in the app server’s in-memory snapshot. */
+      pause_all: CmuxOp<Record<string, never>, { machines: Array<{ machine: string; status: "pausing" | "paused" | "skipped" | "failed"; error?: { code: string; message: string; retryable?: boolean } }>; idempotency_key: string }>
       /** `cloud.machine.rename` (mutation, scope `cloud:write`): Rename a machine. */
       rename: CmuxOp<{ machine: Cmux.MachineId; name: string; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
       /** `cloud.machine.start` (mutation, scope `cloud:write`): Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
@@ -1424,7 +1427,7 @@ interface CmuxGlobal {
   }
   room: {
     /** `room.create` (mutation, scope `room:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name: string; color?: string; icon?: string; theme?: string; index?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.RoomSnapshot>>
+    create: CmuxOp<{ machine?: string; session?: string; created_by?: { kind: "person" | "agent" | "script"; session?: string; session_name?: string; host?: string; purpose?: string }; name: string; color?: string; icon?: string; theme?: string; index?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.RoomSnapshot>>
     /** `room.delete` (mutation, scope `room:write`) */
     delete: CmuxOp<{ machine?: string; session?: string; room: Cmux.StateId; move_to?: Cmux.StateId; expected_revision?: string }, Cmux.MutationResult<Cmux.RoomDeleteResult>>
     /** `room.follow` (mutation, scope `room:write`) */
@@ -1513,7 +1516,7 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string; session?: string }, Cmux.SessionSnapshot>
     journal: {
       /** `session.journal.append` (mutation, scope `session:write`) */
-      append: CmuxOp<{ machine?: string; session?: string; event: Cmux.JournalIngressEvent; live_prompt?: string; live_reply?: string; live_question?: string }, Cmux.MutationResult<Cmux.JournalAppendResult>>
+      append: CmuxOp<{ machine?: string; session?: string; event: Cmux.JournalIngressEvent; live_prompt?: string; live_reply?: string; live_question?: string; live_approval?: string }, Cmux.MutationResult<Cmux.JournalAppendResult>>
       checkpoint: {
         /** `session.journal.checkpoint.create` (mutation, scope `session:write`) */
         create: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.JournalCheckpointCreateResult>>
@@ -1660,9 +1663,9 @@ interface CmuxGlobal {
   }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
-    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
+    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; created_by?: { kind: "person" | "agent" | "script"; session?: string; session_name?: string; host?: string; purpose?: string }; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
     /** `tab.create_terminal` (mutation, scope `workspace:write`) */
-    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; created_by?: { kind: "person" | "agent" | "script"; session?: string; session_name?: string; host?: string; purpose?: string }; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `tab.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     /** `tab.get` (read, scope `workspace:read`) */
@@ -1865,7 +1868,7 @@ interface CmuxGlobal {
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; created_by?: { kind: "person" | "agent" | "script"; workspace?: string; session?: string }; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
+    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; created_by?: { kind: "person" | "agent" | "script"; workspace?: string; session?: string; session_name?: string; host?: string; purpose?: string }; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
     /** `workspace.ensure_app` (mutation, scope `workspace:write`) */
     ensure_app: CmuxOp<{ machine?: string; session?: string; app: string; route?: string; name?: string }, Cmux.MutationResult<Cmux.CreatedWorkspaceOnly>>
     /** `workspace.ensure_home` (mutation, scope `workspace:write`) */
@@ -2081,7 +2084,7 @@ interface CmuxView {
   transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this

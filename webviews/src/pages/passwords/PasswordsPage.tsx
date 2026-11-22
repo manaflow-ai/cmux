@@ -37,6 +37,7 @@ import {
 } from "./model";
 import type { PasswordsStore } from "./store";
 import type { PasswordException, SavedPasskey, SavedPassword } from "./types";
+import { intl } from "../../ui/intl";
 
 /** Item heights before the first of their kind is measured (styles.css): a site's header carries its
  *  group's 4 px above, its last login the 4 px below. */
@@ -48,7 +49,7 @@ const OVERSCAN = 20;
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 function dateFormat(language: string): Intl.DateTimeFormat {
   let format = dateFormats.get(language);
-  if (!format) dateFormats.set(language, (format = new Intl.DateTimeFormat(language, { dateStyle: "medium" })));
+  if (!format) dateFormats.set(language, (format = intl.DateTimeFormat(language, { dateStyle: "medium" })));
   return format;
 }
 
