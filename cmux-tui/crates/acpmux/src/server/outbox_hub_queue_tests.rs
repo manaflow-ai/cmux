@@ -290,3 +290,87 @@ async fn a_failing_hub_is_probed_once_per_window_not_by_every_send() {
     assert!(posts <= 25, "{posts} posts in ten minutes");
     assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
 }
+
+/// The before/after numbers in the PR (one harness for both: this test needs nothing the fix
+/// added, so it runs on the base as it is). `n` sends through `_acpmux/send_queue` while the hub
+/// answers 503, then while it stalls (takes the request and never answers), each cut off at
+/// [`BENCH_CUTOFF`]. Prints each leg's latency, p50 and p99, on the wall's clock and the
+/// runtime's (paused, so a stall costs no wall time), and what the sends came back as. The hub
+/// then answers again, and the leg prints how many of the sends it holds, which is `n` exactly
+/// when each was delivered once.
+#[tokio::test(start_paused = true)]
+async fn bench_send_queue_latency_with_the_hub_failing() {
+    const N: usize = 200;
+    for (leg, answer) in
+        [("hub503", Answer::Fail(503, "mesh.unavailable")), ("hubslow", Answer::Stall)]
+    {
+        let script = vec![answer; 100_000];
+        let (hub, stub) =
+            setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
+        let (mut wall, mut clock) = (Vec::new(), Vec::new());
+        let (mut queued, mut failed, mut cut) = (0, 0, 0);
+        for n in 0..N {
+            let params = request(&format!("far-host/lane-{n}"), &format!("prompt-{leg}-{n}"));
+            let (runtime, started) = (tokio::time::Instant::now(), std::time::Instant::now());
+            let send = call_within(&hub, method::MUX_SEND_QUEUE, params, BENCH_CUTOFF).await;
+            wall.push(started.elapsed());
+            clock.push(runtime.elapsed());
+            match send {
+                Some(Ok(row)) if row["status"] == "queued" => queued += 1,
+                Some(Ok(_)) => {}
+                Some(Err(_)) => failed += 1,
+                None => cut += 1,
+            }
+        }
+        // The hub answers again: what the outbox kept reaches it.
+        stub.script.lock().unwrap().clear();
+        tokio::time::sleep(Duration::from_secs(900)).await;
+        let held = stub.held.lock().unwrap().len();
+        let posts = stub.posts.lock().unwrap().len();
+        println!(
+            "BENCH leg={leg} n={N} wall_p50={:?} wall_p99={:?} clock_p50={:?} clock_p99={:?} \
+             queued={queued} failed={failed} cut_at_{}s={cut} hub_holds_after_recovery={held} \
+             hub_posts={posts}",
+            pct(&mut wall, 50),
+            pct(&mut wall, 99),
+            pct(&mut clock, 50),
+            pct(&mut clock, 99),
+            BENCH_CUTOFF.as_secs(),
+        );
+    }
+}
+
+/// How long the bench lets one send take before it counts it as cut off.
+const BENCH_CUTOFF: Duration = Duration::from_secs(10);
+
+fn pct(samples: &mut [Duration], p: usize) -> Duration {
+    samples.sort();
+    samples[(samples.len() * p / 100).min(samples.len() - 1)]
+}
+
+/// [`call`], cut off after `within`: None when it did not answer in time.
+async fn call_within(
+    hub: &Arc<Hub>,
+    m: &str,
+    params: Value,
+    within: Duration,
+) -> Option<Result<Value, Value>> {
+    let (input, incoming) = mpsc::channel(8);
+    let (output, mut outgoing) = mpsc::channel(64);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+    for line in [Message::request(1, method::INITIALIZE, hello), Message::request(2, m, params)] {
+        input.send(line.to_line()).await.unwrap();
+    }
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        let line = tokio::time::timeout_at(deadline, outgoing.recv()).await.ok()??;
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply.get("id") == Some(&json!(2)) {
+            return Some(match reply.get("error") {
+                Some(e) => Err(e.clone()),
+                None => Ok(reply["result"].clone()),
+            });
+        }
+    }
+}
