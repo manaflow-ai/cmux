@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod composer;
@@ -64,6 +66,8 @@ pub(crate) fn person_locale() -> &'static str {
     locale::current()
 }
 
+#[cfg(unix)]
+mod mcp_tools;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
@@ -102,7 +106,9 @@ mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
 #[cfg(unix)]
-mod storage;
+mod status_items;
+#[cfg(unix)]
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]

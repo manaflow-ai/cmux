@@ -38,8 +38,6 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
-import one_linux_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -301,16 +299,17 @@ class FixedPairRuleTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_ghosttykit_release_check_takes_the_one_linux_label(self) -> None:
+    def test_the_ghosttykit_release_check_takes_the_persistent_linux_pool(self) -> None:
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): never one Blacksmith size.
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
         cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        # The one Linux label (scripts/ci/one_linux_label.py): the pool sizes itself, no workflow names a size.
-        self.assertEqual(runs_on.rstrip(), one_linux_label.CANONICAL, runs_on)
+        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
-    def test_web_subarea_scope_takes_the_one_linux_label(self) -> None:
+    def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
         # stalled 32 vCPU size while every webview shard waited behind it.
         document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
@@ -318,8 +317,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])", runs_on), runs_on)
-        self.assertEqual(runs_on.rstrip(), one_linux_label.CANONICAL, runs_on)
+        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

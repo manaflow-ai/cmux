@@ -190,12 +190,13 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
     steps.push(credential);
     let skip = |step: &'static str, why: &str| JoinStep::new(step, StepState::Skip, why);
     let Some(status) = status.filter(|_| joined) else {
-        for step in ["revoked", "hub", "heartbeat"] {
+        for step in ["team", "revoked", "hub", "heartbeat"] {
             steps.push(skip(step, "this machine has not joined"));
         }
         steps.push(consent_step(facts, status));
         return steps;
     };
+    steps.push(team_step(status));
     let revoked = status["revoked"].as_bool() == Some(true);
     steps.push(match status["revoked"].as_bool() {
         Some(true) => JoinStep::fail("revoked", "your team revoked this machine", NEW_LINE),
@@ -342,6 +343,70 @@ fn credential_step(facts: &Facts) -> JoinStep {
         ),
         Status::NotRun => JoinStep::new("credential", StepState::Skip, "no acpmux to ask"),
     }
+}
+
+/// The backend's id for `user`'s personal team (cmux-platform `personalTeamIdFor`:
+/// `team_` and the first 20 hex digits of SHA-256 of `personal:<user>`).
+pub fn personal_team_of(user: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(format!("personal:{user}"))
+        .iter()
+        .take(10)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("team_{hex}")
+}
+
+/// Which team the join is in, and whether that is the person's personal team. The hub scopes
+/// both the hub carrier and the vault by the join's team: a person's machines joined in another
+/// team never get a relay ticket to this one (`machine.not_found`), and a machine joined in a
+/// shared team never receives its owner's vault (`vault.forbidden`), while its heartbeat, hub
+/// and credential all read healthy. So a join outside the personal team is a warning that says
+/// so, with how to move it.
+fn team_step(status: &Value) -> JoinStep {
+    let id =
+        |key: &str| status[key].as_str().filter(|v| !v.is_empty() && plain(v) && v.len() <= 128);
+    let Some(team) = id("teamId") else {
+        return JoinStep::new(
+            "team",
+            StepState::Skip,
+            "acpmux did not say which team this join is in",
+        );
+    };
+    let Some(user) = id("userId").filter(|user| user.starts_with("user_")) else {
+        return JoinStep::new(
+            "team",
+            StepState::Ok,
+            format!("joined in team {team}; the join names no account, so whether it is your personal team is unknown"),
+        )
+        .with_data(json!({"teamId": team, "userId": null, "personalTeam": null}));
+    };
+    let personal = personal_team_of(user);
+    let data = json!({"teamId": team, "userId": user, "personalTeam": personal});
+    if team == personal {
+        return JoinStep::new(
+            "team",
+            StepState::Ok,
+            format!("joined in your personal team {team} as {user}"),
+        )
+        .with_data(data);
+    }
+    JoinStep::new(
+        "team",
+        StepState::Warn,
+        format!(
+            "joined in team {team} as {user}, not in your personal team {personal}: your machines \
+             joined in {personal} get no hub route to this one (machine.not_found) and this one's \
+             vault pull is refused (vault.forbidden)"
+        ),
+    )
+    .with_fix(format!(
+        "If your other machines are in {personal}: select your personal team in the cmux app on \
+         this machine (a sign-in join follows the app's team), or run acpmux machine leave and join \
+         again with a line made in your personal team. If this team is the one you meant, join the \
+         other machines here too."
+    ))
+    .with_data(data)
 }
 
 fn heartbeat_step(value: &Value, now_ms: u64) -> JoinStep {

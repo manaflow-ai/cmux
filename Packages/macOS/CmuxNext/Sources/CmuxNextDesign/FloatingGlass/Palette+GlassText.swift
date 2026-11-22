@@ -13,6 +13,19 @@ extension Palette {
     ///   - reduceTransparency: decides which ground the toast shows; the toast passes its own.
     /// - Returns: the colour to draw.
     public static func toastText(_ ink: ThemeInk, reduceTransparency: ReduceTransparency = .shared) -> NSColor {
+        toastTextRGB(ink, reduceTransparency: reduceTransparency).nsColor
+    }
+
+    /// The title on a toast's ink-filled button (``CmuxToastButton/Style/ink``), which fills with the toast's
+    /// primary text: the window's background, fitted to read on that fill. theme-scoped
+    public static func toastInkTitle(reduceTransparency: ReduceTransparency = .shared) -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let fill = toastTextRGB(.primary, reduceTransparency: reduceTransparency)
+        return CmuxDialogButtonLook.readable(tokens.windowBackground.withAlpha(1), over: [fill]).nsColor
+    }
+
+    /// ``toastText(_:reduceTransparency:)`` as a colour value, for the colours fitted against it.
+    static func toastTextRGB(_ ink: ThemeInk, reduceTransparency: ReduceTransparency) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let ground: ThemeRGB
         if reduceTransparency.isEnabled {
@@ -21,7 +34,7 @@ extension Palette {
         } else {
             ground = Self.veilRGB(of: .toast, tokens: tokens).composited(over: tokens.windowBackground.withAlpha(1))
         }
-        return CmuxDialogButtonLook.readable(ink.rgb(tokens).withAlpha(1), over: [ground], minimum: ink.minimumContrast).nsColor
+        return CmuxDialogButtonLook.readable(ink.rgb(tokens).withAlpha(1), over: [ground], minimum: ink.minimumContrast)
     }
 
     /// The veil a neutral glass style lays over its glass: the gray, or with

@@ -284,6 +284,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
     private var scrollMeter = ScrollMeter()
     /// G-04: in-app frame intervals (`-CmuxMobileFrameLog`).
+    #if DEBUG
+    /// cmux#48951: wheel report -> Mac output -> present (`TerminalScrollBench`).
+    let rttLog = TerminalScrollRTT()
+    #endif
     private lazy var frameLog: TerminalFrameLog = {
         let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
         log.phaseProvider = { [weak self] in
@@ -346,6 +350,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
 
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
@@ -368,6 +378,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The scroll model is setting the offset (not a person).
     private var settingOffset = false
+    /// The page's offset at the last scroll: which way the reader moves past
+    /// a history window's end (``TerminalHistoryGap``).
+    private var lastGapOffsetY: CGFloat?
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
@@ -763,6 +776,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -789,6 +809,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            #if DEBUG
+            self.rttLog.presented()
+            #endif
         }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -807,6 +830,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        // A keyboard that went with no hide notification (while the app was in
+        // the background) is forgotten by the tracker: settle as after a hide.
+        keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
         #if DEBUG
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
@@ -879,12 +905,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         registerEdgeEffectScrollView()
         #if DEBUG
         frameLog.start()
+        TerminalScrollBench.install(self)
         #endif
         startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
         // composer on the first frame (Codex QA F8).
+        // The keyboard may have come or gone while the page was away; a
+        // keyboard on record that nothing owns now is gone (no inset for it).
+        keyboardTracker.dropKeyboardWithoutOwner()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         outputSinceProbe = true
@@ -937,6 +967,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 frame: surface.frame.minY..<surface.frame.maxY, document: 0..<document.contentHeight(cellHeight: cell.height),
                 current: scrollView.contentOffset.y, target: target, viewport: view.bounds.height),
                abs(y - scrollView.contentOffset.y) > 0.5 {
+                #if DEBUG
+                if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("I") }
+                #endif
                 settingOffset = true
                 scrollView.contentOffset.y = y
                 settingOffset = false
@@ -954,6 +987,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.contentOffset.y = target
             settingOffset = false
         }
+        #if DEBUG
+        if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("G") }
+        #endif
+        scroll.reachedTarget()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
         #if DEBUG
@@ -1472,7 +1509,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // TerminalReadingMark); otherwise to the prompt. A place
                 // waiting for older rows is placed by this reset's replay.
                 olderRowsAsked = false
+                #if DEBUG
+                let probeContext = probeResetContext()
+                let probeWaiting = restorePending
+                probeMarkMiss = "-"
+                #endif
                 markReadingPosition()
+                #if DEBUG
+                let outcome = probeWaiting ? "W" : (readingMark != nil ? "M" : "Z")
+                TerminalHistoryWindowProbe.shared.note(Character(outcome))
+                TerminalHistoryWindowProbe.shared.lastReset = "\(probeContext):\(outcome)\(outcome == "Z" ? probeMarkMiss : "")"
+                // The first attach marks nothing (no document yet): not a miss.
+                if outcome == "Z", document != nil {
+                    TerminalHistoryWindowProbe.shared.lastMiss = TerminalHistoryWindowProbe.shared.lastReset
+                }
+                #endif
                 // Held for the keyboard: the frame is held when it is fed.
                 if replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).takeHeldFrame {
                     freezeLastFrame()
@@ -1496,6 +1547,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            rttLog.outputArrived(bytes: data.count)
             #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
@@ -1672,6 +1724,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.scanOutput(data)
                 firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -1838,6 +1891,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// deadline and the held frame's cap leave the pending place alone until
     /// it does (a restore then would find the rows still missing).
     private var olderRowsAsked = false
+    /// Flings a reset stopped to place the reader (demo and bench readout,
+    /// `historyfling`).
+    private(set) var flingsStoppedByReset = 0
+    /// A fling reached within a screen of the oldest row held: the older
+    /// rows are asked for when it ends. Their replay starts with a reset,
+    /// and a reset stops a fling to place the reader, so asking mid-fling
+    /// cut the first fling up short (Leo, 2026-11-21: "this claude code cli
+    /// is often slow to scroll up and down from ios").
+    private var olderRowsWanted = false
     /// A place is waiting to be put back (the held frame stays for it).
     private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
     /// A place is waiting and the replay that places it is in (or overdue).
@@ -1845,12 +1907,29 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
+        let ownMark = pendingRestore == nil
         let pending = pendingRestore ?? readingMark.map { TerminalScrollRestore(mark: $0, fromEnd: false) }
         readingMark = nil
         pendingRestore = nil
         olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        fingerRestore = nil
+        #if DEBUG
+        let markOffsetY = readingMarkOffsetY
+        #endif
+        readingMarkOffsetY = nil
+        let held = scrollView.isTracking || scrollView.isDecelerating
+        // A gesture since the reset moved a page whose rows are the old
+        // replay's: the scroll model decides where the reader goes
+        // (`TerminalScrollModel.restoreReading`). Only the reader's own mark:
+        // a place waiting for older rows is dropped by the drag
+        // (`dropPendingRestore`).
+        guard var restore = pending, !model.isTUI, !held || ownMark else {
+            #if DEBUG
+            if pending != nil, !model.isTUI { TerminalHistoryWindowProbe.shared.note("T") }
+            #endif
+            return
+        }
         let total = scrollbar.total
         let reader = rowReader
         // Every row of the replay, read once (the whole-screen read is not
@@ -1869,13 +1948,100 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             olderRowsAsked = true
             let fromEnd = restore.mark.rowsFromEnd
             let loads = restore.olderLoads
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("S")
+            #endif
             sizingLog.notice("reading mark \(fromEnd, privacy: .public) rows from the end, above the \(total, privacy: .public) replayed: older rows asked (\(loads, privacy: .public))")
             return
         }
         let placed = restore.mark
-        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
-        scroll.restoreReading(anchor)
+        #if DEBUG
+        // The scroll state at the report and the rows the page moved since
+        // the mark (a gesture, or the reset's follow to the bottom).
+        let stateLetter: String
+        switch scroll.state {
+        case .following: stateLetter = "f"
+        case .reading: stateLetter = "r"
+        case .interacting: stateLetter = held ? "h" : "i"
+        }
+        let movedRows = markOffsetY.map { cell.height > 0 ? Int(((scrollView.contentOffset.y - $0) / cell.height).rounded()) : 0 }
+        TerminalHistoryWindowProbe.shared.lastPlace = "\(stateLetter)\(movedRows.map { $0 >= 0 ? "+\($0)" : "\($0)" } ?? "?")@\(anchor.row)/\(total)\(scrollView.isTracking ? "t" : (scrollView.isDecelerating ? "d" : ""))"
+        #endif
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public) (scroll \(String(describing: self.scroll.state), privacy: .public))")
+        if let underGesture = scroll.restoreReading(anchor) {
+            // A finger or its fling holds the page: placed once the document
+            // has the replay's rows (`applyFingerRestore`).
+            fingerRestore = underGesture
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("F")
+            #endif
+            return
+        }
+        guard scroll.state == .reading(anchor) else {
+            // The scroll model kept another state: the page stays on the old
+            // rows' offset in the new rows.
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("K")
+            #endif
+            return
+        }
         restoredMark = (placed, anchor)
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("P")
+        #endif
+    }
+
+    /// A reader's rows found while a finger or its fling held the page
+    /// (`restoreReadingMark`).
+    private var fingerRestore: TerminalScrollModel.Anchor?
+    /// The page's offset when the reading mark was taken (DEBUG probe only:
+    /// after the reset the page follows the old document's bottom, so this
+    /// is not the finger's move).
+    private var readingMarkOffsetY: CGFloat?
+
+    /// After the document took the replay's rows: a reader restored under a
+    /// finger or a fling gets the page moved to their rows. A fling is
+    /// stopped there and the page rests on those rows: its settle reads the
+    /// reader's rows (`TerminalScrollModel.settled`), and a drag that begins
+    /// before the page has their frame starts on them.
+    private func applyFingerRestore() {
+        guard let restore = fingerRestore else { return }
+        fingerRestore = nil
+        guard let document, cell.height > 0, !model.isTUI else {
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)x\(document == nil ? "doc" : (model.isTUI ? "tui" : "cell"))"
+            #endif
+            return
+        }
+        let target = document.contentY(ofRow: restore.row, cellHeight: cell.height) + restore.delta
+        let y = min(max(-scrollView.contentInset.top, target), maxOffsetY)
+        let decelerating = scrollView.isDecelerating || fling != nil
+        #if DEBUG
+        let probeGesture = scrollView.isTracking ? "t" : (decelerating ? "d" : "")
+        defer {
+            let state: String
+            switch scroll.state {
+            case .following: state = "f"
+            case .reading: state = "r"
+            case .interacting: state = "i"
+            }
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)y\(document.row(atContentY: max(0, y), cellHeight: cell.height))max\(document.row(atContentY: max(0, maxOffsetY), cellHeight: cell.height))\(probeGesture)>\(state)\(scroll.awaitsPlacement ? "u" : "")@\(document.row(atContentY: max(0, scrollView.contentOffset.y), cellHeight: cell.height))"
+        }
+        #endif
+        if decelerating {
+            fling?.stop()
+            fling = nil
+            stopGlide()
+        }
+        settingOffset = true
+        if decelerating {
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
+        } else {
+            scrollView.contentOffset.y = y
+        }
+        settingOffset = false
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        if decelerating, !scrollView.isTracking { settleScroll() }
     }
 
     /// Where the reader is, for the tab's next host when the warm set cools
@@ -1902,6 +2068,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard pendingRestore != nil else { return }
         pendingRestore = nil
         olderRowsAsked = false
+        #if DEBUG
+        TerminalHistoryWindowProbe.shared.note("D")
+        #endif
         sizingLog.notice("reading mark dropped: the person moved the page")
     }
 
@@ -1938,13 +2107,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if glide != nil {
             stopGlide(thenFollow: true)
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "glide"
+            #endif
             return
         }
         guard let anchor = readingAnchor() else {
             restoredMark = nil
+            #if DEBUG
+            probeMarkMiss = "anchor"
+            #endif
             return
         }
+        #if DEBUG
+        // The anchor, the rows Ghostty holds, its viewport's top and its grid's rows.
+        probeMarkMiss = "text\(anchor.row)/\(scrollbar.total)v\(scrollbar.offset)g\(surface.grid.rows)"
+        #endif
         if scrollView.isDecelerating || fling != nil {
+            flingsStoppedByReset += 1
             fling?.stop()
             fling = nil
             stopGlide()
@@ -1961,8 +2141,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
+        readingMarkOffsetY = readingMark == nil ? nil : scrollView.contentOffset.y
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
     }
+
+    #if DEBUG
+    /// Why the last reset marked nothing (`TerminalHistoryWindowProbe.lastReset`).
+    private var probeMarkMiss = "-"
+
+    /// The scroll state for the probe: `f`, `r` or `i`, `u` while a restore
+    /// has not reached its rows, `t` a finger or `d` a deceleration.
+    private func probeResetContext() -> String {
+        var context: String
+        switch scroll.state {
+        case .following: context = "f"
+        case .reading: context = "r"
+        case .interacting: context = "i"
+        }
+        if scroll.awaitsPlacement { context += "u" }
+        if scrollView.isTracking || scrollView.isDragging {
+            context += "t"
+        } else if scrollView.isDecelerating {
+            context += "d"
+        }
+        return context
+    }
+    #endif
 
     /// The replay gate's own deadline (V3-2): the document is never left
     /// ungrown past it, held frame or not.
@@ -1976,6 +2180,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
             }
             self.applyScroll()
             if let held = self.freezeView, !self.restorePending { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
@@ -1995,6 +2200,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -2080,6 +2286,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
         updateDocument()
+        if restoring { applyFingerRestore() }
         if restoring { applyScroll() }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm scrollbar %@", debugState) }
@@ -2168,6 +2375,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
+                self.applyFingerRestore()
                 self.applyScroll()
             }
             self.releaseHeldFrameAtCap(held, recover: true)
@@ -2244,6 +2452,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the foreground: UIKit posted no hide for a keyboard that
+        // went while the app was away, so the dock may still hold its inset.
+        keyboardTracker.dropKeyboardWithoutOwner()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -2577,6 +2788,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        #if DEBUG
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
@@ -2984,9 +3201,42 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).
-        if scrollView.isTracking || scrollView.isDecelerating,
-           scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
-            model.session.loadOlderHistory()
+        // A finger on the page asks at once; a fling asks when it ends
+        // (`olderRowsWanted`), since the replay's reset would stop it.
+        if scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            if scrollView.isTracking {
+                model.session.loadOlderHistory()
+            } else if scrollView.isDecelerating || fling != nil {
+                olderRowsWanted = true
+            }
+        }
+        // The mirror holds a window far above the Mac's screen (a long
+        // history): a reader within a screen of where the window ends gets
+        // the newer rows, or the newest when they came up from the screen.
+        // Not while a reset's replay is fed or the reader's rows are still to
+        // be put back: the page's rows then are not the reader's, and a fling
+        // up to line 1 moved the window back down 40 times on its way
+        // (simulator run 8f9f55310f87a97be78b36cd).
+        let gapOffsetY = scrollView.contentOffset.y
+        defer { lastGapOffsetY = gapOffsetY }
+        if scrollView.isTracking || scrollView.isDecelerating, cell.height > 0,
+           !replayGate.isReplaying, !restorePending, let lastY = lastGapOffsetY, gapOffsetY != lastY,
+           let windowRows = model.session.historyWindowRows {
+            let gap = TerminalHistoryGap(shift: feedHostRows.map { surface.grid.rows - $0 } ?? 0, windowRows: windowRows)
+            let minY = max(0, gapOffsetY)
+            let top = originRow + Int(floor(minY / cell.height))
+            let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
+            if let need = gap.need(visibleTop: top, visibleBottom: bottom, movingDown: gapOffsetY > lastY) {
+                let asked = model.session.loadNewerHistory(toTheScreen: need == .newest)
+                #if DEBUG
+                if asked { TerminalHistoryWindowProbe.shared.note(need == .newest ? "N" : "R") }
+                if asked, need == .newest {
+                    let probe = TerminalHistoryWindowProbe.shared
+                    probe.lastNewest = "\(top)-\(bottom)/gap\(gap.row)/doc\(originRow)-\(document?.endRow ?? -1)/after:\(probe.lastPlace)/\(probeResetContext())"
+                }
+                #endif
+                _ = asked
+            }
         }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
@@ -3019,7 +3269,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         // A finger owns the offset until it lifts (or the deceleration ends).
-        scroll.began()
+        // A restore still waiting for its frame (applyScroll) moves the page
+        // to the reader's rows first, so the drag starts there. Before, the
+        // drag started on the old offset, the Mac's screen after a history
+        // window's replay, and a fling up asked for the newest rows (#43189,
+        // step fdef196a3760133107947747: `place=f…@1656/4151`, then
+        // `newest=4096-4152/gap4111`).
+        if let unplaced = scroll.began(), let document, cell.height > 0, !model.isTUI {
+            let y = document.contentY(ofRow: unplaced.row, cellHeight: cell.height) + unplaced.delta
+            settingOffset = true
+            scrollView.contentOffset.y = min(max(-scrollView.contentInset.top, y), maxOffsetY)
+            settingOffset = false
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("U")
+            #endif
+        }
         restoredMark = nil
         dropPendingRestore()
         placesFromReport = false
@@ -3030,6 +3295,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        // A finger caught the fling: it asks for older rows itself if it
+        // drags near the top.
+        olderRowsWanted = false
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -3068,7 +3336,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         scrollMeter = ScrollMeter()
         #endif
+        let olderWanted = olderRowsWanted
+        olderRowsWanted = false
         guard !model.isTUI, cell.height > 0 else { return }
+        if olderWanted, scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            model.session.loadOlderHistory()
+        }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
         if measureAfterGesture {
             measureAfterGesture = false
@@ -3079,7 +3352,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
         #endif
         applyScroll()
+        #if DEBUG
+        noteTopRowForProbe()
+        #endif
     }
+
+    #if DEBUG
+    /// The first word of the page's first row with text, for
+    /// `TerminalHistoryWindowProbe` (the history demo's rows start with
+    /// their number, so a UI test reads which row the reader rests on).
+    private func noteTopRowForProbe() {
+        guard let document, cell.height > 0 else { return }
+        let first = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height).row
+        let reader = rowReader
+        for row in max(0, first)..<(max(0, first) + max(1, Int(scrollView.bounds.height / cell.height))) {
+            guard let text = reader.text(TerminalAbsoluteRow(row)) else { continue }
+            if let word = text.split(separator: " ", omittingEmptySubsequences: true).first {
+                TerminalHistoryWindowProbe.shared.topWord = String(word)
+                return
+            }
+        }
+    }
+    #endif
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
@@ -3189,6 +3483,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
 
+    /// DEBUG demo: a fling over a full-screen app, as the wheel (T-SCROLL-12).
+    func tuiFling(velocity: CGFloat) {
+        tuiScroll.demoFling(velocityY: velocity)
+    }
+
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {
@@ -3202,6 +3501,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         fling = animator
         animator.start()
+    }
+
+    /// DEBUG demo: a fling up from here that runs out half a screen below the
+    /// top of the rows held, slowing through the last screen the way a
+    /// reader's fling into the top does (`historyfling`). The demo fling
+    /// keeps `velocity * 0.998^ms`, so it travels `velocity / 2.002` points.
+    func flingToNearTop() {
+        let distance = scrollView.contentOffset.y + scrollView.contentInset.top - scrollView.bounds.height / 2
+        guard distance > 0 else { return }
+        fling(velocity: -distance * 2.002)
     }
 
     // MARK: Keyboard
@@ -3621,6 +3930,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        #if DEBUG
+        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
+        #endif
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
@@ -3690,6 +4002,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardStopped()
+        keyboardDidChange()
+    }
+
+    /// The tracker forgot a keyboard nothing owns (UIKit never posted its
+    /// hide): the dock's guide is already back at rest; the key row's
+    /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
+    private func keyboardDropped() {
+        dock.keyboardWillHide()
+        dock.keyboardDidHide()
+        if model.keyboardVisible { model.keyboardVisible = false }
+        // As keyboardDidHide: output held while the keyboard moved goes out.
         keyboardStopped()
         keyboardDidChange()
     }

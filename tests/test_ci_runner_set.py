@@ -17,19 +17,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
-from one_linux_label import CANONICAL, EPHEMERAL_ONLY  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 POOL = "fromJSON(vars.RUNNER_POOLS).linux"
-# Since 2026-11-20 every Linux x64 job that may run on a persistent host takes one label (scripts/ci/one_linux_label.py;
-# Leo: "you shouldn't have to think about sizing your f*** CI ... Just send it somewhere"). A route that admits only an
-# ephemeral vendor runner keeps its pool read.
-ONE_LABEL = "|| 'cmux-linux' }}"
-SIZE = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux(?!_arm)|vars\.LINUX_RUNNER(?![A-Z_])"
-                  r"|CI_CLOUD_OVERFLOW_SAVED")
 TARGETS = {
     "app-platform.yml": {"check"},
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
@@ -37,9 +29,9 @@ TARGETS = {
     # 2026-10-31T23:57Z queue alarms: each sat 44-46 min on one Blacksmith size that started nothing
     # (gallery health on a fixed 16 vCPU label, web validation and PR checks' base-only on 32, the cloud
     # backend check on the capability map's fixed 4 vCPU label). Gallery health now reads the 16 vCPU pool,
-    # which moves to 32 vCPU on a stall (POOL_16 below).
+    # which moves to 32 vCPU on a stall (POOL_16 below). PR checks' jobs are now one advisory job holding a
+    # write token (CI v2 step 6), on the PR control JIT label: test_pr_checks_advisory_takes_a_one_job_vm.
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
-    "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
     "pr-body-checks.yml": {"body"},
 }
 
@@ -53,19 +45,19 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
-        # Its credentialed body takes a live verified fleet Linux placement when available, then
-        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
-        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
-        job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
+    def test_changes_router_takes_the_persistent_linux_pool(self) -> None:
+        # Its App-token body (GitHub API reads, no signing or release secret) takes the persistent
+        # cmux-linux pool on every attempt, with no placement job before it; forks keep Blacksmith.
+        # GitHub-hosted Ubuntu left it queued for hours on 2026-11-18 (cmux#45735).
+        jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+        job = jobs["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
-        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
-        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
+        self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith(
-            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
-        self.assertEqual(job["needs"], ["portable-placement"])
-        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertNotIn("needs", job)
+        self.assertNotIn("portable-placement", jobs)
 
     def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
         # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
@@ -77,12 +69,11 @@ class RunnerSetTests(unittest.TestCase):
         hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
         # The job that holds a pull-requests write token, or runs the checked-out revision's
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
+        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ONE_LABEL,
-            ("ci-guards.yml", "guard-status"): ONE_LABEL,
-            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
-            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
+            ("cmux-next.yml", "path_route"): ephemeral,
+            ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -93,7 +84,6 @@ class RunnerSetTests(unittest.TestCase):
                                  r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
                 self.assertNotIn(hosted, runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
-                self.assertIsNone(SIZE.search(runs_on), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
     def test_no_light_job_takes_hosted_ubuntu_on_attempt_one(self) -> None:
@@ -110,24 +100,20 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertIsNone(hosted.search(line), line)
                     self.assertNotIn("hosted_saturated", line)
 
-    def test_stalled_paths_take_the_one_linux_label(self) -> None:
+    def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
             document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}
             jobs = document.get("jobs") or {}
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
-                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
+                    direct = workflow == "web-validation.yml" and name == "web-validation"
                     if direct:
                         self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
                         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
                         self.assertNotIn("needs.", runs_on)
-                    elif EPHEMERAL_ONLY.search(runs_on):
-                        self.assertIn(POOL, runs_on)  # kept on an ephemeral vendor runner (one_linux_label.py)
                     else:
-                        self.assertTrue(runs_on.endswith(ONE_LABEL), runs_on)
-                        self.assertIsNone(SIZE.search(runs_on), runs_on)
+                        self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
@@ -135,13 +121,28 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
-    def test_gallery_health_takes_the_one_linux_label(self) -> None:
-        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases) read the 16 vCPU
-        # pool; the one Linux label's pool now sizes it.
+    def test_pr_checks_advisory_takes_a_one_job_vm(self) -> None:
+        # pr-checks.yml's six jobs became one (CI v2 step 6) that writes the status comment lines, so it never
+        # reads RUNNER_POOLS (whose x64 pools lead with persistent machines) and never a shared persistent label:
+        # a fork takes Blacksmith, any other run CI_TRUSTED_RUNNER; not the PR control JIT label, which backed up.
+        job = yaml.safe_load((WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8"))["jobs"]["advisory"]
+        runs_on = runs_on_text(job, "pr-checks.yml#advisory")
+        self.assertNotIn("cmux-gcp-pr-control-jit-x64", runs_on)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && "
+                      "'blacksmith-4vcpu-ubuntu-2404'", runs_on)
+        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
+                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
+            self.assertNotIn(persistent, runs_on)
+        self.assertEqual(job["permissions"]["pull-requests"], "write")
+
+    def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
+        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
+        # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
         job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
         runs_on = runs_on_text(job, "gallery-health.yml#health")
-        self.assertTrue(runs_on.rstrip().endswith(ONE_LABEL), runs_on)
-        self.assertIsNone(SIZE.search(runs_on), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 
     def test_cmux_next_pr_quiet_period_comes_before_every_mac_job(self) -> None:
