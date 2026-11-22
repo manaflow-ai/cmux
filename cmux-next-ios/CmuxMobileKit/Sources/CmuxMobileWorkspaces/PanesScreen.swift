@@ -23,7 +23,7 @@ struct PanesScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbar { toolbar }
-            .background(theme.colors.bg.color.ignoresSafeArea())
+            .background(CmuxMobileBackdrop().ignoresSafeArea())
             .overlay(alignment: .bottom) { toast }
             .alert("Rename Pane", isPresented: Binding(
                 get: { source.renamingPane != nil },

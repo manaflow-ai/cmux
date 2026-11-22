@@ -26,7 +26,7 @@ struct TabGroupPage: View {
             .navigationTitle(group?.displayName ?? "Tab Group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
-            .background(theme.colors.bg.color.ignoresSafeArea())
+            .background(CmuxMobileBackdrop().ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             // Ungrouped, closed or moved to another workspace on the Mac: nothing left to act on.
             // Not while the Mac's link is down or coming back (its list returns in pieces): the

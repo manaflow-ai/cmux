@@ -28,7 +28,7 @@ struct ScreensPage: View {
                     }
                 }
             }
-            .background(theme.colors.bg.color.ignoresSafeArea())
+            .background(CmuxMobileBackdrop().ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             .alert("Rename Screen", isPresented: Binding(
                 get: { source.renamingScreen != nil },

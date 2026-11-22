@@ -3,6 +3,7 @@ import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileSupport
 import GhosttyNextKit
+import Observation
 import SwiftUI
 import UIKit
 import OSLog
@@ -110,6 +111,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// (shorter) grid shows nothing live or stale (the surface reaches below
     /// the area).
     private let tuiBelowCover = UIView()
+    /// The page's ground and the copies under the chrome that hides rows (``TerminalGroundView``):
+    /// the Mac's wallpaper under its tint while the terminal shows its Mac's look, else the plain background.
+    private lazy var pageGround = TerminalGroundView(page: view)
+    private lazy var backingGround = TerminalGroundView(page: view)
+    private lazy var coverGround = TerminalGroundView(page: view)
+    private lazy var headerGround = TerminalGroundView(page: view)
+    private lazy var fadeGround = TerminalGroundView(page: view, fade: true)
+    private lazy var scrimGround = TerminalGroundView(page: view, fade: true)
+    private var groundInstalled = false
+    /// Whether a wallpaper change is being watched (one watch at a time; it re-arms when it fires).
+    private var groundObserved = false
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
@@ -442,6 +454,73 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         if statusScrim.superview != nil {
             statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+        }
+        applyGround()
+    }
+
+    // MARK: The ground (the Mac's wallpaper)
+
+    /// Puts the grounds in place, once the chrome they sit under exists (the first layout).
+    private func installGround() {
+        guard !groundInstalled else { return }
+        groundInstalled = true
+        pageGround.frame = view.bounds
+        pageGround.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(pageGround, at: 0)
+        for (ground, host) in [(backingGround, bottomBacking), (coverGround, tuiBelowCover), (fadeGround, bottomFade as UIView)] {
+            ground.frame = host.bounds
+            ground.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host.addSubview(ground)
+        }
+        if statusScrim.superview != nil {
+            scrimGround.frame = statusScrim.bounds
+            scrimGround.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            statusScrim.addSubview(scrimGround)
+        }
+        headerGround.isHidden = true
+        view.insertSubview(headerGround, belowSubview: tuiHeader)
+        applyGround()
+    }
+
+    /// Paints the grounds with the Mac's wallpaper (``CmuxMobileMacTheme/wallpaper``) under the
+    /// terminal background at its tint, and makes the surface see-through over it, as the Mac's
+    /// terminals are over its window's picture; without a wallpaper the page is the terminal
+    /// background as before. Follows the wallpaper live (Observation).
+    private func applyGround() {
+        guard groundInstalled else { return }
+        let wallpaper: (image: UIImage, tint: Double)?
+        if groundObserved {
+            wallpaper = CmuxMobileMacTheme.shared.wallpaper
+        } else {
+            groundObserved = true
+            wallpaper = withObservationTracking {
+                CmuxMobileMacTheme.shared.wallpaper
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.groundObserved = false
+                    self?.applyGround()
+                }
+            }
+        }
+        let base = terminalBackground
+        let seeThrough = wallpaper != nil
+        surface.seeThrough = seeThrough
+        for ground in [pageGround, backingGround, coverGround, headerGround, fadeGround, scrimGround] {
+            ground.show(wallpaper, background: base)
+        }
+        // Over the picture the chrome's own colors would hide it: the grounds under them paint instead.
+        pageGround.isHidden = !seeThrough
+        for ground in [backingGround, coverGround, fadeGround, scrimGround] { ground.isHidden = !seeThrough }
+        let clear = UIColor.clear
+        bottomBacking.backgroundColor = seeThrough ? clear : base
+        tuiBelowCover.backgroundColor = seeThrough ? clear : base
+        bottomFade.gradient.colors = seeThrough ? [clear.cgColor, clear.cgColor]
+            : [base.withAlphaComponent(0).cgColor, base.cgColor]
+        fadeGround.setFade(alphas: [0, 1], locations: nil)
+        if statusScrim.superview != nil {
+            statusScrim.gradient.colors = seeThrough ? [clear.cgColor, clear.cgColor, clear.cgColor]
+                : [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+            scrimGround.setFade(alphas: [1, 1, 0], locations: statusScrim.gradient.locations)
         }
     }
 
@@ -1417,6 +1496,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        installGround()
+        if pageGround.showsPicture {
+            for ground in [backingGround, coverGround, fadeGround, scrimGround] { ground.align() }
+            if statusScrim.superview != nil { scrimGround.setFade(alphas: [1, 1, 0], locations: statusScrim.gradient.locations) }
+        }
         keyboardDock.refresh()
         measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
@@ -4335,6 +4419,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
               let frameLayer = surface.layer.sublayers?.first, let contents = frameLayer.contents,
               frameLayer.bounds.width > 0, frameLayer.bounds.height > 0 else {
             if !tuiHeader.isHidden { tuiHeader.isHidden = true }
+            if !headerGround.isHidden { headerGround.isHidden = true }
             tuiHeader.layer.contents = nil
             return
         }
@@ -4352,6 +4437,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         CATransaction.setDisableActions(true)
         if tuiHeader.frame != frame { tuiHeader.frame = frame }
         tuiHeader.backgroundColor = surface.backgroundColor
+        // See-through rows over the picture: the ground under the header hides the rows under it.
+        if headerGround.frame != frame { headerGround.frame = frame }
+        headerGround.isHidden = !pageGround.showsPicture
+        headerGround.align()
         tuiHeader.layer.contents = contents
         tuiHeader.layer.contentsRect = unit
         let hairline = 1 / (view.window?.screen.scale ?? surface.renderScale)

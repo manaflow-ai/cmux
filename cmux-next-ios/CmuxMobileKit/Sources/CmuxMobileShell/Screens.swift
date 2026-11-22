@@ -96,7 +96,7 @@ struct WorkspacesScreen: View {
                 },
                 filter: shell.macFilter
             ) { shell.workspacesPath.append($0) }
-                .background(theme.colors.bg.color.ignoresSafeArea())
+                .background(CmuxMobileBackdrop().ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
