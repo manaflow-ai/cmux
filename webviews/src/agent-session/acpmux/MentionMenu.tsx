@@ -82,11 +82,12 @@ export function MentionMenu({
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (
-              <span className="acpmux-slash-description">{item.dir.length > 0 ? runs(item.dir) : item.path}</span>
+              item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
             )}
+            {/* Return (or Tab) picks the highlighted row: its keycap, as New Tab's list shows it. */}
             {showOutcomeHints && index === active && (
-              <kbd className="acpmux-slash-keycap" data-popup-skip>
-                Tab
+              <kbd className="acpmux-slash-keycap" aria-hidden="true" data-popup-skip>
+                ↩
               </kbd>
             )}
           </>

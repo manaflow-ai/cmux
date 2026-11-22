@@ -43,8 +43,7 @@ export function SlashMenu({
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
-  const outcomeArm = experimentArm(composerOutcomeHints);
-  const showOutcomeHints = outcomeArm === "outcomes";
+  const showOutcomeHints = experimentArm(composerOutcomeHints) === "outcomes";
   const list = useRef<HTMLDivElement>(null);
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
@@ -193,18 +192,15 @@ export function SlashMenu({
                 {sourceTag(match)}
               </span>
             )}
-            {showOutcomeHints ? (
+            {(showOutcomeHints || highlighted) && (
               <span className="acpmux-slash-description" data-popup-detail>
                 {describe(match)}
               </span>
-            ) : highlighted ? (
-              <span className="acpmux-slash-description" data-popup-detail>
-                {describe(match)}
-              </span>
-            ) : null}
+            )}
+            {/* Return's row says so, as New Tab's list does (NewTabScreen.tsx .nt-row-return). */}
             {showOutcomeHints && highlighted && (
-              <kbd className="acpmux-slash-keycap" data-popup-skip>
-                {slashKeycap(match.command)}
+              <kbd className="acpmux-slash-keycap" aria-hidden="true" data-popup-skip>
+                ↩
               </kbd>
             )}
           </>
@@ -212,12 +208,6 @@ export function SlashMenu({
       }}
     />
   );
-}
-
-function slashKeycap(command: SlashCommand): string {
-  if (command.source === "skill" || command.source === "prompt" || command.source === "extension") return "Insert";
-  if (command.source === "cmux") return "Run";
-  return "↩";
 }
 
 function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {

@@ -8,7 +8,13 @@ import { MentionMenu } from "./MentionMenu";
 import type { MentionState } from "./mentionMenuModel";
 import { mentionItems } from "./mentionItems";
 
-type Props = { surface: "files" | "mentions"; state: "pending" | "loaded" | "empty" | "failed"; many?: boolean };
+type Props = {
+  surface: "files" | "mentions";
+  state: "pending" | "loaded" | "empty" | "failed";
+  many?: boolean;
+  /** composerOutcomeHints.experiment.ts's arm, pinned for the Beyer composer comparison. */
+  arm?: string;
+};
 const results = [
   { path: "src/example.ts", matches: [] },
   { path: "src/components/example-card.tsx", matches: [] },
@@ -22,7 +28,8 @@ const searches: Record<Props["state"], FileSearchSource> = {
     throw new Error("unavailable");
   },
 };
-function FilePickerLoadingFixture({ surface, state, many }: Props) {
+function FilePickerLoadingFixture({ surface, state, many, arm }: Props) {
+  if (arm) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "composer-outcome-hints": arm };
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (surface !== "files") return;
@@ -87,5 +94,13 @@ export default componentEntry<Props>({
     "mentions-loaded": { props: { surface: "mentions", state: "loaded" } },
     "mentions-empty": { props: { surface: "mentions", state: "empty" } },
     "mentions-failed": { props: { surface: "mentions", state: "failed" } },
+    "mentions-outcome-now": {
+      note: "Today's @ list, the top row highlighted.",
+      props: { surface: "mentions", state: "loaded", arm: "now" },
+    },
+    "mentions-outcome-rows": {
+      note: "Outcome hints (c): the highlighted @ row shows Return's keycap, as New Tab's list does.",
+      props: { surface: "mentions", state: "loaded", arm: "outcomes" },
+    },
   },
 });
