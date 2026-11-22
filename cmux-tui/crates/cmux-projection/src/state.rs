@@ -1,5 +1,5 @@
 //! A projection's record on the machine: `state.json` in its state folder, beside `upper/`,
-//! `whiteouts` and `cache/` ([`crate::overlay`]). It says where the projection is mounted, when the
+//! `whiteouts` and `cache/` (`overlay`). It says where the projection is mounted, when the
 //! Mac last dialed it, and the two facts that let the machine free what the chat wrote there
 //! (RFD 0007, hard case 8; HQ handbook `chat-state-outlives-the-chat`):
 //!

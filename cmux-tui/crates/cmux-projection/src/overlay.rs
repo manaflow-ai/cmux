@@ -227,7 +227,7 @@ fn cache_on_disk(cache: &Path) -> CacheIndex {
             let key = cache_key(entry.file_name().to_str()?)?;
             let meta = entry.metadata().ok()?;
             let written = meta.mtime().saturating_mul(1_000_000_000) + meta.mtime_nsec();
-            meta.is_file().then(|| (written, key, meta.len()))
+            meta.is_file().then_some((written, key, meta.len()))
         })
         .collect();
     blobs.sort_unstable();
@@ -492,7 +492,7 @@ impl Overlay {
             overlay.write_whiteouts(&inner).map_err(std::io::Error::from_raw_os_error)?;
         }
         // A cache an earlier daemon (or a bigger cap) left goes down to the cap now.
-        overlay.make_room(&mut overlay.cache_lock(), 0);
+        overlay.evict_to_fit(&mut overlay.cache_lock(), 0);
         Ok(overlay)
     }
 
@@ -500,7 +500,7 @@ impl Overlay {
     #[must_use]
     pub fn with_cache_max(mut self, bytes: u64) -> Self {
         self.cache_max = bytes;
-        self.make_room(&mut self.cache_lock(), 0);
+        self.evict_to_fit(&mut self.cache_lock(), 0);
         self
     }
 
@@ -521,7 +521,7 @@ impl Overlay {
     }
 
     /// Drops the least recently used blobs until `incoming` more bytes fit under the cap.
-    fn make_room(&self, index: &mut CacheIndex, incoming: u64) {
+    fn evict_to_fit(&self, index: &mut CacheIndex, incoming: u64) {
         while index.bytes.saturating_add(incoming) > self.cache_max {
             let Some(oldest) = index.oldest() else { break };
             let bytes = index.remove(oldest).unwrap_or(0);
@@ -1065,7 +1065,7 @@ impl Overlay {
         // more than its cap, and no eviction races a blob landing.
         let mut index = self.cache_lock();
         index.remove(key);
-        self.make_room(&mut index, size);
+        self.evict_to_fit(&mut index, size);
         if fs::rename(&temp, self.cache_path(key)).is_ok() {
             index.insert(key, size);
         } else {
