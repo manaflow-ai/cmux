@@ -64,6 +64,9 @@ class Ctx:
     token: str = field(default_factory=lambda: f"rows{int(time.time())}")
     raw_cli: Path | None = None
     version_seq: int = 0
+    # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
+    app: Path | None = None
+    pid_file: Path | None = None
 
     @property
     def globals_(self) -> list[str]:
@@ -403,10 +406,97 @@ def row_ext_new(ctx: Ctx) -> dict:
     return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
             "kinds": kinds, "per_kind": per_kind}
 
+SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
+
+
+def side_relaunch(ctx: Ctx, between=None) -> dict:
+    """Stops the side copy (the app, its daemon and helpers), runs `between()` while nothing of it runs, launches
+    it again and attaches ctx to the new control and daemon sockets."""
+    name, side_root = ctx.pid_file.parent.name, ctx.pid_file.parent.parent
+    env = os.environ | {"CMUX_SIDE_ROOT": str(side_root)}
+    stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+    done = between() if between else None
+    launch = subprocess.run([str(SIDE), "launch", name], capture_output=True, text=True, env=env, timeout=180)
+    ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file, ctx.control)
+    return {"stop": stop.returncode, "between": done, "launch": launch.returncode,
+            "launch_err": launch.stderr[-400:]}
+
+
+def daemon_session_dirs(ctx: Ctx) -> list[Path]:
+    """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
+    `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
+    state (cmux-tui-core apps.rs `session_state_directory`)."""
+    marker = (ctx.pid_file.parent / ".side-instance").read_text()
+    key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
+    root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
+    return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+
+
+def row_widget(ctx: Ctx) -> dict:
+    """Widgets (#45106 Mac and web, on the daemon's `apps.widgets.*`): a `cmux.widget/1` extension is offered for
+    both places (`apps.widgets.list`), and an op from outside the app cannot place it (only a person's gesture
+    may, `apps.origin`). The placed tiles a person would add are then seeded as the daemon saves them
+    (`apps-widgets-layout.json` in the copy's own session folder, the copy stopped), and after a relaunch the
+    sidebar and a New Tab page draw the widget: its render export ran for each place (`apps-logs`, the mount
+    context's `place`) or the window's `apps.views` holds its words. Relaunches the copy: run it last."""
+    word = f"{ctx.token} widget"
+    install = install_customize(ctx, {
+        "name": "Rows widget", "description": "A widget.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.widget/1": {"export": "renderWidget", "title": "Rows widget", "symbol": "square",
+                                         "options": {"sizes": ["small", "medium"], "defaultSize": "small",
+                                                     "places": ["newtab", "sidebar"]}}}},
+        {"main.js": ("function renderWidget(ctx) {\n"
+                     "  const place = (ctx && ctx.place) || 'unknown'\n"
+                     f"  console.log({json.dumps(word)} + ' ' + place)\n"
+                     f"  return VStack([Text({json.dumps(word)} + ' ' + place)])\n}}\n"
+                     "globalThis.__cmuxAppExports = { renderWidget }\n")})
+
+    def listed(place: str) -> dict:
+        return store_op(ctx, "apps.widgets.list", {"place": place})
+
+    def offered(reply: dict) -> bool:
+        return any(w.get("app") == CUSTOMIZE_APP for w in ((reply.get("data") or {}).get("widgets") or []))
+
+    offers = {place: listed(place) for place in ("sidebar", "newtab")}
+    self_place = store_op(ctx, "apps.widgets.layout.edit", {
+        "place": "sidebar", "edit": {"op": "add", "app": CUSTOMIZE_APP}, "idempotency_key": f"{ctx.token}-self"})
+    tiles = {"sidebar": "w901", "newtab": "w902"}
+    layout = {"revision": 1, "next": 903,
+              **{place: [{"instance": tile, "app": CUSTOMIZE_APP, "size": "small"}] for place, tile in tiles.items()}}
+    dirs = daemon_session_dirs(ctx)
+
+    def seed() -> list[str]:
+        for d in dirs:
+            (d / "apps-widgets-layout.json").write_text(json.dumps(layout, indent=2))
+        return [str(d) for d in dirs]
+
+    relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder of the copy's key"}
+    placed = {place: listed(place) for place in tiles}
+    # A New Tab page shows the New Tab widget grid.
+    opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
+    drawn = {}
+    for place in tiles:
+        text = f"{word} {place}"
+        shown = wait_for(lambda: [v for v in views(ctx, "cmux.widget/1")
+                                  if any(text in t for t in v.get("texts") or [])], wait=20)
+        drawn[place] = {"views": shown, "log_lines": logs_with(ctx, text, wait=5)}
+    return {"checks": {"installed": install["installed"],
+                       "offered_for_sidebar": offered(offers["sidebar"]),
+                       "offered_for_newtab": offered(offers["newtab"]),
+                       "op_cannot_place_it": self_place.get("ok") is not True,
+                       "layout_read": all(tile in json.dumps(placed[p]) for p, tile in tiles.items()),
+                       "sidebar_draws_it": bool(drawn["sidebar"]["views"] or drawn["sidebar"]["log_lines"]),
+                       "newtab_draws_it": bool(drawn["newtab"]["views"] or drawn["newtab"]["log_lines"])},
+            "install": install, "offers": offers, "self_place": self_place, "relaunch": relaunch,
+            "placed": placed, "open": opened, "drawn": drawn, "views": views(ctx)}
+
+
+row_widget.needs_app = True
+
 
 # Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
-# open a tab last; ext_new uses folders of its own.
+# open a tab last; ext_new uses folders of its own; widget relaunches the copy, so it runs last.
 ROWS = {
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
@@ -415,6 +505,7 @@ ROWS = {
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
     "web_pane": (row_web_pane, "#41546 #43033"),
+    "widget": (row_widget, "#45106"),
 }
 
 
@@ -449,6 +540,18 @@ def raw_cli_for(cli: Path, work: Path) -> Path:
     return link
 
 
+def attach_copy(app: Path, cli: Path, pid_file: Path, socket_hint: str | None = None) -> tuple[str, str]:
+    """The running copy's control socket and daemon socket, the daemon started by a workspace with a terminal."""
+    app_pid = int(pid_file.read_text().strip())
+    control = reload_nightly.wait_until("the copy's control socket", time.monotonic() + 120,
+                                        lambda: control_socket(app_pid, socket_hint))
+    reload_nightly.bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
+    reload_nightly.bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
+    daemon = reload_nightly.wait_until("the copy's daemon", time.monotonic() + 180,
+                                       lambda: reload_nightly.hot.find_socket(app, cli))
+    return control, daemon
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", help="the running side-instance copy")
@@ -470,22 +573,16 @@ def main() -> int:
     if args.app:
         app = Path(args.app)
         cli = (app / reload_nightly.hot.BIN / "cmux").resolve()
-        app_pid = int(Path(args.pid_file).read_text().strip())
         receipt |= {"app": str(app), "app_commit": reload_nightly.hot.app_commit(app)}
-        control = reload_nightly.wait_until("the copy's control socket", time.monotonic() + 120,
-                                            lambda: control_socket(app_pid, args.control_socket))
-        # A workspace with a terminal starts the copy's daemon.
-        reload_nightly.bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
-        reload_nightly.bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
-        daemon = reload_nightly.wait_until("the copy's daemon", time.monotonic() + 180,
-                                           lambda: reload_nightly.hot.find_socket(app, cli))
+        control, daemon = attach_copy(app, cli, Path(args.pid_file), args.control_socket)
     elif args.cli and args.daemon_socket:
         cli, daemon, control = Path(args.cli).resolve(), args.daemon_socket, args.control_socket
     else:
         parser.error("give --app and --pid-file, or --cli and --daemon-socket")
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
     receipt |= {"daemon_socket": daemon, "control_socket": control}
-    ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control)
+    ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control,
+              app=Path(args.app) if args.app else None, pid_file=Path(args.pid_file) if args.pid_file else None)
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
     receipt["token"] = ctx.token
