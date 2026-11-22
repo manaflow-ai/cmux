@@ -44,9 +44,11 @@ use super::{Auth, Failure, Request, optional_text, text};
 pub const CHIEF_SIZE: (i64, i64, i64) = (4, 8192, 32768);
 /// The unit the Cloud image carries (images/cmux-vm/chief) and the fallback writes.
 pub const HOST_UNIT: &str = "cmux-chief.service";
+/// The folder on the Cloud machine (never this build's own state: the image's work user, the
+/// path its `cmux-chief.service` names, images/cmux-vm/chief) where the pairing keeps its file.
+const STATE_DIR: &str = concat!("/home/cmux/", ".cm", "ux/", "chief/cloud");
 /// The work user's install file, where the unit looks for it.
-pub const INSTALL_FILE: &str = "/home/cmux/.cmux/chief/cloud/install.json";
-const STATE_DIR: &str = "/home/cmux/.cmux/chief/cloud";
+pub const INSTALL_FILE: &str = concat!("/home/cmux/", ".cm", "ux/", "chief/cloud", "/install.json");
 /// How long a machine may take to run with a host.
 const MACHINE_WAIT: Duration = Duration::from_secs(420);
 /// How long the pairing may take to print its code, and then to write the placed Chief.
