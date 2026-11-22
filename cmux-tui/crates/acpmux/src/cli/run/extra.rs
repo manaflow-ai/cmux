@@ -286,7 +286,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
-        Command::Register { name, code } => {
+        Command::Register { renew: true, .. } => {
+            // A hook's step: bounded, silent, and never a failure the session sees.
+            let v = crate::cli::reply_address::renew().await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
+        Command::Register { name, code, renew: false } => {
+            let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
@@ -398,12 +407,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         .await?
                 }
                 "model" => {
-                    client
+                    let v = client
                         .request(
                             method::SESSION_SET_MODEL,
                             json!({"sessionId": id, "modelId": val}),
                         )
-                        .await?
+                        .await?;
+                    // The daemon read the name as its catalog id (`hub/model_alias.rs`).
+                    if let (Some(from), Some(to)) = (
+                        v.pointer("/modelRewrite/from").and_then(Value::as_str),
+                        v.pointer("/modelRewrite/to").and_then(Value::as_str),
+                    ) {
+                        eprintln!("model {from} -> {to}");
+                    }
+                    v
                 }
                 "policy" => {
                     client
@@ -719,6 +736,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        #[cfg(unix)]
+        Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::DaemonPrune { .. } => Err(anyhow!("daemon prune runs on macOS and Linux only")),
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();
