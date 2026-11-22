@@ -32,6 +32,9 @@ public nonisolated struct SidebarWorkspaceDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// Who made the workspace when an agent or a script did, and why (the daemon's
+    /// `extra.created_by`); nil for one the person made.
+    public var origin: SidebarWorkspaceOrigin?
     /// Where the row's agent chat stands and its next action (acpmux's rolling summary, kept after
     /// each turn a person started); nil before the first. David Beyer, 2026-11-20: rolling
     /// summaries of every chat with a next action for each.
