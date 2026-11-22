@@ -20,6 +20,7 @@ import Foundation
 ///     a=cmux-rd-max-fps:120                           (offer)
 ///     a=cmux-rd-max-kbps:5000                         (offer: Customize's bitrate cap)
 ///     a=cmux-rd-cursor:0                              (offer: Customize's cursor; 1 or absent shows it)
+///     a=cmux-rd-encode-profile:ultra                  (offer: remote.screenSharingProfile; absent: standard)
 ///     a=cmux-rd-displays:3342x2160,1920x1080          (answer: the host's displays)
 ///     a=cmux-rd-display-ids:1,69734208                (answer: the displays' CGDirectDisplayIDs, same order)
 ///     a=cmux-rd-current:0                             (answer: the display it streams)
@@ -37,6 +38,8 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     var maxFps: Int?
     var maxKbps: Int?
     var cursor: Bool?
+    /// The encode profile the viewer asks for (`ultra`); nil asks for the host's standard one.
+    var encodeProfile: String?
     var displays: [CGSize] = []
     /// The host's displays' CGDirectDisplayIDs, in `displays` order (empty from an older host).
     var displayIDs: [UInt32] = []
@@ -55,6 +58,7 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
         if let maxFps { lines.append("a=cmux-rd-max-fps:\(maxFps)") }
         if let maxKbps { lines.append("a=cmux-rd-max-kbps:\(maxKbps)") }
         if let cursor { lines.append("a=cmux-rd-cursor:\(cursor ? 1 : 0)") }
+        if let encodeProfile { lines.append("a=cmux-rd-encode-profile:\(encodeProfile)") }
         if !displays.isEmpty {
             lines.append("a=cmux-rd-displays:" + displays.map { "\(Int($0.width))x\(Int($0.height))" }.joined(separator: ","))
         }
@@ -83,6 +87,7 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
             case "cmux-rd-max-fps": maxFps = Int(value)
             case "cmux-rd-max-kbps": maxKbps = Int(value)
             case "cmux-rd-cursor": cursor = value == "1" ? true : value == "0" ? false : nil
+            case "cmux-rd-encode-profile": encodeProfile = value
             case "cmux-rd-current": currentDisplay = Int(value)
             case "cmux-rd-displays":
                 displays = value.split(separator: ",").compactMap { size in

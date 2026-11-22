@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextServer
+import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxNextTestSupport
@@ -1472,5 +1473,30 @@ struct MacScreenRdCustomizeTests {
         #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
         let parsed = try #require(MacScreenRdDocument(text: document.text))
         #expect(parsed == document)
+    }
+}
+
+/// Screen Sharing Profile (`remote.screenSharingProfile`): Ultra travels in the offer as
+/// `a=cmux-rd-encode-profile:ultra` (cmux-hub-host rd_doc.rs); Balanced sends no line.
+struct MacScreenRdEncodeProfileTests {
+    private let key = String(repeating: "ab", count: 32)
+
+    @Test func anUltraOfferRoundTripsItsEncodeProfile() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.maxFps = 120
+        offer.encodeProfile = "ultra"
+        #expect(offer.text.contains("\r\na=cmux-rd-encode-profile:ultra\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: offer.text))
+        #expect(parsed == offer)
+        #expect(parsed.encodeProfile == "ultra")
+    }
+
+    @Test func aBalancedOfferSendsNoProfileLine() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.encodeProfile = MacScreenPages.encodeProfile(ScreenSharingProfile.balanced)
+        #expect(!offer.text.contains("encode-profile"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)).encodeProfile == nil)
+        #expect(MacScreenPages.encodeProfile(ScreenSharingProfile.ultra) == "ultra")
+        #expect(RemoteSettings().screenSharingProfile == .balanced, "Balanced stays the default")
     }
 }

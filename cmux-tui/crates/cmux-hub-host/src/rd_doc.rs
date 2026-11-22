@@ -23,6 +23,9 @@ pub struct RdDocument {
     pub max_kbps: Option<u32>,
     /// Offer: whether the stream shows the cursor (nil: it does, as it always has).
     pub cursor: Option<bool>,
+    /// The screen-share profile the viewer asks for (`standard` or `ultra`, the person's
+    /// choice); the host runs standard when it is absent or unknown.
+    pub encode_profile: Option<String>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
     /// Answer: each display's CGDirectDisplayID, in `displays` order (macOS hosts).
@@ -50,6 +53,9 @@ impl RdDocument {
         }
         if let Some(c) = self.cursor {
             lines.push(format!("a=cmux-rd-cursor:{}", u8::from(c)));
+        }
+        if let Some(p) = &self.encode_profile {
+            lines.push(format!("a=cmux-rd-encode-profile:{p}"));
         }
         if !self.displays.is_empty() {
             let sizes: Vec<String> =
@@ -95,6 +101,7 @@ impl RdDocument {
                         _ => None,
                     };
                 }
+                "cmux-rd-encode-profile" => doc.encode_profile = Some(value.to_owned()),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
                 "cmux-rd-displays" => {
                     doc.displays = value
@@ -217,11 +224,13 @@ mod tests {
             max_fps: Some(60),
             max_kbps: Some(5_000),
             cursor: Some(false),
+            encode_profile: Some("ultra".into()),
             displays: vec![(2560, 1440)],
             current_display: Some(0),
             display_id: Some(17),
             display_ids: vec![1, 17],
         };
+        assert!(doc.text().contains("\r\na=cmux-rd-encode-profile:ultra\r\n"));
         let text = doc.text();
         assert!(text.contains("a=cmux-rd-display-id:17\r\n"));
         assert!(text.contains("a=cmux-rd-display-ids:1,17\r\n"));

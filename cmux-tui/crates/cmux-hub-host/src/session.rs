@@ -449,6 +449,7 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         // The viewer's Customize wishes; a host that does not know them streams as before.
         "max_kbps": offer.max_kbps,
         "cursor": offer.cursor,
+        "encode_profile": offer.encode_profile,
     })
 }
 
@@ -541,6 +542,10 @@ mod tests {
         let by_id = RdDocument { display: Some(1), display_id: Some(17), ..RdDocument::default() };
         assert_eq!(setup_line(&ticket, &by_id, true)["display"], "id:17");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+        // The viewer's profile reaches serve as it was asked; no attribute leaves it unset.
+        assert!(line["encode_profile"].is_null());
+        let ultra = RdDocument { encode_profile: Some("ultra".into()), ..RdDocument::default() };
+        assert_eq!(setup_line(&ticket, &ultra, false)["encode_profile"], "ultra");
     }
 
     #[test]
