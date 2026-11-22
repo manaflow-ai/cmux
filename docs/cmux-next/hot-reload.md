@@ -372,7 +372,8 @@ cmux live status                             # the last swap: when, which save, 
 cmux live stop --rust                        # stop watching; the daemon keeps the last build
 ```
 
-On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
+On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, or a file outside it the build
+reads (a design token, a schema, a skill page the daemon embeds), the loop
 (`scripts/cmux-next/rust-live.py`):
 
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
@@ -395,8 +396,15 @@ On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
 The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
 Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
 (`cmux-app-<tag>` for a tagged build), or `--socket PATH` when the app's daemon socket isn't the
-session's default (an app sets its daemon's `TMPDIR`). A build error is logged (`cmux live status`
-shows it), and the running daemon stays as it was.
+session's default (an app sets its daemon's `TMPDIR`; `cmux --socket PATH live start --rust` works too).
+A build error is logged (`cmux live status` shows it), and the running daemon stays as it was.
+
+A build host gets `cmux-tui/` and everything its build reads outside it, which the loop computes from
+the source each time it starts, so a new include needs no list: each `include_str!`/`include_bytes!`
+target, each `../` path a build script names, the path dependencies (`workers/cmux-vm`), and the
+`ghostty-next` submodule, which a fresh worktree has empty and the loop checks out first. A file a
+sparse checkout leaves out goes from `HEAD`. `rust-live.py inputs` prints the set; the cmux-tui test
+`rust_live_sends_every_outside_input` fails when cargo's dep-info names a file the set misses.
 
 On a side copy of a DEV app (cmux#36389, base 1773603b, PR eddb05df, cmux-tui built on the fleet), the
 app handoff took 1.38 s to the PR's daemon, 1.34 s back and 1.16 s forward again. The app's pid and

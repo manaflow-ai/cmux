@@ -547,6 +547,11 @@ export class MockSettingsProvider {
         ({
           general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
+          appearance: [
+            { id: "space.setTheme", title: "Set Space Theme…", enabled: true },
+            { id: "workspace.setTheme", title: "Set Workspace Theme…", enabled: true },
+          ],
+          rooms: [{ id: "space.new", title: "New Space", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),
@@ -590,6 +595,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
+      "cmux.settings.language.relaunch": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -975,6 +981,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
+      "cmux.settings.language.relaunch",
       "cmux.settings.server.restart",
       "cmux.settings.server.pair",
       "cmux.settings.section.actions",
