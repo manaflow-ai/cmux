@@ -32,6 +32,20 @@ import Testing
         #expect(!memoized.scrub(Self.corpus[0]).contains("/Users/dev"))
     }
 
+    /// The UTF-16 splice keeps text around matches intact, emoji and accents included,
+    /// and a long string with many matches scrubs every one.
+    @Test func replaceSplicesByUTF16OffsetsAcrossNonASCIIText() {
+        let scrubber = SentryScrubber(homeDirectory: Self.home, memoCapacity: 0)
+        let short = scrubber.scrub("🙂 café token=abc123 then 👩‍💻 mail a@b.co é")
+        #expect(short.hasPrefix("🙂 café token=<redacted-secret>"), "\(short)")
+        #expect(short.hasSuffix("👩‍💻 mail <redacted-email> é"), "\(short)")
+        #expect(!short.contains("abc123"))
+        let line = "é👍 at /Users/alice/x token=s3cr3t; "
+        let scrubbed = scrubber.scrub(String(repeating: line, count: 500))
+        #expect(!scrubbed.contains("s3cr3t") && !scrubbed.contains("alice"))
+        #expect(scrubbed.components(separatedBy: "é👍 at /Users/<redacted>/x token=<redacted-secret>").count == 501, "\(scrubbed.prefix(200))")
+    }
+
     @Test func copiesShareOneMemoAndItStaysBounded() {
         let memo = SentryScrubMemo(capacity: 4)
         for index in 0..<10 { memo.remember("out\(index)", for: "in\(index)") }

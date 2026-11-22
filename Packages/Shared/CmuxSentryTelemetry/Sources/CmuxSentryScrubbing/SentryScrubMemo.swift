@@ -8,7 +8,7 @@ import Foundation
 /// strings up to ``maximumLength`` UTF-8 bytes; when full it starts over, so
 /// its memory stays bounded and a later scrub recomputes. The raw strings it
 /// keeps are ones already in this process; nothing here leaves it.
-public final class SentryScrubMemo: @unchecked Sendable {
+public final class SentryScrubMemo: @unchecked Sendable { // crash-allow: `lock` serializes every access to `entries`
     /// Enough for one event's distinct strings (frames' image paths, debug
     /// images, ~100 breadcrumbs, device context) several times over.
     public static let defaultCapacity = 2_048
