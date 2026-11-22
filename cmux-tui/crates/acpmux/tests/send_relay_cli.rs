@@ -419,41 +419,20 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
     config["sendRelay"]["lsArgv"] = json!([listing.display().to_string()]);
     fs::write(dir.join("config.json"), config.to_string()).unwrap();
 
+    // `ACPMUX_LS_STALL_REPORT=1` prints the numbers without asserting: the same harness on the
+    // base build, for a PR's before/after.
+    let report_only = std::env::var_os("ACPMUX_LS_STALL_REPORT").is_some();
     let runs: usize =
         std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(5);
-    let mut times = Vec::new();
-    let mut failures = Vec::new();
-    for n in 0..runs * 2 {
-        let json_out = n % 2 == 1;
-        let args: &[&str] = if json_out { &["--json", "ls"] } else { &["ls", "--all"] };
-        let started = Instant::now();
-        let ls = cli(&dir, args);
-        let took = started.elapsed();
-        times.push(took);
-        let out = String::from_utf8_lossy(&ls.stdout);
-        if !ls.status.success() || !out.contains("lane") {
-            failures.push(format!("{args:?} after {took:?}: {}", text(&ls)));
-        } else if json_out {
-            let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-            assert_eq!(v["remote"]["state"], "missing", "{v}");
-        } else {
-            let said = String::from_utf8_lossy(&ls.stderr);
-            assert!(said.contains("not read within 1.5s; not listed"), "{}", text(&ls));
-        }
+    let idle = stall_leg(&dir, "idle", runs, 0);
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let hogged = stall_leg(&dir, "cpu hogs", runs, cores * 10);
+    if report_only {
+        return;
     }
-    let mut sorted = times.clone();
-    sorted.sort();
-    let at = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
-    eprintln!(
-        "ls with a stalled relay: {} runs, p50 {:?}, p99 {:?}, max {:?}, {} failed",
-        sorted.len(),
-        at(0.5),
-        at(0.99),
-        sorted.last().unwrap(),
-        failures.len()
-    );
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(*sorted.last().unwrap() < Duration::from_secs(2), "{times:?}");
+    assert!(idle.failures.is_empty(), "{}", idle.failures.join("\n"));
+    assert!(hogged.failures.is_empty(), "{}", hogged.failures.join("\n"));
+    assert!(idle.max < Duration::from_secs(2), "idle max {:?}", idle.max);
 
     // A kept listing is listed, marked stale.
     let row = json!({"sessionId": "01far-kept", "name": "kept", "peer": "far", "status": "idle",
@@ -477,6 +456,91 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
     assert_eq!(kept.len(), 1, "{v}");
     assert_eq!(kept[0]["stale"], true, "{v}");
     assert!(String::from_utf8_lossy(&ls.stderr).contains("listed as of 1m ago"), "{}", text(&ls));
+}
+
+struct Leg {
+    max: Duration,
+    failures: Vec<String>,
+}
+
+/// Times `runs` each of `ls --all` and `--json ls` with `hogs` busy-loop processes running, and
+/// prints p50, p99, max and each outcome (exit code and error code) with its count.
+fn stall_leg(dir: &Path, label: &str, runs: usize, hogs: usize) -> Leg {
+    let mut busy: Vec<std::process::Child> = (0..hogs)
+        .map(|_| {
+            std::process::Command::new("sh")
+                .args(["-c", "while :; do :; done"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut times = Vec::new();
+    let mut failures = Vec::new();
+    let mut outcomes = std::collections::BTreeMap::<String, usize>::new();
+    for n in 0..runs * 2 {
+        let json_out = n % 2 == 1;
+        let args: &[&str] = if json_out { &["--json", "ls"] } else { &["ls", "--all"] };
+        let started = Instant::now();
+        let ls = cli(dir, args);
+        let took = started.elapsed();
+        times.push(took);
+        let out = String::from_utf8_lossy(&ls.stdout);
+        let said = String::from_utf8_lossy(&ls.stderr);
+        *outcomes.entry(outcome(&ls)).or_default() += 1;
+        if !ls.status.success() || !out.contains("lane") {
+            failures.push(format!("{label} {args:?} after {took:?}: {}", text(&ls)));
+        } else if json_out {
+            let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+            if v["remote"]["state"] != "missing" {
+                failures.push(format!("{label}: remote {}", v["remote"]));
+            }
+        } else if !said.contains("not read within 1.5s; not listed") {
+            failures.push(format!("{label}: no stale line: {said}"));
+        }
+    }
+    for hog in &mut busy {
+        let _ = hog.kill();
+        let _ = hog.wait();
+    }
+    let mut sorted = times;
+    sorted.sort();
+    let at = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
+    let max = *sorted.last().unwrap();
+    eprintln!(
+        "ls with a stalled relay, {label} ({hogs} busy loops): {} runs, p50 {:?}, p99 {:?}, max {:?}, outcomes {outcomes:?}",
+        sorted.len(),
+        at(0.5),
+        at(0.99),
+        max,
+    );
+    Leg { max, failures }
+}
+
+/// `exit N` and, on a failure, the error's code (the JSON `code`, else the text label).
+fn outcome(out: &Output) -> String {
+    let code = out.status.code().map_or("signal".to_string(), |c| c.to_string());
+    if out.status.success() {
+        return format!("exit {code}");
+    }
+    let said =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let named = serde_json::from_str::<serde_json::Value>(said.trim())
+        .ok()
+        .and_then(|v| {
+            [&v["error"]["code"], &v["code"], &v["error"]["detail"]]
+                .into_iter()
+                .find_map(|c| c.as_str().map(str::to_string))
+        })
+        .or_else(|| {
+            said.lines()
+                .find_map(|l| l.strip_prefix("acpmux: "))
+                .and_then(|l| l.split(':').next())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    format!("exit {code} {named}")
 }
 
 fn now_ms() -> u64 {
