@@ -31,6 +31,11 @@ chmod 700 "$RUN"
 profile() {
   local top=${RAMPS##*,} pid="" p
   command -v perf >/dev/null || { echo "FANIN perf: perf is not installed on this runner"; return; }
+  # Ubuntu runners ship perf_event_paranoid 4 (no user profiling at all); a CI runner's sudo lowers it.
+  if [ "$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null)" -gt 1 ] 2>/dev/null; then
+    sudo -n sysctl -qw kernel.perf_event_paranoid=1 2>/dev/null \
+      || echo "FANIN perf: perf_event_paranoid is $(cat /proc/sys/kernel/perf_event_paranoid) and sudo -n cannot lower it"
+  fi
   for _ in $(seq 1 3600); do
     for p in $(pgrep -f -- "$BIN daemon run" || true); do
       tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "n$top/controller" && { pid=$p; break; }
