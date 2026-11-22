@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "build": "4507010681801",
+  "notes": "notes/4507010681801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49506,
+      "title": "Sidebar: fold automatic sessions behind an Automatic (N) row by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50493,
+      "title": "cmux-platform-prod-logs: keep mesh.hub.unavailable (kind, type) rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50801,
+      "title": "Home is Swift: retire the reverted React plan in design/home.md; point the layer rule and the Mac card at the junction log",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50583,
+      "title": "cmux-vm: record Freestyle's current ubuntu-sm base (2026-11-22); pins follow it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50813,
+      "title": "cmux-next-ios CLAUDE.md: the lane-VM loop (compile, one kit test, one simulator screenshot), measured",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50530,
+      "title": "Sidebar text in three inks, no per-label opacity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49957,
+      "title": "App Store: a native store with sections, version history and What's New from each app's merged PRs (carries #45025)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50159,
+      "title": "Web updates: a signed switch file that swaps one web piece out remotely",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50633,
+      "title": "prepush-gate: refuse only for the pusher's own diff; warn on no verdict or twin drift from outside it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50225,
+      "title": "RFD 0009 slice 6: the design skill, registry review refuses design warnings, cold small-model test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49571,
+      "title": "Quiet the machine chip's Not connected dot through a link blip",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49571/hv-d863d16e13e0-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 49558,
+      "title": "Desktop visual gate: warn on nightly state changes with no Visual-change line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50152,
+      "title": "cmux NEXT: a Cmd-T tab stays in a workspace that was parked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49737,
+      "title": "Customizations menu: every experiment and Labs switch two clicks away",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45062,
+      "title": "Vertical cuts of screen recordings that follow the typing (cmux-follow-cut)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45062/follow-cut-before-after.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48837,
+      "title": "Add project selection, editor opening and settled chats as installable looks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48592,
+      "title": "ci: tree-owner-wait reads the CDN before the routing App, no hand-off poll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50419,
+      "title": "New Tab on a fresh Mac offers Add harness instead of UniiChat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48820,
+      "title": "Install thread sidebar and conversation display profiles separately",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50290,
+      "title": "split-spring: --cpu-load measures a part under full CPU load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50476,
+      "title": "Tabs: shell tab icon theme with machine icons (tabs.shellIconTheme)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49869,
+      "title": "perf-cron: a part with no reading yet measures first, at the newest tip that has it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50215,
+      "title": "App API: merged schema directory (per-family op rows, type digests), checked for drift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50466,
+      "title": "acpmux: a peer chat's read ahead gives way to a store behind and costs no peer its copies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50196,
+      "title": "ext dev: a design check with type roles and a spacing scale (RFD 0009 slice 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50154,
+      "title": "Plans expire and render styled; the hat's rim drags 1:1 under the cursor, lands on lines, ignores a click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49499,
+      "title": "Host glass: one glass, never two, on menus over the composer",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49499/hv-c268be5fe3e0-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50706,
+      "title": "iOS gate: pass the ASC key to the internal-submission asc validate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50592,
+      "title": "bench: infinite tabs names its idle CPU and memory owners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50602,
+      "title": "ios INTERNAL trigger: never replace a waiting submittable build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50352,
+      "title": "acpmux: end subagents that stopped running without their harness saying so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50443,
+      "title": "Count how each chat page was made, in Release too (agent.chat.perf page_source)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50390,
+      "title": "acpmux: move two test blocks out of files over 100 KB",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50692,
+      "title": "cmux NEXT: failed tab icons end their retry hold in one wake, not one timer per icon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50610,
+      "title": "iOS: reopen a dropped appearance channel while the Mac link lives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49695,
+      "title": "perf(launch): window_usable marks when Home's window turns key after its message box took focus (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49385,
+      "title": "acpmux: other agents' results go into a running turn as one batch; blockers still go in at once",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49385/hv-f643bfde8974-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50596,
+      "title": "cmux-cloud-start-core: a move's run result is Rust's (ssh_move_run)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50636,
+      "title": "swift-logic-classes: PLATFORM rows for extensions of our view classes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50041,
+      "title": "UI review advisory: a UI pull request's body names its try command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49011,
+      "title": "remote enroll: create says expiry, binding and next step; revoke names the device",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50717,
+      "title": "acpmux: a turn failed on an unverified TLS certificate is a transport error, so it is continued",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49956,
+      "title": "acpmux tests: fix base reds (help board listed twice, cut-terminate wait, mesh_relay turn count)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50700,
+      "title": "CmuxNextDesign: DensityTokens toolbar sizes are nonisolated",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47819,
+      "title": "launch-ready.sh guest=1: measure on a person's own Mac beside their NIGHTLY",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47397,
+      "title": "projection matrix: real repositories, both ways (clones, mixed names and modes, submodule)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49480,
+      "title": "agent pane: a newer page's initialize opt-in no longer fails every connect (the relay strips unknown _meta.acpmux keys on the handshake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43031,
+      "title": "Extension ops as MCP tools: cmux mcp serve lists and runs an installed extension's offered ops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50792,
+      "title": "backend-migrations (feat-cmux-next): no runner for unrelated labels, newer heads cancel, clean plans start no gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50505,
+      "title": "acpmux: session pause and session wake keep the agent's conversation",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
