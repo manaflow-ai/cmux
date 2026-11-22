@@ -286,6 +286,22 @@ class WiringTest(unittest.TestCase):
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 
+    def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
+        """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
+        137288423007 and judge job 137302455752, 2026-11-22: cancelled in "Fetching the repository")."""
+        for key in ("plan", "judge", "revert"):
+            job = self.workflow["jobs"][key]
+            steps = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+            self.assertEqual(len(steps), 2, f"{key}: one checkout and one retry")
+            first, again = steps
+            self.assertTrue(first.get("continue-on-error"), key)
+            self.assertEqual(again.get("if"), f"steps.{first.get('id')}.outcome != 'success'", key)
+            self.assertEqual(first["with"], again["with"], key)
+            self.assertEqual(first["uses"], again["uses"], key)
+            bound = first.get("timeout-minutes", 0) + again.get("timeout-minutes", 0)
+            self.assertTrue(0 < first.get("timeout-minutes", 0) and 0 < again.get("timeout-minutes", 0), key)
+            self.assertLess(bound, job["timeout-minutes"], f"{key}: both tries fit inside the job's budget")
+
 
 class GuardTest(unittest.TestCase):
     """A probe's inputs are checked against the batch run that found the red; a teammate's culprit gets a held revert."""
