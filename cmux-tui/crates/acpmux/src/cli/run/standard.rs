@@ -21,6 +21,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::Archive { .. }
+            | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
             | Command::Preset { .. }
@@ -37,6 +39,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
+            | Command::Board
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
@@ -154,6 +157,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::Archive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
+        }
+        Command::Unarchive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, false, json_out).await
         }
         Command::RulesCmd { session, rules, clear } => {
             orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await
@@ -430,7 +439,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         client =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
                     }
-                    found => break found?,
+                    // A machine this daemon has no peer for may still be reached by the
+                    // configured new relay (`new_relay.rs`).
+                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
+                    {
+                        Some((relay, machine, words)) => {
+                            return crate::cli::new_relay::start(
+                                relay, &machine, words, json_out, deadline,
+                            )
+                            .await;
+                        }
+                        None => return Err(error),
+                    },
+                    Ok(found) => break found,
                 }
             };
             let id = crate::cli::resolve::routed_id(&v)?;
@@ -1142,6 +1163,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
+        Command::Board => super::board::run(json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,

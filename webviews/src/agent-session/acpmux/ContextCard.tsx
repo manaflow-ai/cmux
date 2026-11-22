@@ -6,6 +6,7 @@ import "./contextCard.css";
 import { useT } from "./i18n";
 import { contextBreakdown, type Breakdown } from "./session-info/contextSectionModel";
 import { compactBreakdownRows, CACHE_SOON_MS, cacheTimeLeft, useCacheTimeLeft } from "./contextCardModel";
+import { intl } from "../../ui/intl";
 /// The prompt cache's line: a countdown while warm, then "Cache expired". acpmux sends the expiry
 /// (claude_stdio/prompt_cache.rs) only for a harness that reports its cache and a known TTL.
 function CacheLine({ expiresAt, now }: { expiresAt: number; now?: () => number }) {
@@ -38,7 +39,7 @@ export function ContextCardBody({
   now?: () => number;
 }) {
   const t = useT();
-  const tokens = new Intl.NumberFormat(undefined, {
+  const tokens = intl.NumberFormat(undefined, {
     notation: "compact",
     maximumFractionDigits: 1,
   });
