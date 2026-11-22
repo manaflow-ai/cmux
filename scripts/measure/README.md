@@ -36,6 +36,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
+| projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
 
 
 ## Dev loop
@@ -61,6 +62,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `background-ready-idle.py` | Idle cost of a running or quit copy (procs.py) and its stop by pid, for background-ready.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
+| `helper-fresh-grant.sh` | On a SIP-off fleet Mac: a Screen Recording and Accessibility grant made while cmux runs reaches Computer Use with no restart of cmux or its daemon (TCC rows written, status and screenshot timed), Computer Use in TextEdit, and the helper's share host streaming to a bench viewer. `ref=SHA` builds any commit. | cmux#49813 | 2026-11-22 | active |
+| `helper-fresh-grant.py` | Python driver for helper-fresh-grant.sh. | cmux#49813 | 2026-11-22 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
 | `nightly-fresh-launch.py` | Python driver for nightly-fresh-launch.sh. | CMUX-571 | 2026-11-15 | active |
 | `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
@@ -84,7 +87,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
 | `recent-pages.py` | Recent pages with site icons for a bench session (`held-new-tab.py --recent-sites N --recent-pages M`): loopback sites with one 64 x 64 icon each, the visits through one Chromium tab of the app, and the read of the app's own list of recent pages. Not a step's script: held-new-tab.py loads it. | - | 2026-11-18 | active |
-| `new-tab-letters.py` | The letter cases of the held New Tab measure (`held-new-tab.py --letter-cases N`): a letter typed directly after a New Tab key, as key sequences of the app in a page's window, in 7 forms; each form's word from the key hold's log and the first new tab's field. Not a step's script: held-new-tab.py loads it. | - | 2026-11-20 | active |
+| `new-tab-letters.py` | The letter cases of the held New Tab measure (`held-new-tab.py --letter-cases N`): a letter typed directly after a New Tab key, as key sequences of the app in a page's window, in 7 forms; each form's word from the key hold's log and the first new tab's field; for each case where the letter is (`letter_is`), as one word of 11, the first that is true in this order: `new tab's field`, `second new tab's field`, `tab before`, `refused by the field`, `dropped after the bound`, `page gone`, `parked` (from the fields of the case's tabs and the counts of the app's park for typed text), then `not run`, `dropped by the hold`, `a place not read`, `nowhere read`. `nowhere read` is said only for a case that ran, with no dropped key and an answer of each place; a place that gave no answer is in the case's `places_not_read`, and a form's line counts such cases. Not a step's script: held-new-tab.py loads it. | - | 2026-11-22 | active |
 | `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
@@ -178,6 +181,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `codec-study.sh` | Still-image codec study on cmux screens (size, speed, OCR error). | - | 2026-11-08 | active |
 | `codec-study` | Corpus and Swift helpers for codec-study.sh. | - | 2026-11-08 | active |
 | `remote-agent-path.sh` | What an agent on another machine feels through cmux Remote. | - | 2026-11-15 | active |
+| `relay-path-probe.sh` | Every path the iPhone link can take to a Mac (WireGuard direct, TURN/UDP, TURN/TLS 443, WebRTC direct and relay): setup p50/p95, link RTT p50/p95/p99 and loss, hub colo, ICE and TURN allocation times, as JSON and a table (`cmux-mobile-path-probe`). | Leo ask-6242128727, relay-path-latency | 2026-11-21 | active |
 | `cloud-machine-directory.py` | Before and after CLI directory benchmark with a guest-program provider. | - | 2026-11-12 | active |
 | `cloud-machine-read.py` | Two built binaries through the same fake-provider file-read route. | - | 2026-11-12 | active |
 
