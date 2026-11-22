@@ -86,7 +86,8 @@ def build(root: str, base: str, prs: list[tuple[int, str]], heads: dict[int, str
             conflicts.append({"number": number, "head": head, "why": "its commit could not be written"})
             continue
         tip = sha
-        kept.append({"number": number, "head": head})
+        code, at = git(root, "show", "-s", "--format=%ct", head)
+        kept.append({"number": number, "head": head, "head_at": int(at) if code == 0 and at.isdigit() else 0})
     return tip, kept, conflicts
 
 
