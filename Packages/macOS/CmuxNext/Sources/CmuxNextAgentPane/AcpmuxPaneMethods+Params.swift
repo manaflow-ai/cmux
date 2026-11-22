@@ -9,7 +9,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed` (cmux#46563).
         // schemas/agent-pane/initialize-params.json lists every initialize the page sends; refused,
         // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b).
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
+        // `chunkDeltas`: streamed text as `_acpmux/chunk`; `sessionChangedDelta`: row changes as
+        // `_acpmux/session_patch` (direct.ts `initializeParams`, chatDeltas.ts).
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
