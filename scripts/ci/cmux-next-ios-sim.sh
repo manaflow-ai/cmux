@@ -140,6 +140,9 @@
 #                          events-burst (events-500, then 2000 records in 1 s)
 #                          events-filter (events-500 at 20 records/s while "tool_call"
 #                          is typed into Filter and cleared, repeating)
+#                          ws-heavy-live feed-live ws-2000 (the first two: a
+#                          busy Mac on the real live path, ListStressSettings
+#                          CMUX_MOBILE_LIST_FLOOD)
 #                          A row's rig knobs may exist only on a feature branch's
 #                          app; the table is data.
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
@@ -191,6 +194,17 @@
 #           simulator verdict), the screens and the recording. A simulator
 #           check that fails keeps the step green with the verdict in
 #           handoff.json, so the device app still comes back.
+#   try     (through the fleet controller until it lists try: shots try=dev, the same step)
+#           the cmux Dev iPhone app for `cmux-next-ios/scripts/try.sh`: only the
+#           unsigned device app, no simulator, no sign-in. The Demo configuration
+#           (optimized, DEBUG developer surface) with bundle dev.cmux.mobile.dev,
+#           home-screen name "cmux Dev" and this commit in Info.plist, and no dev
+#           tag: it sends no X-Cmux-Build-Space, so like the shared Demo build it
+#           pairs with the person's NIGHTLY Mac and shows their real data. Every try
+#           build has the same bundle id, so it installs over the last one and keeps
+#           its sign-in and pairing (cmuxterm-hq docs/design/ios-dev-channels.md).
+#           The artifact (evidence.zip) holds CmuxMobileApp-Dev-device-unsigned.app.zip,
+#           try.json (commit, bundle id, build seconds) and SUMMARY.md.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -251,9 +265,14 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
-if [[ "$mode" == release-build && $# -ne 1 ]]; then
-  echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
+# try through the shots form too (shots try=dev), until the controller lists try.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
+  set -- try
+  mode=try
+fi
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or try, got '$mode'" >&2; exit 2 ;; esac
+if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
+  echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
 fi
 scenes=("${@:2}")
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
@@ -263,6 +282,8 @@ if [[ "$mode" == handoff ]]; then
   handoff_tag="${2#tag=}"
   [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
     { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
+  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
+  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -331,6 +352,9 @@ listperf_table=(
   "events-500         inspector   LIST_COUNT=500"
   "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
   "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
+  "ws-heavy-live   workspaces  LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 LIST_FLOOD_BURST=500 LIST_PASSES=3 LIST_SPEED=2400"
+  "feed-live       feed        LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 FEED_STRESS=320 LIST_PASSES=2 LIST_SPEED=2400"
+  "ws-2000         workspaces  LIST_COUNT=2000 LIST_PASSES=1"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)
@@ -637,7 +661,7 @@ fi
 # The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
-if [[ "$mode" != release-build ]]; then
+if [[ "$mode" != release-build && "$mode" != try ]]; then
   sim_choice="$(xcrun simctl list -j runtimes devicetypes |
     python3 -I scripts/ci/ios_sim_runtime.py --with-name ${sim_device:+--device "$sim_device"})" || exit 3
   read -r runtime device_type device_name <<< "$sim_choice"
@@ -738,6 +762,32 @@ if [[ "$mode" == handoff ]]; then
   # one. The tag is already a slug (checked above), so the space is `dev:<tag>` as the Mac's is.
   build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DEV_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
     "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+fi
+if [[ "$mode" == try ]]; then
+  # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
+  # person's real data, paired with their NIGHTLY Mac. Unsigned; try.sh signs it on the Mac with the phone.
+  build_settings+=("CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev" "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+  set +e
+  xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
+    -destination 'generic/platform=iOS' -derivedDataPath "$work/dd-device" \
+    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37 \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${build_settings[@]}" build >"$work/build-device.log" 2>&1
+  status=$?
+  set -e
+  grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-device.log" | sort -u | head -40 || true
+  cp "$work/build-device.log" "$out/build-device.log" 2>/dev/null || true
+  [[ $status -eq 0 ]] || { tail -40 "$work/build-device.log"; exit 1; }
+  device_app="$work/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")"
+  [[ "$bundle_id" == dev.cmux.mobile.dev ]] || { echo "error: the cmux Dev app is $bundle_id, not dev.cmux.mobile.dev" >&2; exit 1; }
+  build_s=$((SECONDS - t0))
+  note "- try build: $build_s s (FFI + xcodegen + Demo device app, unsigned), bundle $bundle_id"
+  ditto -c -k --keepParent "$device_app" "$out/CmuxMobileApp-Dev-device-unsigned.app.zip"
+  printf '{"schema": "cmux.ios-try.v1", "sha": "%s", "bundle_id": "%s", "build_seconds": %s, "host": "%s"}\n' \
+    "$(git rev-parse HEAD)" "$bundle_id" "$build_s" "$(hostname -s)" >"$out/try.json"
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
+  cat "$summary"
+  exit 0
 fi
 build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd"
@@ -1042,6 +1092,12 @@ for root in json.load(sys.stdin).get("testNodes", []):
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
   keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
+  # -only-testing that names no test (a suite in another target, a typo) runs nothing and exits 0:
+  # a filtered run that selected no test fails, naming the filter (ios_sim_test_filter.py).
+  if [[ ${#kit_only[@]} -gt 0 ]] && ! python3 -I scripts/ci/ios_sim_test_filter.py "$out/kit-tests.json" "${kit_only[@]}" | tee "$out/kit-filter.txt"; then
+    note "- kit filter selected no test: $(tr '\n' ' ' < "$out/kit-filter.txt")"
+    [[ $test_status -ne 0 ]] || test_status=1
+  fi
   [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
@@ -1270,6 +1326,23 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
+    # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
+    # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
+    # marked source=launch so a reader knows it is early by the recorder's start-up.
+    # Read every 10 ms, so the stamp is within about 10 ms of the line.
+    python3 -c '
+import sys, time
+log, t0 = sys.argv[1], time.time()
+while time.time() - t0 < 10:
+    try:
+        if "Recording started" in open(log, errors="replace").read():
+            print(f"MOBILEBENCH video-start t={time.time():.3f} source=recorder")
+            sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(0.01)
+print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
+' "$work/ui-video.log" >"$out/ui-video-start.txt" || true
   fi
   set +e
   ui_t0=$SECONDS
@@ -1309,6 +1382,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
+  if [[ ${#ui_suites[@]} -gt 0 && -d "$work/ui.xcresult" ]] && ! python3 -I scripts/ci/ios_sim_test_filter.py "$out/ui-tests.json" "${ui_suites[@]}" | tee "$out/ui-filter.txt"; then
+    note "- UI filter selected no test: $(tr '\n' ' ' < "$out/ui-filter.txt")"
+    [[ $ui_status -ne 0 ]] || ui_status=1
+  fi
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
   note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
