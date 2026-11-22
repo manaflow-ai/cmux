@@ -892,7 +892,8 @@
   overflow: visible;
   stroke-width: 1.25;
   color: var(--nt-tile-ink);
-  border-radius: max(1px, calc(var(--nt-tile-radius) - var(--nt-tile-pad)));
+  --nt-tile-core-radius: max(1px, calc(var(--nt-tile-radius) - var(--nt-tile-pad)));
+  border-radius: var(--nt-tile-core-radius);
   background: var(--nt-tile-fill);
   outline: var(--nt-tile-pad) solid var(--nt-tile-fill);
   outline-offset: 0;
