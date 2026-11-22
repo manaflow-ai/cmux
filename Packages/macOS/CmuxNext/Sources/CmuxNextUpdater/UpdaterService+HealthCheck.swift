@@ -104,7 +104,7 @@ extension UpdaterService {
     }
 }
 
-extension UpdaterStrings {
+nonisolated extension UpdaterStrings {
     static var healthFailedTitle: String { text("updater.health.title", "This Update Failed a Check") }
     static func healthFailedDetail(_ reason: String, _ build: String) -> String {
         format("updater.health.detail", "%1$@. Go back to %2$@, kept on this Mac; settings and sessions stay.", reason, build)
