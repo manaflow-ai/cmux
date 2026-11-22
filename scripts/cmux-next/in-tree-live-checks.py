@@ -227,6 +227,59 @@ def terminal_text():
     return reply.get("text", "") if isinstance(reply, dict) else ""
 
 
+CUA_DRIVER = next((c for c in ("/Applications/CuaDriver.app/Contents/MacOS/cua-driver", os.path.expanduser("~/.local/bin/cua-driver"))
+                   if os.path.exists(c)), None)
+
+
+def cua(tool, args):
+    """One CuaDriver call through the host's daemon (under the login's own home, not the step's HOME)."""
+    if not CUA_DRIVER:
+        return {"error": "no cua-driver"}
+    import pwd
+    try:
+        done = subprocess.run([CUA_DRIVER, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60,
+                              env=dict(os.environ, HOME=pwd.getpwuid(os.getuid()).pw_dir))
+        return json.loads(done.stdout) if done.stdout.strip() else {"error": done.stderr[-300:]}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return {"error": repr(error)}
+
+
+def elements(obj):
+    if isinstance(obj, dict):
+        if isinstance(obj.get("elements"), list):
+            return obj["elements"]
+        for v in obj.values():
+            found = elements(v)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = elements(v)
+            if found:
+                return found
+    return []
+
+
+def cancel_sheet():
+    """The person's Cancel on the shown Open sheet: an accessibility press on its Cancel button (CuaDriver, no focus
+    taken), else Escape to the app. Returns how."""
+    sheet = next((w for w in sheets() if w["visible"]), None)
+    pid = RAW.get("pid")
+    if sheet and pid and CUA_DRIVER:
+        state = cua("get_window_state", {"pid": pid, "window_id": int(sheet["id"]), "include_screenshot": False,
+                                         "max_depth": 40, "max_elements": 3000})
+        button = next((e for e in elements(state) if "button" in str(e.get("role", "")).lower()
+                       and "Cancel" in (str(e.get("label") or "") + str(e.get("title") or "")) and e.get("element_token")), None)
+        if button:
+            pressed = cua("click", {"pid": pid, "window_id": int(sheet["id"]), "element_token": button["element_token"]})
+            if not (isinstance(pressed, dict) and (pressed.get("isError") or pressed.get("error"))):
+                return "ax_cancel"
+        RAW.setdefault("cancel_sheet_misses", []).append({"sheet": sheet, "elements": len(elements(state)),
+                                                          "state": json.dumps(state)[:300]})
+    rpc("debug.key", {"key": "escape"})
+    return "escape"
+
+
 def file_dialogs():
     reply = (rpc("debug.cef") or {}).get("file_dialogs") or {}
     return dict(reply, received=int(reply.get("received") or 0))
@@ -275,11 +328,10 @@ def opener_chooser(tab, label):
     after, now_sheets = (shown if shown else (file_dialogs(), sheets()))
     if label == "first":
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "file-after-popup-opener-sheet.png")})
-    # Escape to the sheet itself (target dialog: the window's attached sheet), as a person's Escape in the panel.
-    escape = rpc("debug.key", {"key": "escape", "target": "dialog"})
+    escape = cancel_sheet()
     cancelled = wait(lambda: "cancel" in page_list("__file", tab), 4)
     if not cancelled and any(w["visible"] for w in sheets()):
-        rpc("debug.key", {"key": "escape", "target": "dialog"})  # again, so a later step starts with no sheet
+        cancel_sheet()  # again, so a later step starts with no sheet
     return {"sheet_shown": bool(shown), "request_reached_app": after["received"] > before["received"],
             "page_got_cancel": bool(cancelled), "received": [before["received"], after["received"]],
             "answered": file_dialogs().get("answered"), "last": after.get("last"), "input_events": page_list("__file", tab),
