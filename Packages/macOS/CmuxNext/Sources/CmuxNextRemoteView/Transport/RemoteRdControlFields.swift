@@ -89,12 +89,16 @@ public nonisolated struct RemoteRdHostStats: Sendable, Equatable, Codable {
     public var cpuPercent: Double
     public var encodeMsP50: Double
     public var lossPercent: Double
+    /// The encoder profile the session runs now (`standard` or `ultra`), as the host measured it; nil from a host
+    /// too old to send it.
+    public var encodeProfile: String?
 
     enum CodingKeys: String, CodingKey {
         case kbps, frames, keyframes
         case cpuPercent = "cpu_pct"
         case encodeMsP50 = "encode_ms_p50"
         case lossPercent = "loss_pct"
+        case encodeProfile = "encode_profile"
     }
 }
 
