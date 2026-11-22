@@ -115,7 +115,8 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
        cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]
        cmux link seed move --from-socket PATH --socket PATH [LOCAL_FOLDER] FROM_FOLDER TO_FOLDER";
 
-/// Time between two `git.seed.status` requests.
+/// Longest time between two `git.seed.status` requests (the first waits are shorter:
+/// [`super::spans::PollWait`]).
 const STATUS_EVERY: Duration = Duration::from_millis(500);
 /// Longest a seed job is waited for (a first clone of a big repository).
 const SEED_DEADLINE: Duration = Duration::from_secs(45 * 60);
@@ -834,7 +835,13 @@ fn seed_full(
 /// [`settle_fill`] over the machine's own calls.
 fn settle(machine: &Machine<'_>, remote: &str, record: &mut Record) -> Result<(), SeedError> {
     let mut whole = || checkout_whole(machine.socket, remote);
-    settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut whole, record, deadline())
+    settle_fill(
+        &mut machine_calls(machine.socket),
+        &mut status_wait(),
+        &mut whole,
+        record,
+        deadline(),
+    )
 }
 
 /// The streamed copy, kept as this folder's last push.
@@ -1060,8 +1067,10 @@ fn machine_calls(socket: &Path) -> impl FnMut(&str, Value) -> Result<Value, Seed
     }
 }
 
-fn pause() {
-    super::spans::sleep("seed.status poll", STATUS_EVERY);
+/// The wait between two `git.seed.status` requests of one job.
+fn status_wait() -> impl FnMut() {
+    let mut wait = super::spans::PollWait::up_to(STATUS_EVERY);
+    move || wait.sleep("seed.status poll")
 }
 
 fn deadline() -> Instant {
@@ -1113,7 +1122,7 @@ fn barrier_ready(bytes: Option<&[u8]>) -> bool {
 /// `git.seed.start` with `start`, then its job's status until it ends (or,
 /// with `head_ready`, until its head is in place).
 fn start_and_wait(socket: &Path, start: Value, head_ready: bool) -> Result<Ended, SeedError> {
-    seed_job(&mut machine_calls(socket), &mut pause, start, head_ready, deadline())
+    seed_job(&mut machine_calls(socket), &mut status_wait(), start, head_ready, deadline())
 }
 
 /// [`start_and_wait`] through `call`, `pause` between two requests.

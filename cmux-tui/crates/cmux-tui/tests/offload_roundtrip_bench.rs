@@ -50,6 +50,26 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use journey_support::*;
 use serde_json::{Map, Value, json};
 
+/// What one git process costs here, in ms (median of 9), run the way the seed runs it
+/// (`GIT_CONFIG_NOSYSTEM`). A move runs 40 to 60 of them, so this number scales every
+/// figure in the line: a wrapped `git` on PATH that costs 130 ms turns a 1.7 s round trip
+/// into 16 s. Read it before comparing two runs.
+fn git_start_ms() -> f64 {
+    let mut runs: Vec<f64> = (0..9)
+        .map(|_| {
+            let start = Instant::now();
+            let _ = Command::new("git")
+                .arg("--version")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output();
+            start.elapsed().as_secs_f64() * 1000.0
+        })
+        .collect();
+    runs.sort_by(|a, b| a.total_cmp(b));
+    (runs[runs.len() / 2] * 10.0).round() / 10.0
+}
+
 const CONTINUED: &str = "This chat moved to another machine";
 /// The largest single prompt the bench sends to grow the chat log.
 const FILLER_PROMPT_BYTES: usize = 256 * 1024;
@@ -405,6 +425,7 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
     let report = json!({
         // The binaries `cargo test` built: the dev profile (opt-level 1) unless `--release`.
         "profile": if cfg!(debug_assertions) { "dev" } else { "release" },
+        "git_start_ms": git_start_ms(),
         "iters": iters,
         "history_kb": history_kb,
         "offload_roundtrip_p50_ms": roundtrip["p50"],
