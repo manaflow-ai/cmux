@@ -36,6 +36,8 @@ public struct TerminalKeyBarGallery: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                    // The key row debate's mocks (`KeyRowDebateMocks`, on hold).
+                    KeyRowDebateMocks()
                 }
                 .padding(.vertical, 24)
             }
