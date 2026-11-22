@@ -319,7 +319,7 @@
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"gap","values":{"2px":4}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"margin","values":{"2px":1}}
-{"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"outline","values":{"1.5px":5}}
+{"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"outline","values":{"1.5px":4}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding-top","values":{"2px":1}}

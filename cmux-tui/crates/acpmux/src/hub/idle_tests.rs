@@ -38,6 +38,8 @@ async fn each_gate_keeps_a_session_awake() {
         m.claude_unstored = true;
         m.turn_count = 1;
     }
+    assert!(hub.idle_eligible(&session), "a Claude chat whose unstored turns did no work");
+    session.meta.lock().unwrap_or_else(|e| e.into_inner()).claude_unstored_work = true;
     assert!(!hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
     session.meta.lock().unwrap().claude_unstored = false;
     session.queued.fetch_add(1, Ordering::SeqCst);

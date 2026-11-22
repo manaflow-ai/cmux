@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod composer;
@@ -104,7 +106,7 @@ mod sidebar_integration_tests;
 #[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
-mod storage;
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]

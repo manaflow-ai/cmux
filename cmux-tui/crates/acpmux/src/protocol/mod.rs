@@ -197,6 +197,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
+        // The live perf commentator (perf_watch.rs).
+        untyped(method::MUX_PERF, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -389,6 +391,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_THREADS, Request),
         keyed::<params::InboxThreadParams>(method::MUX_INBOX_THREAD, Request),
         untyped(method::MUX_INBOX_REPLY, Request),
+        untyped(method::MUX_INBOX_SUBSCRIPTION_SET, Request),
+        untyped(method::MUX_INBOX_SUBSCRIPTION_REMOVE, Request),
+        untyped(method::MUX_INBOX_SUBSCRIPTIONS, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_CALL, Request),
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
@@ -403,6 +408,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MAC_APPROVERS, Request),
         untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
         untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
+        untyped(method::MUX_BROWSER_WORKSPACE_SOURCE_SET, Request),
+        untyped(method::MUX_BROWSER_WORKSPACES, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
@@ -530,6 +537,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_ENROLL, Request),
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
+        untyped(method::MUX_DEVICE_HELLO, Request),
+        untyped(method::MUX_DEVICE_ENROLL, Request),
+        untyped(method::MUX_BROWSER_SIGN_IN_START, Request),
+        untyped(method::MUX_BROWSER_SIGN_IN_COMPLETE, Request),
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),

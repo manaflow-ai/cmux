@@ -7,8 +7,8 @@
   --proof-selected: rgb(0 0 0 / 6%);
   --proof-code-bg: #f5f5f7;
   display: grid;
-  gap: 0 28px;
-  padding: 20px 24px 24px;
+  gap: 0 var(--ds-space-5);
+  padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-5);
   min-height: 100%;
   box-sizing: border-box;
   background: var(--proof-bg);
@@ -30,14 +30,17 @@
 .quillet-proof-head,
 .quillet-proof-size,
 .quillet-proof-caption {
-  font: 500 11px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   letter-spacing: 0.02em;
   color: var(--proof-muted);
 }
 
 .quillet-proof-head {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
   color: var(--proof-fg);
   padding-bottom: 8px;
   border-bottom: 1px solid var(--proof-rule);
@@ -50,7 +53,7 @@
 }
 
 .quillet-proof-size {
-  margin-bottom: 6px;
+  margin-bottom: var(--ds-space-1);
 }
 
 .quillet-proof-body {
@@ -60,7 +63,7 @@
 
 .quillet-proof-code {
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: 8px;
   background: var(--proof-code-bg);
   line-height: 1.5;
@@ -75,17 +78,17 @@
 }
 
 .quillet-proof-group {
-  font-size: calc(1em - 2px);
-  font-weight: 600;
+  font-size: 0.85em;
+  font-weight: var(--weight-emphasis);
   color: var(--proof-muted);
-  padding: 2px 8px 4px;
+  padding: var(--grid-half-step) var(--ds-space-2) var(--ds-space-1);
 }
 
 .quillet-proof-row {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 5px 8px;
+  gap: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: 6px;
 }
 
@@ -94,29 +97,29 @@
 }
 
 .quillet-proof-title {
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .quillet-proof-meta {
-  font-size: calc(1em - 2px);
+  font-size: 0.85em;
   color: var(--proof-muted);
   display: flex;
-  gap: 6px;
+  gap: var(--ds-space-1);
   align-items: center;
 }
 
 .quillet-proof-badge {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   border-radius: 999px;
   background: var(--proof-selected);
   color: var(--proof-fg);
 }
 
 .quillet-proof-caption {
-  padding: 6px 8px 0;
+  padding: var(--ds-space-1) var(--ds-space-2) 0;
 }
