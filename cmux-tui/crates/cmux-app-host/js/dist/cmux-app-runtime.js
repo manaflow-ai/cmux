@@ -679,6 +679,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }
@@ -1106,7 +1109,12 @@
           } else {
             const owner = createOwner();
             const [read, write] = signal(item, { equals: () => false });
-            const nodeId = runWithOwner(owner, () => build(m, template(read, key), depth + 1));
+            const nodeId = runWithOwner(owner, () => {
+              const child = template(read, key);
+              if (view.type === "Reorderable" && spec.onMove)
+                child.props.reorderKey = key;
+              return build(m, child, depth + 1);
+            });
             next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId });
           }
           nextOrder.push(key);

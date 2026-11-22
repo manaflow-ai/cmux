@@ -77,12 +77,15 @@ const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// An access token this close to its expiry is refreshed before a call.
 const REFRESH_SKEW_S: u64 = 300;
-/// Request headers a call carries upstream; the backend already dropped the guest's.
+/// Request headers a call carries upstream; the backend already dropped the guest's. Each harness's own session
+/// header (Codex's `session_id`, Claude Code's `x-claude-code-session-id`) lets the proxy keep one chat on one
+/// account, so its prompt cache keeps hitting.
 const PASS_HEADERS: &[&str] = &[
     "accept",
     "content-type",
     "openai-beta",
     "session_id",
+    "x-claude-code-session-id",
     "user-agent",
     "anthropic-version",
     "anthropic-beta",
@@ -419,6 +422,16 @@ pub(super) async fn backend_token(
     source: &TokenSource,
     team: Option<&str>,
 ) -> Result<String, String> {
+    backend_credential(source, team).await.map(|(token, _)| token)
+}
+
+/// The backend's token and, when its answer names one, the cmux API that issued it (`cmux auth token --json`'s
+/// `api_origin`): a verb run by the app with no `--api` (the start gate's `inference gateway status`, hq#15762) asks
+/// the API the app is signed in to.
+pub(super) async fn backend_credential(
+    source: &TokenSource,
+    team: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let raw = match source {
         TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
         TokenSource::File(path) => tokio::fs::read_to_string(path)
@@ -428,28 +441,37 @@ pub(super) async fn backend_token(
         TokenSource::App => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             // An install token acts only for the team it was minted for: mint it for the gateway's team.
-            let mut args = vec!["auth", "token"];
+            let mut args = vec!["auth", "token", "--json"];
             if let Some(team) = team {
                 args.extend(["--team", team]);
             }
             command_output(&exe.to_string_lossy(), &args).await?
         }
     };
-    let token = raw.trim();
-    // `cmux auth token --json` and friends: take its access_token.
-    let token = match serde_json::from_str::<Value>(token) {
-        Ok(Value::Object(o)) => {
-            o.get("access_token").and_then(Value::as_str).unwrap_or_default().to_owned()
-        }
-        _ => token.to_owned(),
-    };
+    let (token, issued_by) = credential_answer(&raw);
     if token.is_empty() || token.contains(char::is_whitespace) {
         return Err(
             "no cmux access token (sign in to cmux, or pass --token-file or --token-command)"
                 .into(),
         );
     }
-    Ok(token)
+    Ok((token, issued_by))
+}
+
+/// A token source's answer: a bare token, or `cmux auth token --json`'s object (its `access_token`, and its
+/// `api_origin` when it names one).
+pub(super) fn credential_answer(raw: &str) -> (String, Option<String>) {
+    let raw = raw.trim();
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Object(o)) => {
+            let text = |key: &str| o.get(key).and_then(Value::as_str).map(str::trim);
+            (
+                text("access_token").unwrap_or_default().to_owned(),
+                text("api_origin").filter(|v| !v.is_empty()).map(str::to_owned),
+            )
+        }
+        _ => (raw.to_owned(), None),
+    }
 }
 
 /// The model paths a machine may call, the same list as the cmux-platform Worker's `GATEWAY_CALL_PATH`.
@@ -1441,6 +1463,35 @@ mod tests {
         // The backend's routing header stays here.
         assert!(!lower.contains("x-cmux-machine"));
         assert!(request.ends_with(r#"{"model":"m"}"#));
+    }
+
+    /// Claude Code's own session header reaches the proxy, as Codex's `session_id` does: the proxy keeps one chat
+    /// on one account with it, so its prompt cache keeps hitting. Without it sr2 keyed every call of the Freestyle
+    /// machines behind one team gateway on a hash of the conversation's opening (`fallback:`), which a compaction
+    /// changes (sr2 audit, 2026-11-22: 430 of 528 calls from gcp-agent-lane-13 in 90 minutes).
+    #[tokio::test]
+    async fn claude_codes_session_header_reaches_the_proxy() {
+        let (base, upstream) =
+            fake_upstream("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
+                .await;
+        let provider = Provider::new(
+            Upstream::Proxy { base: format!("{base}/v1"), key_file: None },
+            test_client(),
+        );
+        let mut call = pending("/v1/messages", r#"{"model":"m"}"#);
+        call.headers.push((
+            "x-claude-code-session-id".into(),
+            "01a20179-9d24-7071-82aa-7b1b4f55d76f".into(),
+        ));
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "c1", call, &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["status"], 200, "{got:?}");
+        let request = upstream.await.unwrap().to_ascii_lowercase();
+        assert!(
+            request.contains("x-claude-code-session-id: 01a20179-9d24-7071-82aa-7b1b4f55d76f"),
+            "{request}"
+        );
     }
 
     #[tokio::test]
