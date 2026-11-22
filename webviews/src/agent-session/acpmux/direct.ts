@@ -4664,6 +4664,8 @@ export class AcpmuxDirectClient {
       this.hostHidden = false;
       this.hiddenHole = undefined;
       let opened = false;
+      // The Binary frames still inflating, in arrival order (`onmessage` below).
+      let inflating: Promise<void> | undefined;
       socket.onopen = () => {
         opened = true;
         this.daemonLastFrameAt = Date.now();
@@ -4683,6 +4685,15 @@ export class AcpmuxDirectClient {
         reject(openError ?? new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
+        // A frame that fully arrived before the close is the daemon's answer: it is read before the
+        // close rejects what is still pending, so a reply inflating when the link drops is applied,
+        // not shown as interrupted.
+        if (inflating) {
+          const closeAfter = () => socket.onclose?.(event);
+          void inflating.then(closeAfter, closeAfter);
+          inflating = undefined;
+          return;
+        }
         // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
         if (this.socket !== socket || this.closed || this.endedSocket === socket) return;
         this.wire.lifecycle("close", {
@@ -4703,7 +4714,6 @@ export class AcpmuxDirectClient {
       // A Binary frame is a compressed message (`frameCompression`): it inflates off this callback,
       // and every frame after it waits its turn, so the page reads them in the order they came.
       socket.binaryType = "arraybuffer";
-      let inflating: Promise<void> | undefined;
       const read = (raw: string) => acpmuxPerf.timed("client.receive", () => this.receive(raw, this.socket !== socket));
       socket.onmessage = (message) => {
         const data: unknown = message.data;
