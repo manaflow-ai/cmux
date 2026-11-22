@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxScreenKit
 public import CmuxNextDevices
@@ -98,6 +99,7 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    private var retryWatch: Task<Void, Never>?
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
     private var cursorTask: Task<Void, Never>?
     /// Asks the hub again, on its own, after a failure whose only sensible answer is yes
@@ -318,6 +320,7 @@ public final class MacScreenPane {
         retry.stop()
         retry.setInSight(false)
         decodeTask?.cancel()
+        retryWatch?.cancel()
         cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
@@ -357,14 +360,15 @@ public final class MacScreenPane {
     /// Follows the state card and the retry: a failure the pane answers itself starts or continues the retry, a live
     /// picture ends it, anything else (a person's choice, a prompt on the host) stops it.
     private func observeRetry() {
-        withObservationTracking {
-            _ = model.retriesOnItsOwn(model.stateCard)
-            _ = retry.isFailing
-            _ = retry.showsNotice
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.syncRetry()
-                self?.observeRetry()
+        retryWatch?.cancel()
+        retryWatch = Task { [weak self] in
+            let changes = ObservationStream { [weak self] () -> [Bool] in
+                guard let self else { return [] }
+                return [model.retriesOnItsOwn(model.stateCard), retry.isFailing, retry.showsNotice]
+            }
+            for await _ in changes {
+                guard let self else { return }
+                syncRetry()
             }
         }
     }
