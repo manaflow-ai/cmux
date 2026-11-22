@@ -176,7 +176,7 @@ async function startTrace(cdp: CDPSession): Promise<void> {
   await cdp.send("Tracing.start", {
     traceConfig: {
       recordMode: "recordAsMuchAsPossible",
-      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing", ...(process.env.LCMC_TRACE_DIR ? ["disabled-by-default-devtools.timeline.invalidationTracking", "disabled-by-default-devtools.timeline.stack"] : [])],
+      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing"],
     },
     transferMode: "ReportEvents",
   });
@@ -279,9 +279,7 @@ export async function measureToggle(
       mounted: document.querySelectorAll(".acpmux-row").length,
     };
   });
-  const rawTrace = cdp ? await stopTrace(cdp) : undefined;
-  if (rawTrace && process.env.LCMC_TRACE_DIR) (await import("node:fs")).writeFileSync(`${process.env.LCMC_TRACE_DIR}/${step}-${Date.now()}.json`, JSON.stringify(rawTrace));
-  const trace = rawTrace ? traceCost(rawTrace) : undefined;
+  const trace = cdp ? traceCost(await stopTrace(cdp)) : undefined;
   const intervals = page_.frames
     .slice(1)
     .map((at, index) => at - page_.frames[index]!)
