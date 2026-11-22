@@ -89,7 +89,8 @@
 /* Full size: the card fills the pane under the header (Leo: "why can't I full screen this picture?"),
    the frame scaled to fit. Its button, or a click on it, brings it back small. */
 .acpmux-shell .acpmux-cu-preview[data-full] {
-  top: calc(var(--acpmux-header-height, 44px) + 8px);
+  --cu-top: calc(var(--acpmux-header-height, 44px) + 8px);
+  top: var(--cu-top);
   right: var(--ds-space-3, 12px);
   bottom: var(--ds-space-3, 12px);
   left: var(--ds-space-3, 12px);
@@ -333,7 +334,7 @@
 }
 /* A light ring on a dark one: it shows over a light or a dark window. */
 .acpmux-cu-preview__close:focus-visible {
-  outline: 1.5px solid white;
+  outline: var(--cmux-focus-ring-width, 1.5px) solid white;
   outline-offset: 0;
   box-shadow: 0 0 0 3px var(--cu-preview-close-press);
 }
@@ -361,7 +362,7 @@
   background: var(--cu-preview-close-press);
 }
 .acpmux-cu-preview__full:focus-visible {
-  outline: 1.5px solid white;
+  outline: var(--cmux-focus-ring-width, 1.5px) solid white;
   outline-offset: 0;
   box-shadow: 0 0 0 3px var(--cu-preview-close-press);
 }
