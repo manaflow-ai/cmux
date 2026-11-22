@@ -194,6 +194,11 @@ export type ChurnReport = {
   /** The largest width change in one frame. */
   maxWidthStep: number;
   distinct: number;
+  /** The shortest time (ms) a text stayed up between two swaps: how long a reader gets with a line
+   *  (Infinity with under two swaps). */
+  shortestHold: number;
+  /** The first 24 swaps: when, and to what (for the report and a person reading it). */
+  timeline: { t: number; text: string | null }[];
 };
 
 /** How a live text churns. */
@@ -205,12 +210,20 @@ export function churn(trace: FeelTrace, text: string): ChurnReport {
   let widthTravel = 0;
   let maxWidthStep = 0;
   const distinct = new Set<string>();
+  let lastSwap: number | undefined;
+  let shortestHold = Number.POSITIVE_INFINITY;
+  const timeline: ChurnReport["timeline"] = [];
   for (let i = 0; i < samples.length; i++) {
     const now = samples[i]!.sample;
     if (now) distinct.add(now.text);
     if (i === 0) continue;
     const was = samples[i - 1]!.sample;
-    if ((was?.text ?? null) !== (now?.text ?? null)) swaps++;
+    if ((was?.text ?? null) !== (now?.text ?? null)) {
+      swaps++;
+      if (lastSwap !== undefined) shortestHold = Math.min(shortestHold, samples[i]!.t - lastSwap);
+      lastSwap = samples[i]!.t;
+      if (timeline.length < 24) timeline.push({ t: round(samples[i]!.t - samples[0]!.t), text: now?.text ?? null });
+    }
     const step = Math.abs((now?.width ?? 0) - (was?.width ?? 0));
     if (step > 0.5) widthChanges++;
     widthTravel += step;
@@ -225,6 +238,8 @@ export function churn(trace: FeelTrace, text: string): ChurnReport {
     widthTravelPerSecond: per(widthTravel),
     maxWidthStep: round(maxWidthStep),
     distinct: distinct.size,
+    shortestHold: round(shortestHold),
+    timeline,
   };
 }
 
@@ -280,11 +295,21 @@ export class Verdicts {
   readonly list: Verdict[] = [];
   /** Records `measured <= limit`. */
   atMost(check: string, measured: number, limit: number, unit = "") {
-    this.list.push({ check, pass: measured <= limit, measured: `${round(measured)}${unit}`, limit: `≤ ${limit}${unit}` });
+    this.list.push({
+      check,
+      pass: measured <= limit,
+      measured: `${round(measured)}${unit}`,
+      limit: `≤ ${limit}${unit}`,
+    });
   }
   /** Records `measured >= limit`. */
   atLeast(check: string, measured: number, limit: number, unit = "") {
-    this.list.push({ check, pass: measured >= limit, measured: `${round(measured)}${unit}`, limit: `≥ ${limit}${unit}` });
+    this.list.push({
+      check,
+      pass: measured >= limit,
+      measured: `${round(measured)}${unit}`,
+      limit: `≥ ${limit}${unit}`,
+    });
   }
   /** Records `measured === expected`. */
   equals(check: string, measured: unknown, expected: unknown) {

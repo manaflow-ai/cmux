@@ -14,7 +14,12 @@ export function feelDir(component: string): string {
   return dir;
 }
 
-export type ScenarioResult = { scenario: string; verdicts: Verdict[]; numbers: Record<string, unknown>; video?: string };
+export type ScenarioResult = {
+  scenario: string;
+  verdicts: Verdict[];
+  numbers: Record<string, unknown>;
+  video?: string;
+};
 
 /** Writes report.md and report.json for `component`; returns the markdown. */
 export function writeReport(component: string, results: ScenarioResult[]): string {
@@ -31,6 +36,8 @@ export function writeReport(component: string, results: ScenarioResult[]): strin
           `| ${result.scenario} | ${verdict.check} | ${verdict.measured} | ${verdict.limit} | ${verdict.pass ? "ok" : "**FAIL**"} |`,
       ),
     ),
+    "",
+    ...results.filter((result) => result.known).map((result) => `- ${result.scenario}: known red, ${result.known}`),
     "",
     ...results.filter((result) => result.video).map((result) => `- ${result.scenario}: ${result.video}`),
   ];

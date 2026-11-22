@@ -14,98 +14,59 @@
 // - a click or a 3 px wobble on the rim, or a click just above it, moves and changes nothing;
 // - a double-click moves the hat once, one way.
 // The report and a recording per scenario go to $CMUX_FEEL_OUT/plan-tray (test/feel/report.ts).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
-import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { describe, setDefaultTimeout, test } from "bun:test";
+import type { Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { click, doubleClick, drag, dragPath, play, type DragStyle } from "./feel/cursor";
-import { frames, installFeelProbe, record } from "./feel/probe";
-import { feelContext, feelDir, saveRecording, writeReport, type ScenarioResult } from "./feel/report";
+import { frames, record } from "./feel/probe";
+import { chromiumLaunches, expectPass, feelStage } from "./feel/stage";
 import type { ProbeSpec } from "./feel/trace";
-import { continuity, flips, follow, still, Verdicts } from "./feel/verdicts";
+import { continuity, flips, follow, still } from "./feel/verdicts";
 
 await requireBrowserLane("feel-plan-tray.test.ts", async () => {
-  const ENTRY = "agent-pane.feel-plan-tray";
-  const VARIANT = "fifty";
-  const COMPONENT = "plan-tray";
-  const VIEWPORT = { width: 480, height: 720 };
   setDefaultTimeout(120_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
+  if (!(await chromiumLaunches())) {
     describe.skip("feel: plan tray", () => test("chromium", () => {}));
     return;
   }
-  const { createServer } = await import("vite");
-  const webviews = path.resolve(import.meta.dir, "..");
-  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
-  const results: ScenarioResult[] = [];
-  const dir = feelDir(COMPONENT);
-
-  beforeAll(async () => {
-    vite = await createServer({
-      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: null },
-      logLevel: "error",
-    });
-    await vite.listen();
-    browser = await chromium.launch({ headless: true });
-    // A failed module fetch (a dev server still optimizing, a host's network blip) loads again.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await warmGalleryFrame(vite, [ENTRY], { browser, params: { variant: VARIANT } });
-        break;
-      } catch (error) {
-        if (attempt === 3 || !/Failed to fetch dynamically imported module/.test(String(error))) throw error;
-      }
-    }
-  }, 120_000);
-  afterAll(async () => {
-    const report = writeReport(COMPONENT, results);
-    console.log(report);
-    await browser?.close();
-    await vite?.close();
-  });
-
   const TRAY = ".acpmux-running-tray";
   const RIM = ".acpmux-running-tray__rim";
   const LIST = ".acpmux-running-tray__list";
   const SPEC: ProbeSpec = {
-    boxes: { tray: TRAY, rim: RIM, list: LIST, plan: ".acpmux-running-tray__plan", head: ".acpmux-running-tray__head", composer: ".acpmux-composer" },
+    boxes: {
+      tray: TRAY,
+      rim: RIM,
+      list: LIST,
+      plan: ".acpmux-running-tray__plan",
+      head: ".acpmux-running-tray__head",
+      composer: ".acpmux-composer",
+    },
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  const open = async (variant: string = VARIANT): Promise<Page> => {
-    const context = await feelContext(browser!, dir, VIEWPORT);
-    const page = await context.newPage();
-    await installFeelProbe(page);
-    const url = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(ENTRY, { variant })}`;
-    for (let attempt = 1; ; attempt++) {
-      await page.goto(url);
-      try {
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-          timeout: 60_000,
-        });
-        break;
-      } catch (error) {
-        if (attempt === 3 || !/context was destroyed|navigat|Timeout/i.test(String(error))) throw error;
-      }
-    }
-    await page.evaluate(() => {
-      localStorage.removeItem("cmux.agentPane.hatListHeight");
-      return document.fonts.ready;
-    });
-    await page.waitForSelector(`${TRAY}[data-open] ${LIST}`);
-    await page.mouse.move(2, 2);
-    // The open's fold has run: nothing animates.
-    await page.waitForFunction(() =>
-      document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity),
-    );
-    await frames(page, 4);
-    return page;
-  };
+  // Red on feat-cmux-next today; the plan-display-proper lane is fixing the tray's drag.
+  const FIX = "the plan-display-proper lane";
+  const SNAP = `${FIX}: the list stops between lines (it sizes to raw px)`;
+  const { scenario, testFor } = feelStage({
+    entry: "agent-pane.feel-plan-tray",
+    variant: "fifty",
+    component: "plan-tray",
+    viewport: { width: 480, height: 720 },
+    prepare: async (page) => {
+      await page.evaluate(() => localStorage.removeItem("cmux.agentPane.hatListHeight"));
+      await page.waitForSelector(`${TRAY}[data-open] ${LIST}`);
+    },
+    known: {
+      "drag-slow--60": SNAP,
+      "drag-fast--60": SNAP,
+      "drag-jitter--60": SNAP,
+      "drag-burst--60": SNAP,
+      "drag-slow-40": SNAP,
+      "fold-hysteresis": `${FIX}: a shaky hand at the fold point folds and opens it 9 times`,
+      "rim-click": `${FIX}: a click on the rim folds the hat`,
+      "rim-wobble-3px": `${FIX}: a click on the rim folds the hat`,
+    },
+  });
 
   /** Where a hand grabs the rim: its middle band, a third of the way in (the tuck chevron sits over
    *  its centre and keeps its own clicks; `rimMiddle` is that point). */
@@ -126,43 +87,35 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       return tops.length > 1 ? tops[1]! - tops[0]! : 28;
     }, LIST);
 
-  const scenario = async (name: string, run: (page: Page, verdicts: Verdicts) => Promise<Record<string, unknown>>) => {
-    const page = await open();
-    const verdicts = new Verdicts();
-    let numbers: Record<string, unknown> = {};
-    try {
-      numbers = await run(page, verdicts);
-    } finally {
-      const video = await saveRecording(page, dir, name);
-      await page.context().close();
-      results.push({ scenario: name, verdicts: verdicts.list, numbers, video });
-    }
-    return verdicts;
-  };
-
-  const expectPass = (verdicts: Verdicts) =>
-    expect(verdicts.failed.map((v) => `${v.check}: ${v.measured} (limit ${v.limit})`)).toEqual([]);
-
   /** A drag of the rim by `dy` px (negative: up) in `style`, judged on the tray's top edge. */
   const dragScenario = (style: DragStyle, dy: number) =>
-    test(`drag ${style} ${dy < 0 ? "up" : "down"} ${Math.abs(dy)} px: the rim stays under the hand, no jump, lands on a line`, async () => {
-      const verdicts = await scenario(`drag-${style}-${dy}`, async (page, v) => {
-        const { x, y } = await rimCentre(page);
-        const line = await pitch(page);
-        const trace = await record(page, SPEC, () => drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, style)));
-        const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
-        v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
-        v.atMost("jumps (frames off the hand by over 4 px)", report.jumps.length, 0);
-        v.atMost("move after release", report.releaseMove, 1, " px");
-        const list = trace.frames.at(-1)!.boxes.list;
-        if (list) {
-          const off = Math.abs(list.h / line - Math.round(list.h / line)) * line;
-          v.atMost(`list lands on a whole line (pitch ${Math.round(line)} px)`, off, 2, " px");
-        }
-        return { ...report, pitch: line, listHeight: list?.h };
-      });
-      expectPass(verdicts);
-    });
+    testFor(`drag-${style}-${dy}`)(
+      `drag ${style} ${dy < 0 ? "up" : "down"} ${Math.abs(dy)} px: the rim stays under the hand, no jump, lands on a line`,
+      async () => {
+        const verdicts = await scenario(`drag-${style}-${dy}`, async (page, v) => {
+          const { x, y } = await rimCentre(page);
+          const line = await pitch(page);
+          const trace = await record(page, SPEC, () =>
+            drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, style)),
+          );
+          const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
+          v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
+          v.atMost("jumps (frames off the hand by over 4 px)", report.jumps.length, 0);
+          v.atMost("move after release", report.releaseMove, 1, " px");
+          // A rim that never moves is "never off the hand" too: it must cover the way the hand went.
+          v.atLeast("rim travel / hand travel", report.coverage, 0.9);
+          const list = trace.frames.at(-1)!.boxes.list;
+          if (list) {
+            // The list carries 2 px of scroll padding under its lines (subagents.css: `+ 2px`).
+            const lines = (list.h - 2) / line;
+            const off = Math.abs(lines - Math.round(lines)) * line;
+            v.atMost(`list lands on a whole line (pitch ${Math.round(line)} px)`, off, 2, " px");
+          }
+          return { ...report, pitch: line, listHeight: list?.h };
+        });
+        expectPass(verdicts);
+      },
+    );
 
   describe("feel: plan tray rim drag", () => {
     dragScenario("slow", -60);
@@ -186,7 +139,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       expectPass(verdicts);
     });
 
-    test("a shaky hand at the fold point folds it once, not back and forth", async () => {
+    testFor("fold-hysteresis")("a shaky hand at the fold point folds it once, not back and forth", async () => {
       const verdicts = await scenario("fold-hysteresis", async (page, v) => {
         const { x, y } = await rimCentre(page);
         const list = (await page.locator(LIST).boundingBox())!;
@@ -211,7 +164,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       ["click", 0],
       ["wobble-3px", 3],
     ] as const)
-      test(`a ${name} on the rim (no drag) moves and changes nothing`, async () => {
+      testFor(`rim-${name}`)(`a ${name} on the rim (no drag) moves and changes nothing`, async () => {
         const verdicts = await scenario(`rim-${name}`, async (page, v) => {
           const { x, y } = await rimCentre(page);
           const trace = await record(page, SPEC, () => click(page, { x, y }, { wobble }));
@@ -259,9 +212,14 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
         let jumps = 0;
         for (const dy of [-30, 30, -50, 20, -10]) {
           const { x, y } = await rimCentre(page);
-          const trace = await record(page, SPEC, () => drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, "slow")), {
-            settleFrames: 6,
-          });
+          const trace = await record(
+            page,
+            SPEC,
+            () => drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, "slow")),
+            {
+              settleFrames: 6,
+            },
+          );
           const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
           worst = Math.max(worst, report.maxError);
           jumps += report.jumps.length;

@@ -5,7 +5,7 @@
 // errant clicks could make it jump". The variants are the extremes a hand meets: one step, five,
 // fifty, and steps with huge text.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxPlanEntry } from "../model";
@@ -28,9 +28,28 @@ function plan(count: number, huge = false): AcpmuxPlanEntry[] {
 }
 
 const command = (line: string, description: string, minutes: number) =>
-  tool(line, "execute", "in_progress", {
+  tool(line, "execute", "completed", {
     inputSummary: JSON.stringify({ command: line, description, run_in_background: true }),
     startedAt: minutesAgo(minutes),
+  });
+
+const COMMANDS = [
+  ["bun test webviews/src/agent-session/acpmux/subagents --timeout 30000", "run the hat tests"],
+  ["cmux-ci compile-check --app --ref HEAD", "compile on the fleet"],
+  ["bun run gallery:dev", "serve the gallery"],
+  ["cargo test -p cmux-motion", "test the springs"],
+  ["scripts/web-lint.sh", "lint the web UI"],
+] as const;
+
+/// As many background commands as plan steps: the hat's list holds them, so a drag up has lines to show.
+const commands = (count: number, huge: boolean) =>
+  Array.from({ length: count }, (_, i) => {
+    const [line, description] = COMMANDS[i % COMMANDS.length]!;
+    return command(
+      huge ? `${line} # ${HUGE}` : count > COMMANDS.length ? `${line} # ${i + 1}` : line,
+      description,
+      2 - i / count,
+    );
   });
 
 const snapshot = (count: number, huge = false) =>
@@ -38,8 +57,7 @@ const snapshot = (count: number, huge = false) =>
     [
       user("Land the tray change: compile, test and update the spec", 3),
       row("plan", 2.9, { plan: plan(count, huge) }),
-      command("bun test webviews/src/agent-session/acpmux/subagents --timeout 30000", "run the hat tests", 2),
-      command("cmux-ci compile-check --app --ref HEAD", "compile on the fleet", 1.5),
+      activity(commands(count, huge), 2),
       assistant("The tests and the compile are running.", 0.5),
     ],
     { isWorking: true },
@@ -61,9 +79,17 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/trayResize.ts"],
   variants: {
-    one: { note: "One plan step and two commands.", play: opened, snapshot: snapshot(1) },
-    five: { note: "Five plan steps and two commands.", play: opened, snapshot: snapshot(5) },
-    fifty: { note: "Fifty plan steps: the list scrolls in place under the cap.", play: opened, snapshot: snapshot(50) },
-    huge: { note: "Five steps of huge text: each cut at the row's edge.", play: opened, snapshot: snapshot(5, true) },
+    one: { note: "One plan step and one command.", play: opened, snapshot: snapshot(1) },
+    five: { note: "Five plan steps and five commands.", play: opened, snapshot: snapshot(5) },
+    fifty: {
+      note: "Fifty plan steps and fifty commands: the list scrolls in place under the cap.",
+      play: opened,
+      snapshot: snapshot(50),
+    },
+    huge: {
+      note: "Five steps and commands of huge text: each cut at the row's edge.",
+      play: opened,
+      snapshot: snapshot(5, true),
+    },
   },
 });

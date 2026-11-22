@@ -52,9 +52,7 @@ export function dragPath(from: Point, to: Point, style: DragStyle, seed = 1, amp
       const random = rng(seed);
       const n = Math.max(12, Math.ceil(dist / 3));
       return line(n, 1).map((step, i) =>
-        i === n - 1
-          ? step
-          : { ...step, x: step.x + (random() * 2 - 1) * amp, y: step.y + (random() * 2 - 1) * amp },
+        i === n - 1 ? step : { ...step, x: step.x + (random() * 2 - 1) * amp, y: step.y + (random() * 2 - 1) * amp },
       );
     }
     case "overshoot": {
