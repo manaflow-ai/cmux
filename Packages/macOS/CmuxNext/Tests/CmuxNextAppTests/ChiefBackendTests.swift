@@ -89,6 +89,34 @@ import Testing
         #expect(request.1 == .unii)
     }
 
+    @MainActor @Test func onItsOwnCloudMachineGoesToTheMachineStartWithOneKeyPerSheet() async throws {
+        let sheet = HomeNewChiefSheet()
+        _ = sheet.view
+        #expect(sheet.ownMachine.isHidden)  // no machine path wired: the sheet is as it was
+        let (asked, ask) = AsyncStream<(String, String)>.makeStream()
+        sheet.onCreateOnMachine = { name, key in
+            ask.yield((name, key))
+            return .offline
+        }
+        sheet.onCreate = { _, _ in
+            Issue.record("the hosted create ran with the machine box on")
+            return .offline
+        }
+        #expect(!sheet.ownMachine.isHidden)
+        sheet.ownMachine.state = .on
+        sheet.name.stringValue = "Ops"
+        sheet.submit()
+        var iterator = asked.makeAsyncIterator()
+        let first = try #require(await iterator.next())
+        #expect(first.0 == "Ops")
+        #expect(first.1 == sheet.machineKey)
+        // An engine whose Chiefs are this Mac's has no machine choice.
+        let index = try #require(sheet.backend.itemArray.firstIndex { $0.representedObject as? String == "unii" })
+        sheet.backend.selectItem(at: index)
+        sheet.backend.sendAction(sheet.backend.action, to: sheet.backend.target)
+        #expect(sheet.ownMachine.isHidden)
+    }
+
     @Test func aUniiChatChiefIsMadeOnTheLocalOwnerWithHarnessUnii() async throws {
         let calls = Calls()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")

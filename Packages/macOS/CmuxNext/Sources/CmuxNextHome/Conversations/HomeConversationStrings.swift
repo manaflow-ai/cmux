@@ -235,6 +235,7 @@ enum HomeConversationStrings {
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .localizedModule) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .localizedModule) }
     static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .localizedModule) }
+    static var chiefOwnMachine: String { String(localized: "home.chief.new.ownMachine", defaultValue: "On its own Cloud machine", bundle: .localizedModule) }
 
     // MARK: Sidebar previews
 

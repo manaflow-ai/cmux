@@ -8,6 +8,15 @@ public import CmuxNextHomeModel
 /// makes it where the engine needs it (``ChiefBackend/createsOnThisMac``).
 public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     public var onCreate: (String, ChiefBackend) async -> HomeComposeOutcome = { _, _ in .offline }
+    /// With this set, a cloud engine's Chief can instead run on a Cloud machine of its own ("On its own Cloud
+    /// machine"): the host gets the name and this sheet's start key, the same on every Create, so a retry finishes
+    /// the first start.
+    public var onCreateOnMachine: ((String, String) async -> HomeComposeOutcome)? {
+        didSet { showHint() }
+    }
+    let ownMachine = NSButton(checkboxWithTitle: HomeConversationStrings.chiefOwnMachine, target: nil, action: nil)
+    /// This sheet's one machine start (``onCreateOnMachine``).
+    let machineKey = UUID().uuidString.lowercased()
     let name = HomeSheetController.field(placeholder: HomeConversationStrings.chiefName, identifier: "cmux.home.chief.name")
     let backend = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The chosen engine's one-line note (``ChiefBackend/hint``); hidden when it has none.
@@ -44,6 +53,8 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         backendHint.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         backendHint.setAccessibilityIdentifier("cmux.home.chief.backendHint")
         stack.addArrangedSubview(backendHint)
+        ownMachine.setAccessibilityIdentifier("cmux.home.chief.ownMachine")
+        stack.addArrangedSubview(ownMachine)
         showHint()
     }
 
@@ -65,6 +76,11 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     override func submit() {
         let chosen = trimmed
         let engine = chosenBackend
+        if let onMachine = onCreateOnMachine, !ownMachine.isHidden, ownMachine.state == .on {
+            let key = machineKey
+            run { await onMachine(chosen, key) }
+            return
+        }
         let create = onCreate
         run { await create(chosen, engine) }
     }
@@ -75,6 +91,7 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         let hint = chosenBackend.hint
         backendHint.stringValue = hint ?? ""
         backendHint.isHidden = hint == nil
+        ownMachine.isHidden = onCreateOnMachine == nil || chosenBackend.createsOnThisMac
     }
 
     public func controlTextDidChange(_ notification: Notification) { refreshPrimary() }
