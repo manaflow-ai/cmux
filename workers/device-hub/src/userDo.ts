@@ -69,6 +69,8 @@ interface SessionRow {
   moved_from: string | null;
   /** The last billing answer a full (Stack-token) caller got for this session: 1 paid, 0 free, null never read. */
   relay_paid: number | null;
+  /** When that answer was read (ms); it covers the session's host end for ANCHOR_RELAY_TTL_MS. */
+  relay_read_at: number | null;
 }
 
 interface RelayRow {
@@ -200,6 +202,7 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["devices", "machine", "TEXT"],
   ["sessions", "moved_from", "TEXT"],
   ["sessions", "relay_paid", "INTEGER"],
+  ["sessions", "relay_read_at", "INTEGER"],
 ];
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
@@ -1051,7 +1054,7 @@ export class UserDO extends DurableObject<Env> {
     this.checkPushed(me, newHost, newViewer, old.scope, c);
     const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
     // A move continues the same share: it keeps the billing answer its viewer's request got.
-    this.sql.exec("UPDATE sessions SET relay_paid = ? WHERE id = ?", old.relay_paid ?? null, newId);
+    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, newId);
     this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
     this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
     // The new share is up before the old one goes: a move that cannot start keeps the old share.
@@ -1387,26 +1390,28 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- device renewal (PROTOCOL.md, Device renewal) ----
 
-  /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
   /**
    * One session's relay right. Its viewer and host are one account (one UserDO per user), so
    * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
-   * asks billing, fail closed, and the answer is kept on the session. A host or machine caller
-   * has no Stack token: it gets the relay when its session already holds a paid answer, else
-   * its own (a host anchor's `rel`; a machine session's none). Nothing is cached across
-   * sessions, so a lapsed plan stops at the next one, and a free or failed read grants nothing.
+   * asks billing, fail closed, and the answer is kept on the session (a failed read clears
+   * it). A host or machine caller has no Stack token: it gets the relay while its session holds
+   * a paid answer read in the last ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its
+   * own (a host anchor's `rel`; a machine session's none). A move carries the answer and its
+   * read time, never refreshes them. A free or failed read grants nothing to either end.
    */
   private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "full") {
       const answer = await this.entitlement(c).catch(() => "error" as const);
-      if (answer !== "error") this.sql.exec("UPDATE sessions SET relay_paid = ? WHERE id = ?", answer === "paid" ? 1 : 0, s.id);
+      const paid = answer === "error" ? null : answer === "paid" ? 1 : 0;
+      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", paid, paid === null ? null : Date.now(), s.id);
       return answer;
     }
-    const held = this.sql.exec("SELECT relay_paid FROM sessions WHERE id = ?", s.id).toArray()[0];
-    if (held && (held.relay_paid as number | null) === 1) return "paid";
+    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    if (held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now()) return "paid";
     return this.entitlement(c).catch(() => "error" as const);
   }
 
+  /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
   private async entitlement(c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "host") return c.hostRelay ? "paid" : "free";
     return (await relayEntitlement(this.env, c.userId, c.stackToken)) as "paid" | "free" | "error";

@@ -70,6 +70,33 @@ describe("a session's relay follows its viewer's billing answer", () => {
     expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
   });
 
+  it("the viewer's paid answer covers the host end for 24 h only, and a failed read clears it", async () => {
+    const sub = `pro-${crypto.randomUUID()}`;
+    billingPlans.set(sub, { subscriptionPlanId: "pro" });
+    const account = await signIn(sub);
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    const d = await decidedByHost(host, viewer);
+    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
+    // Billing fails on the viewer's next read: the host end loses the stored answer too.
+    billingPlans.set(sub, { status: 500 });
+    expect((await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual([]);
+    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual([]);
+    // Paid again, then a day passes with no viewer read: the host end's stored answer lapses.
+    billingPlans.set(sub, { subscriptionPlanId: "pro" });
+    expect((await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + ANCHOR_RELAY_TTL_MS + 60_000 });
+    try {
+      const after = await host.call("POST", `/v1/sessions/${d.sid}/ice`, undefined);
+      // The machine session itself may have ended by then; either way no relay is minted.
+      expect(after.json.ice ?? []).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("free viewer, joined machine host: no relay on either end", async () => {
     const account = await person("free");
     const host = await machineHost(account);
