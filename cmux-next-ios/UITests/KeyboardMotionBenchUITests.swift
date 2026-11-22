@@ -29,6 +29,19 @@ final class KeyboardMotionBenchUITests: XCTestCase {
 
     override func tearDown() {
         XCUIDevice.shared.orientation = .portrait
+        // The app's main-thread trace for this surface: hitch rows with stacks, keyboard windows.
+        let test = name
+        if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
+            let log = XCTAttachment(string: text)
+            log.name = "input-latency-\(test).jsonl"
+            log.lifetime = .keepAlways
+            add(log)
+            for row in text.split(separator: "\n") where row.contains(#""type":"hitch""#) || row.contains(#""type":"window""#) {
+                print("INPUTLAT_EVENT \(test) \(row)")
+            }
+        } else {
+            print("INPUTLAT_EVENT \(test) trace file not found")
+        }
     }
 
     /// How a surface shows and hides its keyboard.
