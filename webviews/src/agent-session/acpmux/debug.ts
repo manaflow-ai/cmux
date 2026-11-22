@@ -7,7 +7,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions, SessionChurnOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
@@ -102,6 +102,8 @@ export type AcpmuxDebug = {
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
   /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
   loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
+  /** Other listed chats change and start while the reader works (loadDebug.ts `sessionChurn`). */
+  sessionChurn(options?: SessionChurnOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
    * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
   renders(): Record<string, number>;
@@ -556,6 +558,10 @@ export function createAcpmuxDebug(
     async loadTools(options = {}) {
       const { loadTools } = await import("./loadDebug");
       return loadTools({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async sessionChurn(options = {}) {
+      const { sessionChurn } = await import("./loadDebug");
+      return sessionChurn(options);
     },
     renders() {
       acpmuxPerf.enable();

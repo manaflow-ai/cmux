@@ -391,6 +391,16 @@ export class MockAcpmuxSocket {
     if (current) this.touch(target, typeof fields === "function" ? fields(current) : fields, false);
   }
 
+  /// A new chat in the list, as the daemon tells a client one started (`fields` over a new chat's
+  /// summary): background churn for a bench (loadDebug.ts `sessionChurn`).
+  addSession(fields: Record<string, unknown>): string {
+    const id = String(fields.sessionId ?? `churn-${this.sessions.length + 1}`);
+    const created = { ...newSessionSummary(id, "~/code/cmux", Date.now()), ...fields, sessionId: id };
+    this.sessions.push(created);
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+    return id;
+  }
+
   /// Claude lists its slash commands when a session starts, so the composer's + and `/` work.
   private listCommands(target: string, at?: number): void {
     this.record(target, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } }, at);

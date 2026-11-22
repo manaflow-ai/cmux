@@ -121,6 +121,7 @@ import {
   useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { useListStoreFeed } from "./listStoreFeed";
 import {
   heldPick,
   withDraftFolder,
@@ -3180,9 +3181,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the name chips of started chats, not the hover.
   const hoverStore = useRef<SessionHoverStore | null>(null);
   hoverStore.current ??= new SessionHoverStore();
-  useLayoutEffect(() => {
-    hoverStore.current!.set(snapshot.sessions);
-  }, [snapshot.sessions]);
+  // The list's indexes are background work: after the first list, off the frame path (listStoreFeed.ts).
+  useListStoreFeed(hoverStore.current!, snapshot.sessions);
   // The draft's pasted chat links name their chats from the same list (composer/deeplinkTitles.ts).
   useLayoutEffect(() => {
     const store = hoverStore.current!;
@@ -3196,9 +3196,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);
   subsessionStore.current ??= new SubsessionStore();
-  useLayoutEffect(() => {
-    subsessionStore.current!.set(snapshot.sessions);
-  }, [snapshot.sessions]);
+  useListStoreFeed(subsessionStore.current!, snapshot.sessions);
   const subsessions = useMemo<Subsessions>(
     () => ({
       store: subsessionStore.current!,
@@ -8893,8 +8891,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
             if (!mock) {
               rememberRecentFolders(next);
-              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-              publishSessions(next);
+              // Every page's New Tab lists one chat store (newtab/chatStore.ts), which New Tab pages write
+              // (one is always alive, the prewarmed spare): a chat page writing it serialized every listed
+              // chat twice a second and woke every other page to parse it, on the renderer that draws the
+              // chat on screen (2026-11-22, Leo's Mac at load 95: a fifth of a shown chat page's script time).
+              if (showsNewTabRef.current) publishSessions(next);
               // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
               publishWarmNewTab(
                 next,

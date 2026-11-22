@@ -600,3 +600,51 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
     },
   };
 }
+
+export type SessionChurnOptions = {
+  seconds?: number;
+  /// Other chats changed per second (a status and its time, as agents work).
+  changes_per_second?: number;
+  /// One chat started every this many changes (a helper or a background run), 0 for none.
+  start_every?: number;
+};
+
+/// `debug.agent_pane session_churn`: the rest of the Mac's chats keep working while the reader types
+/// or scrolls: other listed chats change status at `changes_per_second`, and every `start_every`th
+/// change starts a new chat that another one started (a sub-session, with a name and a peer), so the
+/// list grows as it does when agents run helpers. None of it is on the reader's screen.
+export async function sessionChurn(options: SessionChurnOptions = {}): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  if (!mock) return { error: "no mock daemon" };
+  const seconds = options.seconds ?? 10;
+  const rate = Math.max(1, options.changes_per_second ?? 20);
+  const startEvery = options.start_every ?? 10;
+  const listSize = Number((globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize ?? 0);
+  if (listSize <= 0) return { error: "set cmuxAcpmuxMockListSize before the page loads" };
+  const end = performance.now() + seconds * 1000;
+  let changes = 0;
+  let started = 0;
+  while (performance.now() < end) {
+    const index = Math.floor(Math.random() * listSize);
+    const working = changes % 2 === 0;
+    mock.changeSession(`listed-${index}`, {
+      status: working ? "running" : "idle",
+      indicator: working ? "working" : "done",
+      updatedAt: Date.now(),
+    });
+    changes += 1;
+    if (startEvery > 0 && changes % startEvery === 0) {
+      started += 1;
+      mock.addSession({
+        sessionId: `churn-${started}-${Math.round(performance.now())}`,
+        name: `peer-${started % 7}/helper-${started}`,
+        peer: `peer-${started % 7}`,
+        startedBy: `listed-${index}`,
+        status: "running",
+        indicator: "working",
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 / rate));
+  }
+  return { changes, started };
+}
