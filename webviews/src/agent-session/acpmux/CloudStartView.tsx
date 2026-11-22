@@ -23,7 +23,6 @@ import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
   cloudPlanMachineWords,
-  cloudSizeWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
@@ -375,7 +374,7 @@ function TooBigActions({
                 type="button"
                 className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
                 data-repo={repo.path}
-                title={repo.path}
+                aria-description={repo.path}
                 onClick={() => onPickRepo(repo.path)}
               >
                 {repo.name}
@@ -430,9 +429,9 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
       >
         {t("cloudRepository.connect")}
       </button>
-      {github.state.connectError && (
+      {(github.state.connectError ?? github.state.status?.message) && (
         <output className="acpmux-cloud-start__status" data-connect-error="true">
-          {github.state.connectError}
+          {github.state.connectError ?? github.state.status?.message}
         </output>
       )}
     </>

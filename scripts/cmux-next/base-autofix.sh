@@ -128,6 +128,43 @@ if [[ -n "$generated" && -d "$generated" ]]; then
   done < <(find "$generated" -type f -print0 | sort -z)
 fi
 
+# 1a. Re-pin markers the regenerated action exports settled. A marker under the action catalog's
+# tests/awaiting-repin/ says the pinned app FFI does not match the crate yet (swift_parity.rs); once the
+# re-pin lands, the regenerated exports carry the change and swift_parity fails until the marker goes.
+# The re-pin rarely deletes it, so the exports could never land and every base autofix run failed in its
+# test step for hours on 11-21 (debug.envSecretsPlayground): an actions/<id> marker goes when both
+# exports have the id, a removal/<id> marker when neither does. Only with both exports regenerated here.
+markers=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+if [[ -n "$generated" && -f "$generated/plans/cmux-next/action-surfaces.json" && -f "$generated/plans/cmux-next/action-catalog.json" && -d "$repo/$markers" ]]; then
+  while IFS= read -r stale; do
+    [[ -n "$stale" ]] || continue
+    if frozen "$stale"; then echo "skipped (frozen): $stale"; continue; fi
+    rm -f "$repo/$stale"
+    echo "fixed: deleted $stale (the regenerated exports carry the re-pin)"
+  done < <(python3 -I - "$repo" "$markers" <<'PY'
+import json, os, sys
+repo, markers = sys.argv[1], sys.argv[2]
+ids = []
+for name in ("action-surfaces.json", "action-catalog.json"):
+    try:
+        with open(os.path.join(repo, "plans/cmux-next", name)) as f:
+            rows = json.load(f)["actions"]
+        ids.append({row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)})
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(0)  # an export that is not the real shape: settle nothing
+def marked(kind):
+    d = os.path.join(repo, markers, kind)
+    return sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []
+for id in marked("actions"):
+    if all(id in s for s in ids):
+        print(f"{markers}/actions/{id}")
+for id in marked("removal"):
+    if not any(id in s for s in ids):
+        print(f"{markers}/removal/{id}")
+PY
+  )
+fi
+
 # 1b. The CI target graph, from the checkout's own generator.
 graph=Packages/macOS/CmuxNext/ci-target-graph.json
 if [[ -n "$package_dump" ]]; then

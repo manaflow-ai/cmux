@@ -40,6 +40,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var webAuthnRefused = false
     /// Passkey hand-offs whose trigger runs now (``handOverWebAuthn(during:)``): their click is the person's.
     @ObservationIgnored var webAuthnHandOvers = 0
+    /// An agent acted in the page (``markAgentDriven()``) since the person last took it (their input or a hand-off):
+    /// its WebAuthn is refused then. An agent's reads (``markAgentReading()``) leave it as it is.
+    @ObservationIgnored var webAuthnAgentActs = false
     /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
     public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
@@ -269,6 +272,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
+    /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
+    @ObservationIgnored public private(set) var browserEndedForQuit = false
     @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -501,6 +507,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
+        // Set before the relay ends: a cmux page reads it in its end (`CEFPageChromiumPage`).
+        if !closesTab { browserEndedForQuit = true }
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -718,6 +726,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        // A page view syncs its visibility when it is parked or taken back (`PageWebView.setChromiumVisibility`): its
+        // page window leaves the window while the view lies outside it (`CEFLayerHosting.isParkedAway`).
+        if host.visibleTab === self { host.hostView.layerHosting.placementChanged() }
         guard visible == isOccluded else { return }
         isOccluded = !visible
         // A hidden cmux page gets cheaper 10 s later: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).
