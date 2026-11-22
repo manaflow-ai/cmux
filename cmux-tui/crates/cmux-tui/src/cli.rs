@@ -53,6 +53,8 @@ mod beside;
 #[cfg(unix)]
 mod billing;
 #[cfg(unix)]
+mod burst;
+#[cfg(unix)]
 mod caller_browser;
 mod caller_scope;
 mod capability_cache;
@@ -976,6 +978,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| burst::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_pause_all::run_if_requested(args))
