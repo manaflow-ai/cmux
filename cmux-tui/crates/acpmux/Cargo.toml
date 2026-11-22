@@ -20,6 +20,11 @@ path = "src/main.rs"
 name = "v2"
 harness = false
 
+# A turn's cost by stage with a stand-in model that answers at once (benches/turn_overhead.rs).
+[[bench]]
+name = "turn_overhead"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
