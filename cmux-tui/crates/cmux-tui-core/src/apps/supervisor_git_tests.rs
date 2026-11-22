@@ -209,6 +209,53 @@ fn an_update_moves_the_commit_and_asks_again_only_for_new_scopes() {
 }
 
 #[test]
+fn a_newer_tag_with_a_wider_scope_asks_again_before_it_installs() {
+    let f = fixture();
+    let git = with_git(&f);
+    let v1 = app_tarball("octo/hello", "1.0.0", json!({"workspace:read": "r"}));
+    git.serve("octo", "hello", A, &[("refs/heads/main", A), ("refs/tags/v1.0.0", A)], &[(A, v1)]);
+    let pinned = install(&f, "github.com/octo/hello@v1.0.0", "k1").unwrap();
+    assert_eq!(pinned["app"]["commit"], A);
+    assert_eq!(pinned["app"]["tag"], "v1.0.0");
+
+    // A newer release tag asks for one more scope: the update finds it and
+    // refuses until its card is confirmed; nothing of v1.1.0 is installed.
+    let v1 = app_tarball("octo/hello", "1.0.0", json!({"workspace:read": "r"}));
+    let v2 = app_tarball("octo/hello", "1.1.0", json!({"workspace:read": "r", "agents:read": "a"}));
+    git.serve(
+        "octo",
+        "hello",
+        B,
+        &[("refs/heads/main", B), ("refs/tags/v1.0.0", A), ("refs/tags/v1.1.0", B)],
+        &[(A, v1), (B, v2)],
+    );
+    let asks = call(
+        &f,
+        "cmux.apps.update",
+        json!({"app": "octo/hello", "idempotency_key": "u1"}),
+        Origin::User,
+    )
+    .unwrap_err();
+    assert_eq!(asks.code, "apps.update.needs_consent", "{asks:?}");
+    assert!(asks.message.contains("agents:read"), "{}", asks.message);
+    let base = f.state.join("apps/git/github.com/octo/hello");
+    assert!(base.join(A).is_dir() && !base.join(B).exists(), "v1.0.0 stays installed");
+    let still =
+        call(&f, "cmux.apps.catalog.get", json!({"app": "octo/hello"}), Origin::Cli).unwrap();
+    assert_eq!(still["commit"], A, "{still}");
+    assert!(
+        !still["grants"].as_array().into_iter().flatten().any(|g| g == "agents:read"),
+        "the wider scope is not granted: {still}"
+    );
+
+    // The confirmed card of the newer tag moves it, with its scope.
+    let moved = install(&f, "github.com/octo/hello@v1.1.0", "k2").unwrap();
+    assert_eq!(moved["app"]["commit"], B);
+    assert_eq!(moved["app"]["tag"], "v1.1.0");
+    assert!(moved["app"]["grants"].as_array().unwrap().iter().any(|g| g == "agents:read"));
+}
+
+#[test]
 fn a_reinstall_of_a_commit_whose_tree_changed_is_refused() {
     let f = fixture();
     let git = with_git(&f);
