@@ -763,6 +763,10 @@
 .cv-user__cancel:disabled:hover {
   color: inherit;
 }
+/* Why Retry waits, before it, in the quieter ink. */
+.cv-user__retry-wait {
+  color: var(--cv-text-muted);
+}
 .cv-user__failure {
   display: flex;
   flex-wrap: wrap;
@@ -8574,6 +8578,10 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
+  color: var(--cv-text-muted);
+}
+/* Why a machine cannot run the command, after its name in the quieter ink (a disabled choice gets no hover). */
+.cv-run-elsewhere__why {
   color: var(--cv-text-muted);
 }
 .cv-run-elsewhere__machine input {

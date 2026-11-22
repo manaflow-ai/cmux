@@ -60,6 +60,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -348,9 +349,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
-    <span className="cv-turn-stopped" aria-description={forced ?? workedLabel(t, row)}>
-      {t("turn.stoppedMark")}
-    </span>
+    <WithFacts facts={[{ value: forced ?? workedLabel(t, row) }]}>
+      {(facts) => (
+        <span {...facts} className="cv-turn-stopped">
+          {t("turn.stoppedMark")}
+        </span>
+      )}
+    </WithFacts>
   );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
