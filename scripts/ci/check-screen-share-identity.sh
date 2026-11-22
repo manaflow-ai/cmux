@@ -10,7 +10,8 @@
 # Checks: exactly one helper in Contents/Library; its bundle id is "<app id>.screen-sharing" (and,
 # for a channel pinned below, that exact id); its designated requirement names that id and the app's
 # Developer ID team, with no cdhash (an ad-hoc signature's requirement is its cdhash, which every
-# build changes); and no second holder (cmux Computer Use.app, com.cmuxterm.cua) beside it.
+# build changes); and no other app in Contents/Library (no second holder: no cmux Computer Use.app,
+# no cmux Remote.app).
 # The team is the app's own (pinned to the shipped team for a pinned channel). sign-cmux-bundle.sh
 # runs it on every Developer ID signing; check-signed-app.sh again on the signed NIGHTLY.
 # CMUX_PLISTBUDDY and CMUX_CODESIGN_TOOL stand in for the tools in
@@ -48,8 +49,12 @@ done
 [[ ${#helpers[@]} -eq 1 ]] || fail "$APP_PATH holds ${#helpers[@]} Screen Sharing helpers, not 1"
 helper="${helpers[0]}"
 
-other="$APP_PATH/Contents/Library/cmux Computer Use.app"
-[[ ! -e "$other" ]] || fail "$other ships beside $(basename "$helper"): a second Screen Recording holder asks the person twice"
+# The helper is the only app there: any other app (cmux Computer Use.app, cmux Remote.app) would be a second
+# Screen Recording and Accessibility holder, and the person would be asked twice.
+for other in "$APP_PATH/Contents/Library/"*.app; do
+  [[ -e "$other" && "$other" != "$helper" ]] || continue
+  fail "$other ships beside $(basename "$helper"): a second Screen Recording holder asks the person twice"
+done
 
 helper_id="$("$PLISTBUDDY" -c "Print :CFBundleIdentifier" "$helper/Contents/Info.plist")"
 [[ "$helper_id" == "$app_id.screen-sharing" ]] \

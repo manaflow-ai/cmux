@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Publishes the signed cmux Remote (dev).app zip (sign-cmux-remote-dev.sh) to the
+# Publishes a signed helper zip (sign-files-host-dev.sh: cmux Files (dev).app) to the
 # private R2 bucket and writes its pin. Same rules as publish-remote-browser-host.sh: the key is
 # content-addressed (<prefix>/<sha256>/<asset>), the upload is write-once
 # (If-None-Match: *), the object is always read back and its sha256 checked,
 # credentials go to curl on stdin, and one line is appended to the publish log.
-# Only two prefixes are allowed: cua-helper-dev/ (the store's historical name for cmux Remote) and
+# Only two prefixes are allowed: cua-helper-dev/ (the store's historical prefix, kept for the objects already in it) and
 # files-host-dev/ (cmux Files (dev), docs/cmux-files-host.md). Never
 # publish keys, certificates or provisioning profiles.
 #

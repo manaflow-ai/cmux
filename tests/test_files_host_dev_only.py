@@ -139,14 +139,15 @@ class AppGateTests(unittest.TestCase):
 
     def test_the_embed_phase_reruns_when_the_configuration_or_bundle_id_changes(self) -> None:
         text = PBXPROJ.read_text()
-        phase = text[text.index("/* Embed cmux Remote (dev) */ = {"):]
+        phase = text[text.index("/* Embed cmux Files (dev) */ = {"):]
         phase = phase[:phase.index("\n\t\t};")]
         inputs = phase[:phase.index("runOnlyForDeploymentPostprocessing")]
         for key in ["$(CONFIGURATION)", "$(PRODUCT_BUNDLE_IDENTIFIER)", "embed-files-host-dev.sh", "files-host-dev.pin.json"]:
             self.assertIn(key, inputs)
-        # The phase runs it, before cmux Remote's script (which ends the phase with exec).
+        # The phase runs it, and nothing else: no build embeds a second permission app.
         script = phase[phase.index("shellScript = "):]
-        self.assertLess(script.index("embed-files-host-dev.sh"), script.index("embed-cmux-remote-dev.sh"))
+        self.assertIn("embed-files-host-dev.sh", script)
+        self.assertNotIn("cmux Remote", phase)
 
     def test_release_and_nightly_workflows_never_mention_it(self) -> None:
         workflows = ROOT / ".github/workflows"

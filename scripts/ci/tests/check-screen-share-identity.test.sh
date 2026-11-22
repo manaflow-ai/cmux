@@ -4,7 +4,7 @@
 # with python3; a stub codesign prints the requirement written in the helper's fake-requirement file,
 # as `codesign -d -r-` prints it. Covers: NIGHTLY's helper as it ships (passes), an ad-hoc helper
 # (cdhash), a helper id that moved, another team, NIGHTLY under another team, an ad-hoc app, no
-# helper, two helpers, cmux Computer Use.app beside the helper, and another signer's own build.
+# helper, two helpers, cmux Computer Use.app or cmux Remote.app beside the helper, and another signer's own build.
 # Runs on Linux and macOS (python3).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -88,6 +88,10 @@ expect_fail "two helpers" "holds 2 Screen Sharing helpers"
 app cua com.cmuxterm.app.nightly
 info "$APP/Contents/Library/cmux Computer Use.app" com.cmuxterm.cua
 expect_fail "second holder" "a second Screen Recording holder"
+
+app remote com.cmuxterm.app.nightly
+info "$APP/Contents/Library/cmux Remote.app" com.cmuxterm.remote
+expect_fail "a cmux Remote beside the helper" "a second Screen Recording holder"
 
 app pinnedteam com.cmuxterm.app.nightly
 echo AAAAAAAAAA > "$APP/fake-team"

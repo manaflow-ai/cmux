@@ -5,7 +5,7 @@
 #   Contents/Library/cmux Files (dev).app
 # of a DEV build, where the app finds it (FilesHost) and runs its terminal daemon and acpmux
 # under it, so macOS asks for Files and Folders once for every DEV build. Run from the "Embed
-# cmux Remote (dev)" phase, before embed-cmux-remote-dev.sh. The bytes are never re-signed: the
+# cmux Files (dev)" phase. The bytes are never re-signed: the
 # helper's code identity, and so a person's answers, must stay the same across builds.
 # Dev only, by construction: it embeds only into a Debug configuration whose bundle id is
 # com.cmuxterm.app.debug[.<tag>]. Every other configuration (Release: stable, NIGHTLY, RC, the

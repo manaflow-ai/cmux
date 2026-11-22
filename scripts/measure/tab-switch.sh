@@ -54,8 +54,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # A build here (build=SHA, build=head, or the --flag mode) fetches pinned assets whose last source is the private
-# cmux-cef R2 bucket, read with the CMUX_CEF_R2_* read credentials (cmux-remote-dev.pin.json in a Release build that
-# embeds cmux Remote, the Chromium engine when the store has no copy). Without them the build ran 7 to 13 minutes under
+# cmux-cef R2 bucket, read with the CMUX_CEF_R2_* read credentials (the Chromium engine when the store has no copy). Without them the build ran 7 to 13 minutes under
 # the host lock and then failed (cmux19, 2026-11-16 22:28Z, 22:42Z and 00:04Z), so they are checked first: the
 # environment, else CMUX_CEF_R2_ENV_FILE, else ~/.secrets/cmux-cef.env of this HOME or of the account (a fleet step
 # has its own HOME). The file found is exported, so the build reads the same one. The controller sends these steps
