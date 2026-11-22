@@ -80,6 +80,9 @@ import UIKit
             return list.convert(attributes.frame.origin, to: nil).y
         }
 
+        /// The item index of the row with `id` now.
+        func item(of id: Int) -> Int? { rows.firstIndex { $0.id == id } }
+
         func height(of item: Int) -> CGFloat {
             list.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame.height ?? -1
         }
@@ -95,6 +98,37 @@ import UIKit
         }
 
         func close() { window.isHidden = true }
+    }
+
+    // MARK: Leaving the newest end without a finger
+
+    /// VoiceOver's three-finger page scroll moves the list with no finger and no fling, so the
+    /// person's-move test that decides following never ran: a `.down` list scrolled a page away
+    /// from its newest row still followed it, and the next row to arrive took the reader back to
+    /// the top. A scroll that ends away from the newest end leaves it, however it was made.
+    @Test func aVoiceOverPageScrollAwayFromTheNewestEndStopsFollowing() throws {
+        let host = Host()
+        defer { host.close() }
+        try #require(host.controller.followsNewest, "a new list follows its newest row")
+        let start = host.list.contentOffset.y
+        var moved = false
+        for direction in [UIAccessibilityScrollDirection.up, .down, .next] where !moved {
+            _ = host.list.accessibilityScroll(direction)
+            // Long enough for an animated page scroll to finish.
+            for _ in 0 ..< 30 { host.turn() }
+            moved = host.list.contentOffset.y - start > 200
+        }
+        try #require(moved, "the page scroll moved the list \(host.list.contentOffset.y - start) pt")
+        #expect(!host.controller.followsNewest, "a page away from the newest end, the list still follows it")
+        // The newest end gets rows: the reader stays on what they read.
+        let reading = try #require(host.list.indexPathsForVisibleItems.map(\.item).sorted().dropFirst().first)
+        let id = host.rows[reading].id
+        let before = try #require(host.top(of: reading))
+        host.apply { $0.insert(contentsOf: (0 ..< 3).map { Row(id: 50_000 + $0) }, at: 0) }
+        let now = try #require(host.item(of: id))
+        #expect(now == reading + 3, "the arrivals did not land above the reader")
+        let after = try #require(host.top(of: now))
+        #expect(abs(after - before) <= 0.5, "rows arriving at the newest end moved the reader \(after - before) pt")
     }
 
     // MARK: The anchor
