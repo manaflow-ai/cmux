@@ -108,6 +108,7 @@ jobs:
           name: stress-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/stress/
           if-no-files-found: warn
+          retention-days: 3  # retention-class: report
 
   compare:
     needs: measure
