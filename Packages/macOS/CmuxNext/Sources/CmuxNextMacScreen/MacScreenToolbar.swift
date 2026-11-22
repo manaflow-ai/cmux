@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextRemoteView
 import CmuxScreenKit
 import Observation
 
@@ -35,7 +36,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var statsLines: (full: String, short: String, room: CGFloat)?
     private var hintSlot = false
     private var controlsShown = false
-    private var accessIsViewOnly: Bool?
+    private var accessShown: String?
     private var reportedHeight: CGFloat?
     private var isFullScreen: Bool?
     /// The viewer look whose material the toolbar was painted in (nil: not yet).
@@ -205,10 +206,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
                     : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
             }
         }
-        let viewOnly = model.viewOnly
-        if accessIsViewOnly != viewOnly {
-            accessIsViewOnly = viewOnly
-            access.retitle(viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control"))
+        // Another viewer holding control makes this one view only too: the host drops its input.
+        let viewOnly = model.viewOnly || session?.floor?.control == false
+        let accessTitle = Self.accessTitle(viewOnly: model.viewOnly, floor: session?.floor)
+        if accessShown != accessTitle {
+            accessShown = accessTitle
+            access.retitle(accessTitle)
             access.image = NSImage(systemSymbolName: viewOnly ? "eye" : "cursorarrow", accessibilityDescription: nil)
             access.ink = viewOnly ? \.attention : \.secondary
             segments.select(viewOnly ? .view : .full)
@@ -319,6 +322,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return parts.joined(separator: " · ")
     }
 
+    /// The access button's title: the scope, or who holds control when another viewer does.
+    static func accessTitle(viewOnly: Bool, floor: RemoteFloor?) -> String {
+        if !viewOnly, let floor, !floor.control {
+            guard let holder = floor.holder else { return L.t("macScreen.scope.view", "View Only") }
+            return String(format: L.t("macScreen.floor.viewOnly", "View only: %@ has control"), holder)
+        }
+        return viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control")
+    }
+
     // MARK: Menus
 
     func accessMenu() -> NSMenu {
@@ -329,6 +341,16 @@ final class MacScreenToolbarView: MacScreenThemedView {
             menu.addItem(NSMenuItem.macScreen(title, checked: selected) { [weak self] in
                 guard !selected else { return }
                 self?.actions.requestScope(scope)
+            })
+        }
+        // Several viewers at once: one holds control, and it passes on a hand-over or a leave.
+        if let floor = model.session?.floor, model.hub?.phase.streamingScope != .view {
+            menu.addItem(.separator())
+            let title = floor.control
+                ? L.t("macScreen.floor.handOver", "Hand Over Control")
+                : L.t("macScreen.floor.ask", "Ask for Control")
+            menu.addItem(NSMenuItem.macScreen(title) { [weak self] in
+                self?.model.session?.setControl(!floor.control)
             })
         }
         return menu

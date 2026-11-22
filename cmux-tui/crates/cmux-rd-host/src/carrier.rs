@@ -88,6 +88,11 @@ pub trait Carrier {
     /// a transport fallback; a per-datagram default silently bypasses queues.
     fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()>;
     fn send_control(&mut self, control: &Control) -> io::Result<()>;
+    /// A mode the host set for this session since the last call (the floor: control passes
+    /// between several viewers), for the session table; None when it did not change.
+    fn take_mode(&mut self) -> Option<cmux_rd_core::policy::Mode> {
+        None
+    }
 }
 
 /// A control stream (TCP or Unix) plus, on TCP, the host's UDP socket.
