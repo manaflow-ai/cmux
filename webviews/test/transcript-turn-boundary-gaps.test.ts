@@ -16,12 +16,17 @@
 // - over nothing new to read (a subagent's "started working" line) no line is drawn;
 // - the received messages are named once: the "Received N messages" lines' counts and the message
 //   lines drawn on their own add up to the messages there are.
+// The `woken-*` variants hold the client's typing placeholder under the footer, where the live reducer
+// left it when acpmux said a turn runs before its record landed (Leo, 2026-11-22, ~40px of nothing over
+// "Received 2 messages": "sometimes you get these way-too-big gaps"): it draws no row, and the footer
+// sits its spacing over the notice as in the other variants.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import {
   BOUNDARY_MESSAGES,
   BOUNDARY_VARIANTS,
+  boundaryNamed,
 } from "../src/agent-session/acpmux/conversation/TurnBoundaryGaps.gallery";
 import { LONE_SYSTEM_ROWS } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -201,7 +206,7 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
         ).toBeLessThanOrEqual(LONE_SYSTEM_ROWS.tolerance);
       }
       // Each received message is named once.
-      expect(named, `rows naming the messages:\n${naming.join("\n")}\nrows:\n${table}`).toBe(BOUNDARY_MESSAGES.length);
+      expect(named, `rows naming the messages:\n${naming.join("\n")}\nrows:\n${table}`).toBe(boundaryNamed(variant));
     });
 
   // With motion on, the unread line holds while the window is not focused, then dissipates once

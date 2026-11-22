@@ -11598,6 +11598,11 @@ export class AcpmuxDirectClient {
         this.settleCompactions(event.seq, true);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
+        // The placeholder is this record's, after the prompts it carried in: one made when acpmux said
+        // the turn runs before this record landed (`settleTurnWithHost`) sorted before them, into the
+        // turn before, where it stood a blank row under that turn's footer (Leo, 2026-11-22: "sometimes
+        // you get these way-too-big gaps").
+        this.rows.delete("typing");
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
         this.rows.delete(TURN_RETRY);
       } else if (event.kind === "message_superseded") {

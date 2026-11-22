@@ -1905,7 +1905,7 @@ function shapeTurn(
           turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
         )
       : last
-        ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
+        ? planLast(turn.filter(drawsRow).flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
@@ -2356,9 +2356,18 @@ function shapeTurn(
     shaped.push(
       ...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents, turnStartedAtMs),
     );
-  else shaped.push(...(live ? answered : endedTail(answered)));
+  else shaped.push(...(live ? answered : endedTail(answered)).filter(drawsRow));
   return shaped;
 }
+
+/// Whether a row the client holds draws one of its own once its turn is shaped. The client's "typing"
+/// rows (the turn's placeholder, its `TURN_RETRY` row, direct.ts) never do: only the running turn's live
+/// line reads them (`liveTurn`, `withRetry`). Left in a turn that ended they drew a 22px row of nothing
+/// a block gap under its footer: the placeholder a turn's start makes when acpmux says it runs before
+/// its `turn_started` record lands sorts before the prompt that record carries in, so into the turn
+/// before (Leo, 2026-11-22, on ~40px of nothing between a reply's footer and "Received 2 messages":
+/// "sometimes you get these way-too-big gaps").
+const drawsRow = (row: AcpmuxRow) => row.kind !== "typing";
 
 /// An ended tail (the turns the agent ran on its own after the prompt's turn, with no turn running now)
 /// as the running turn's shape draws its ended part (`codexRuns`): each run folded into its summary
@@ -2707,7 +2716,7 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// messages").
 /// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
-  const rows = turn.filter((row) => row.kind !== "typing");
+  const rows = turn.filter(drawsRow);
   return [
     ...planLast(
       rows

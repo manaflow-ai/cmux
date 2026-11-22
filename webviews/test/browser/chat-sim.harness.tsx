@@ -79,6 +79,11 @@ async function measure(rows: readonly AcpmuxRow[], working: boolean, sends: numb
 }
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  const fixture = /^fixture:([\w.-]+)$/.exec(name);
+  if (fixture) {
+    const text = (await import(`../fixtures/chat-sim/${fixture[1]}.ndjson?raw`)).default as string;
+    return replayScenario(fixture[1]!, parseRecords(text));
+  }
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
@@ -163,4 +168,43 @@ async function at(name: string, until: number) {
   return dump();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump } });
+/** Plays `name` and, at every step, the blank band over each one-line row (another agent's line, a
+ *  "Received N messages" row, a tool run): its ink top less the ink bottom of the nearest row above
+ *  that draws something. Returns the bands over `min` px, with the rows around them. */
+async function scan(name: string, min = 40) {
+  const scenario = await scenarioNamed(name);
+  let sends = 0;
+  let turn = 0;
+  const found: unknown[] = [];
+  const seen = new Set<string>();
+  await runSimulationAsync(scenario, async (rows, step, index, state) => {
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    const boxes = await measure(rows, state.working, sends);
+    const drawn = dump();
+    let inkBottom: number | undefined;
+    for (let at = 0; at < drawn.length; at += 1) {
+      const row = drawn[at]!;
+      if (!Number.isFinite(row.inkTop)) continue;
+      const band = inkBottom === undefined ? 0 : row.inkTop - inkBottom;
+      const line = /acpmux-row--line|laneNoticeBatch/.test(row.className);
+      if (line && band > min && !seen.has(`${row.id}:${Math.round(band)}`)) {
+        seen.add(`${row.id}:${Math.round(band)}`);
+        found.push({
+          step: index,
+          label: step.label,
+          band,
+          row: row.id,
+          rows: drawn.slice(Math.max(0, at - 4), at + 3),
+        });
+      }
+      inkBottom = Math.max(inkBottom ?? -Infinity, row.inkBottom);
+    }
+    return boxes;
+  });
+  return found;
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, scan } });
