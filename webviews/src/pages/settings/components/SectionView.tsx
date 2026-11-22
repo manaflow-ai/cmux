@@ -29,7 +29,14 @@ import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown
 import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { TextSizeCard } from "./TextSizeCard";
-import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
+import {
+  BrowserProfiles,
+  MACHINE_COLORS_KEY,
+  MachinesSection,
+  SpacesSection,
+  SPACE_ROWS,
+  useSeveralSpaces,
+} from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
@@ -139,6 +146,8 @@ export function SectionView({
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
+  // With one space no row names spaces (Hide Spaces); a second space brings them back.
+  const severalSpaces = useSeveralSpaces();
   // appearance.themeEdits is the pickers' "(custom)" themes and appearance.favoriteThemes their
   // stars, never rows of their own.
   const groups = category.groups
@@ -153,6 +162,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
+          !(!severalSpaces && SPACE_ROWS.has(row.key)) &&
           !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),
