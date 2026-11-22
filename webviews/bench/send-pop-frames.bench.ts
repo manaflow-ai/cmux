@@ -12,7 +12,8 @@
 //   --load MS  every frame busy-waits MS and a 120 ms long task runs every 500 ms (send-motion-pass.bench.ts
 //              `--load`): a loaded machine
 //   --pop none sets `data-send-pop="none"` on the page: the instant send before (#42669), from the same build,
-//              so before and after are one harness
+//              so before and after are one harness; --pop paired alternates none and product round by round on
+//              one page, so a busy machine's drift lands on both arms alike
 // Reported per engine, the median over rounds: frame p50 and p95 (ms between frames), dropped (frames past one
 // 16.7 ms interval the span missed: a 50 ms gap is two), and on Chromium layoutMs, styleMs and paintMs summed over
 // the span; popped says the pop's animation ran in that round (1) or not (0).
@@ -96,7 +97,8 @@ async function open(browser: Browser): Promise<Page> {
   )) as { error?: string };
   if (seeded.error) throw new Error(`seed ${TURNS}: ${seeded.error}`);
   await page.locator(field).waitFor({ timeout: 60_000 });
-  if (POP !== "product") await page.evaluate((pop) => document.documentElement.setAttribute("data-send-pop", pop), POP);
+  if (POP !== "product" && POP !== "paired")
+    await page.evaluate((pop) => document.documentElement.setAttribute("data-send-pop", pop), POP);
   return page;
 }
 
@@ -107,9 +109,8 @@ async function round(page: Page, index: number, trace: boolean): Promise<Round> 
   // The frame loop and the load start before the Return; the span is read from the Return on.
   await page.evaluate(
     ({ load }) => {
-      const w = window as unknown as { __frames: number[]; __stop: () => void; __popped: boolean };
+      const w = window as unknown as { __frames: number[]; __stop: () => void };
       w.__frames = [];
-      w.__popped = false;
       let running = true;
       const frame = (now: number) => {
         if (!running) return;
@@ -120,13 +121,6 @@ async function round(page: Page, index: number, trace: boolean): Promise<Round> 
           }
         }
         w.__frames.push(now);
-        if (
-          !w.__popped &&
-          document
-            .getAnimations()
-            .some((animation) => (animation as CSSAnimation).animationName?.startsWith("cv-send-pop"))
-        )
-          w.__popped = true;
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
@@ -153,13 +147,19 @@ async function round(page: Page, index: number, trace: boolean): Promise<Round> 
       .startTracing(page, { categories: ["devtools.timeline"] });
   const sentAt = await page.evaluate(() => performance.now());
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(SPAN_MS + 100);
+  // One read, mid-pop, of whether the pop ran: a read every frame would itself cost the frames measured.
+  await page.waitForTimeout(150);
+  const poppedNow = await page.evaluate(() =>
+    document.getAnimations().some((animation) => (animation as CSSAnimation).animationName?.startsWith("cv-send-pop")),
+  );
+  await page.waitForTimeout(SPAN_MS - 50);
   const traced = trace ? await page.context().browser()!.stopTracing() : undefined;
-  const { frames, popped } = await page.evaluate(() => {
-    const w = window as unknown as { __frames: number[]; __stop: () => void; __popped: boolean };
+  const frames = await page.evaluate(() => {
+    const w = window as unknown as { __frames: number[]; __stop: () => void };
     w.__stop();
-    return { frames: w.__frames, popped: w.__popped };
+    return w.__frames;
   });
+  const popped = poppedNow;
   const span = frames.filter((at) => at >= sentAt && at <= sentAt + SPAN_MS);
   const gaps = span.slice(1).map((at, index) => at - span[index]!);
   const result: Round = {
@@ -203,15 +203,25 @@ try {
     const browser = await type.launch({ headless: true });
     try {
       const page = await open(browser);
-      const rounds: Round[] = [];
       // One warm-up send, not counted: the first send loads lazy chunks.
       await round(page, -1, false);
-      for (let index = 0; index < ROUNDS; index++) rounds.push(await round(page, index, engine === "chromium"));
-      const keys = Object.keys(rounds[0]!) as (keyof Round)[];
-      const summary = Object.fromEntries(keys.map((key) => [key, median(rounds.map((r) => r[key] ?? 0))]));
-      report[engine] = { rounds, median: summary };
-      log(`${engine} turns=${TURNS} load=${LOAD_MS} pop=${POP} rounds=${ROUNDS}`);
-      console.log(JSON.stringify({ engine, turns: TURNS, load: LOAD_MS, pop: POP, median: summary }));
+      const arms: Record<string, Round[]> = {};
+      for (let index = 0; index < ROUNDS * (POP === "paired" ? 2 : 1); index++) {
+        const arm = POP === "paired" ? (index % 2 === 0 ? "none" : "product") : POP;
+        if (POP === "paired")
+          await page.evaluate((value) => {
+            if (value === "product") document.documentElement.removeAttribute("data-send-pop");
+            else document.documentElement.setAttribute("data-send-pop", value);
+          }, arm);
+        (arms[arm] ??= []).push(await round(page, index, engine === "chromium"));
+      }
+      for (const [arm, rounds] of Object.entries(arms)) {
+        const keys = Object.keys(rounds[0]!) as (keyof Round)[];
+        const summary = Object.fromEntries(keys.map((key) => [key, median(rounds.map((r) => r[key] ?? 0))]));
+        report[`${engine}:${arm}`] = { rounds, median: summary };
+        log(`${engine} turns=${TURNS} load=${LOAD_MS} pop=${arm} rounds=${rounds.length}`);
+        console.log(JSON.stringify({ engine, turns: TURNS, load: LOAD_MS, pop: arm, median: summary }));
+      }
     } finally {
       await browser.close();
     }
