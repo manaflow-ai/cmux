@@ -35,7 +35,7 @@ import Testing
         #expect(!PageProbe.resumable(BrowserMediaState(title: "sound", isPlaying: false, isSoundOnly: true)))
         #expect(!PageProbe.resumable(nil))
         #expect(PageProbe.resumable(Self.paused))
-        #expect(PageProbe.resumable(BrowserMediaState(title: "player", isPlaying: false, isMuted: true, actions: [.nextTrack])))
+        #expect(PageProbe.resumable(BrowserMediaState(title: "player", isPlaying: false, isMuted: true, actions: [.nexttrack])))
     }
 
     @Test func aPageThatDoesNotAnswerKeepsItsReportedSession() {
