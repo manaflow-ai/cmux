@@ -53,8 +53,12 @@ PROBE = "probe"
 RUNS_PAGE = 60
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
-# A probe run with no verdict (cancelled, runner lost) is tried again this many times.
-MAX_PROBE_RETRIES = 1
+# A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
+# runners within the hour (runs 44966393364 and 44980687386).
+MAX_PROBE_RETRIES = 2
+# A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
+# until this many batch runs sit on that tip.
+MAX_TIP_BATCHES = 2
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
@@ -268,8 +272,9 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int) -> tuple[str, str]:
-    """(action, reason): action is 'dispatch' or 'skip'."""
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True) -> tuple[str, str]:
+    """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it."""
     batches = [r for r in runs if is_batch(r)]
     live = [r for r in batches if r.get("status") != "completed"]
     if live:
@@ -278,6 +283,9 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         return "dispatch", "no batch run yet"
     newest = batches[0]
     if newest.get("head_sha") == tip:
+        on_tip = [r for r in batches if r.get("head_sha") == tip]
+        if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
+            return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
@@ -308,7 +316,10 @@ def tick(args: argparse.Namespace) -> int:
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
+    def judged(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+
+    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged)
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(
