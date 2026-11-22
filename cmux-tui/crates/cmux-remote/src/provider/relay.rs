@@ -2284,9 +2284,22 @@ fn relay_reconnect_error(
     }
 }
 
+/// The relay's code for a slot whose daemon's ticket ran out with no renewal: the machine's
+/// relay credential is unavailable (its mint is down or stalled).
+const RELAY_CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable";
+
 /// A retryable refusal, naming the relay's error code: a short word the
-/// relay sets (`slot-busy`), kept only when it looks like one.
+/// relay sets (`slot-busy`), kept only when it looks like one. A lapsed
+/// registration (`credential-unavailable`) leads with that reason, the words a
+/// link's offline reason is read from (acpmux `peer_carrier::reason`), so the
+/// dial says why the machine is offline instead of reading as still connecting.
 fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    if code == RELAY_CREDENTIAL_UNAVAILABLE {
+        return relay_carrier_error(format!(
+            "{RELAY_CREDENTIAL_UNAVAILABLE}: the machine's relay ticket expired and was not \
+             renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
+        ));
+    }
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');

@@ -136,8 +136,10 @@ top, so a block copies between the two:
 - cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
   list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
   behind the window and the pane background), `classic-desktop` (gray chrome, hard
-  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
-  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
+  `charcoal` (a dark chat app), and three nature looks on the Blocks chrome: `moss`
+  (deep forest green), `meadow` (sage and cream) and `lily-pond` (teal glass blocks
+  over Monet's water lilies). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
