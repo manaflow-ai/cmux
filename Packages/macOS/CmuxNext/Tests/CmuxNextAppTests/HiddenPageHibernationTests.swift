@@ -209,11 +209,11 @@ import CmuxNextTestSupport
         let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
         if current {
             #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
-            #expect(rig.hibernation.missingSnapshots.isEmpty, "a page that kept its picture was counted as missing one")
+            #expect(rig.hibernation.snapshots.missing.isEmpty, "a page that kept its picture was counted as missing one")
         } else {
             #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL or one no longer kept")
             let reason = state == "stale" ? "url_moved" : "leave_picture_evicted"
-            #expect(Set(rig.hibernation.missingSnapshots.keys) == [reason], "a blank sleep was not counted by its cause")
+            #expect(Set(rig.hibernation.snapshots.missing.keys) == [reason], "a blank sleep was not counted by its cause")
         }
     }
 
@@ -294,6 +294,82 @@ import CmuxNextTestSupport
         #expect(store.image(for: "b") == nil, "the least recently used picture stayed past the budget")
         #expect(store.totalBytes <= store.capacityBytes)
         #expect(store.evicted == 1, "a picture dropped for the budget was not counted (`snapshot_evicted`)")
+        await store.settled()
+        #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a picture was lost when its file was written")
+        #expect(store.memoryBytes == 0 && store.totalBytes <= store.capacityBytes)
+    }
+
+    /// A kept picture moves to a file: no bytes stay in memory, and its image reads back from the file at its size.
+    @Test func aKeptPictureLivesOnDisk() async throws {
+        let store = HibernationSnapshots()
+        let picture = try #require(await HibernationSnapshots.compress(Self.noise(seed: 4, width: 320, height: 200)))
+        store.insert(picture, for: "a")
+        #expect(store.memoryBytes == picture.data.count, "a picture being written was not counted in memory")
+        #expect(store.image(for: "a") != nil, "a picture being written did not answer at once")
+        await store.settled()
+        #expect(store.memoryBytes == 0, "the picture's bytes stayed in memory after its file was written")
+        #expect(store.totalBytes == picture.data.count)
+        let url = try #require(store.fileURL(for: "a"), "the picture has no file")
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(url.deletingLastPathComponent().standardizedFileURL == store.directory.standardizedFileURL)
+        let image = try #require(store.image(for: "a"), "the picture did not read back from its file")
+        #expect(image.width == 320 && image.height == 200)
+    }
+
+    /// Removing a picture deletes its file.
+    @Test func removingAPictureDeletesItsFile() async throws {
+        let store = HibernationSnapshots()
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 5, width: 64, height: 64))), for: "a")
+        await store.settled()
+        let url = try #require(store.fileURL(for: "a"))
+        store.remove("a")
+        await store.settled()
+        #expect(!FileManager.default.fileExists(atPath: url.path), "a removed picture's file stayed on disk")
+        #expect(store.count == 0 && store.totalBytes == 0 && store.memoryBytes == 0)
+    }
+
+    /// An image handed out (a woken page's stand-in decodes it later) still draws after the store deleted its file.
+    @Test func aPictureHandedOutDrawsAfterItsFileIsDeleted() async throws {
+        let store = HibernationSnapshots()
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 9, width: 64, height: 64))), for: "a")
+        await store.settled()
+        let url = try #require(store.fileURL(for: "a"))
+        let image = try #require(store.image(for: "a"))
+        store.remove("a")
+        await store.settled()
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        let context = try #require(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4,
+                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let pixels = try #require(context.data?.bindMemory(to: UInt8.self, capacity: 64 * 64 * 4))
+        #expect((0..<(64 * 64)).contains { pixels[$0 * 4 + 3] != 0 }, "the picture drew nothing once its file was deleted")
+    }
+
+    /// A key replaced while its first file is still being written keeps the newer picture, in exactly one file.
+    @Test func replacingAPictureMidWriteLeavesOneFile() async throws {
+        let store = HibernationSnapshots()
+        let first = try #require(await HibernationSnapshots.compress(Self.noise(seed: 6, width: 100, height: 80)))
+        let second = try #require(await HibernationSnapshots.compress(Self.noise(seed: 7, width: 120, height: 90)))
+        store.insert(first, for: "a")
+        store.insert(second, for: "a")
+        await store.settled()
+        let files = try FileManager.default.contentsOfDirectory(at: store.directory, includingPropertiesForKeys: nil)
+        #expect(files.count == 1, "replacing a picture mid-write left \(files.count) files")
+        #expect(files.first?.lastPathComponent == store.fileURL(for: "a")?.lastPathComponent)
+        let image = try #require(store.image(for: "a"))
+        #expect(image.width == 120 && image.height == 90, "the older picture won the race")
+        #expect(store.count == 1 && store.totalBytes == second.data.count && store.memoryBytes == 0)
+    }
+
+    /// 500 hibernated pages all keep their picture under the default budget (in RAM, 137 of 500 were dropped).
+    @Test func fiveHundredPicturesAllStay() async throws {
+        let store = HibernationSnapshots()
+        let picture = try #require(await HibernationSnapshots.compress(Self.noise(seed: 8, width: 48, height: 32)))
+        for index in 0..<500 { store.insert(picture, for: "tab-\(index)") }
+        await store.settled()
+        #expect(store.count == 500 && store.evicted == 0 && store.memoryBytes == 0)
+        let unreadable = (0..<500).filter { store.image(for: "tab-\($0)") == nil }
+        #expect(unreadable.isEmpty, "\(unreadable.count) of 500 pictures did not read back")
     }
 
     /// Each wake is timed for `debug.surfaces` and the bench: shown with its snapshot, back, then loaded.

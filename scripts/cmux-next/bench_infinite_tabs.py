@@ -79,6 +79,8 @@ def counts(sock: str) -> dict:
             "hibernated_pages": len(sleep.get("hibernated") or []), "frozen_pages": len(sleep.get("frozen") or []),
             "chat_pages": len(sleep.get("chat_pages") or []), "snapshots": sleep.get("snapshots"),
             "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {}),
+            # The pictures live on disk; this is what is still in RAM (writes in flight).
+            "snapshot_memory_mb": round((sleep.get("snapshot_memory_bytes") or 0) / 1048576, 1),
             # Why a hibernated page has no last frame: dropped by the snapshot store's budget, or never kept one (by cause).
             "snapshot_evicted": sleep.get("snapshot_evicted"), "snapshot_missing": sleep.get("snapshot_missing")}
 
@@ -221,6 +223,7 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
         "hibernated_pages": full["app_counts"]["hibernated_pages"], "hibernated_workspaces": full["app_counts"]["hibernated_workspaces"],
         "live_terminals": full["app_counts"]["live_terminals"], "chat_pages": full["app_counts"]["chat_pages"],
         "snapshot_mb": full["app_counts"]["snapshot_mb"], "snapshots": full["app_counts"]["snapshots"],
+        "snapshot_memory_mb": full["app_counts"]["snapshot_memory_mb"],
         "snapshot_evicted": full["app_counts"]["snapshot_evicted"], "snapshot_missing": full["app_counts"]["snapshot_missing"],
         "switches": len(rows), "switches_hibernated": len(woken),
         "switch_picture_p50_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.5),
