@@ -24,6 +24,7 @@ on:
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
+      - "scripts/ci/acpmux-tests-pr-deferred.txt"
       - "tests/test_cargo_test_verdict.py"
       - "scripts/ci/cargo-lib-tests-at-once.sh"
       - "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
@@ -57,6 +58,7 @@ on:
       - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
@@ -224,7 +226,7 @@ jobs:
         run: |
           changed=true
           if [[ "$EVENT_NAME" == pull_request ]] && files=$(git diff --no-renames --name-only HEAD^1 HEAD 2>/dev/null); then
-            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs)\.py$|scripts/ci/affected-jobs\.json$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
+            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs)\.py$|scripts/ci/affected-jobs\.json$|scripts/ci/acpmux-tests-pr-deferred\.txt$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
               changed=false
             fi
           fi
@@ -558,6 +560,8 @@ jobs:
           BASE_SHA: ${{ steps.scope.outputs.base }}
           BASE_RUN: ${{ runner.temp }}/acpmux-base-run
           JOB: acpmux tests
+          DEFER: ${{ vars.ACPMUX_TESTS_PR_DEFER }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         run: |
           set -o pipefail
           umask 022
@@ -577,6 +581,18 @@ jobs:
               --test) targets+=(--test "${suites[i + 1]}"); i=$((i + 1)) ;;
             esac
           done
+          # A pull request skips the slowest tests (scripts/ci/acpmux-tests-pr-deferred.txt): each ran past 60 s
+          # in most pull request runs and set the run's length. The feat-cmux-next push runs every test, so a red
+          # one of them causes shows on the tip. Off: the full-ci label, or the repository variable
+          # ACPMUX_TESTS_PR_DEFER=off.
+          skip=()
+          if [[ "$EVENT_NAME" == pull_request && "$FULL_CI" != true && "$DEFER" != off ]]; then
+            while read -r name; do
+              [[ -n "$name" && "$name" != \#* ]] && skip+=(--skip "$name")
+            done < ../scripts/ci/acpmux-tests-pr-deferred.txt
+            (( ${#skip[@]} )) && skip=(--exact "${skip[@]}")
+            echo "acpmux tests: $(( (${#skip[@]} - 1) / 2 )) slow test(s) deferred to the feat-cmux-next push" >> "$GITHUB_STEP_SUMMARY"
+          fi
           started=$SECONDS
           # One build, then the library tests and the integration tests run at once: one after
           # another the host sat mostly idle behind each binary's slowest few tests (acpmux's lib
@@ -589,10 +605,10 @@ jobs:
             # Each package's library binary runs at once with the others (RFD 0016, one shard per
             # workspace member group): `cargo test --lib` ran acpmux's (~431 s) and then
             # acpmux-book's (~208 s). The log reads as cargo prints it, one binary after another.
-            ../scripts/ci/cargo-lib-tests-at-once.sh "$RUNNER_TEMP/acpmux-tests-lib" "${pkgs[@]}" \
+            ../scripts/ci/cargo-lib-tests-at-once.sh "$RUNNER_TEMP/acpmux-tests-lib" "${pkgs[@]}" -- "${skip[@]}" \
               > "$RUNNER_TEMP/acpmux-tests-lib.log" 2>&1 &
             local lib_pid=$!
-            cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast 2>&1 || tests=$?
+            cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast -- "${skip[@]}" 2>&1 || tests=$?
             wait "$lib_pid" || libs=$?
             cat "$RUNNER_TEMP/acpmux-tests-lib.log"
             (( libs == 0 && tests == 0 ))
