@@ -58,10 +58,15 @@ const WINDOW_MS = Number(flag("--window") ?? 5000);
 const RATE = Number(flag("--rate") ?? 20);
 const FREEZE = argv.includes("--freeze");
 const SETTLE_MS = Number(flag("--settle") ?? 20_000);
+// Extra Chrome switches, comma-separated (e.g. --disable-features=IntensiveWakeUpThrottling), for experiments.
+const CHROME_ARGS = (flag("--chrome-args") ?? "").split(",").filter(Boolean);
+// --timer-census: count every timer callback a page runs, by the frame that scheduled it, and print the hidden pages'
+// top sources after the last rung (what a hidden chat wakes for).
+const TIMER_CENSUS = argv.includes("--timer-census");
 const JSON_OUT = flag("--json");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-const VERSION = 2;
+const VERSION = 3;
 if (RUNGS.length !== 3 || RUNGS.some((n) => !Number.isInteger(n) || n < 1) || RUNGS[0] === RUNGS[1]) {
   console.error("usage: --rungs LOW,MID,TOP (three distinct counts, e.g. 1,10,100)");
   process.exit(2);
@@ -175,6 +180,11 @@ async function launchChrome(): Promise<{ browser: Browser; close: () => Promise<
       "--window-size=1100,820",
       "--process-per-site",
       "--host-resolver-rules=MAP *.test 127.0.0.1",
+      // A page hidden past 5 min has its timers cut to one wake-up a minute. Rungs load over minutes, so with it on,
+      // x100's early chats were throttled and x10's were not, and the ratio read the pages' age. Off, every rung
+      // measures freshly hidden pages: the worst case, as a chat Leo just switched away from.
+      "--disable-features=IntensiveWakeUpThrottling",
+      ...CHROME_ARGS,
       "about:blank",
     ],
     { stdout: "ignore", stderr: "pipe" },
@@ -275,23 +285,39 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
       requestAnimationFrame(tick);
     });
   });
-  await focused.waitForTimeout(WINDOW_MS);
+  // Renderer CPU per third of the window, and the least of the three: other load on the machine only adds CPU, and
+  // on a shared runner (load 25-60 on 32 cores) one rung read 681 ms/s for a minute where a quiet rerun read 40.
+  const thirds: number[] = [];
+  let mark = ticks0;
+  let markAt = t0;
+  for (let i = 0; i < 3; i += 1) {
+    await focused.waitForTimeout(WINDOW_MS / 3);
+    const now = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+    const at = performance.now();
+    thirds.push((((now - mark) / ticksPerSecond) * 1000) / ((at - markAt) / 1000));
+    mark = now;
+    markAt = at;
+  }
   const frames = (await focused.evaluate(() => {
     const w = window as any;
     w.__slOn = false;
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
-  const ticks1 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
   const threads = [...threadTicks(pids)]
     .map(([name, t]) => [name, Math.round((((t - (threads0.get(name) ?? 0)) / ticksPerSecond) * 1000) / secs)] as const)
     .filter(([, ms]) => ms > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
-  console.log(`SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")}`);
+  // One renderer's pages share one V8 isolate, so the focused page's heap numbers are the shared heap's.
+  const heap = (await items[0]!.cdp.send("Performance.getMetrics")).metrics;
+  const heapMB = (name: string) => Math.round((heap.find((m) => m.name === name)?.value ?? 0) / 1048576);
+  console.log(
+    `SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")} | js heap ${heapMB("JSHeapUsedSize")}/${heapMB("JSHeapTotalSize")} MB`,
+  );
   const script1 = await script();
   return {
-    cpu_ms_per_s: Math.round((((ticks1 - ticks0) / ticksPerSecond) * 1000) / secs),
+    cpu_ms_per_s: Math.round(Math.min(...thirds)),
     script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
     pss_mb: Math.round(pids.reduce((sum, pid) => sum + pssMB(pid), 0)),
     frame_p95_ms: Math.round(p95(frames) * 10) / 10,
@@ -333,6 +359,37 @@ async function runAxis(axis: "chats" | "tabs") {
     await context.addInitScript((size) => {
       (globalThis as any).cmuxAcpmuxMockListSize = size;
     }, SESSIONS);
+    if (TIMER_CENSUS)
+      await context.addInitScript(() => {
+        const counts: Record<string, number> = ((globalThis as any).__slTimers = {});
+        const site = () => {
+          const lines = (new Error().stack ?? "").split("\n").slice(3, 6);
+          return lines
+            .map((l) =>
+              l
+                .trim()
+                .replace(/^at /, "")
+                .replace(/\?[^:)]*/, ""),
+            )
+            .join(" < ");
+        };
+        const wrap = (name: "setTimeout" | "setInterval") => {
+          const original = (globalThis as any)[name].bind(globalThis);
+          (globalThis as any)[name] = (fn: unknown, ...rest: unknown[]) => {
+            if (typeof fn !== "function") return original(fn, ...rest);
+            const key = `${name} ${rest[0] ?? 0}ms ${site()}`;
+            return original(
+              (...args: unknown[]) => {
+                counts[key] = (counts[key] ?? 0) + 1;
+                return (fn as (...a: unknown[]) => unknown)(...args);
+              },
+              ...rest,
+            );
+          };
+        };
+        wrap("setTimeout");
+        wrap("setInterval");
+      });
     const url = `http://127.0.0.1:${port}/?mock`;
     const focused = context.pages()[0] ?? (await context.newPage());
     await focused.goto(url);
@@ -398,6 +455,17 @@ async function runAxis(axis: "chats" | "tabs") {
       console.log(
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
       );
+    }
+    if (TIMER_CENSUS) {
+      const total: Record<string, number> = {};
+      for (const item of items.slice(1)) {
+        const counts = (await item.page.evaluate(() => (globalThis as any).__slTimers ?? {})) as Record<string, number>;
+        for (const [key, n] of Object.entries(counts)) total[key] = (total[key] ?? 0) + n;
+      }
+      for (const [key, n] of Object.entries(total)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15))
+        console.log(`SIM-LADDER   timers ${n} ${key}`);
     }
     const [focusedState, focusedFrames] = await visibility(focused);
     report[`${axis}_focused`] = `${focusedState} ${focusedFrames}`;
