@@ -1,14 +1,15 @@
 // The App Store page (plans/cmux-next/react-pages.md 3.3; behavior of the Swift App Store in
 // CmuxNextApps/Store). It fills an app screen or a narrow tab: the grid adapts its columns, the
 // detail keeps a readable width, split stacks below 640 px. State lives in `AppsStore`.
-import { useRef, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
-import { CategoryBar, ItemCard, ItemRow } from "./items";
-import { filterApps, type StoreTab } from "./model";
+import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
+import { categoryLabel, featuredApps, filterApps, type StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
+import type { CatalogApp } from "./types";
 import { Skeleton } from "../../ui/Skeleton";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
@@ -126,23 +127,36 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
     return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
   }
   const onStore = snap.shelf !== "example";
-  const framed = onStore && !snap.query.trim() && !snap.category && snap.layout === "grid";
+  const home = onStore && !snap.query.trim() && !snap.category;
+  // The browse styles (`browse=`) lay out the grid's home; a search, a category, the list and
+  // split layouts and the Examples shelf show the plain catalog.
+  const framed = home && snap.layout === "grid";
   // The `section` placement (DEV, examples=section) lists the examples under the store's apps.
   const examplesSection =
     snap.examplesOffered && snap.examplesStyle === "section" && onStore
       ? filterApps(snap.catalog, snap.query, undefined, "example")
       : [];
-  const featured = framed
-    ? [...snap.visible]
-        .filter((app) => app.tier === "first-party")
-        .sort((a, b) => b.install_count - a.install_count || a.name.localeCompare(b.name))
-        .slice(0, 2)
-    : [];
-  const featuredIds = new Set(featured.map((app) => app.id));
-  const catalog = featured.length ? snap.visible.filter((app) => !featuredIds.has(app.id)) : snap.visible;
+  const banner = home && (!framed || snap.browse === "pair");
+  const appList = (apps: readonly CatalogApp[]) => (
+    <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
+      {apps.map((app) =>
+        snap.layout === "grid" ? (
+          <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
+        ) : (
+          <ItemRow
+            key={app.id}
+            app={app}
+            selected={snap.layout === "split" && app.id === selected}
+            store={store}
+            strings={strings}
+          />
+        ),
+      )}
+    </div>
+  );
   const listing = (
-    <div className="apps-discover-list">
-      {onStore && !snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
+    <div className="apps-discover-list" data-browse-style={framed ? snap.browse : undefined}>
+      {banner && <CloudFeature store={store} strings={strings} />}
       <CategoryBar
         categories={snap.categories}
         selected={snap.category}
@@ -154,6 +168,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         }
         strings={strings}
       />
+      {snap.notice === "notInStore" && <output className="apps-notice">{t("store.notice.notInStore")}</output>}
       {snap.loading && snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
       ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
@@ -166,44 +181,11 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         </output>
       ) : (
         <>
-          {featured.length > 0 && (
-            <section className="apps-catalog-section" aria-labelledby="apps-featured-title">
-              <div className="apps-section-heading">
-                <h3 id="apps-featured-title">{t("store.tier.firstParty")}</h3>
-              </div>
-              <div className="apps-featured-grid">
-                {featured.map((app) => (
-                  <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} featured />
-                ))}
-              </div>
-            </section>
-          )}
-          {catalog.length > 0 && (
-            <section
-              className="apps-catalog-section"
-              aria-labelledby={featured.length > 0 ? "apps-catalog-title" : undefined}
-              aria-label={featured.length > 0 ? undefined : t("store.category.all")}
-            >
-              {featured.length > 0 && (
-                <div className="apps-section-heading">
-                  <h3 id="apps-catalog-title">{t("store.category.all")}</h3>
-                </div>
-              )}
-              <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
-                {catalog.map((app) =>
-                  snap.layout === "grid" ? (
-                    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
-                  ) : (
-                    <ItemRow
-                      key={app.id}
-                      app={app}
-                      selected={snap.layout === "split" && app.id === selected}
-                      store={store}
-                      strings={strings}
-                    />
-                  ),
-                )}
-              </div>
+          {framed ? (
+            <BrowseHome snap={snap} store={store} strings={strings} />
+          ) : (
+            <section className="apps-catalog-section" data-store-section="grid" aria-label={t("store.category.all")}>
+              {appList(snap.visible)}
             </section>
           )}
           {examplesSection.length > 0 && (
@@ -211,21 +193,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
               <div className="apps-section-heading">
                 <h3 id="apps-examples-title">{t("store.shelf.examples")}</h3>
               </div>
-              <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
-                {examplesSection.map((app) =>
-                  snap.layout === "grid" ? (
-                    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
-                  ) : (
-                    <ItemRow
-                      key={app.id}
-                      app={app}
-                      selected={snap.layout === "split" && app.id === selected}
-                      store={store}
-                      strings={strings}
-                    />
-                  ),
-                )}
-              </div>
+              {appList(examplesSection)}
             </section>
           )}
         </>
@@ -256,6 +224,134 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
       </div>
     </div>
   );
+}
+
+/** A titled group of Discover's home: a category, Featured, or the rest. */
+function Shelf({
+  id,
+  title,
+  kind = "grid",
+  children,
+}: {
+  id: string;
+  title?: string;
+  /** `data-store-section` for capture drivers and tests: Featured, or a grid of apps. */
+  kind?: "featured" | "grid";
+  children: ReactNode;
+}) {
+  return (
+    <section className="apps-catalog-section" data-store-section={kind} aria-labelledby={title ? id : undefined}>
+      {title && (
+        <div className="apps-section-heading">
+          <h3 id={id}>{title}</h3>
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/** Few enough apps that each first-party one gets its own hero and no shelf follows. */
+const SMALL_STORE = 3;
+
+/**
+ * Discover's home in the browse style the route names (model.ts BrowseStyle). `hero`: the top
+ * first-party app as a hero (each of them, in a small store), then a shelf per category with two or
+ * more apps and one for the rest. `pair`: two featured cards, then every app. `list`: store rows.
+ */
+function BrowseHome({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
+  const { t } = strings;
+  const apps = snap.visible;
+  if (snap.browse === "list") {
+    return (
+      <Shelf id="apps-all-title">
+        <div className="apps-list">
+          {apps.map((app) => (
+            <ListRow key={app.id} app={app} store={store} strings={strings} />
+          ))}
+        </div>
+      </Shelf>
+    );
+  }
+  if (snap.browse === "pair") {
+    const featured = featuredApps(apps, 2);
+    const ids = new Set(featured.map((app) => app.id));
+    const rest = apps.filter((app) => !ids.has(app.id));
+    return (
+      <>
+        {featured.length > 0 && (
+          <Shelf id="apps-featured-title" title={t("store.browse.featured")} kind="featured">
+            <div className="apps-featured-grid">
+              {featured.map((app) => (
+                <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} featured />
+              ))}
+            </div>
+          </Shelf>
+        )}
+        {rest.length > 0 && (
+          <Shelf id="apps-all-title" title={featured.length ? t("store.browse.allApps") : undefined}>
+            <div className="apps-grid">
+              {rest.map((app) => (
+                <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
+              ))}
+            </div>
+          </Shelf>
+        )}
+      </>
+    );
+  }
+  const heroes = featuredApps(apps, apps.length <= SMALL_STORE ? 2 : 1);
+  const ids = new Set(heroes.map((app) => app.id));
+  const rest = apps.filter((app) => !ids.has(app.id));
+  const shelves = categoryShelves(rest);
+  const card = (app: CatalogApp) => (
+    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
+  );
+  return (
+    <>
+      {heroes.length > 0 && (
+        <div className="apps-heroes" data-store-section="featured">
+          {heroes.map((app) => (
+            <HeroCard key={app.id} app={app} preview={snap.previews[app.id]} store={store} strings={strings} />
+          ))}
+        </div>
+      )}
+      {shelves.map(({ category, apps: shelf }) => (
+        <Shelf
+          key={category ?? ""}
+          id={`apps-shelf-${category ?? "more"}`}
+          title={
+            category
+              ? categoryLabel(category, t)
+              : heroes.length > 0 || shelves.length > 1
+                ? t(shelves.length > 1 ? "store.browse.more" : "store.browse.allApps")
+                : undefined
+          }
+        >
+          <div className="apps-grid">{shelf.map(card)}</div>
+        </Shelf>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Shelves by each app's first category, biggest first: a category with two or more apps gets its
+ * own shelf, the rest share one untitled shelf at the end (`category` undefined).
+ */
+function categoryShelves(apps: readonly CatalogApp[]): { category?: string; apps: CatalogApp[] }[] {
+  const by = new Map<string, CatalogApp[]>();
+  for (const app of apps) {
+    const category = app.categories[0] ?? "";
+    by.set(category, [...(by.get(category) ?? []), app]);
+  }
+  const shelves = [...by]
+    .filter(([category, list]) => category && list.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([category, list]) => ({ category, apps: list }));
+  const shelved = new Set(shelves.flatMap((shelf) => shelf.apps.map((app) => app.id)));
+  const rest = apps.filter((app) => !shelved.has(app.id));
+  return rest.length ? [...shelves, { apps: rest }] : shelves;
 }
 
 function LoadingGrid({ strings }: { strings: Strings }) {

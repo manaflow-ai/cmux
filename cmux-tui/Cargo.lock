@@ -2229,7 +2229,6 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
- "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2249,6 +2248,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",

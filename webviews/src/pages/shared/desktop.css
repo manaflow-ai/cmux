@@ -268,8 +268,9 @@ body {
   /* The rim sits inside the box, as the native glass's does: the padding is measured from the box's
      edge, so a tooltip is as tall as the native one (TooltipMetrics: line height + 2 x padding).
      Chromium lays out a hairline border (0.5px at 2x) as a whole 1px, hence the max(). */
-  padding: calc(var(--tooltip-pad-block) - max(var(--tooltip-rim-width), 1px))
-    calc(var(--tooltip-pad-inline) - max(var(--tooltip-rim-width), 1px));
+  --tooltip-rim-layout-width: max(var(--tooltip-rim-width), 1px);
+  padding: calc(var(--tooltip-pad-block) - var(--tooltip-rim-layout-width))
+    calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: var(--tooltip-radius); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
