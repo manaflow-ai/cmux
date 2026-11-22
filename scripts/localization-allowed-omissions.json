@@ -6912,6 +6912,10 @@
     "class": "brand",
     "source": "Linux"
   },
+  "devices.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
   "devices.platform.ios": {
     "class": "brand",
     "source": "iPhone"
