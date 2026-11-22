@@ -137,7 +137,28 @@
   "appearance.colorTransition.bezierX1": 0.2,
   "appearance.colorTransition.bezierY1": 0,
   "appearance.colorTransition.bezierX2": 0,
-  "appearance.colorTransition.bezierY2": 1
+  "appearance.colorTransition.bezierY2": 1,
+
+  // Shape (the theme's own density, cmux#46749), what the pending metrics below ask for, with the
+  // tokens this build has: the M3 navigation drawer's full-pill active indicator (20 pt corners on
+  // 40 pt items) set 12 pt in from the drawer's edge with 16 pt inside, no gap between items; the
+  // vertical tab list the same pills; the tab row's folder tabs at 12 pt above their gooey tail;
+  // 40 pt controls with 16 pt corners and 8 pt between toolbar buttons; 28 pt drawer headlines.
+  "density": {
+    "basedOn": "comfortable",
+    "tokens": {
+      "sidebarCornerRadius": 20, "sidebarRowInset": 12, "sidebarContentInset": 16, "sidebarRowGap": 0,
+      "sidebarIconGap": 12, "sidebarHeaderHeight": 28, "sidebarWidth": 300,
+      "verticalTabCornerRadius": 20, "verticalTabRowHeight": 40,
+      "tabCornerRadius": 12, "tabGap": 4, "itemCornerRadius": 16, "controlHeight": 40,
+      "omnibarButtonSpacing": 8, "omnibarCornerRadius": 20, "panelCornerRadius": 16
+    }
+  },
+  // The top right buttons as M3 icon buttons, always shown; the + of the tab row too. Session Info
+  // a side sheet that pushes the chat.
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "always",
+  "agentPane.display.sessionInfo.placement": "push"
 
   // Pending cmux#46861 (layout and proportions): M3: 40 dp icon buttons with a full-round state layer, no header divider, 16 dp drawer padding, a 56 dp text field. Uncomment once your build has it.
   // "appearance.metrics.sidebarRowHeightWithSubtitle": 64,

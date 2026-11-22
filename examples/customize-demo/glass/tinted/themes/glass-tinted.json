@@ -41,5 +41,11 @@
   "appearance.chromeStyle": "floating",
   "appearance.titleAreaTone": "subtleTone",
   "appearance.statusIndicator.style": "arc",
-  "appearance.statusIndicator.color": "#67e8f9"
+  "appearance.statusIndicator.color": "#67e8f9",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): tinted glass pills: 14 pt tabs and rows, a 290 pt sidebar.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 14, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 10, "sidebarWidth": 290, "sidebarRowGap": 2, "tabGap": 5 } },
+  "window.titlebarButtons": "hover",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }

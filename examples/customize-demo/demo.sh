@@ -56,11 +56,23 @@ steps() {
   done | awk '!seen[$0]++'
 }
 
-title() {
-  # The profile's name, or its file name when it has none.
-  local name
-  name="$(sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' "$here/$1" | head -n 1)"
-  printf '%s' "${name:-$1}"
+describe() {
+  # The step's line: the look's name (a gallery look's own, else the profile's, else the file's),
+  # where it comes from, and what a preview leaves to `cmux setup install` (a setup's actions and
+  # extensions, which no profile carries).
+  python3 -c '
+import json, sys
+n, total, relative, path = sys.argv[1:]
+profile = json.load(open(path))
+setup = profile.get("x-setup") or {}
+name = setup.get("name") or profile.get("name") or relative
+print("\n[%s/%s] %s  (%s)" % (n, total, name, relative))
+if setup.get("source"):
+    print("      from examples/" + setup["source"])
+left = [key + " " + ", ".join(setup[key]) for key in ("actions", "extensions") if setup.get(key)]
+if left:
+    print("      its " + " and ".join(left) + " come with cmux setup install; this preview shows the rest")
+' "$@"
 }
 
 reset() {
@@ -144,7 +156,7 @@ for file in "${list[@]}"; do
   n=$((n + 1))
   # Profile settings compose with live settings. Reset so looks cannot leak into each other.
   if [[ $n -gt 1 ]]; then "$cli" customize discard; fi
-  printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
+  describe "$n" "${#list[@]}" "$file" "$here/$file"
   "$cli" customize use "$here/$file"
   # An already open page belongs to the previous profile. Show this one's page: newTab.page, not
   # newTab.default, which gives the CLI a tab of the selected tab's kind (a terminal here), never the page.
