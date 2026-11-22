@@ -42,6 +42,9 @@ env:
   # 0 restores the webview test selection before 2026-11-22 (scripts/ci/webviews_affected.py NARROW): a deleted
   # source and a baseline a test reads run every shard again, and the two reviewed runtime loads are always-run again.
   CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
+  # 0 runs every react-apps-check shard again for a pull request whose only every-shard input is this file or a
+  # selection script; 1 runs shard 1 and two shards sampled from the head commit (scripts/ci/webviews_pr_shards.py).
+  CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -148,8 +151,10 @@ jobs:
       # shit now and revisit later." Over 11-13..19 shards 2 to 12 were 20.5% of pull request runner-minutes and never
       # caught a red no other check caught (cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md). A pull
       # request runs shard 1 (the shard-independent checks) and each shard holding a test its change touches; a
-      # build or runner input, the full-ci label, a push and a failed pick run all REACT_APPS_SHARDS. The pick reads
-      # the duration manifest above with the shards' own widths and head start, so it splits as they will.
+      # build or runner input, the full-ci label, a push and a failed pick run all REACT_APPS_SHARDS. An edit to this
+      # file or a selection script alone runs shard 1 and two sampled shards (the step summary names them and how to
+      # run all). The pick reads the duration manifest above with the shards' own widths and head start, so it splits
+      # as they will.
       # 8, not 12 (Leo, 2026-11-22: "if it's really so big then you guys need to be hurrying up and thinking more
       # innovatively"): every shard pays about 3.5 min of checkout, install, bundle build and engines plus a cold Vite
       # warm-up before its first test, so a full matrix at 12 cost about 9% more runner-minutes than at 8
@@ -169,7 +174,7 @@ jobs:
           picked=""
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
             picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
-              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
+              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --summary "$GITHUB_STEP_SUMMARY")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
           fi
           [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS")"
           echo "react-apps-check shards: $picked"
