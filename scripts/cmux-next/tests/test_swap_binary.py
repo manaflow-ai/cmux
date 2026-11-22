@@ -254,7 +254,7 @@ class SwapBinaryTests(unittest.TestCase):
                                    capture_output=True, check=True).stdout.strip())
         self.assertEqual((copy / "Contents/MacOS/cmux").read_text(), "head exe")
         with open(copy / "Contents/Info.plist", "rb") as f:
-            self.assertTrue(plistlib.load(f)["CFBundleIdentifier"].startswith("com.cmuxterm.app.nightly.side-sb-head-"))
+            self.assertTrue(plistlib.load(f)["CFBundleIdentifier"].startswith("com.cmuxterm.app.debug.side-sb-head-"))
         signs = self.codesign_log.read_text().splitlines()
         self.assertTrue(any(line.startswith("--force --sign -") and line.endswith(str(copy)) for line in signs), signs)
         self.assertTrue(any(line.startswith("--verify --strict") for line in signs), signs)
