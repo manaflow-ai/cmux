@@ -143,9 +143,7 @@
    shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
 .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
-/* The rows scroll in the glass shell's inner viewport (ui/Menu.tsx .ui-popup-scroll): it hides the scrollbar, and the fade rules below target it. */
-.acpmux-menu.acpmux-composer-plus>.ui-popup-scroll{scrollbar-width:none}
-.acpmux-menu.acpmux-composer-plus>.ui-popup-scroll::-webkit-scrollbar{display:none;width:0;height:0}
+/* The rows scroll in the glass shell's inner viewport (ui/Menu.tsx .ui-popup-scroll) with the shared scroller (SCROLLBARS-THIN), and the fade rules below target it. */
 /* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
    four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
    onto pointer-transparent overlays. The unprefixed mask remains for the shared fade contract. */
