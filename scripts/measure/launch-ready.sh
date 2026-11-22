@@ -41,6 +41,9 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   labs=KEY     every side's home gets its own settings file, cmux-next.json with labs.KEY=true (the app reads it
+#                through CMUX_NEXT_CONFIG_FILE): labs=launchShellFirst with base= measures a Labs toggle's launch against a
+#                base without it (a base ignores a key it lacks). The priming launch applies it, so measured ones see it.
 #   engines=E[,E2]  with a DMG (not dmg=build): one side per engine (chromium or webkit), named for it, each a copy of the
 #                one DMG whose home has its own settings file, cmux-next.json with browser.defaultEngine=E (the app reads
 #                it through CMUX_NEXT_CONFIG_FILE). engines=chromium,webkit interleaves Chromium as launch has it now with
@@ -54,6 +57,10 @@
 #                and every launch samples its layout from the first on-screen frame (launch-ready.swift `layout`): the
 #                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
 #                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
+#   layout=movequit  layout=1 in DEBUG builds (--config debug: sidebar-width is a DEBUG command), and just before every
+#                quit the probe moves the window to the other of two frames and the sidebar to the other of two widths,
+#                then quits at once: the next launch starts from a record the launch snapshot may lag (row `movequit`).
+#                It times nothing a release build pays; read only its LR-FRAMES.
 
 #   type=1       every launch types one key the moment its first window frame is in (the app's LaunchTypeProbe: a space,
 #                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
@@ -112,7 +119,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" labs="" config=release arg rc=0 i side
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -145,17 +152,19 @@ main() {
       workspaces=*) workspaces="${arg#workspaces=}" ;;
       windows=*) windows="${arg#windows=}" ;;
       engines=*) engines="${arg#engines=}" ;;
+      labs=*) labs="${arg#labs=}" ;;
       preflight_wait=*) preflight_wait="${arg#preflight_wait=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
-      layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
+      layout=0|layout=1|layout=movequit) LR_LAYOUT="${arg#layout=}" ;;
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
-  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout= takes dmg=build (the sidebar edge needs a bench or debug build)" >&2; exit 2; }
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
+  [[ "$LR_LAYOUT" == movequit ]] && config=debug
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ -z "$workspaces" || ( "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ) ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
   [[ "$windows" =~ ^[1-3]$ ]] || { echo "windows= takes 1 to 3" >&2; exit 2; }
@@ -172,6 +181,8 @@ main() {
   [[ -z "$base" || ( "$dmg" =~ ^(build|swap)$ && "$base" =~ ^[0-9a-f]{40}$ ) || "$dmg:$base" == swap:nightly ]] \
     || { echo "base= takes a 40-hex commit, with dmg=build or dmg=swap (or nightly, with dmg=swap)" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" =~ ^(build|swap)$ && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build or dmg=swap" >&2; exit 2; }
+  [[ -z "$labs" || ( -z "$engines" && "$labs" =~ ^[A-Za-z][A-Za-z0-9]{0,63}$ ) ]] \
+    || { echo "labs= takes one Labs setting key (letters and digits), without engines=" >&2; exit 2; }
   [[ -z "$engines" || "$late" == 0 ]] || { echo "engines= takes no late= (the late side would have no engine of its own)" >&2; exit 2; }
   [[ -z "$engines" || ( ! "$dmg" =~ ^(build|swap)$ && "$engines" =~ ^(chromium|webkit)(,(chromium|webkit))?$ && "$engines" != chromium,chromium && "$engines" != webkit,webkit ) ]] \
     || { echo "engines= takes chromium, webkit or both (comma), with a DMG (not dmg=build or dmg=swap)" >&2; exit 2; }
@@ -202,6 +213,7 @@ main() {
       printf '{"browser": {"defaultEngine": "%s"}}\n' "$side" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
     done
   fi
+  if [[ -n "$labs" ]]; then echo "LR labs $labs=true"; fi
   if [[ "$dmg" == swap ]]; then
     source scripts/measure/swap-nightly.sh
     swap_nightly "$out" "$nightly" ${base:+base="$base"} head="${headsha:-$(git rev-parse HEAD)}" || exit 3
@@ -262,6 +274,10 @@ main() {
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late && -z "$engines" ]] || image=head # the late side, and every engines= side, runs the head's DMG
     mkdir -p "$mount" "$out/$side"
+    if [[ -n "$labs" ]]; then
+      mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+      printf '{"labs": {"%s": true}}\n' "$labs" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
+    fi
     local found
     if [[ "$dmg" == swap ]]; then
       found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
@@ -376,7 +392,8 @@ probe() {
   fi
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $(probe_mode "$label") $([[ "$LR_LAYOUT" == 1 ]] && echo layout) $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $(probe_mode "$label") $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) \
+    $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
@@ -391,7 +408,7 @@ probe() {
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
   # engines=: Chromium's start, from the app's log, added to the row's marks (launch-ready-cef.py).
-  if [[ -f "$out/home-$side/cmux-next.json" ]]; then
+  if [[ -n "$engines" && -f "$out/home-$side/cmux-next.json" ]]; then
     local withcef
     withcef="$(echo "${line#LR-RUN }" | python3 -I "$out/cef.py" 2>>"$out/cef.log")" && [[ -n "$withcef" ]] && line="LR-RUN $withcef"
   fi
