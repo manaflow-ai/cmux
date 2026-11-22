@@ -546,7 +546,7 @@ public final class AgentChatStore {
         keepSent(attachments, promptID: promptID)
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
-        source.send(.prompt(text: text, attachments: attachments, steer: steers,
+        sendIntent(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
     }
 
@@ -585,12 +585,12 @@ public final class AgentChatStore {
         guard canRetryFailedTurn(turn) else { return }
         clientError = nil
         retryRequested = true
-        source.send(.retryFailedTurn)
+        sendIntent(.retryFailedTurn)
     }
 
     private var retryRequested = false
 
-    public func cancel() { source.send(.cancel) }
+    public func cancel() { sendIntent(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
         // A refusal is about the previous answer ("Approve this on your Mac"):
@@ -602,7 +602,7 @@ public final class AgentChatStore {
         sentPermissionAnswer = (request.id, option?.id)
         permissionAnswerUncertain = false
         awaitsPermissionReply = true
-        source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
+        sendIntent(.respondPermission(permissionId: request.id, optionId: option?.id))
     }
 
     /// Answers the sudo card: Approve with the password (signed with the approval key), or Deny.
@@ -610,7 +610,7 @@ public final class AgentChatStore {
     public func answerElevation(_ ask: AgentElevationAsk, password: String?) {
         clientError = nil
         sendingElevation = password != nil
-        source.send(.answerElevation(ask, password: password.map(AgentSecretText.init)))
+        sendIntent(.answerElevation(ask, password: password.map(AgentSecretText.init)))
     }
 
     // MARK: Bookmarks, pins and permissions (chat polish parity)
@@ -741,22 +741,22 @@ public final class AgentChatStore {
         clientError = nil
         permissionAnswerUncertain = false
         approvingOptionID = pending.request.options.first { $0.id == sent.optionID }?.isAllow == true ? sent.optionID : nil
-        source.send(.respondPermission(permissionId: sent.permissionID, optionId: sent.optionID))
+        sendIntent(.respondPermission(permissionId: sent.permissionID, optionId: sent.optionID))
     }
 
     /// Declines a pending question with its reject option.
     public func decline(_ question: AgentQuestion) {
         guard question.isPending, let reject = question.source.rejectOption else { return }
         clientError = nil
-        source.send(.respondPermission(permissionId: question.id, optionId: reject))
+        sendIntent(.respondPermission(permissionId: question.id, optionId: reject))
     }
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
         clientError = nil
-        source.send(.answerQuestion(questionId: question.id, answer: answer))
+        sendIntent(.answerQuestion(questionId: question.id, answer: answer))
     }
 
-    public func setModel(_ id: String) { source.send(.setModel(id)) }
+    public func setModel(_ id: String) { sendIntent(.setModel(id)) }
 
     /// Retry on a finished turn: its prompt goes again with what it attached. An image only
     /// the Mac's record holds is read back first; one that can't be read goes without its
@@ -776,7 +776,7 @@ public final class AgentChatStore {
             store.clientError = nil
             let promptID = UUID().uuidString.lowercased()
             store.keepSent(attachments, promptID: promptID)
-            store.source.send(.retryWithModel(model: model, text: text, attachments: attachments, promptID: promptID))
+            store.sendIntent(.retryWithModel(model: model, text: text, attachments: attachments, promptID: promptID))
         }
     }
 
@@ -798,9 +798,9 @@ public final class AgentChatStore {
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
     public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
-    public func setMode(_ id: String) { source.send(.setMode(id)) }
-    public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
-    public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+    public func setMode(_ id: String) { sendIntent(.setMode(id)) }
+    public func setConfig(_ id: String, value: String) { sendIntent(.setConfigOption(id: id, value: value)) }
+    public func removeQueued(_ id: String) { sendIntent(.removeQueued(promptId: id)) }
 
     /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
     /// sends nothing; the message goes when the person sends it from the composer. Only an
@@ -840,7 +840,7 @@ public final class AgentChatStore {
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
     public func resumeQueue() {
         guard queuePaused else { return }
-        source.send(.resumeQueue)
+        sendIntent(.resumeQueue)
     }
 
     /// The queued row's X: takes the prompt back into the composer, returning the text the
@@ -857,14 +857,14 @@ public final class AgentChatStore {
     public func editQueued(_ id: String, text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, queue.contains(where: { $0.id == id && $0.text != text }) else { return }
-        source.send(.editQueued(promptId: id, text: text))
+        sendIntent(.editQueued(promptId: id, text: text))
     }
     /// Send now: the waiting prompt goes now (steered into the running turn, or next).
-    public func sendQueuedNow(_ id: String) { source.send(.sendQueuedNow(promptId: id)) }
+    public func sendQueuedNow(_ id: String) { sendIntent(.sendQueuedNow(promptId: id)) }
     /// Move up (-1) / Move down (+1) in the queue.
     public func moveQueued(_ id: String, by offset: Int) {
         guard let from = queue.firstIndex(where: { $0.id == id }), queue.indices.contains(from + offset) else { return }
-        source.send(.moveQueued(promptId: id, index: from + offset))
+        sendIntent(.moveQueued(promptId: id, index: from + offset))
     }
 
     /// The most prompts whose attachments wait for the Mac's record (each holds its bytes).
@@ -1282,6 +1282,24 @@ public final class AgentChatStore {
 
     /// Whether a list shows this chat.
     public var isShown: Bool { viewers.contains { $0.owner != nil } }
+
+    /// The person acted in this chat in this launch: a prompt, an answer, a mode, model or queue
+    /// change went to its source (``sendIntent(_:)``).
+    @ObservationIgnored public private(set) var actedOn = false
+
+    /// Every intent this chat sends goes through here, so ``actedOn`` sees it.
+    private func sendIntent(_ intent: AgentClientIntent) {
+        actedOn = true
+        source.send(intent)
+    }
+
+    /// The chat holds what only this store knows, which a store built again from its source
+    /// would not show: a list shows it, the person acted in it (what was attached to a sent
+    /// prompt, an answer on its way, a prompt to resend), or it holds a draft or a refusal for
+    /// the composer. Its owner keeps such a store (`AgentSessionDirectory`).
+    public var holdsLocalState: Bool {
+        actedOn || isShown || returnedDraft != nil || withdrawnDraft != nil || clientError != nil
+    }
 
     /// `owner` (a transcript list) shows this chat from now on.
     public func shown(by owner: AnyObject) {
