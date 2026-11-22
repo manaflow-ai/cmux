@@ -15,7 +15,7 @@
   line-height: var(--text-body--line-height);
 }
 .ui-failure__mark {
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
   color: var(--ds-color-danger);
 }
 .ui-failure__text {
@@ -25,7 +25,7 @@
   margin: 0;
 }
 .ui-failure__title {
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }
 .ui-failure__cause {
   color: var(--ui-failure-ink-2);
@@ -37,7 +37,7 @@
   margin-top: var(--ds-space-1);
   color: var(--ui-failure-ink-2);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-detail, 12px);
+  font-size: var(--text-detail);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   -webkit-user-select: text;
@@ -69,12 +69,12 @@
   padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--ui-failure-ink) 5%, transparent);
-  font-size: var(--text-detail, 12px);
+  font-size: var(--text-detail);
 }
 .ui-failure[data-layout="row"] .ui-failure__mark {
   margin-top: 0;
-  width: 14px;
-  height: 14px;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
 }
 .ui-failure[data-layout="row"] .ui-failure__text {
   display: flex;
