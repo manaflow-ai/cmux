@@ -11,14 +11,14 @@
       "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
       "rows": [
         {
-          "key": "experiments.launch_shell_first",
+          "key": "labs.launchShellFirst",
           "name": "launchShellFirst",
           "title": {
-            "key": "settings.experiments.launch_shell_first",
+            "key": "settings.labs.launchShellFirst",
             "text": "Show Window Shell at Launch"
           },
           "help": {
-            "key": "settings.experiments.launch_shell_first.help",
+            "key": "settings.labs.launchShellFirst.help",
             "text": "Show the saved window frame while cmux restores its content on the next launch."
           },
           "kind": "toggle",
