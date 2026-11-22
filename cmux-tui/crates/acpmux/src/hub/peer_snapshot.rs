@@ -81,7 +81,7 @@ pub(crate) const FILE_BYTES: u64 = SESSION_BYTES + HEAD_BYTES;
 /// Bytes every copy's file keeps together, refused removals included.
 pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 };
 /// Bytes of records held in memory, every copy together.
-const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 16 << 20 };
+const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 /// Sessions and peers removed before the disk reads that are remembered one by one; past it,
