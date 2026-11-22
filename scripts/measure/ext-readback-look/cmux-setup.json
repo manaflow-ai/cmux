@@ -1,0 +1,11 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/ext-readback-look",
+  "name": "Extension read-back probe",
+  "tagline": "A NIGHTLY read-back probe: a titlebar status item and a composer mention from the customize app.",
+  "description": "Installed into a fresh home by cmux-ci fresh-home --nightly to read back cmux.status/1 (cmux#47317) and cmux.composer.mention/1 (cmux#49239) on a published NIGHTLY. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {}
+}

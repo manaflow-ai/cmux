@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Readback probe" },
+  "version": "1.0.0",
+  "description": "A titlebar status item and a composer mention, for a NIGHTLY read-back.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.status/1": { "export": "renderStatus", "title": "RBPROBE status", "symbol": "bolt", "options": { "placement": "titlebar" } },
+    "cmux.composer.mention/1": { "options": { "prefix": "rbprobe", "items": [
+      { "id": "RB-1", "label": "RB-1 readback mention", "insert": "RB-1" }
+    ] } }
+  },
+  "activation": ["onInterface:cmux.status/1"],
+  "files": ["main.js"]
+}
