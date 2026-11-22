@@ -64,7 +64,8 @@ public final class PaletteRankerBridge {
         rowLimit: Int = 400,
         highlightLimit: Int = 60,
         settings: PaletteRankSettings = PaletteRankSettings(),
-        sendsHistory: Bool = false
+        sendsHistory: Bool = false,
+        sectionNames: [[String]]? = nil
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         let history = sendsHistory ? nil : try installHistory(frecency)
@@ -85,7 +86,8 @@ public final class PaletteRankerBridge {
             pins: nil,
             pinnedSectionIndex: nil,
             rowLimit: rowLimit,
-            highlightLimit: highlightLimit
+            highlightLimit: highlightLimit,
+            sectionNames: sectionNames
         ))
     }
 
@@ -157,19 +159,24 @@ public final class PaletteRankerBridge {
         installedVersion = version
     }
 
+    /// The search filter in `query` (`in:tabs`, `-in:history`) for a page's `sectionNames`, read by the
+    /// shared ranker (cmux-palette-ranker `filter`), for the searches the page runs beside the ranker
+    /// (contributed agent chats) so they keep and drop the same sections.
+    nonisolated public func filter(query: String, sectionNames: [[String]]) throws -> PaletteQueryFilter {
+        let body = try call(PaletteRankerBridgeRequest(
+            operation: "filter", entries: nil, version: nil, query: query, sectionOrders: [], frecency: nil,
+            historyRevision: nil, now: 0, showsRecent: false, keepsSectionOrder: false, ranksPrefixFirst: false,
+            recentLimit: 0, aliases: nil, pins: nil, pinnedSectionIndex: nil, rowLimit: 0, highlightLimit: 0,
+            sectionNames: sectionNames))
+        do {
+            return try JSONDecoder().decode(PaletteQueryFilter.self, from: body)
+        } catch {
+            throw PaletteRankerBridgeError.runtimeFailed("invalid filter JSON: \(error)")
+        }
+    }
+
     nonisolated private func invoke(_ request: PaletteRankerBridgeRequest) throws -> [PaletteRankedSection] {
-        let data = try JSONEncoder().encode(request)
-        var response: UnsafePointer<UInt8>?
-        var responseLength = 0
-        let code = data.withUnsafeBytes { bytes in
-            cmux_palette_ranker_rank(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response, &responseLength)
-        }
-        guard let response else { throw PaletteRankerBridgeError.invalidResult }
-        // The bytes stay valid until the next call on this handle: copy them now.
-        let body = Data(bytes: response, count: responseLength)
-        guard code == CMUX_PALETTE_RANKER_OK else {
-            throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
-        }
+        let body = try call(request)
         do {
             let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: body)
             return sections.map { section in
@@ -183,5 +190,39 @@ public final class PaletteRankerBridge {
         } catch {
             throw PaletteRankerBridgeError.runtimeFailed("invalid result JSON: \(error)")
         }
+    }
+
+    /// Sends one request and copies the answer's bytes.
+    nonisolated private func call(_ request: PaletteRankerBridgeRequest) throws -> Data {
+        let data = try JSONEncoder().encode(request)
+        var response: UnsafePointer<UInt8>?
+        var responseLength = 0
+        let code = data.withUnsafeBytes { bytes in
+            cmux_palette_ranker_rank(handle, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response, &responseLength)
+        }
+        guard let response else { throw PaletteRankerBridgeError.invalidResult }
+        // The bytes stay valid until the next call on this handle: copy them now.
+        let body = Data(bytes: response, count: responseLength)
+        guard code == CMUX_PALETTE_RANKER_OK else {
+            throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
+        }
+        return body
+    }
+}
+
+/// A query's search filter as the shared ranker reads it (cmux-palette-ranker `filter::QueryFilter`).
+nonisolated public struct PaletteQueryFilter: Decodable, Sendable, Equatable {
+    /// The query without its filter tokens.
+    public var rest: String
+    /// Section indexes to keep; empty keeps every section not excluded.
+    public var include: [Int]
+    /// Section indexes to drop.
+    public var exclude: [Int]
+    /// Whether the query had a filter token.
+    public var applied: Bool
+
+    /// Whether rows of section `index` pass.
+    public func allows(_ index: Int) -> Bool {
+        (include.isEmpty || include.contains(index)) && !exclude.contains(index)
     }
 }
