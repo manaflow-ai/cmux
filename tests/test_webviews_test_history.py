@@ -105,6 +105,17 @@ class ShardSize(unittest.TestCase):
             owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
             self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
 
+    def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
+        """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
+        ran 39-71 min of tests each on 4 vCPU, about 722 runner-minutes a run; they read the owned gate runner now."""
+        runs_on = self.shard["runs-on"]
+        for mode in ("batch", "probe"):
+            dispatch = event("workflow_dispatch", **{"github.event.inputs.mode": mode,
+                                                    "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
+            self.assertEqual(evaluate(runs_on, dispatch), "glaeda-linux-gate", mode)
+        other = event("workflow_dispatch", **{"vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
+        self.assertEqual(evaluate(runs_on, other), "blacksmith-4vcpu-ubuntu-2404")
+
     def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
         for label, context in EVENTS.items():
             runner = evaluate(self.shard["runs-on"], context)
@@ -272,6 +283,15 @@ class KnownReds(unittest.TestCase):
                          [FILE, "test/gone.test.ts"])
         self.assertEqual(history.base_red_files(set(), head), [])
         self.assertEqual(history.base_red_files({TEST}, {FILE: True}), [])
+
+    def test_a_file_red_on_the_base_by_its_bare_name_covers_every_red_the_head_names_in_it(self):
+        """Shard 1 of run 44987019885: 29 of the 46 red files it retried alone were red on the base push by file name
+        only (a timeout there), while the head named a test; all 29 failed again alone."""
+        other = "test/other.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > a": False}
+        self.assertEqual(history.base_red_files({FILE}, head), [FILE])
+        # A bare name says nothing about another file, and a passing head file is never listed.
+        self.assertEqual(history.base_red_files({FILE}, {f"{other} > a": False, FILE: True}), [])
 
     def test_the_commands_write_and_read_the_base_reds_and_fail_safe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1348,6 +1368,20 @@ class Workflow(unittest.TestCase):
         self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
         self.assertIn('base-replay-files', compare["run"])
         self.assertIn('base-known.json', compare["run"])
+
+    def test_every_run_the_history_job_records_writes_the_inputs_key(self):
+        # Keyed on push alone, batch ticks wrote no key and their history job failed "no single inputs key"
+        # (run 44980099868), so the base reds froze and pull request shards alone-retried base reds to the deadline.
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["react-apps-check-shard"]["steps"]
+        test = next(s for s in steps if s.get("id") == "webview-tests")
+        upload = next(s for s in steps if s.get("id") == "history-upload")
+        recorded = upload["if"].removeprefix("${{ !cancelled() && ").removesuffix(" }}")
+        self.assertEqual(test["env"]["CMUX_WEB_TEST_RECORD_HISTORY"], "${{ " + recorded + " && '1' || '0' }}")
+        self.assertIn(recorded, jobs["webviews-test-history"]["if"])
+        self.assertIn('if [ "${CMUX_WEB_TEST_RECORD_HISTORY:-0}" = 1 ]; then\n'
+                      '  python3 ../scripts/ci/webviews_test_history.py inputs >', test["run"])
 
     def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
         # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).
