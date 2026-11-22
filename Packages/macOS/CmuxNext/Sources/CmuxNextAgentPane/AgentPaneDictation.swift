@@ -322,7 +322,7 @@ final class AgentPaneDictation {
     }
 
     static func script(_ update: DictationUpdate) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload(update), options: [.sortedKeys]),
+        guard let data = try? JSONSerialization.data(withJSONObject: payload(update)),
               let json = String(data: data, encoding: .utf8) else { return nil }
         return "window.cmuxAcpmuxBridge?.dictation?.(\(json));"
     }

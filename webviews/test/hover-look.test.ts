@@ -41,9 +41,13 @@ test("the switch sets the default arm on the root and takes the hover surfaces o
 });
 
 test("the look is paint only: no rule sets a size, padding, border width or type", () => {
-  const css = readFileSync(new URL("../src/ui/hoverLook.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = readFileSync(new URL("../src/ui/hoverLook.css", import.meta.url), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
   const declarations = [...css.matchAll(/(?:^|[;{])\s*([a-z-]+)\s*:/g)].map((match) => match[1]);
-  const layout = /^(width|height|min-|max-|padding|margin|border(?!-radius)|font|line-height|gap|inset|top|left|right|bottom|display|position)/;
+  const layout =
+    /^(width|height|min-|max-|padding|margin|border(?!-radius)|font|line-height|gap|inset|top|left|right|bottom|display|position)/;
   expect(declarations.filter((name) => layout.test(name))).toEqual([]);
   expect(declarations.length).toBeGreaterThan(0);
 });

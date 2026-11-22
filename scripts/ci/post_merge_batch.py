@@ -136,16 +136,29 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api) -> None:
-    """Creates branch at sha, a commit GitHub already has, through the REST API. The revert then reaches it as an
-    update, which GitHub checks for workflow changes over that one commit; a git push that creates the branch is
-    checked against the whole branch and timed out every time on this repository (drill-5 run 44897813534,
-    drill-6 run 44906887225, four tries each). A branch left by an earlier try is reused."""
-    try:
-        api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha})
-    except RuntimeError as error:
-        if "already exists" not in str(error):
-            raise
+def push_token() -> str:
+    """The token that creates and pushes the revert branch: PUSH_TOKEN, minted with workflows write, else GH_TOKEN.
+    A branch based on feat-cmux-next differs from main in its workflow files, and GitHub refuses or times out a
+    token with no workflows permission that creates one (cmux-next-batch.yml's push token says the same)."""
+    return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45)) -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
+    then reaches it as an update. With the job token, a git push that creates the branch timed out every time
+    (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
+    44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    for wait in (*waits, None):
+        try:
+            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[push_token()])
+            return
+        except RuntimeError as error:
+            text = str(error)
+            if "already exists" in text:
+                return
+            if wait is None or not re.search(r"HTTP 5\d\d", text):
+                raise
+            sleep(wait)
 
 
 def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
