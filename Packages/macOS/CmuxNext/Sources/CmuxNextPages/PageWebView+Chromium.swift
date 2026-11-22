@@ -31,14 +31,14 @@ extension PageWebView {
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
-    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
-    /// hold gave up (an adopted spare, HQ#5914).
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
             && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
                 .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
-        chromiumSession?.page.setVisible(visible)
+        chromiumSession?.setVisible(visible)
     }
+    public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
@@ -205,14 +205,21 @@ extension PageWebView {
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
-            try await bridge.setUp(documentScripts: scripts.sources)
+            // Every setup call goes out now, in order, in this turn; their answers come in about one
+            // round trip, and the first failed one fails the setup.
+            let setUp = try bridge.startSetUp(documentScripts: scripts.sources)
+            var questionKeys: ChromiumQuestionKeyChannel?
+            var documentGuard: (@MainActor () async throws -> Void)?
             if descriptor.isAgentPage {
                 let descriptor = descriptor
-                let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
-                questionKeys.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
-                try await questionKeys.prepareDocumentGuard()
-                session.questionKeys = questionKeys
+                let channel = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                channel.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
+                documentGuard = channel.startDocumentGuard()
+                questionKeys = channel
             }
+            try await setUp()
+            try await documentGuard?()
+            if let questionKeys { session.questionKeys = questionKeys }
         } catch {
             session.end()
             // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
@@ -344,6 +351,10 @@ extension PageWebView {
         case .ended:
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
+        case .engineStopped:
+            // The app quits: nothing reopens in WebKit, and the host hears no crash (``PageChromiumEvent/engineStopped``).
+            chromiumSession.questionKeys?.invalidate()
+            logger.info("page \(self.descriptor.id, privacy: .public) Chromium stopped for quit")
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
@@ -469,8 +480,11 @@ extension PageWebView {
     /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
+            // Pinned to the update this page's document loaded with, as a WebKit page is: one
+            // document never mixes two builds' files.
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
-                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources,
+                                                                pinnedIn: webView)
         }
         if let ranged = dynamicResources as? any PageRangedResourceSource {
             return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
