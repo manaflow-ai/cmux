@@ -60,6 +60,8 @@ fn key(n: u8) -> String {
 
 fn layer(pr: u64, n: u8) -> CodeLayer {
     CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
         repo: "manaflow-ai/cmux".to_owned(),
         pr,
         title: format!("pr {pr}"),
@@ -107,7 +109,11 @@ fn off_code_turns_every_pr_off_notes_the_reason_and_puts_web_dev_back() {
     };
     assert_eq!(note("pr-20"), "pages did not load (timeout)");
     assert_eq!(note("pr-10"), "merged: in your build");
-    assert_eq!(customize.layers().line, "customize: none on");
+    // web-dev.json is back on the person's own overlay, which is no entry.
+    assert_eq!(
+        customize.layers().line,
+        "customize: 0 on; web-dev overlay unknown (off, no manifest)"
+    );
 }
 
 #[test]
@@ -248,4 +254,63 @@ fn a_lower_pr_under_a_higher_one_is_named_overridden() {
     );
     assert!(layers.on[0].web && !layers.on[1].web);
     assert_eq!(layers.on[1].pr, Some(10));
+}
+
+/// A hand-installed overlay (`web-overlay.sh install`) is no library entry,
+/// so the library reads as empty; the line still names it, its commit, its
+/// age and that the app refuses it for another web ABI.
+#[test]
+fn a_hand_installed_overlay_is_named_with_its_age_and_refusal() {
+    let home = Home::new();
+    let customize = home.customize();
+    let overlay = home.dir.path().join("overlay");
+    fs::create_dir_all(&overlay).unwrap();
+    fs::write(
+        overlay.join("manifest.json"),
+        json!({"stamp": "20261112T081500Z-4242", "commit": "01192304abcdef", "surfaces": ["pages"], "abi": 4})
+            .to_string(),
+    )
+    .unwrap();
+    home.write("web-dev.json", &json!({"overlay": overlay, "enabled": true}).to_string());
+    // 2026-11-15T09:00Z: three days later.
+    let now = 1_794_733_200_000;
+    let layers = customize.layers_at(Some(7), now);
+    assert!(layers.on.is_empty());
+    assert_eq!(
+        layers.line,
+        "customize: 0 on; web-dev overlay 01192304 (3 days, refused: abi 4, app 7)"
+    );
+    let web_dev = layers.web_dev.as_ref().unwrap();
+    assert!(!web_dev.library && web_dev.refused && web_dev.installed);
+    assert_eq!((web_dev.abi, web_dev.app_abi), (Some(4), Some(7)));
+    assert!(!layers.stray_overlay, "a hand-installed overlay is not the library's to clear");
+
+    // The same ABI is not refused; turned off says so.
+    assert_eq!(
+        customize.layers_at(Some(4), now).line,
+        "customize: 0 on; web-dev overlay 01192304 (3 days)"
+    );
+    home.write("web-dev.json", &json!({"overlay": overlay, "enabled": false}).to_string());
+    assert_eq!(
+        customize.layers_at(None, now).line,
+        "customize: 0 on; web-dev overlay 01192304 (off, 3 days)"
+    );
+}
+
+/// A library layer the app refuses says so after its entry.
+#[test]
+fn a_refused_library_layer_says_so() {
+    let home = Home::new();
+    let customize = home.customize();
+    let dir = install(&customize, 1);
+    fs::write(PathBuf::from(&dir).join("manifest.json"), json!({"abi": 3}).to_string()).unwrap();
+    customize.library_use_code(layer(5, 1), vec![], "cli", 1).unwrap();
+    let line = customize.layers_at(Some(7), 2).line;
+    assert_eq!(
+        line,
+        format!(
+            "customize: 1 on: pr-5 @{} (web); web layer refused: abi 3, app 7",
+            &layer(0, 1).head[..7]
+        )
+    );
 }

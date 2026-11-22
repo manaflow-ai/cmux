@@ -82,11 +82,19 @@ impl ShellMarks {
     pub(crate) fn joined_midway() -> Self {
         Self { running: true, ..Self::default() }
     }
+
+    /// The title tracker, for a caller that rewrites the titles in its own
+    /// scan of the output ([`write_rewritten_output`]).
+    pub(crate) fn titles_mut(&mut self) -> &mut crate::terminal_title::TitleTracker {
+        &mut self.titles
+    }
 }
 
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark the shell prints at its prompt. Returns the bytes the
-/// terminal parsed, resets included, for mirrors and attach taps.
+/// terminal parsed, resets included, for mirrors and attach taps. The output
+/// paths call [`write_rewritten_output`] after their one shared scan.
+#[cfg(test)]
 pub(crate) fn write_output<'a>(
     term: &mut Terminal,
     data: &'a [u8],
@@ -95,6 +103,17 @@ pub(crate) fn write_output<'a>(
     // A title pop or an OSC 1 icon name becomes the OSC 2 that applies it,
     // here, so this terminal and every mirror fed the parsed bytes agree.
     let data = marks.titles.rewrite(data);
+    write_rewritten_output(term, data, marks)
+}
+
+/// [`write_output`] for `data` whose titles the caller already rewrote with
+/// [`ShellMarks::titles_mut`] (the host parser's one shared output scan,
+/// `TerminalMetadata::observe_output_rewriting_titles`).
+pub(crate) fn write_rewritten_output<'a>(
+    term: &mut Terminal,
+    data: Cow<'a, [u8]>,
+    marks: &mut ShellMarks,
+) -> Cow<'a, [u8]> {
     let data = if marks.held.is_empty() {
         data
     } else {
@@ -186,50 +205,5 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn terminal() -> Terminal {
-        Terminal::new(40, 4, 100, ghostty_vt::Callbacks::default()).unwrap()
-    }
-
-    /// Feeds `stream` split at `at` and returns the terminal and the bytes it parsed.
-    fn feed_split(stream: &[u8], at: usize) -> (Terminal, Vec<u8>) {
-        let mut term = terminal();
-        let mut marks = ShellMarks::default();
-        let mut parsed = Vec::new();
-        for chunk in [&stream[..at], &stream[at..]] {
-            parsed.extend_from_slice(&write_output(&mut term, chunk, &mut marks));
-        }
-        (term, parsed)
-    }
-
-    /// A dead program's mouse mode is reset at the next prompt mark wherever
-    /// the output stream splits, also inside the mark itself: a reader chunk
-    /// ends anywhere, and a mark split across two chunks used to be missed.
-    #[test]
-    fn a_prompt_mark_split_across_chunks_still_resets_modes() {
-        let stream = b"\x1b[?1000h\x1b[?25lkilled\r\n\x1b]133;A\x07$ ";
-        let (_, whole) = feed_split(stream, stream.len());
-        for at in 0..=stream.len() {
-            let (term, parsed) = feed_split(stream, at);
-            assert!(!term.mouse_tracking(), "mouse mode survived a mark split at {at}");
-            assert!(term.mode(CURSOR_VISIBLE, false), "cursor stayed hidden, split at {at}");
-            assert_eq!(parsed, whole, "parsed bytes differ for a split at {at}");
-        }
-    }
-
-    /// The keyboard modes a command left are reset at its end mark, wherever
-    /// the stream splits.
-    #[test]
-    fn a_command_end_mark_split_across_chunks_still_resets_keyboard_modes() {
-        let stream = b"\x1b]133;C\x07\x1b[?2004h\x1b[?1004hran\r\n\x1b]133;D;0\x07";
-        let (_, whole) = feed_split(stream, stream.len());
-        for at in 0..=stream.len() {
-            let (term, parsed) = feed_split(stream, at);
-            assert!(!term.mode(2004, false), "bracketed paste survived a split at {at}");
-            assert!(!term.mode(1004, false), "focus reports survived a split at {at}");
-            assert_eq!(parsed, whole, "parsed bytes differ for a split at {at}");
-        }
-    }
-}
+#[path = "prompt_mode_reset_tests.rs"]
+mod tests;

@@ -13,7 +13,7 @@ import Foundation
 /// hard-coded.
 ///
 /// ```swift
-/// let app = AppTheme.derive(from: ThemeInput(terminalTheme: .monokai))
+/// let app = AppTheme.derive(from: .ghosttyDefault)
 /// let accent = app[.accent]
 /// ```
 public struct AppTheme: Hashable, Sendable {

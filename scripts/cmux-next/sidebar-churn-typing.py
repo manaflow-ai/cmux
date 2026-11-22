@@ -88,6 +88,8 @@ parser.add_argument("--settle-max", type=float, default=90.0, help="--settle-loa
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("sidebar-churn-typing")  # it posts real input (CGEventPost): never on a person's Mac
 OUT = os.path.abspath(opts.out)
 os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))

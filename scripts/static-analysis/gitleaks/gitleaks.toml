@@ -1,0 +1,21 @@
+# gitleaks config for scripts/static-analysis/gitleaks.sh.
+# Starts from gitleaks' default rules; add entries here only for known non-secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "lockfiles, test data and public client identifiers"
+paths = [
+  '''(^|/)(bun\.lock|package-lock\.json|Cargo\.lock|Package\.resolved|go\.sum|yarn\.lock|pnpm-lock\.yaml)$''',
+  '''(^|/)static-analysis-out/''',
+  '''(^|/)testdata/''',
+]
+# Matched against the secret itself. Stack Auth publishable client keys (pck_...) ship inside apps by design.
+# A keyboard chord ("key": "cmd+shift+down" in a keybindings file) is generic-api-key's shape, never a key; a
+# value that says it is fake ("Bearer test-token-not-real" in a test) is not one either. Both were the only
+# findings in a backtest of 100 merged pull requests (scripts/static-analysis/README.md).
+regexes = [
+  '''^pck_[a-z0-9]+$''',
+  '''^(?i)(cmd|command|ctrl|control|alt|opt|option|shift|super|meta|hyper|fn)([+-][^\s"']+)+$''',
+  '''(?i)(not[-_]?real|fake|dummy|placeholder|redacted|example)''',
+]

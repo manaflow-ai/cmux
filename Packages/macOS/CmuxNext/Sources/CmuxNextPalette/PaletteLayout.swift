@@ -26,6 +26,11 @@ enum PaletteLayout {
     static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
     static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
     static var horizontalPadding: CGFloat { Metrics.space5 }
+    /// Where everything at a row's or the field's right ends (a key, a kind label, the field's
+    /// "Search Workspaces ⇥" hint), from the panel's right edge: the rows' side inset plus the room an
+    /// icon box leaves around its glyph, so the right column mirrors the icons' ink on the left
+    /// (Lawrence 2026-11-15: "search workspaces looks bad", three right edges in one panel).
+    static var trailingInset: CGFloat { listInset + Metrics.space4 + (iconBox - Metrics.iconSize) / 2 }
 
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
@@ -107,6 +112,18 @@ enum PaletteText {
         return ceil(natural * scale) / scale
     }
 
+    /// The y of a `height`-tall frame for `field` (in its superview's unflipped coordinates) that puts
+    /// the middle of its capitals on `midY`. Centering the frame (the line box) instead puts text of
+    /// different sizes on different lines: the box's room above the capitals and below the baseline
+    /// differ, and by a different amount at each size, so the footer's 13 pt "Run Command" sat lower
+    /// than its 11 pt "Search" and "Actions" (#48512). The baseline comes from the field itself
+    /// (`firstBaselineOffsetFromTop`, at `height`), so it holds for any font the label draws in.
+    static func capCenteredY(_ field: NSTextField, height: CGFloat, midY: CGFloat) -> CGFloat {
+        guard let font = field.font else { return midY - height / 2 }
+        if field.frame.height != height { field.setFrameSize(NSSize(width: field.frame.width, height: height)) }
+        return midY - font.capHeight / 2 - (height - field.firstBaselineOffsetFromTop)
+    }
+
     /// Width that shows the whole string. `intrinsicContentSize` of a
     /// truncating label is unreliable after its value changes. At least the cell's own width
     /// without bounds, which adds its text padding: `space2` alone is less than that padding at
@@ -115,6 +132,14 @@ enum PaletteText {
         let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
         return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
+    }
+
+    /// How far a label's cell draws its text in from the frame's side: the frame of a right-aligned
+    /// label ends that far past the text's right end.
+    static func textInset(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = field.cell?.cellSize(forBounds: unbounded).width ?? 0
+        return max(0, (cell - field.attributedStringValue.size().width) / 2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are

@@ -17,14 +17,15 @@ use std::path::{Path, PathBuf};
 const IDLE: Duration = acpmux::hub::IDLE_CHILD;
 
 /// The fake harness under a shell: `$dir/broken` makes its start fail (exit 3); `$dir/slow_exit`
-/// makes it ignore SIGTERM, so each stop waits out its grace; else it appends its own pid to
+/// makes the harness ignore SIGTERM, so each stop waits out its grace, while its stand-in MCP
+/// server (started before the trap) still ends at the SIGTERM; else it appends its own pid to
 /// `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`.
 const HARNESS: &str = r#"d=$1; f=$2
 [ -e "$d/broken" ] && exit 3
-[ -e "$d/slow_exit" ] && trap '' TERM
 echo $$ >> "$d/harness"
 sleep 100000 </dev/null >/dev/null 2>&1 &
 echo $! >> "$d/sidecar"
+[ -e "$d/slow_exit" ] && trap '' TERM
 exec python3 "$f""#;
 
 pub(super) struct Rig {
@@ -32,9 +33,20 @@ pub(super) struct Rig {
     pub(super) c: TestClient,
     clock: Arc<ManualClock>,
     pub(super) dir: PathBuf,
+    /// What a restart opens again (`Rig::restart`).
+    cfg: Config,
 }
 
 pub(super) async fn rig(policy: PermissionPolicy) -> Rig {
+    rig_in(policy, false).await
+}
+
+/// A rig whose store is on disk, so `Rig::restart` brings its chats back in a new daemon.
+pub(super) async fn rig_on_disk(policy: PermissionPolicy) -> Rig {
+    rig_in(policy, true).await
+}
+
+async fn rig_in(policy: PermissionPolicy, on_disk: bool) -> Rig {
     let dir = std::env::temp_dir().join(format!("acpmux-hibernate-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -59,16 +71,26 @@ pub(super) async fn rig(policy: PermissionPolicy) -> Rig {
         default_harness: Some("fake".into()),
         ..Default::default()
     };
-    cfg.store.mode = StoreMode::Memory;
+    cfg.store.mode = if on_disk { StoreMode::Local } else { StoreMode::Memory };
     cfg.permission_policy = policy;
-    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(cfg, store);
+    let (hub, clock) = start_hub(&cfg, &dir);
+    let c = connect(&hub).await;
+    Rig { hub, c, clock, dir, cfg }
+}
+
+/// A daemon on `cfg`'s store (a memory one, or `$dir/state`), on its own manual clock.
+fn start_hub(cfg: &Config, dir: &Path) -> (Arc<Hub>, Arc<ManualClock>) {
+    let state = match cfg.store.mode {
+        StoreMode::Memory => PathBuf::from("/nonexistent"),
+        _ => dir.join("state"),
+    };
+    let store = acpmux::store::open(&cfg.store, &state).unwrap();
+    let hub = Hub::new(cfg.clone(), store);
     let clock = ManualClock::new();
     hub.set_clock(clock.clone());
     // The default, as the daemon runs it.
     hub.set_idle_child(Some(IDLE));
-    let c = connect(&hub).await;
-    Rig { hub, c, clock, dir }
+    (hub, clock)
 }
 
 impl Rig {
@@ -103,6 +125,19 @@ impl Rig {
         self.until("the idle session never hibernated", || self.status(id) == "idle").await;
         self.until("the harness outlived its hibernation", || !alive(harness)).await;
         self.until("the MCP server outlived its hibernation", || !alive(sidecar)).await;
+    }
+
+    /// The daemon restarts on the same store (`rig_on_disk`): this one stops, a new one opens
+    /// the store again with `ids` back in it, and the rig's client connects to the new one.
+    pub(super) async fn restart(&mut self, ids: &[String]) {
+        self.hub.shutdown_all().await;
+        let (hub, clock) = start_hub(&self.cfg, &self.dir);
+        (self.hub, self.clock) = (hub, clock);
+        self.c = connect(&self.hub).await;
+        self.until("a chat did not come back after the restart", || {
+            ids.iter().all(|id| self.hub.resolve(id).is_ok())
+        })
+        .await;
     }
 
     fn texts(&self, id: &str, kind: &str) -> Vec<String> {
@@ -172,12 +207,16 @@ async fn an_idle_session_hibernates_after_two_minutes_even_while_shown() {
 
 /// Idle sessions whose harnesses are slow to end hibernate together, not one after another: the
 /// idle pass ended them serially, so at 1,000 idle agents it took minutes and most stayed live
-/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace.
+/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace before
+/// the SIGKILL; its stand-in MCP server ends at the SIGTERM. One after another, each harness ends
+/// before the next one is told to stop; together, the stops are told while the first harness
+/// still waits out its grace. Read from that order, not from wall time: a loaded suite stretches
+/// the pass's own reads (`ps`) and this test's polling (2.09 s for 8 in a full run, 0.83 s alone),
+/// never the order.
 #[cfg(unix)]
 #[tokio::test]
 async fn idle_sessions_hibernate_at_once_not_one_after_another() {
     const N: usize = 8;
-    const GRACE: Duration = Duration::from_millis(300);
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     std::fs::write(r.dir.join("slow_exit"), "").unwrap();
     let mut ids = Vec::new();
@@ -187,16 +226,60 @@ async fn idle_sessions_hibernate_at_once_not_one_after_another() {
         ids.push(id);
     }
     r.until("every harness started", || r.pids("harness").len() == N).await;
+    let (harnesses, sidecars) = (r.pids("harness"), r.pids("sidecar"));
+    assert_eq!(sidecars.len(), N);
     let began = std::time::Instant::now();
     r.clock.advance(IDLE + Duration::from_secs(1));
+    // When each process was first seen ended: a server at its SIGTERM, a harness at its SIGKILL.
+    let mut told: Vec<Option<Duration>> = vec![None; N];
+    let mut ended: Vec<Option<Duration>> = vec![None; N];
+    let deadline = began + Duration::from_secs(20);
+    while ended.iter().any(Option::is_none) {
+        assert!(std::time::Instant::now() < deadline, "a harness outlived its hibernation");
+        let all: Vec<u32> = sidecars.iter().chain(&harnesses).copied().collect();
+        let running = tokio::task::spawn_blocking(move || running_of(&all)).await.unwrap();
+        let at = began.elapsed();
+        for (seen, pids) in [(&mut told, &sidecars), (&mut ended, &harnesses)] {
+            for (slot, pid) in seen.iter_mut().zip(pids) {
+                if slot.is_none() && !running.contains(pid) {
+                    *slot = Some(at);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let first_end = ended.iter().flatten().min().copied().unwrap();
+    let told_in_grace = told.iter().flatten().filter(|t| **t < first_end).count();
+    eprintln!(
+        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told before the \
+         first ended at {first_end:?}"
+    );
+    // One after another, no stop is told before the harness before it ended: one at most. Most
+    // of them, not all: under a loaded suite the pass's reads spread the stops (602 to 813 ms in
+    // a full run, the first end at 985 ms), and a pass two or four at a time still fails here.
+    assert!(
+        told_in_grace > N / 2,
+        "{told_in_grace} of {N} slow harnesses were told to stop before the first one ended \
+         (at {first_end:?}): they stop one after another (told {told:?}, ended {ended:?})"
+    );
     r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
         .await;
-    let took = began.elapsed();
-    // One after another is N graces (2.4 s); together, about one.
-    assert!(took < GRACE * (N as u32) / 2, "{N} idle harnesses took {took:?} to hibernate");
-    for pid in r.pids("harness") {
-        r.until("a harness outlived its hibernation", || !alive(pid)).await;
-    }
+}
+
+/// Which of `pids` run, in one `ps` (a zombie, ended but not reaped yet, does not).
+#[cfg(unix)]
+fn running_of(pids: &[u32]) -> Vec<u32> {
+    let list = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let out = std::process::Command::new("ps").args(["-o", "pid=,stat=", "-p", &list]).output();
+    let out = out.unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let pid = words.next()?.parse().ok()?;
+            (!words.next()?.starts_with('Z')).then_some(pid)
+        })
+        .collect()
 }
 
 /// A running turn (its tool call included), a queued prompt and a pending permission each keep
@@ -319,8 +402,9 @@ async fn a_failed_wake_fails_its_prompt_with_its_error_and_a_retry_wakes_it() {
     assert_eq!(retried["stopReason"], "end_turn");
 }
 
-/// Opening a hibernated chat on screen (a click: `_acpmux/view` visible, or an attach that
-/// shows it) wakes it; one attached hidden does not.
+/// Opening a chat this daemon hibernated on screen (a click: `_acpmux/view` visible, or an attach
+/// that shows it) wakes it; one attached hidden does not. One an earlier daemon hibernated does
+/// not (`a_daemon_restart_wakes_no_hibernated_chat_when_viewers_open_them_again`).
 #[tokio::test]
 async fn opening_a_hibernated_chat_wakes_it_and_a_hidden_attach_does_not() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
@@ -396,4 +480,87 @@ async fn an_untouched_claude_chat_wakes_with_no_row_and_nothing_restored() {
     assert!(!sent.into_iter().any(|m| m.contains("restored_transcript")), "a transcript restored");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `n` chats that each ran a turn ("before-restart") and then hibernated together.
+async fn hibernated_chats(r: &mut Rig, n: usize) -> Vec<String> {
+    let mut ids = Vec::new();
+    for i in 0..n {
+        let id = new_session(&mut r.c, &format!("restart {i}")).await;
+        r.c.request(method::SESSION_PROMPT, prompt(&id, "before-restart", None)).await.unwrap();
+        ids.push(id);
+    }
+    r.until("every harness started", || r.pids("harness").len() == n).await;
+    r.clock.advance(IDLE + Duration::from_secs(1));
+    r.until("a chat never hibernated", || ids.iter().all(|id| r.status(id) == "idle")).await;
+    for pid in r.pids("harness").into_iter().chain(r.pids("sidecar")) {
+        r.until("a harness outlived its hibernation", || !alive(pid)).await;
+    }
+    ids
+}
+
+/// The coordinator's ask (2026-11-15): "a daemon restart shouldn't wake hibernated sessions at
+/// all. After a restart, acpmux should start a session's harness only when that session gets a
+/// turn". On a 2-vCPU host, each of ten restarts woke about 8 old hibernated chats at once,
+/// because the viewers attach and show every chat they had open again (`cause="click"`): load 20.
+/// Here N chats hibernate, the daemon restarts on the same store, and a viewer attaches (held and
+/// paged), and shows each one: N harnesses ran before the restart, none starts after it, and
+/// each chat still shows its transcript.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_daemon_restart_wakes_no_hibernated_chat_when_viewers_open_them_again() {
+    const N: usize = 4;
+    let mut r = rig_on_disk(PermissionPolicy::ApproveAll).await;
+    let ids = hibernated_chats(&mut r, N).await;
+    assert_eq!(r.pids("harness").len(), N, "each chat ran one harness before the restart");
+    r.restart(&ids).await;
+    let mut viewer = connect(&r.hub).await;
+    for id in &ids {
+        let held = json!({"sessionId": id, "hold": true, "eventStream": true, "kinds": ["status"]});
+        viewer.request(method::MUX_ATTACH, held).await.unwrap();
+        let page = viewer.request(method::MUX_ATTACH, json!({"sessionId": id})).await.unwrap();
+        let shown = page["events"].as_array().unwrap();
+        assert!(
+            shown.iter().any(|e| e.to_string().contains("before-restart")),
+            "a hibernated chat opened after the restart shows no transcript: {page}"
+        );
+        viewer.request(method::MUX_VIEW, json!({"sessionId": id, "visible": true})).await.unwrap();
+    }
+    // Long enough for a wake each open began to start its harness.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let started = r.pids("harness").len() - N;
+    assert_eq!(
+        started, 0,
+        "opening {N} hibernated chats after a restart started {started} harnesses"
+    );
+    for id in &ids {
+        assert_eq!(r.status(id), "idle", "a hibernated chat woke on an open after the restart");
+    }
+}
+
+/// After a restart a hibernated chat still wakes for its turn: a prompt to it starts exactly its
+/// own harness, which gets the prompt once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_after_a_daemon_restart_starts_its_hibernated_chats_harness() {
+    const N: usize = 3;
+    let mut r = rig_on_disk(PermissionPolicy::ApproveAll).await;
+    let ids = hibernated_chats(&mut r, N).await;
+    r.restart(&ids).await;
+    let mut viewer = connect(&r.hub).await;
+    for id in &ids {
+        viewer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    }
+    let reply =
+        r.c.request(method::SESSION_PROMPT, prompt(&ids[0], "after-restart", None)).await.unwrap();
+    assert_eq!(reply["stopReason"], "end_turn");
+    assert_eq!(r.pids("harness").len(), N + 1, "the prompt started one harness, its chat's");
+    assert_eq!(r.status(&ids[0]), "ready");
+    assert_eq!(
+        r.texts(&ids[0], "user_message").iter().filter(|t| *t == "after-restart").count(),
+        1
+    );
+    for id in &ids[1..] {
+        assert_eq!(r.status(id), "idle", "a chat with no turn woke");
+    }
 }

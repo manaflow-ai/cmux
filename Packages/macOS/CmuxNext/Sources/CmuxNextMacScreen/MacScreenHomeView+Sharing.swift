@@ -165,8 +165,13 @@ extension MacScreenHomeView {
             title: title, detail: detail, isOn: sharing.isSharing, enabled: !sharing.busy, emphasized: emphasized,
             id: "macScreen.home.allowToggle"
         ) { [weak self] on in
-            // task-owner: one sharing write; the switch follows the hub's record
-            Task { try? await hubHost?.setSharing(on) }
+            if on {
+                self?.actions.shareThisMac()
+            } else {
+                hubHost?.stopSession(immediately: true)
+                // task-owner: one sharing-off write; the switch follows the hub's record
+                Task { try? await hubHost?.setSharing(false) }
+            }
             // The switch shows the hub's record: back to it if the write does not change it.
             self?.syncSwitchesSoon()
         }

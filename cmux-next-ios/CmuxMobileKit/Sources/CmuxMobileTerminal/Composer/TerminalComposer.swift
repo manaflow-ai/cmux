@@ -31,23 +31,10 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
-            if let line = model.connectionLine {
-                // The connection's one quiet line, after 10 s of an outage; the
-                // page keeps its last frame meanwhile (no pill over it).
-                HStack(spacing: 6) {
-                    Text(verbatim: line)
-                    if let retry = model.reconnect {
-                        Text(verbatim: "·").accessibilityHidden(true)
-                        RetryButton(style: .inline, action: retry)
-                            .accessibilityIdentifier("terminal.retry")
-                    }
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.leading, TerminalDockMetrics.control + 8)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("terminal.connectionLine")
-            }
+            // No connection line here: a reattach takes no row (Leo,
+            // 2026-11-17: "The reconnect takes an extra line"). The state is
+            // the title pill's subtitle and Reconnect is in the page menu,
+            // both only past the quiet bound (`TerminalModel.connectionLine`).
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -188,7 +175,13 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Clear glass, not regular: regular glass changes its material with
+        // the shape's size, so the field turned a lighter gray once a draft
+        // passed three lines (Leo, 2026-11-21: "the composer brightening up
+        // when you have >3 lines"). Clear glass looks the same at every
+        // height, the look a one-line draft always had
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
@@ -216,7 +209,7 @@ struct TerminalComposer: View {
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
@@ -403,7 +396,7 @@ struct AttachmentStrip: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
-                            .buttonStyle(.cmuxPressFill)
+                            .buttonStyle(.cmuxPressGlass)
                             .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }

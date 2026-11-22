@@ -12,6 +12,10 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -43,10 +47,16 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
+#[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
+mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
@@ -57,6 +67,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -1825,6 +1837,13 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
+    // A measurement build's heap profile (`dhat-heap`); nothing otherwise.
+    heap_profile::start();
+    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // SAFETY: the first statements of main: no other thread runs yet.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
     // host sandboxes itself while it is the only thread, and neither takes
@@ -1849,6 +1868,8 @@ pub fn main() -> std::process::ExitCode {
     acpmux::hub::install_build(acpmux_build_id::build());
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
+    cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1974,12 +1995,40 @@ fn run_main() {
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(head) = raw_args.first().map(String::as_str)
+        && (matches!(head, "acp" | "harness" | "chats" | "board")
+            || cli::agent_engine_requested(&raw_args))
+    {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
+    }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
+    // Windows machine join installs the session engine as its own executable.
+    // Launch that binary so its daemon and agent hosts use the Windows install.
+    #[cfg(windows)]
+    if cli::agent_engine_requested(&raw_args) {
+        discard_provider_secret_environment();
+        let result = std::env::home_dir()
+            .ok_or_else(|| io::Error::other("cannot locate the Windows user profile"))
+            .and_then(|home| {
+                cmux_process::Command::new(home.join(".local/bin/acpmux.exe"))
+                    .args(cli::acp_scope_args(&raw_args))
+                    .status()
+            });
+        match result {
+            Ok(status) => client_log::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("cmux agent: cannot run the Windows session engine: {error}");
+                client_log::exit(1);
+            }
+        }
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the

@@ -53,12 +53,20 @@ export function isPlanToolCall(update: any): boolean {
   return update?._meta?.acpmux?.planTool === true;
 }
 
+/// Whether an ACP tool call or update is the Codex app server's `sleep` item ("Wait 45000 ms"): the
+/// agent pausing between polls of a background build. It does nothing the person asked for, and a run
+/// of them filled the transcript with "Wait …" rows (Lucas, 2026-11-14: "we should not have it").
+/// Hidden on sight, with its updates.
+export function isCodexSleep(update: any): boolean {
+  return update?._meta?.codexAppServer?.itemType === "sleep";
+}
+
 /// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
 /// plumbing call marks its id; any other call that starts under that id clears the mark, since an
 /// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result
 /// (`tool_call_update`, which names no tool) keeps whatever mark its call left.
 export function hiddenCall(hidden: Set<string>, key: string, update: any): boolean {
-  if (isPlumbingCall(update)) hidden.add(key);
+  if (isPlumbingCall(update) || isCodexSleep(update)) hidden.add(key);
   else if (update?.sessionUpdate === "tool_call") hidden.delete(key);
   return hidden.has(key);
 }

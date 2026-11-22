@@ -81,7 +81,7 @@ public struct CaptureKeychainNamespace: Sendable {
 
             let accountSets = try stores.map { try Set($0.accountsThrowing()) }
             let all = accountSets.reduce(into: Set<String>()) { $0.formUnion($1) }
-            let identity = Set(DeviceIdentity.captureIdentityAccounts)
+            let identity = Set(try DeviceIdentity.identityAccounts(among: Array(all)))
             let relayIDs = Set(all.compactMap { account -> String? in
                 guard account.hasPrefix("relay-"), account.count > 6 else { return nil }
                 return String(account.dropFirst(6))

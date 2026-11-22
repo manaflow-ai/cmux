@@ -15,6 +15,7 @@ are touching when you need examples, lists or wiring steps.
 | Where a type belongs, injection, SwiftUI state, `AppDelegate` extensions, testability | [layering.md](references/layering.md) |
 | File splits, DocC comments, singletons, namespace enums, free functions | [file-api-discipline.md](references/file-api-discipline.md) |
 | Locks, queues, sleeps, Combine, `@unchecked Sendable` | [concurrency-carveouts.md](references/concurrency-carveouts.md) |
+| Anything that may block: file, pipe, socket, process, wait | [main-thread-model.md](references/main-thread-model.md) |
 | Xcode/Swift version differences, macOS 14 runtime limits | [swift-6-0-compatibility.md](references/swift-6-0-compatibility.md) |
 
 ## Packages
@@ -68,7 +69,10 @@ settle, or a single-method actor used as a mutex. The allowed carve-outs (file
 and socket `DispatchSource`s, bounded injected-clock sleeps, a one-shot timer, a
 compare-and-set lock for callback races, KVO tokens) each need a justification
 comment and must stay behind an `actor` or `AsyncStream`. `@unchecked Sendable`
-and `nonisolated(unsafe)` need a safety comment.
+and `nonisolated(unsafe)` need a safety comment. The main thread never blocks (Chrome's model): a
+nonisolated `async` function runs on its caller's actor, so one that may block is
+`@concurrent` or moves the call to `work.run(_, mayBlock:)`; see
+[main-thread-model.md](references/main-thread-model.md).
 
 The app package needs Swift tools 6.2 and deploys to macOS 14; check Release
 compiles and macOS 14 runtime limits with

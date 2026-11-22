@@ -18,6 +18,23 @@ use super::{OutputMode, UsageError};
 
 /// The Keychain service of every Cloud secret (`CloudMachineSecrets.service` in the app).
 pub(super) const SERVICE: &str = "cmux-cloud-secret";
+/// Names a DEV build's own Keychain service (Swift `BuildStatePaths.cloudSecretsService`), so its
+/// values never overwrite or read nightly's.
+pub(crate) const SERVICE_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_SERVICE";
+
+/// This build's Keychain service: [`SERVICE_OVERRIDE`], else [`SERVICE`]; a `cmux` bundled in
+/// another app than the terminal's ignores the variable.
+fn service() -> String {
+    let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+    service_from(|key| std::env::var(key).ok().filter(|v| !v.trim().is_empty()), other_app)
+}
+
+fn service_from(env: impl Fn(&str) -> Option<String>, other_app: bool) -> String {
+    if !other_app && let Some(service) = env(SERVICE_OVERRIDE) {
+        return service;
+    }
+    SERVICE.to_owned()
+}
 
 /// `Some(exit code)` when `args` is `cloud secret …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -129,6 +146,7 @@ fn valid_name(name: &str) -> Result<(), UsageError> {
         "RPS2", "NULLCMD", "READNULLCMD", "HISTCHARS", "WATCHFMT", "PERIOD", "KEYTIMEOUT", "SAVEHIST", "STTY",
         "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+        "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL",
     ];
     let reserved = RESERVED.contains(&upper.as_str())
         || [
@@ -168,8 +186,25 @@ fn repo_scope(repo: &str) -> Result<String, UsageError> {
     }
 }
 
+/// Names this build's index: a DEV app sets it for its terminals (Swift `BuildStatePaths`), so a dev
+/// build never reads or changes nightly's or another tag's list.
+pub(crate) const INDEX_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_FILE";
+
 fn index_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/cmux/cloud-secrets.json"))
+    let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+    index_path_from(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
+}
+
+/// `$CMUX_NEXT_CLOUD_SECRETS_FILE`, else `$HOME/.config/cmux/cloud-secrets.json`. A `cmux` bundled
+/// in another app than the terminal's (`other_app`) ignores the variable: it is that app's index.
+fn index_path_from(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+    other_app: bool,
+) -> Option<PathBuf> {
+    if !other_app && let Some(path) = env(INDEX_OVERRIDE) {
+        return Some(PathBuf::from(path));
+    }
+    env("HOME").map(|home| PathBuf::from(home).join(".config/cmux/cloud-secrets.json"))
 }
 
 /// The index's `secrets` object: empty when there is no file (nothing set yet); an error for a file
@@ -274,7 +309,7 @@ pub(super) fn store_value(account: &str, value: &str) -> Result<(), String> {
         );
     }
     let store =
-        store_item("macos", SERVICE, account, &format!("cmux cloud secret {account}"), value)
+        store_item("macos", &service(), account, &format!("cmux cloud secret {account}"), value)
             .map_err(|e| e.to_string())?;
     run_store(&store).map_err(|e| e.to_string())?;
     secrets.insert(account.to_owned(), json!(mark));
@@ -327,7 +362,7 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             }
             // The account is a checked name and scope, never a value: argv is fine here.
             let status = cmux_process::Command::new("/usr/bin/security")
-                .args(["delete-generic-password", "-s", SERVICE, "-a", &account])
+                .args(["delete-generic-password", "-s", &service(), "-a", &account])
                 .stdout(cmux_process::Stdio::null())
                 .stderr(cmux_process::Stdio::null())
                 .status()
@@ -401,6 +436,11 @@ mod tests {
             "set BASH_FUNC_x",
             "set LC_ALL",
             "set TZ",
+            // The gateway's endpoints for Gemini and Grok: the platform withholds them (hq#11225).
+            "set GOOGLE_GEMINI_BASE_URL",
+            "set GROK_MODELS_BASE_URL",
+            "set grok_models_list_url",
+            "set GROK_XAI_API_BASE_URL",
             "set A-B",
             "set API_KEY --repo ../x",
             "set API_KEY --repo owner",
@@ -409,6 +449,41 @@ mod tests {
         ] {
             assert!(parse(&words(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_dev_builds_keychain_service_is_its_own() {
+        let dev = |key: &str| {
+            (key == SERVICE_OVERRIDE)
+                .then(|| "cmux-cloud-secret.com.cmuxterm.app.debug.dev".to_owned())
+        };
+        assert_eq!(service_from(dev, false), "cmux-cloud-secret.com.cmuxterm.app.debug.dev");
+        assert_eq!(service_from(dev, true), SERVICE, "another app's service in its terminal");
+        assert_eq!(service_from(|_| None, false), SERVICE);
+    }
+
+    #[test]
+    fn a_dev_builds_index_is_its_own() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |key: &str| {
+                pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| std::ffi::OsString::from(*v))
+            }
+        };
+        let dev: &[(&str, &str)] =
+            &[("HOME", "/h"), (INDEX_OVERRIDE, "/s/builds/dev/config/cloud-secrets.json")];
+        assert_eq!(
+            index_path_from(env(dev), false),
+            Some(PathBuf::from("/s/builds/dev/config/cloud-secrets.json"))
+        );
+        assert_eq!(
+            index_path_from(env(dev), true),
+            Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json")),
+            "another app's index in its terminal"
+        );
+        assert_eq!(
+            index_path_from(env(&[("HOME", "/h")]), false),
+            Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json"))
+        );
     }
 
     #[test]
