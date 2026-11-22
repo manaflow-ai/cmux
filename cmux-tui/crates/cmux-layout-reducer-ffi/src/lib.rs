@@ -297,6 +297,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"workspace_preview" => {
+                use cmux_layout_reducer::workspace_preview;
+                let request: workspace_preview::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&workspace_preview::layout(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"workspace_port_links" => {
                 use cmux_layout_reducer::workspace_port_links;
                 let request: workspace_port_links::Request =
