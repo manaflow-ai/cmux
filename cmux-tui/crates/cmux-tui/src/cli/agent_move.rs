@@ -201,7 +201,7 @@ fn canonical(word: &str) -> Option<&'static str> {
         return Some(exact);
     }
     if let Some((_, option)) = SPELLINGS.iter().find(|(spelling, _)| *spelling == normal) {
-        return Some(option);
+        return Some(*option);
     }
     let squashed = |text: &str| text.replace('-', "");
     if let Some(option) = options().find(|option| squashed(option) == squashed(&normal)) {
@@ -213,7 +213,7 @@ fn canonical(word: &str) -> Option<&'static str> {
     let names = options().chain(SPELLINGS.iter().map(|(spelling, _)| *spelling));
     let mut close = names
         .filter(|name| name.len() >= 5 && edits(name, &normal) <= 2)
-        .map(|name| SPELLINGS.iter().find(|(s, _)| *s == name).map_or(name, |(_, option)| option));
+        .map(|name| SPELLINGS.iter().find(|(s, _)| *s == name).map_or(name, |(_, option)| *option));
     let first = close.next()?;
     close.all(|other| other == first).then_some(first)
 }
