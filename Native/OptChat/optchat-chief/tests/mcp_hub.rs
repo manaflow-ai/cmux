@@ -659,6 +659,88 @@ fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
     );
 }
 
+/// Seeds `secrets/<name>.json` with OAuth tokens for the fake HTTP server at `base`.
+fn seed_tokens(shared: &Path, name: &str, base: &str, access: &str, refresh: Option<&str>) {
+    std::fs::create_dir_all(shared.join("secrets")).unwrap();
+    // Far from expiry, so only the server's 401 can send the hub to refresh.
+    let mut oauth = json!({"access_token": access, "expires_ms": u64::MAX / 2,
+        "client_id": "fake-client", "token_endpoint": format!("{base}/token"),
+        "issuer": base, "resource": format!("{base}/mcp")});
+    if let Some(r) = refresh {
+        oauth["refresh_token"] = json!(r);
+    }
+    std::fs::write(
+        shared.join(format!("secrets/{name}.json")),
+        json!({ "oauth": oauth }).to_string(),
+    )
+    .unwrap();
+}
+
+/// A token the server revokes mid-session (after connect, at a tool call) is
+/// refreshed once and the call retried, not reported as a failed connect.
+#[test]
+fn a_token_revoked_mid_session_is_refreshed_and_the_call_retried() {
+    let (child, port) = http_server(&["--token", "tok-123", "--revoke-on-call"]);
+    let _k = Kill(child);
+    let r = rig();
+    let base = format!("http://127.0.0.1:{port}");
+    seed_tokens(&r.shared, "locked", &base, "tok-123", Some("ref-1"));
+    let out = call(
+        &r.hub,
+        json!({"action": "add", "name": "locked", "target": format!("{base}/mcp")}),
+    );
+    assert!(out.contains("outcome: done"), "{out}");
+    let out = call(
+        &r.hub,
+        json!({"action": "call", "server": "locked", "tool": "echo", "args": {"text": "still here"}}),
+    );
+    assert_eq!(out, "still here");
+    let secrets = std::fs::read_to_string(r.shared.join("secrets/locked.json")).unwrap();
+    assert!(
+        secrets.contains("tok-123-next") && secrets.contains("ref-2"),
+        "{secrets}"
+    );
+}
+
+/// With nothing to refresh, a mid-session 401 asks for a sign-in; it does not
+/// say the server "did not connect".
+#[test]
+fn a_token_revoked_mid_session_without_a_refresh_asks_for_a_sign_in() {
+    let (child, port) = http_server(&["--token", "tok-123", "--revoke-on-call"]);
+    let _k = Kill(child);
+    let r = rig();
+    let base = format!("http://127.0.0.1:{port}");
+    seed_tokens(&r.shared, "locked", &base, "tok-123", None);
+    let out = call(
+        &r.hub,
+        json!({"action": "add", "name": "locked", "target": format!("{base}/mcp")}),
+    );
+    assert!(out.contains("outcome: done"), "{out}");
+    let out = call(
+        &r.hub,
+        json!({"action": "call", "server": "locked", "tool": "echo", "args": {"text": "x"}}),
+    );
+    assert!(out.contains("sign-in") || out.contains("sign in"), "{out}");
+    assert!(!out.contains("did not connect"), "{out}");
+}
+
+/// A tool name the server does not know is the server's answer, with the
+/// tools it does have; it is not a connect failure.
+#[test]
+fn an_unknown_tool_names_the_server_s_tools() {
+    let r = rig();
+    add_stdio(&r, "session");
+    let out = call(
+        &r.hub,
+        json!({"action": "call", "server": "fake", "tool": "ech0", "args": {}}),
+    );
+    assert!(!out.contains("did not connect"), "{out}");
+    assert!(
+        out.contains("has no tool \"ech0\"") && out.contains("echo"),
+        "{out}"
+    );
+}
+
 /// Sets who may see the shared record `name` (what acpmux's connect card
 /// writes for the person's scope).
 fn set_scope(shared: &Path, name: &str, scope: &str, owner: Option<&str>) {

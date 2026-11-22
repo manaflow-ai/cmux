@@ -1299,6 +1299,62 @@ impl McpHub {
         }
     }
 
+    /// What a failed request on a connected server says: the server's own
+    /// JSON-RPC error is an answer, not a failed connection.
+    fn request_error(&self, name: &str, e: ClientError) -> String {
+        match e {
+            ClientError::Rpc { code, message } => {
+                format!("{name} answered error {code}: {}", redact(&message))
+            }
+            ClientError::Wire(WireError::Auth(h)) => {
+                self.connect_error(name, ConnectError::Auth(h))
+            }
+            ClientError::Wire(WireError::Timeout) => format!("{name} did not answer in time"),
+            e => format!("{name}: {}", redact(&e.to_string())),
+        }
+    }
+
+    /// Runs `op` on `name`'s live connection (connecting first) with the one
+    /// policy every request shares: a session the server ended, or a process
+    /// that died, connects again once; a 401 on a live connection (a token
+    /// revoked or expired early) spends the refresh token once and tries
+    /// again before the server counts as needing a sign-in.
+    fn on_live<T>(
+        &self,
+        name: &str,
+        mut op: impl FnMut(&Arc<Live>) -> Result<T, ClientError>,
+    ) -> Result<(Arc<Live>, T), String> {
+        let mut reconnected = false;
+        let mut refreshed = false;
+        loop {
+            let live = self
+                .connect(name)
+                .map_err(|e| self.connect_error(name, e))?;
+            live.last_used.store(now_ms(), Ordering::SeqCst);
+            match op(&live) {
+                Ok(v) => return Ok((live, v)),
+                Err(ClientError::Wire(WireError::Gone)) if !reconnected => {
+                    reconnected = true;
+                    self.drop_live(name);
+                }
+                Err(ClientError::Wire(WireError::Other(_)))
+                    if !reconnected && !live.client.wire.alive() =>
+                {
+                    reconnected = true;
+                    self.drop_live(name);
+                }
+                Err(ClientError::Wire(WireError::Auth(h))) => {
+                    self.drop_live(name);
+                    if refreshed || !self.force_refresh(name) {
+                        return Err(self.connect_error(name, ConnectError::Auth(h)));
+                    }
+                    refreshed = true;
+                }
+                Err(e) => return Err(self.request_error(name, e)),
+            }
+        }
+    }
+
     // ---- calls ----
 
     /// One `tools/call`, answering the CallToolResult. A task handle the
@@ -1312,38 +1368,42 @@ impl McpHub {
     ) -> Result<Value, String> {
         let name = clean_name(server);
         let args = if args.is_null() { json!({}) } else { args };
-        let mut retried = false;
-        loop {
-            let live = self
-                .connect(&name)
-                .map_err(|e| self.connect_error(&name, e))?;
-            live.last_used.store(now_ms(), Ordering::SeqCst);
-            let required = self.task_support(&name, tool) == "required";
-            let mut params = json!({"name": tool, "arguments": args});
-            if required && live.client.era == Era::Session && live.client.does_tasks() {
-                params["task"] = json!({"ttl": TASK_TTL_MS});
-            }
-            match live.client.request("tools/call", params, timeout) {
-                Ok(result) => {
-                    if let Some(handle) = client::task_handle(&result) {
-                        return self.wait_task_inline(&live, &handle, timeout);
-                    }
-                    return Ok(result);
+        let required = self.task_support(&name, tool) == "required";
+        let (live, result) = self
+            .on_live(&name, |live| {
+                let mut params = json!({"name": tool, "arguments": args});
+                if required && live.client.era == Era::Session && live.client.does_tasks() {
+                    params["task"] = json!({"ttl": TASK_TTL_MS});
                 }
-                // The session ended or the process died: connect again, once.
-                Err(ClientError::Wire(WireError::Gone)) if !retried => {
-                    retried = true;
-                    self.drop_live(&name);
-                }
-                Err(ClientError::Wire(WireError::Other(_)))
-                    if !retried && !live.client.wire.alive() =>
-                {
-                    retried = true;
-                    self.drop_live(&name);
-                }
-                Err(e) => return Err(self.connect_error(&name, ConnectError::from(e))),
-            }
+                live.client.request("tools/call", params, timeout)
+            })
+            .map_err(|why| self.with_tool_names(&name, tool, why))?;
+        if let Some(handle) = client::task_handle(&result) {
+            return self.wait_task_inline(&live, &handle, timeout);
         }
+        Ok(result)
+    }
+
+    /// `why`, plus the server's tool names when `tool` is not one of them
+    /// (the server's "not found" names no alternative).
+    fn with_tool_names(&self, name: &str, tool: &str, why: String) -> String {
+        let names: Vec<String> = self
+            .state()
+            .server(name)
+            .map(|s| {
+                s.tools
+                    .iter()
+                    .filter_map(|t| t["name"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if names.is_empty() || names.iter().any(|n| n == tool) {
+            return why;
+        }
+        format!(
+            "{why}. {name} has no tool {tool:?}; its tools: {}",
+            names.join(", ")
+        )
     }
 
     fn task_support(&self, server: &str, tool: &str) -> String {
@@ -1481,10 +1541,17 @@ impl McpHub {
             if live.client.era == Era::Session {
                 params["task"] = json!({"ttl": TASK_TTL_MS});
             }
-            let result = live
-                .client
-                .request("tools/call", params, CALL_TIMEOUT)
-                .map_err(|e| format!("mcp call {name}.{tool}: {e}"))?;
+            let (_, result) = self
+                .on_live(&name, |live| {
+                    live.client
+                        .request("tools/call", params.clone(), CALL_TIMEOUT)
+                })
+                .map_err(|why| {
+                    format!(
+                        "mcp call {name}.{tool}: {}",
+                        self.with_tool_names(&name, tool, why)
+                    )
+                })?;
             match client::task_handle(&result) {
                 Some(handle) => {
                     task.remote = handle["taskId"].as_str().map(str::to_owned);
@@ -2201,10 +2268,9 @@ impl McpHub {
         if !live.client.has(&["resources"]) {
             return Ok(format!("outcome: noop. {name} offers no resources"));
         }
-        let list = live
-            .client
-            .list_all("resources/list", "resources")
-            .map_err(|e| e.to_string())?;
+        let (live, list) = self.on_live(&name, |live| {
+            live.client.list_all("resources/list", "resources")
+        })?;
         let templates = live
             .client
             .list_all("resources/templates/list", "resourceTemplates")
@@ -2248,13 +2314,12 @@ impl McpHub {
 
     fn read(&self, server: &str, uri: &str) -> Result<String, String> {
         let name = clean_name(server);
-        let live = self
-            .connect(&name)
-            .map_err(|e| self.connect_error(&name, e))?;
-        let r = live
-            .client
-            .request("resources/read", json!({"uri": uri}), CALL_TIMEOUT)
-            .map_err(|e| format!("mcp read: {e}"))?;
+        let (_, r) = self
+            .on_live(&name, |live| {
+                live.client
+                    .request("resources/read", json!({"uri": uri}), CALL_TIMEOUT)
+            })
+            .map_err(|why| format!("mcp read: {why}"))?;
         let parts: Vec<String> = r["contents"]
             .as_array()
             .map(|c| {
@@ -2323,9 +2388,6 @@ impl McpHub {
     fn prompt(&self, args: &Value) -> Result<String, String> {
         let name = clean_name(arg(args, "server").ok_or("mcp prompt: name the `server`")?);
         let prompt = arg(args, "name").ok_or("mcp prompt: give the prompt `name`")?;
-        let live = self
-            .connect(&name)
-            .map_err(|e| self.connect_error(&name, e))?;
         let mut pargs = serde_json::Map::new();
         if let Some(a) = args.get("args").and_then(Value::as_object) {
             for (k, v) in a {
@@ -2339,14 +2401,15 @@ impl McpHub {
                 );
             }
         }
-        let r = live
-            .client
-            .request(
-                "prompts/get",
-                json!({"name": prompt, "arguments": pargs}),
-                CALL_TIMEOUT,
-            )
-            .map_err(|e| format!("mcp prompt: {e}"))?;
+        let (_, r) = self
+            .on_live(&name, |live| {
+                live.client.request(
+                    "prompts/get",
+                    json!({"name": prompt, "arguments": pargs}),
+                    CALL_TIMEOUT,
+                )
+            })
+            .map_err(|why| format!("mcp prompt: {why}"))?;
         let msgs: Vec<String> = r["messages"]
             .as_array()
             .map(|m| {
