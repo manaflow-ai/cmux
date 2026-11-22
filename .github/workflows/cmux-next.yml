@@ -929,14 +929,43 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-12
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
+      # Blobless and narrow: the router reads the CI scripts, the test registry, the Swift sources of the
+      # CmuxNext targets, the Package.swift files, cmux-tui's crates and the two other Cargo workspaces its
+      # crate graph follows, and the Xcode project; it reads names and trees from git for the rest. A full
+      # depth-2 checkout of the whole tree took 50-57 s of this job's p50 102 s (2026-11-21). A blob outside
+      # these paths reads as NeedsFullTree and routes every tier (fail-open), never fewer.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # Why: docs/ci/cmux-next-workflow-notes.md#note-94
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/
+            /tests/
+            /cmux-tui/
+            /Packages/macOS/CmuxNext/
+            /Packages/*/*/Package.swift
+            /vendor/stack-auth-swift-sdk-prerelease/Package.swift
+            /cmux.xcodeproj/project.pbxproj
+            /AGENTS.md
+            /.gitmodules
+            /first-party-apps/cloud/
+            /workers/cmux-vm/cli/
+            !/Packages/macOS/CmuxNext/**/*.xcstrings
+            !/Packages/macOS/CmuxNext/**/*.avif
+            !/Packages/macOS/CmuxNext/**/*.png
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
+      # The crate graph also reads the base's copy of each changed file, which a blobless checkout lacks.
+      # One batched fetch of just those blobs (git diff prefetches both sides) replaces one round trip each.
+      - name: Fetch the base copies of the changed files
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps/cloud workers/cmux-vm/cli Packages/macOS/CmuxNext ':(glob)Packages/*/*/Package.swift' vendor/stack-auth-swift-sdk-prerelease/Package.swift cmux.xcodeproj/project.pbxproj AGENTS.md > /dev/null
       - name: Classify pull request paths
         id: route
         env:
@@ -1747,8 +1776,8 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-26
     needs: [portable-placement]
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ ((!cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    # into feat-cmux-next skips it unless labeled full-ci; the base tier run on the feat-cmux-next tip runs it.
+    if: ${{ ((!cancelled() && inputs.dev_daily != true && inputs.same_tree_sha == '' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0')) && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Why: docs/ci/cmux-next-workflow-notes.md#note-396
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
@@ -1769,6 +1798,21 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-133
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
+
+      # A base tier run checks every commit since the previous base tier run's tip, as a push checked its own
+      # (docs/ci/cmux-next-workflow-notes.md#note-26). Unreadable: no previous tip, as on a push with no before.
+      - name: Previous checked tip
+        id: prev
+        env:
+          BASE_TIER: ${{ inputs.base_tier || false }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$BASE_TIER" == true ]]; then
+            echo "event=push" >> "$GITHUB_OUTPUT"
+            before="$(python3 -I scripts/ci/cmux_next_base_tier.py previous --tip "$GITHUB_SHA" || true)"
+            echo "before=$before" >> "$GITHUB_OUTPUT"
+            echo "base tier checks: commits ${before:-(none read)}..$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27b
       - name: Prepare check Python (PyYAML) and timeout
@@ -2059,7 +2103,7 @@ jobs:
         id: godfiles-swift
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
           GODFILES_WARN_SLACK: 20
         # Why: docs/ci/cmux-next-workflow-notes.md#note-135
         run: |
@@ -2080,7 +2124,7 @@ jobs:
         id: godfiles-rust
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
           GODFILES_WARN_SLACK: 20
         # Why: docs/ci/cmux-next-workflow-notes.md#note-136
         run: |
@@ -2103,9 +2147,9 @@ jobs:
         id: app-size
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
           FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ steps.prev.outputs.before || github.event.before }}
         # Why: docs/ci/cmux-next-workflow-notes.md#note-360
         run: |
           if [[ "$FULL_CI" != true ]]; then
@@ -2140,7 +2184,7 @@ jobs:
         id: react-pages
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
@@ -2152,7 +2196,7 @@ jobs:
         id: ui-text-budget
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
@@ -2163,8 +2207,8 @@ jobs:
         id: no-swiftui
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
+          BEFORE: ${{ steps.prev.outputs.before || github.event.before }}
         run: |
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
@@ -2309,7 +2353,7 @@ jobs:
         id: ui-font
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true
@@ -2544,7 +2588,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
         run: |
           if [[ "$EVENT_NAME" != pull_request ]]; then
             echo "Pushes run every tier; the replay checks pull request routing only."
@@ -2561,7 +2605,7 @@ jobs:
         id: app-ffi-pin
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
           BASH_ENV: ""
         run: |
           set -euo pipefail
@@ -2621,8 +2665,8 @@ jobs:
         id: pushed-commits
         continue-on-error: true
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
+          BEFORE: ${{ steps.prev.outputs.before || github.event.before }}
         run: |
           # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
           # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
@@ -2684,8 +2728,8 @@ jobs:
             Dialog buttons show their keys (u2647)
             One omnibar (popups, New Tab and tabs share AddressBarView)
             Pushed commits add no violations
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
+          BEFORE: ${{ steps.prev.outputs.before || github.event.before }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_API_URL: ${{ github.api_url }}
@@ -2777,7 +2821,7 @@ jobs:
                 if [[ "$kind" == BASE_RED ]]; then
                   echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"
                 else
-                  echo "::error title=cmux-next new red::$name is new in this push (green on $BEFORE): fix it first, every open pull request inherits it"
+                  echo "::error title=cmux-next new red::$name is new since $BEFORE (green there): fix it first, every open pull request inherits it"
                 fi
               done <"$base_out"
             else
@@ -5667,14 +5711,14 @@ jobs:
   # The fleet compile check is the first Release gate. It checks the exact
   # Why: docs/ci/cmux-next-workflow-notes.md#note-280
   release-compile-fast:
-    needs: [path_route, push-head-preflight, macos-placement]
+    needs: [path_route, push-head-preflight, macos-placement, compile-status]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-64
     if: ${{ !cancelled() && (needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next Release compile (fleet fast check)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !(needs.compile-status.result == 'success' && needs.compile-status.outputs.handoff == '') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       contents: read
     timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
@@ -5700,9 +5744,11 @@ jobs:
           REF: ${{ github.sha }}
           REPO: ${{ github.repository }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-282
-          GATEWAY: ${{ needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner || '' }}
+          GATEWAY: ${{ !(needs.compile-status.result == 'success' && needs.compile-status.outputs.handoff == '') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner || '' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-283
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-64 (none: compile-status already waited 40 min for nothing)
+          SEEN: ${{ needs.compile-status.outputs.state }}
         run: |
           set -uo pipefail
           # No idle gateway: read the fleet's compile of this push, fail closed (only this sha, repo,
@@ -5711,6 +5757,7 @@ jobs:
             [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
             reply="$RUNNER_TEMP/compile-check.json"
             deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
+            [[ "${SEEN:-}" != none ]] || deadline=$SECONDS  # no second wait: the Mac fallback starts now
             state="" reads=0 last="" ok_at=$SECONDS  # ok_at: the last usable answer (200 or 404), from before the first read
             # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
             # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
@@ -5770,7 +5817,7 @@ jobs:
           fi
           # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
           word=none
-          if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
+          if [[ "${SEEN:-}" != none && -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
             word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
           fi
           status=0
@@ -7484,6 +7531,8 @@ jobs:
     permissions: {}
     outputs:
       handoff: ${{ steps.wait.outputs.handoff }}
+      # What the wait read (pass, fail, unavailable, ...; none: no result in the wait). release-compile-fast reads it.
+      state: ${{ steps.wait.outputs.state }}
     steps:
       - name: Mint the cmux-bot status token
         id: token
@@ -7599,6 +7648,7 @@ jobs:
           done
           # No usable answer when the wait or the bound ran out (a stalled read, a 530, no connection): the service down.
           [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
+          echo "state=${state:-none}" >> "$GITHUB_OUTPUT"
           if [[ -n "$down" ]]; then
             # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
             if [[ "$FALLBACK" == true ]]; then
