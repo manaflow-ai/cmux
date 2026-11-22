@@ -19,6 +19,7 @@ public import Observation
 /// The App only hands it what it reaches through its services (`Host`).
 @Observable @MainActor
 public final class ChiefSidebar {
+    // lint:allow singleton: the app-wide Chief item, already on base; this PR only touches the file.
     public static let shared = ChiefSidebar()
     public static let openAction: ActionID = "home.openChief"
     /// Show Idle Chief Subagents: checked while the list is unfolded; only the Chief item's menu shows it.
