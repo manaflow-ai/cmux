@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Where the Chief Settings panel reads and writes the engine of the brain
@@ -67,8 +68,29 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         do {
             return files.snapshot().offering(try await HomeChiefEngineSet.send(fields, on: connection, chief: chief))
         } catch .unreachable {
-            throw await startBrain(true) ? .localStarting : .localUnreachable
+            // A brain that was not running is started here, and the same set (idempotent) goes again once it answers,
+            // instead of asking the person to try again (Leo, 2026-11-22: "vacuous decisions like that should be just
+            // done"). Only a brain still silent past the shared connection bound is reported.
+            guard await startBrain(true) else { throw .localUnreachable }
+            return try await setOnceStarted(fields)
         }
+    }
+
+    /// Sends `fields` again, spaced by a jittered backoff, until the starting brain answers or the shared connection
+    /// bound passes.
+    private func setOnceStarted(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(2), jitter: 0.3)
+        let deadline = ContinuousClock.now + QuietHold.connectionDelay
+        while ContinuousClock.now < deadline {
+            do { try await backoff.wait(owner: "HomeChiefLocalEngine.setOnceStarted") } catch { break }
+            guard let connection = await connection() else { continue }
+            do {
+                return files.snapshot().offering(try await HomeChiefEngineSet.send(fields, on: connection, chief: chief))
+            } catch .unreachable {
+                continue
+            }
+        }
+        throw .localStarting
     }
 }
 
