@@ -72,8 +72,7 @@ fn a_dead_agent_is_continued_unless_it_died_of_a_limit_or_sign_in() {
         resume_cause("HTTP 503: credential expired", "HTTP 503: credential expired"),
         Some("capacity")
     );
-    for m in ["HTTP 503: OAuth token has expired", "connection error: OAuth token has expired"]
-    {
+    for m in ["HTTP 503: OAuth token has expired", "connection error: OAuth token has expired"] {
         assert!(resume_cause(m, m).is_some(), "{m}");
     }
     assert_eq!(

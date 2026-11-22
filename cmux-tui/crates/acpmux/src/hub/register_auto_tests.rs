@@ -148,11 +148,7 @@ fn a_chat_with_a_name_keeps_it_and_one_the_bridge_reaches_gets_no_code() {
     let p = plan(asked, own("desktop-zoe", true, true), false, none);
     assert_eq!(p, Plan::Code("desktop-zoe".into()), "registered, restarted");
     let p = plan(asked, own("desktop-zoe", true, true), true, none);
-    assert_eq!(
-        p,
-        Plan::Code("desktop-zoe".into()),
-        "registered needs its token, bridge or not"
-    );
+    assert_eq!(p, Plan::Code("desktop-zoe".into()), "registered needs its token, bridge or not");
     let p = plan(asked, own("my-folder", false, true), true, none);
     assert_eq!(p, Plan::Reachable(Some("my-folder".into())), "the bridge lists it");
     let p = plan(asked, own("my-folder", false, true), false, none);

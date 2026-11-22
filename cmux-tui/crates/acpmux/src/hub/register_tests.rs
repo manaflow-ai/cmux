@@ -63,14 +63,8 @@ fn a_register_code_is_taken_once_and_only_from_its_own_process() {
         "a miss uses it up"
     );
     put(900_003);
-    assert!(
-        take_code(900_004, "c0de", 7, sock, "tok", "desktop-zoe").is_err(),
-        "another process"
-    );
-    assert!(
-        take_code(900_003, "c0de", 8, sock, "tok", "desktop-zoe").is_err(),
-        "a later process"
-    );
+    assert!(take_code(900_004, "c0de", 7, sock, "tok", "desktop-zoe").is_err(), "another process");
+    assert!(take_code(900_003, "c0de", 8, sock, "tok", "desktop-zoe").is_err(), "a later process");
     put(900_005);
     assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
     put(900_006);
@@ -90,8 +84,7 @@ fn an_automatic_code_says_why_it_came_and_where_replies_go() {
 
 #[test]
 fn auto_is_the_first_step_only() {
-    let first =
-        json!({"name": "claude-desktop-0321", "socket": "/s", "token": "t", "auto": true});
+    let first = json!({"name": "claude-desktop-0321", "socket": "/s", "token": "t", "auto": true});
     assert!(RegisterRequest::from_params(&first).unwrap().auto);
     let manual = json!({"name": "desktop-zoe", "socket": "/s", "token": "t"});
     assert!(!RegisterRequest::from_params(&manual).unwrap().auto);
@@ -115,8 +108,7 @@ fn renew_takes_no_code() {
     let renew =
         json!({"name": "claude-code-6e0bad7d", "socket": "/s", "token": "t", "renew": true});
     assert!(RegisterRequest::from_params(&renew).unwrap().renew);
-    let both =
-        json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
+    let both = json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
     assert!(RegisterRequest::from_params(&both).is_err());
 }
 
