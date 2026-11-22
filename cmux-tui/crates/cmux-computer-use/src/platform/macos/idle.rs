@@ -7,7 +7,7 @@
 //! window server keeps for the keyboard and mouse themselves. Pointer
 //! movement is not a takeover (a hand resting on the mouse does not stop
 //! the agent), as in the Swift rule. Our own events go to a process
-//! (`CGEventPostToPid`) from a private source; the rare HID-tap post
+//! (a post to its pid) from a private source; the rare HID-tap post
 //! (foreground delivery) is marked in [`mark_injection`], so input within
 //! [`crate::takeover::OWN_INPUT_GRACE`] of it is ours. Reading these
 //! counters needs no grant.
@@ -52,7 +52,7 @@ pub fn newest_ms(seconds: impl IntoIterator<Item = f64>) -> Option<u64> {
         .min()
 }
 
-struct HidIdle;
+pub(super) struct HidIdle;
 
 impl IdleClock for HidIdle {
     fn idle_ms(&self) -> Option<u64> {

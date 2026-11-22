@@ -3329,14 +3329,16 @@ fn hid_idle_is_the_newest_deliberate_input() {
     assert!(!idle::DELIBERATE.contains(&5));
 }
 
-/// The macOS worker's takeover watch is a real one, not NoTakeover: a call
-/// right after this process's own post is not paused by it.
+/// Our own post is marked for the takeover watch, so input right after it is
+/// not taken for the person's. (No HID read here: on a fleet guest with no
+/// window-server session the HID counters do not answer.)
 #[test]
-fn mac_worker_watches_the_person() {
+fn our_posts_are_marked_for_the_takeover_watch() {
+    use crate::takeover::IdleClock;
     idle::mark_injection();
-    let watch = crate::platform::person_activity();
-    // Whatever the HID clock says on this host, the call returns within its limit.
-    let _ = watch.wait_idle(std::time::Duration::ZERO);
+    let clock = idle::HidIdle;
+    let marked = clock.last_injection_ms();
+    assert!(marked > 0 && marked <= clock.now_ms());
 }
 
 /// The panel sits so the arrow's tip is on the event's point: global (100, 50)
@@ -3350,7 +3352,7 @@ fn the_cursor_panel_puts_the_tip_on_the_point() {
 /// cursor rather than touching AppKit off the main thread.
 #[test]
 fn no_app_no_cursor_and_the_work_still_runs() {
-    assert_eq!(overlay::run_with_app(|| 7), 7);
+    assert_eq!(run_with_app(|| 7), 7);
     // No app was started by this test thread, so nothing draws.
     let sink = crate::platform::cursor_overlay();
     sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
