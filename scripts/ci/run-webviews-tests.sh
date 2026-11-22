@@ -531,8 +531,9 @@ vite="$results/vite"
 # alone, and in 15 shard logs (2026-11-21/22) it was a red whole-gallery sweep: control-contrast-N (about 610 s)
 # and then accent-glass-invariants-N (about 460 s), one at a time on 16 vCPU, 32% of the shards' test time
 # (a sweep reads the built gallery, so it never filled the cache). A config whose warm fails, and the default
-# config, warm with a file as before. CMUX_WEB_TEST_PREWARM_DEPS=0 (repo variable) turns this off.
-if [ "${CMUX_WEB_TEST_PREWARM_DEPS:-1}" != 0 ] && [ -s "$results/serial" ] && [ -f scripts/warm-vite-dep-cache.mjs ]; then
+# config, warm with a file as before. Off unless CMUX_WEB_TEST_PREWARM_DEPS=1 (repo variable): on 62 dev server
+# files (one shard's, one 16-core machine, one harness) it made the run 697 s -> 772 s, so it waits on CI numbers.
+if [ "${CMUX_WEB_TEST_PREWARM_DEPS:-0}" = 1 ] && [ -s "$results/serial" ] && [ -f scripts/warm-vite-dep-cache.mjs ]; then
   for config in pane gallery settings; do
     case "$config" in
       pane) config_file=vite.config.acpmux-pane.mjs ;;
