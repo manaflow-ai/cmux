@@ -11,9 +11,9 @@ extension ChatsFeed {
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
         guard let environment = QuitAgents.environment(services) else {
-            // The showcase has no acpmux daemon, but the DEBUG pull-request fixture
-            // still needs the real sidebar feed to publish its sample badges. With a
-            // real environment, normal startup below preserves the local host identity.
+            SidebarSessionTreeFeed.shared.dropSavedLineage()
+            // The showcase has no acpmux daemon, but the DEBUG pull-request fixture still needs the real sidebar
+            // feed to publish its sample badges. A real environment's startup below keeps the local host identity.
             if SidebarPullRequestFixture.enabled {
                 SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: nil)
             }
