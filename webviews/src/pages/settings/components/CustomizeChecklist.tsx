@@ -207,7 +207,8 @@ function ChecklistRow({
 }) {
   const labelId = useId();
   const locked = item.locked !== null;
-  const help = item.installs ? t("settingsPage.customizeChecklist.installHint", item.help) : item.help;
+  const help = item.locked ?? (item.installs ? t("settingsPage.customizeChecklist.installHint") : item.help);
+  const hover = item.detail && item.detail !== help ? item.detail : undefined;
   if (layout === "chips" || layout === "menu") {
     return (
       <button
@@ -216,7 +217,7 @@ function ChecklistRow({
         data-checklist-item={item.id}
         aria-pressed={item.on}
         disabled={locked}
-        title={item.locked ?? help}
+        title={item.locked ?? (item.detail || help || undefined)}
         onClick={() => onToggle(item, !item.on)}
       >
         <span className="checklist-mark" aria-hidden="true">
@@ -229,12 +230,12 @@ function ChecklistRow({
   }
   return (
     <div className="checklist-row" data-checklist-item={item.id} data-locked={locked ? "" : undefined}>
-      <div className="checklist-text">
+      <div className="checklist-text" title={hover}>
         <span className="row-title" id={labelId}>
           {item.title}
           {locked && <Icon name="lock" />}
         </span>
-        {(item.locked ?? help) && <span className="row-help checklist-help">{item.locked ?? help}</span>}
+        {help && <span className="row-help checklist-help">{help}</span>}
       </div>
       {item.installs ? (
         <button

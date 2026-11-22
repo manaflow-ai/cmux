@@ -13,12 +13,28 @@ import CmuxNextUpdater
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
 /// navigation.
 enum WindowHandlers {
+    /// `#/settings/CATEGORY?focus=card.NAME` for `setting` `card.NAME` when the card's category has
+    /// no section alias (a page-only category, Settings > Customize), else nil: the section route.
+    static func pageOnlyCardRoute(_ setting: String?) -> String? {
+        guard let setting, setting.hasPrefix("card."),
+              let card = SettingsPageLayout.Card(rawValue: String(setting.dropFirst("card.".count))),
+              let category = SettingsPageLayout.sidebarSections.flatMap(\.categories)
+                  .first(where: { $0.lead.contains(card) || $0.trail.contains(card) }),
+              category.aliases.isEmpty else { return nil }
+        return "#/settings/\(category.id)?focus=\(setting)"
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // Settings and Debug Settings open as internal page tabs.
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
             let link = SettingsDeepLink(invocation)
+            // A card of a category no section opens (Settings > Customize, which the App Store's
+            // Customize cmux… card opens with `setting: card.customizeChecklist`): its page route.
+            if let route = WindowHandlers.pageOnlyCardRoute(link.setting) {
+                return try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
+            }
             try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
