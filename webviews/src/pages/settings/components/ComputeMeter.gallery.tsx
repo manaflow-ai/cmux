@@ -28,7 +28,7 @@ export default componentEntry<Props>({
   experimental: true,
   height: 640,
   widths: { narrow: 520, normal: 760 },
-  covers: ["pages/settings/components/ComputeCard.tsx#ComputeCardView"],
+  covers: ["pages/settings/components/ComputeCard.tsx", "pages/settings/computeAllotment.ts"],
   keywords: ["allotment", "team", "cloud", "usage", "billing"],
   load,
   styles: () => Promise.all([import("../page.css"), import("../tailwind.css")]),

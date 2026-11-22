@@ -84,7 +84,7 @@ export type ComputeModel = {
   locked: boolean;
   options: DialOption[];
   rows: MemberRow[];
-  spares: { member: string; detail: string; month: string };
+  spares: { member: string; detail: string; month: string; note: string };
   /** "Holding at $300, Auto off" */
   holdLine: string;
   hardCap: string;
@@ -228,7 +228,12 @@ export function computeModel(view: AllotmentView, language: string): ComputeMode
     locked: empty,
     options,
     rows,
-    spares: { member: "Warm spares", detail: "ours", month: money(0, language) },
+    spares: {
+      member: "Warm spares",
+      detail: "ours",
+      month: money(0, language),
+      note: "not counted against the allotment",
+    },
     holdLine: `Holding at ${money(decision.allot_micros, language)}, Auto ${auto ? "on" : "off"}`,
     hardCap:
       cap === null

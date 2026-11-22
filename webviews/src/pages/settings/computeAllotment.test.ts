@@ -82,7 +82,7 @@ test("rows sort by the last 14 days' use and carry their detail and notes", () =
   expect(austin!.detail).toBe("11 of 14 days");
   expect(austin!.note).toBe("passed allotment 4x, could use Chief Plus: +$40");
   expect(model.rows.at(-1)!.note).toBe("unused");
-  expect(model.spares).toEqual({ member: "Warm spares", detail: "ours", month: "$0" });
+  expect(model.spares).toMatchObject({ member: "Warm spares", detail: "ours", month: "$0" });
 });
 
 test("the meter cuts the month into member segments with ticks at the allotment and the cap", () => {

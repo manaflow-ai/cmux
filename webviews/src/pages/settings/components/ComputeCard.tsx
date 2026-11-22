@@ -5,7 +5,7 @@
 // Three layouts are on trial in the gallery (ledger, meter, inbox); the card is in no Settings
 // category yet. It reads once when it mounts and after each click; it never polls.
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Switch } from "../../../ui/Switch";
@@ -128,11 +128,11 @@ type PartProps = { model: ComputeModel; busy: boolean; onSet(run: AllotmentSet):
 
 function Dial({ model, busy, onSet }: PartProps) {
   return (
-    <div role="group" aria-label="Allotment" className="flex gap-1" data-compute-dial="">
+    <fieldset aria-label="Allotment" className="m-0 flex gap-1 border-0 p-0" data-compute-dial="">
       {model.options.map((option) => (
         <DialButton key={option.position} option={option} busy={busy} locked={model.locked} onSet={onSet} />
       ))}
-    </div>
+    </fieldset>
   );
 }
 
@@ -165,15 +165,17 @@ function DialButton({
 }
 
 function AutoSwitch({ model, busy, onSet }: PartProps) {
+  const label = useId();
   return (
-    <label className="flex items-center gap-2" data-compute-auto="">
-      <span>Auto</span>
+    <span className="flex items-center gap-2" data-compute-auto="">
+      <span id={label}>Auto</span>
       <Switch
+        aria-labelledby={label}
         checked={model.auto}
         disabled={busy || model.locked}
         onCheckedChange={(on) => onSet({ action: "hold", auto: on })}
       />
-    </label>
+    </span>
   );
 }
 
@@ -208,8 +210,9 @@ function MemberTable({ model }: { model: ComputeModel }) {
               <div className="row-help">{model.spares.detail}</div>
             </td>
             <td className={cell}>{model.spares.month}</td>
-            <td className={cell} />
-            <td className={cell} />
+            <td className={`${cell} row-help`} colSpan={2}>
+              {model.spares.note}
+            </td>
           </tr>
         </tbody>
       </table>
