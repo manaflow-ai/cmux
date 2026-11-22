@@ -26,6 +26,12 @@ pub const PACING_FACTOR: f64 = 2.5;
 /// What is queued (repairs, frames) leaves within this share of the frame interval
 /// at most (the rate rises to fit a large frame: a keyframe).
 pub const SPREAD_SHARE: f64 = 0.5;
+/// ... and within this many microseconds whatever the frame rate. The send stage
+/// adds its span to every frame's glass-to-glass time, so it is bounded in time,
+/// not only as a share of the interval: at 30 fps half an interval is 16.7 ms
+/// and an at-budget frame took 11.4 ms to leave (goal screen-share-rate-control,
+/// "Send stage p50 at most 8 ms at any rate").
+pub const MAX_SPREAD_US: f64 = 8_000.0;
 /// Burst allowance: what one wakeup may send at once, in microseconds of the rate.
 pub const BURST_US: u64 = 2_000;
 /// Datagrams one wakeup may always send, however low the rate.
@@ -95,10 +101,10 @@ impl Pacer {
     }
 
     /// `PACING_FACTOR` times the target, or faster when that would hold what is
-    /// queued longer than `SPREAD_SHARE` of a frame interval.
+    /// queued longer than `SPREAD_SHARE` of a frame interval or `MAX_SPREAD_US`.
     fn set_rate(&mut self, target_bps: u64) {
         let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
-        let window_us = (interval_us as f64 * SPREAD_SHARE).max(1_000.0);
+        let window_us = (interval_us as f64 * SPREAD_SHARE).clamp(1_000.0, MAX_SPREAD_US);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
         let fit = self.queued_bytes as f64 / window_us;
         self.rate_bytes_per_us = floor.max(fit);
@@ -248,7 +254,7 @@ mod tests {
         for (t, _) in &sent {
             *per_time.entry(*t).or_insert(0usize) += 1;
         }
-        let rate = 345_600.0 / 8_333.0; // bytes per us
+        let rate = 345_600.0 / 8_333.0_f64.min(MAX_SPREAD_US); // bytes per us
         let burst = (rate * BURST_US as f64 / 1152.0).ceil() as usize + 1;
         assert!(per_time.values().all(|&n| n <= burst), "{per_time:?}");
     }
@@ -320,6 +326,23 @@ mod tests {
         let sent = drain(&mut p, 100_000);
         let span = sent.last().unwrap().0 - 100_000;
         assert!((4_200..=7_000).contains(&span), "span {span}");
+    }
+
+    /// Detector for the class "the send stage scales with the frame interval": an
+    /// at-budget frame at 30 fps (and at 15 fps) leaves within `MAX_SPREAD_US`, not
+    /// 0.4 of its interval.
+    #[test]
+    fn a_low_frame_rate_frame_leaves_within_the_absolute_spread_window() {
+        for (fps, interval_us) in [(30u64, 33_333u64), (15, 66_667)] {
+            let mut p = Pacer::new();
+            // One 30 Mbps frame at this rate.
+            let n = (30_000_000 / 8 / fps as usize).div_ceil(1152);
+            p.push_frame(frame(n), 30_000_000, interval_us, 0);
+            let sent = drain(&mut p, 0);
+            assert_eq!(sent.len(), n);
+            let span = sent.last().unwrap().0;
+            assert!(span <= MAX_SPREAD_US as u64, "{fps} fps: span {span} us");
+        }
     }
 
     #[test]

@@ -481,7 +481,10 @@ test("This Mac's name is the host's own name, never the machine a seeded chat ru
   expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
-test("Cloud opens the host's New Cloud Machine flow", async () => {
+// cmux#47677 (#47734): picking Cloud only names where a new chat runs, so with no new chat to point there
+// (no `runMode`) the list has no Cloud row and nothing in it opens New Cloud Machine (that stays on the
+// right-click menu).
+test("with no new chat, the list has no Cloud row and opens no New Cloud Machine flow", async () => {
   const calls = await mount(true, {
     sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
     peers: ["gpu-box"],
@@ -489,11 +492,10 @@ test("Cloud opens the host's New Cloud Machine flow", async () => {
   });
   await openPicker();
   expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
-  const cloud = newRows()[0]!;
-  expect(cloud.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.cloud"));
-  await act(async () => cloud.click());
-  expect(calls).toEqual([["connect", "cloud"]]);
-  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(labels()).not.toContain(t("composer.cloud"));
+  expect(labels()).not.toContain(t("composer.newCloudMachine"));
+  for (const row of newRows()) await act(async () => row.click());
+  expect(calls.filter((call) => call[0] === "connect" && call[1] === "cloud")).toEqual([]);
 });
 
 /// Six SSH machines besides the ones `mount` lists: a list long enough for its search field.
@@ -1446,7 +1448,10 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
 const labels = () => rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
 
-const shipped = { stripLayout: "where-machine" };
+// The shipped strip heads a new chat, which always has Run as (`runMode`): its Cloud row is where the chat
+// runs (cmux#47677: with no new chat there is no Cloud row at all).
+const shipped = { stripLayout: "where-machine", runMode: { mode: "persistent", onMode: () => undefined } };
+const noNewChat = { stripLayout: "where-machine" };
 const chipButton = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
     (button.getAttribute("aria-label") ?? "").startsWith(name + ":"),
@@ -1508,11 +1513,12 @@ test("Leo's menu: Cloud picks a new machine for the new chat, never one of the l
   expect(modes).toEqual([["mode", "cloud"]]);
   expect(calls).toEqual([]);
   act(() => root?.unmount());
-  // Without Run as: Cloud opens the host's New Cloud Machine flow, which makes a new machine.
-  const connects = await mount(true, shipped);
+  // Without Run as there is no new chat to point at Cloud: no Cloud row, and nothing makes a machine
+  // (cmux#47677; New Cloud Machine… stays on the right-click menu).
+  const connects = await mount(true, noNewChat);
   await openPicker();
-  await act(async () => newRows()[0]!.click());
-  expect(connects).toEqual([["connect", "cloud"]]);
+  expect(rows().some((row) => row.querySelector('.acpmux-env-row[data-mode="cloud"]'))).toBe(false);
+  expect(connects).toEqual([]);
 });
 
 test("Leo's menu: Other devices counts and opens the person's machines in place; a pick there is the machine chip's", async () => {
@@ -2133,8 +2139,13 @@ test("three chips: the machine chip's dot stays quiet through a link that comes 
     ];
     expect(shown).toEqual([0, 0, 15_000 - CONNECTION_QUIET_MS]);
     expect(dot()?.getAttribute("data-connected")).toBe("true");
-    // A refused sign-in needs the person: it is said at once.
-    await link("authFailed")();
+    // A refused sign-in needs the person: it is said at once. The daemon sends it as the whole link
+    // word with the older state word folded to "offline" (peer_state.rs MachineLink::folded).
+    await updateProps({
+      peerConnected: { "gpu-box": false },
+      peerStates: { "gpu-box": "offline" },
+      peerLinks: { "gpu-box": { link: "authFailed", since: Date.now() } },
+    });
     expect(notConnected()).toBe(true);
   } finally {
     jest.useRealTimers();
