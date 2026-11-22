@@ -28,6 +28,7 @@ export function ComposerHatStage({
   narrow = false,
   tucked = true,
   bridge = "none",
+  capped = false,
 }: {
   start?: number;
   waits?: boolean;
@@ -43,6 +44,8 @@ export function ComposerHatStage({
   /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
   tucked?: boolean;
   bridge?: ComposerHatBridge;
+  /** Before Leo's 2026-11-22 ask: the count capped at "99+", swapped in one frame. */
+  capped?: boolean;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
@@ -109,7 +112,14 @@ export function ComposerHatStage({
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
             {isTucked && (
-              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+              <TrayPullTab
+                chat="gallery-chat"
+                waiting={waiting}
+                running={running}
+                working={false}
+                side={side}
+                capped={capped}
+              />
             )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the

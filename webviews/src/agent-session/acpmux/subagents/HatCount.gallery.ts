@@ -9,7 +9,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { hatCountMotion } from "./hatCount.experiment";
 
-type Props = { start?: number; side?: "left" | "middle" | "right" };
+type Props = { start?: number; side?: "left" | "middle" | "right"; capped?: boolean };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const count = (ctx: PlayContext) =>
@@ -48,6 +48,10 @@ export default componentEntry<Props>({
     ],
   },
   variants: {
+    before: {
+      note: "Before: the count stopped at ^ 99+ however many ran, and each change swapped in one frame.",
+      props: { start: 128, capped: true },
+    },
     "three-digits": {
       note: "128 run: the pill reads ^ 128, not ^ 99+, one digit wider than 99.",
       props: { start: 128 },

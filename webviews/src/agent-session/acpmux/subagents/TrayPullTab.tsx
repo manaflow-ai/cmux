@@ -65,6 +65,7 @@ export function TrayPullTab({
   working,
   side,
   quiet = false,
+  capped = false,
 }: {
   /// The chat whose hat comes back: the click sets how it opens (trayFoldMemory.ts).
   chat: string | undefined;
@@ -78,6 +79,8 @@ export function TrayPullTab({
   /// The quiet look (hatPillPlace.experiment.ts `quiet`): no glass slab, the chevron and count in
   /// muted ink in the gap of the composer's top line.
   quiet?: boolean;
+  /** The gallery's before: the count capped at "99+" and swapped in one frame. */
+  capped?: boolean;
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(composerHatLook));
@@ -86,7 +89,7 @@ export function TrayPullTab({
     waiting > 0
       ? { kind: "dot" }
       : running > 0
-        ? { kind: "count", text: pullTabCountText(running), value: running }
+        ? { kind: "count", text: capped && running > 99 ? "99+" : pullTabCountText(running), value: running }
         : undefined;
   // The mark drawn: the target, or while leaving the last one, kept until the slot's transition ends.
   const [kept, setKept] = useState(target);
@@ -160,7 +163,7 @@ export function TrayPullTab({
             ) : (
               mark?.kind === "count" && (
                 <span className="acpmux-tray-pull__count" data-count={mark.text}>
-                  <HatCount text={mark.text} value={mark.value} motion={motion} />
+                  <HatCount text={mark.text} value={mark.value} motion={capped ? "instant" : motion} />
                 </span>
               )
             )}
