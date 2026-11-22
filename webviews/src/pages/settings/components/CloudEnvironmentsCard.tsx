@@ -153,8 +153,8 @@ function EnvironmentRow({ row, busy, onEdit }: { row: CloudEnvironment; busy: bo
   return (
     <div className="row" data-environment={row.id} data-environment-default={row.is_default ? "" : undefined}>
       <div className="row-main">
-        <span className="row-label">
-          <span className="row-title">
+        <div className="row-label">
+          <div className="row-title">
             {row.name}
             {row.is_default && (
               <span className="row-help" data-environment-badge="default">
@@ -162,16 +162,16 @@ function EnvironmentRow({ row, busy, onEdit }: { row: CloudEnvironment; busy: bo
                 {t("settingsPage.cloudEnvironments.default")}
               </span>
             )}
-          </span>
-          <span className="row-help" data-environment-details="">
+          </div>
+          <div className="row-help" data-environment-details="">
             {details.join(" · ")}
-          </span>
-        </span>
-        <span className="row-control">
+          </div>
+        </div>
+        <div className="row-control">
           <Button type="button" className="button" data-environment-action="edit" disabled={busy} onClick={onEdit}>
             {t("settingsPage.cloudEnvironments.edit")}
           </Button>
-        </span>
+        </div>
       </div>
     </div>
   );
