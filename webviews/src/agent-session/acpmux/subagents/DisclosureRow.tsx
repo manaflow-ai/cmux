@@ -131,7 +131,7 @@ export function DisclosureRow({
         <span className="cv-disclosure__label">{label}</span>
       )}
       {meta && <span className="cv-disclosure__meta">{meta}</span>}
-      {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{status}</span>}
+      {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{statusText(status)}</span>}
     </>
   );
   const arrow = chevron && <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
@@ -161,7 +161,11 @@ export function DisclosureRow({
               aria-label={toggleLabel ?? (chevron ? t("message.details") : undefined)}
               onClick={collapse.toggle}
             >
-              {chevron ? arrow : <span className="cv-disclosure__status">{status ?? t("message.details")}</span>}
+              {chevron ? (
+                arrow
+              ) : (
+                <span className="cv-disclosure__status">{statusText(status ?? t("message.details"))}</span>
+              )}
             </button>
           </>
         ) : (
@@ -199,4 +203,10 @@ export function DisclosureRow({
       )}
     </div>
   );
+}
+
+/// A plain-text status in its own box: the status is inline-flex (for a leading glyph), and a flex
+/// container's bare text clips mid-letter instead of ending in an ellipsis on a narrow pane.
+function statusText(status: ReactNode): ReactNode {
+  return typeof status === "string" ? <span className="cv-disclosure__status-text">{status}</span> : status;
 }
