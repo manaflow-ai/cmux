@@ -634,7 +634,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off, link.
     #[command(subcommand)]
     ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
@@ -893,6 +893,12 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
+    #[command(hide = true)]
+    DaemonPrune {
+        #[arg(long)]
+        apply: bool,
+    },
     #[command(hide = true)]
     DaemonService {
         #[command(subcommand)]
@@ -1611,6 +1617,18 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
+    /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
+    /// never stopped from outside: one whose executable is gone stops itself once unused for 5
+    /// minutes. A dry run that lists every home, what it would clear and why each other is left,
+    /// unless --apply. A daemon on the person's own homes runs this by itself every 10 minutes
+    /// (`ACPMUX_DAEMON_PRUNE=0` turns that and the retired stop off).
+    Prune {
+        /// Stop the retired daemons (SIGTERM: their hosted agents keep running for the next
+        /// daemon of that home), each logged with pid, build, age and reason.
+        #[arg(long)]
+        apply: bool,
+    },
     /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
     /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
     Service {
@@ -1796,6 +1814,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
