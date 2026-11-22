@@ -376,8 +376,10 @@ pub fn setting<'a>(settings: &'a Value, key: &str) -> Option<&'a Value> {
     if let Some(value) = object.get(key) {
         return Some(value);
     }
-    key.match_indices('.')
-        .find_map(|(at, _)| object.get(&key[..at]).and_then(|inner| setting(inner, &key[at + 1..])))
+    key.match_indices('.').find_map(|(at, _)| {
+        let (head, rest) = key.split_at_checked(at)?;
+        setting(object.get(head)?, rest.strip_prefix('.')?)
+    })
 }
 
 /// The checklist of the person's own cmux: their settings file, their
