@@ -43,7 +43,7 @@ extension PageWebView {
     /// Where the still lies: a Chromium page's web contents start one band under the view's top (``chromiumFrameBand``).
     private var swapStillFrame: NSRect {
         guard showsChromium else { return bounds }
-        let band = PageWebViewContainer.chromiumFrameBand
+        let band = Self.chromiumFrameBand
         return NSRect(x: 0, y: isFlipped ? band : 0, width: bounds.width, height: max(0, bounds.height - band))
     }
 
