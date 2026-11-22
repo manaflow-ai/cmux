@@ -138,6 +138,13 @@ pub const CAPABILITIES: &[Capability] = &[
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
+    // A client that sends `initialize` with `_meta.acpmux.sessionChangedDelta: true` hears each
+    // chat's row change after the first as `_acpmux/session_patch`, only what changed
+    // (`server/session_patch.rs`); every other client hears the whole row in `session_changed`.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
