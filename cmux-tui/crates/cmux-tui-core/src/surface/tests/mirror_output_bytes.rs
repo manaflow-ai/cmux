@@ -9,8 +9,8 @@ use super::hosted::hosted_typing_surface;
 use super::*;
 
 /// FNV-1a 64 of the stream the mirror broadcast for [`corpus`] before cut 3.
-const PINNED_DIGEST: u64 = 0;
-const PINNED_LEN: usize = 0;
+const PINNED_DIGEST: u64 = 0xaefa_7338_be3e_ab87;
+const PINNED_LEN: usize = 404_432;
 
 fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
