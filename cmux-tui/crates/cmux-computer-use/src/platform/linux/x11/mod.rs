@@ -622,4 +622,8 @@ impl Desktop for X11Desktop {
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
         super::launch_identities(&self.apps, app_id)
     }
+
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Ok(self.display_list())
+    }
 }
