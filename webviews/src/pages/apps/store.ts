@@ -9,17 +9,17 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
-  featuredApps,
   filterApps,
   listedInStore,
   parseRoute,
-  type BrowseStyle,
   type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+  featuredApps,
+  type BrowseStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
-  type StoreLayout,
-  type StoreTab,
 } from "./model";
 import {
   AppsOps,
@@ -34,6 +34,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -641,8 +642,9 @@ export class AppsStore {
     if (generation === this.generation) this.showIcons();
   }
 
-  // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // Mutations. The Install click is the consent (its required scopes only; the listing shows
+  // them before the click), so an install shows no card; uninstall, update and grant changes show
+  // a native confirmation in the host. The page waits for the owner's answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });
@@ -682,6 +684,15 @@ export class AppsStore {
     return this.intent(
       OPEN_ACTION.op,
       { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
+  }
+
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
       { reread: false, mutation: false },
     );
   }

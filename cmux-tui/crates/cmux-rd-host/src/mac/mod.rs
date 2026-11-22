@@ -8,6 +8,8 @@ pub(crate) mod capture;
 pub(crate) mod cpu;
 #[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_record;
 pub(crate) mod cursor;
 mod display_pick;
 mod input;
@@ -182,6 +184,10 @@ impl FrameSource for MacFrames {
     fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
         self.encoder.set_ultra(profile.is_ultra());
         self.encoder.set_refine(refine);
+    }
+
+    fn applies_profile(&self) -> bool {
+        true
     }
 
     fn set_changed_pixels(&mut self, pixels: u64) {

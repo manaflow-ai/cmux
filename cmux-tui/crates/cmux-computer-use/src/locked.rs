@@ -85,6 +85,10 @@ pub fn kind_of(tool: &str, args: &Value) -> Kind {
         // Without a window id a screenshot or a wait captures the display.
         "screenshot" | "wait" if has(args, "window_id") => Kind::WindowLook,
         "screenshot" | "wait" => Kind::Display,
+        // Stopping a recording captures nothing (the recording ended itself
+        // when the screen locked); every other record call is the display.
+        "record" if args.get("action").and_then(Value::as_str) == Some("stop") => Kind::Engine,
+        "record" => Kind::Display,
         "get_ui_tree" => Kind::WindowLook,
         "click" | "type_text" | "press_key" | "drag" if foreground(args) => Kind::Hid,
         "click" | "type_text" | "press_key" | "drag" | "scroll" | "set_value"
