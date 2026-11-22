@@ -4,7 +4,7 @@
 //! gets the stored answer.
 
 use cmux_app_host::ToHost;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::time::Instant;
 
 use super::host::HostProcess;
@@ -178,6 +178,35 @@ impl Supervisor {
         }
     }
 
+    /// `apps.unknown` for a run of an app the catalog does not hold, with
+    /// what the catalog does hold in `details` and on stderr: the first-party
+    /// folder it read (null when none was found), the package ids it loaded,
+    /// and the folders it refused with why. So a missing `cmux/cloud` says
+    /// whether it was refused (its folder and reason) or never found.
+    pub(super) fn unknown_app(&self, inner: &Inner, app: &str) -> ApiError {
+        let first_party = self.config.sources.first_party.as_ref().map(|d| d.display().to_string());
+        let packages: Vec<&String> = inner.catalog.packages.keys().collect();
+        let rejected: Vec<Value> = inner
+            .catalog
+            .rejected
+            .iter()
+            .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
+            .collect();
+        eprintln!(
+            "cmux-tui: apps-run of unknown app {app}: first_party={} packages={packages:?} rejected={}",
+            first_party.as_deref().unwrap_or("none"),
+            Value::Array(rejected.clone()),
+        );
+        let mut error = ApiError::new("apps.unknown", "no such app");
+        error.details = Some(json!({
+            "app": app,
+            "first_party": first_party,
+            "packages": packages,
+            "rejected": rejected,
+        }));
+        error
+    }
+
     fn prepare_run(
         &self,
         inner: &Inner,
@@ -185,11 +214,8 @@ impl Supervisor {
         op: &str,
         origin: Origin,
     ) -> Result<Target, ApiError> {
-        let package = inner
-            .catalog
-            .packages
-            .get(app)
-            .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
+        let package =
+            inner.catalog.packages.get(app).ok_or_else(|| self.unknown_app(inner, app))?;
         // A catalog op of an app with a server runs in that server.
         let server = Self::server_op_locked(inner, app, op);
         let export = if server {
