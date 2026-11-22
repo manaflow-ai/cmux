@@ -312,7 +312,9 @@ def file_after_popup(tab):
     popup_sheet = {"click": clicked, "sheet_shown": bool(shown), "file_dialogs": file_dialogs(), "sheets": sheets(),
                    "popup_events": page_list("__popupFile", tab)}
     RAW["file_after_popup_popup_sheet"] = popup_sheet
-    row(bool(shown), "prompts.file_after_popup.popup_sheet", popup_sheet)
+    # debug.mouse names the window it clicked: the popup's, else it fell through to the focused pane's page.
+    on_popup = isinstance(clicked, dict) and clicked.get("window") == f"popup-{index}"
+    row(bool(shown) and on_popup, "prompts.file_after_popup.popup_sheet", popup_sheet)
     if not shown:
         rpc("debug.key", {"key": "escape"})
         rpc("debug.popups", {"action": "close"})
