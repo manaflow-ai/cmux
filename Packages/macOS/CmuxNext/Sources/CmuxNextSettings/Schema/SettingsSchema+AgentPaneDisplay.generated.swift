@@ -31,6 +31,10 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let unreadBannerPath = ["agentPane", "display", "unreadBanner"]
     nonisolated static let unreadBannerDefault = "off"
     nonisolated static let unreadBannerValues = ["expanded", "collapsed", "off"]
+    /// `agentPane.display.sendPlacement`: Where a prompt the reader sends from the latest message lands (webviews conversation/sendSeat.ts, chatDisplay.ts SEND_PLACEMENT_KEY). latest, the default, is the follow cmux has always had: the prompt rests over the composer. top seats it 20 px under the view's top and holds the room under it empty for the reply, the transcript sweeping up to it on the compositor, as Claude Code's desktop app does (its end hold, topOffsetPx 20). Leo, 2026-11-22: "the wider sweeping situation with having there be a bunch of extra space at the bottom is not something we need to emulate (other than our claude code customization emulation repo)". The Claude Code look sets top (examples/looks/claude-code).
+    nonisolated static let sendPlacementPath = ["agentPane", "display", "sendPlacement"]
+    nonisolated static let sendPlacementDefault = "latest"
+    nonisolated static let sendPlacementValues = ["latest", "top"]
     /// `agentPane.display.senderIcon.lead`: A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: "you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like"). Which of the two is big.
     nonisolated static let senderIconLeadPath = ["agentPane", "display", "senderIcon", "lead"]
     nonisolated static let senderIconLeadDefault = "family"

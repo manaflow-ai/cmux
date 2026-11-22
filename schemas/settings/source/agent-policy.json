@@ -772,6 +772,7 @@
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
+        "agentPane.display.sendPlacement",
         "agentPane.display.senderIcon.lead",
         "agentPane.display.senderIcon.badge",
         "agentPane.display.senderIcon.corner",

@@ -156,6 +156,17 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Agent Chat > Sent Prompt Placement, `latest` by default: where a prompt the reader sends
+/// from the latest message lands. `latest` keeps today's follow (the prompt sits over the composer).
+/// `top` seats it at the top of the view, sweeping the transcript up and leaving the room below it
+/// empty for the reply to fill, as Claude Code's desktop app does (Leo, 2026-11-22: "the wider
+/// sweeping situation with having there be a bunch of extra space at the bottom is not something we
+/// need to emulate (other than our claude code customization emulation repo)"). The Claude Code look
+/// sets it (examples/looks/claude-code). Read at each send (VirtualTranscript `seat`), so it is not
+/// part of ChatDisplay: switching it measures no transcript row again.
+export const SEND_PLACEMENT_KEY = "agentPane.display.sendPlacement";
+export type SendPlacement = "latest" | "top";
+export const isSendPlacement = (value: unknown): value is SendPlacement => value === "latest" || value === "top";
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -589,6 +600,8 @@ export function resetChatDisplay(): void {
 /// The chat's keys the page set, as the host last sent them (the popover shows which follow the viewer).
 export const chatDisplayValues = (): Readonly<Values> => raw;
 export const chatDisplay = (): ChatDisplay => current;
+/// Where a sent prompt lands (SEND_PLACEMENT_KEY), read at the send.
+export const sendPlacement = (): SendPlacement => (raw[SEND_PLACEMENT_KEY] === "top" ? "top" : "latest");
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
 /// The chat's text scale it draws at now (`drawnFontSize`, `--cmux-chat-text-scale`); the bubble's padding follows it too.
 export const chatDensityTextScale = (): number => densityTextScale;

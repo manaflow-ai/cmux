@@ -16,7 +16,7 @@ From a checkout, preview with `cmux customize use examples/looks/claude-code/tra
 
 ## Mapped behavior
 
-Normal transcript view keeps tool activity behind disclosures. The profile sets the system font at 14 pt, hides the minimap and keeps the transcript presentation.
+Normal transcript view keeps tool activity behind disclosures. The profile sets the system font at 14 pt, hides the minimap and keeps the transcript presentation. A prompt you send sweeps up to the top of the chat and leaves the room under it empty for the reply, as the desktop app does (`agentPane.display.sendPlacement: top`).
 
 ## Limits
 

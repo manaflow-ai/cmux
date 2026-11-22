@@ -270,6 +270,7 @@
     "setting.agentPane.display.presentation": "transcript",
     "setting.agentPane.display.promptCoach": true,
     "setting.agentPane.display.rail.side": "left",
+    "setting.agentPane.display.sendPlacement": "latest",
     "setting.agentPane.display.senderIcon.badge": "diamond",
     "setting.agentPane.display.senderIcon.corner": "bottom-right",
     "setting.agentPane.display.senderIcon.lead": "family",

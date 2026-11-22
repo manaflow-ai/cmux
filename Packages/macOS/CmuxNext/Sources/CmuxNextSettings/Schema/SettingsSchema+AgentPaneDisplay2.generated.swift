@@ -98,6 +98,19 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "collapse", "expand", "hide"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sendPlacementPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sendPlacement", "Sent Prompt Placement"),
+                help: SettingsText.keyed("settings.agentPane.display.sendPlacement.help", "Where your prompt lands when you send it."),
+                kind: .choice([
+                    SettingChoice("latest", SettingsText.keyed("settings.choice.sendPlacementLatest", "Above the Composer")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.sendPlacementTop", "Top of the Chat")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.sendPlacementDefault),
+                keywords: ["agent", "chat", "acp", "display", "send", "sent", "prompt", "scroll", "sweep", "top", "space", "room", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.senderIconLeadPath,
                 section: .appearance,
                 group: group,
@@ -367,16 +380,6 @@ extension AgentPaneDisplaySettingsSchema {
                 kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
                 keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
-                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
             ),
         ]
     }

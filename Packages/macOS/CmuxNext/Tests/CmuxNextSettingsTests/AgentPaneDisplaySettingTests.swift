@@ -33,6 +33,9 @@ struct AgentPaneDisplaySettingTests {
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
         Row(key: "agentPane.display.trayHandle", fallback: .string("middle"), accepted: [.string("left"), .string("right")],
             refused: [.string("top"), .bool(true)]),
+        // Where a sent prompt lands: over the composer, as always, unless set; the Claude Code look sets top.
+        Row(key: "agentPane.display.sendPlacement", fallback: .string("latest"), accepted: [.string("top")],
+            refused: [.string("bottom"), .bool(true)]),
         // A sender's icon: the family's mark big, a diamond badge at its bottom right, unless set.
         Row(key: "agentPane.display.senderIcon.lead", fallback: .string("family"), accepted: [.string("session")],
             refused: [.string("big"), .bool(true)]),

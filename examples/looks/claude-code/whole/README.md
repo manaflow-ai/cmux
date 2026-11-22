@@ -16,7 +16,7 @@ From a checkout, preview with `cmux customize use examples/looks/claude-code/who
 
 ## Mapped behavior
 
-Command-N starts a Claude chat. Command-Shift-M, I and E open the mode, model and effort menus respectively. Option-Command-O opens the focused chat’s folder chooser. New Tab shows recent Claude chats, Session Info includes the working folder and branch, and the sidebar shows account usage when available.
+A sent prompt sweeps up to the top of the chat with the room under it left for the reply. Command-N starts a Claude chat. Command-Shift-M, I and E open the mode, model and effort menus respectively. Option-Command-O opens the focused chat’s folder chooser. New Tab shows recent Claude chats, Session Info includes the working folder and branch, and the sidebar shows account usage when available.
 
 ## Limits
 

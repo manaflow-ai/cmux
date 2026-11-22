@@ -195,7 +195,8 @@ import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay } from "./chatDisplay";
+import { sendPlacement as sendPlacementSetting, useChatDisplay, type SendPlacement } from "./chatDisplay";
+import { seatEnd, seatIndex, type SendSeat } from "./conversation/sendSeat";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
@@ -1901,6 +1902,7 @@ function TranscriptView({
   endReserve: cardReserve = 0,
   minimapBeside = false,
   topInset = 0,
+  sendPlacement,
 }: {
   rows: readonly AcpmuxRow[];
   /// The pane's live transcript: it draws the streaming reply's row ahead of the pane's snapshot
@@ -2034,6 +2036,9 @@ function TranscriptView({
   /// this much taller, so the first row rests where it did below the row and the latest one where it did
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
+  /// Where a prompt sent from the latest message lands (chatDisplay.ts SEND_PLACEMENT_KEY); the
+  /// setting when unset. A gallery or test names it.
+  sendPlacement?: SendPlacement;
 }) {
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
@@ -3914,6 +3919,23 @@ function TranscriptView({
   }, [noteQueue, startFlow, endFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
+  /// Sent Prompt Placement `top` (conversation/sendSeat.ts): the prompt the reader sent from the
+  /// latest message, seated at the view's top with the room under it held empty for the reply. Taken
+  /// in the render that brings the send (`sends`), before the prompt's row lands, from the rows the
+  /// last pass placed: the first prompt newer than theirs is the one sent. Sent while scrolled up, the
+  /// seat stays as it was (the content under the reader keeps its height); with the setting at
+  /// `latest`, a send lets it go.
+  const seat = useRef<SendSeat | undefined>(undefined);
+  const seatSends = useRef(sends);
+  if (sends !== seatSends.current) {
+    seatSends.current = sends;
+    if ((sendPlacement ?? sendPlacementSetting()) !== "top") seat.current = undefined;
+    else if (followingRef.current)
+      seat.current = {
+        sessionId,
+        before: previousSession.current === sessionId ? newestPromptId(previousRows.current) : newestPromptId(rows),
+      };
+  }
   let sentPromptIdsForRender = sentPromptIds;
   if (sessionChanged) {
     if (sentPromptIds.size !== 0) {
@@ -4718,7 +4740,16 @@ function TranscriptView({
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
   const rowsAtDock =
     measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold - noticeHold;
-  const atDock = Math.max(floorHeight, rowsAtDock);
+  // A seated prompt (`seat`) holds the end at its row's top plus a view, as a room held for a sent
+  // prompt (`floor`) does: the followed view rests there, the prompt at the view's top, until the
+  // reply grows past it. Another chat's seat holds nothing. O(1) once the prompt is found.
+  const seated =
+    seat.current && seat.current.sessionId === sessionId && !sessionSwitched
+      ? seatIndex(seat.current, rows, isLineRow)
+      : undefined;
+  const seatHeight = seated === undefined ? 0 : seatEnd(THREAD_TOP + measured.layout.geometry.topAt(seated), height);
+  const heldEnd = Math.max(floorHeight, seatHeight);
+  const atDock = Math.max(heldEnd, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
   // lift with it) in a transcript about a screen tall; the rest of the growth is room. While a room
@@ -4729,7 +4760,7 @@ function TranscriptView({
   // a composer line is fractional (22.75px at the chat font, #26523), and a rounded lift changed the
   // room under the rows by a fraction each line, which moved the content's rounded height and the
   // followed offset a pixel. The cap is whole pixels, as the offset.
-  const floorHolds = floorHeight > rowsAtDock;
+  const floorHolds = heldEnd > rowsAtDock;
   const lifted =
     grown > 0
       ? Math.max(
@@ -4754,7 +4785,7 @@ function TranscriptView({
   });
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
-  const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
+  const rowsEnd = Math.max(heldEnd - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
   // A collapse near the end keeps the content as tall as the view's end (`foldRoom`), so the offset
@@ -5625,6 +5656,28 @@ function TranscriptView({
           rows.at(-2)?.id === oldRows.at(-2)?.id
         )
           followGlide.current?.rise(thread.current, rose, room);
+        // Sent Prompt Placement `top` (conversation/sendSeat.ts): the pass whose rows seated the sent
+        // prompt moved the view up to it at once, in this pass, as every send lands. On screen the thread
+        // is drawn back by that rise and sweeps up over the large step on the compositor (`translate`,
+        // followGlide `swept`): the rows above leave upward and the prompt, its pop playing on its own
+        // bubble (conversation.css SEND-POP), rises from behind the composer to the top with the room
+        // under it, one stack. Once per seat. An arm that chases the send itself (`spring`, `blocks`,
+        // `linear`, `chunk`) already draws the rise on its own curve.
+        const seatNow = seat.current;
+        if (seatNow?.id !== undefined && !seatNow.swept && seatNow.sessionId === sessionId) {
+          seatNow.swept = true;
+          if (
+            (slimFollow || !chasing) &&
+            rose > 0.5 &&
+            !caughtUp &&
+            !jumping &&
+            !bottomStacking &&
+            !resizing &&
+            !heightFoldPlaying() &&
+            !turnEnding
+          )
+            followGlide.current?.swept(thread.current, rose);
+        }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Away from the latest row nothing chases: the next followed pass measures from scratch.
         chaseAnchor.current = undefined;
@@ -5722,6 +5775,13 @@ function TranscriptView({
               sentClock && !steered,
             );
           else followGlide.current?.sent(thread.current, node.scrollTop - before);
+        }
+        // A seated prompt (`seat`) made a tail that fit overflow: it sweeps up to the top as from the
+        // latest message (the followed branch above, followGlide `swept`).
+        const seatNow = seat.current;
+        if (sentHere && at < 0 && seatNow?.id !== undefined && !seatNow.swept && seatNow.sessionId === sessionId) {
+          seatNow.swept = true;
+          if (slimFollow || !chasing) followGlide.current?.swept(thread.current, node.scrollTop - before);
         }
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();

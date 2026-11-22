@@ -323,6 +323,52 @@
           ]
         },
         {
+          "key": "agentPane.display.sendPlacement",
+          "name": "sendPlacement",
+          "note": "Where a prompt the reader sends from the latest message lands (webviews conversation/sendSeat.ts, chatDisplay.ts SEND_PLACEMENT_KEY). latest, the default, is the follow cmux has always had: the prompt rests over the composer. top seats it 20 px under the view's top and holds the room under it empty for the reply, the transcript sweeping up to it on the compositor, as Claude Code's desktop app does (its end hold, topOffsetPx 20). Leo, 2026-11-22: \"the wider sweeping situation with having there be a bunch of extra space at the bottom is not something we need to emulate (other than our claude code customization emulation repo)\". The Claude Code look sets top (examples/looks/claude-code).",
+          "title": {
+            "key": "settings.agentPane.display.sendPlacement",
+            "text": "Sent Prompt Placement"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendPlacement.help",
+            "text": "Where your prompt lands when you send it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "latest",
+              "title": {
+                "key": "settings.choice.sendPlacementLatest",
+                "text": "Above the Composer"
+              }
+            },
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.sendPlacementTop",
+                "text": "Top of the Chat"
+              }
+            }
+          ],
+          "default": "latest",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "scroll",
+            "sweep",
+            "top",
+            "space",
+            "room",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.senderIcon.lead",
           "name": "senderIconLead",
           "note": "A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: \"you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like\"). Which of the two is big.",
