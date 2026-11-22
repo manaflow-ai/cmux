@@ -99,6 +99,7 @@ impl HttpHub {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -157,11 +158,11 @@ impl HttpHub {
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| HubError::unavailable(format!("cannot run the token command: {e}")))?;
+            .map_err(|e| HubError::local(format!("cannot run the token command: {e}")))?;
         let mut pipe = child
             .stdout
             .take()
-            .ok_or_else(|| HubError::unavailable("the token command has no stdout"))?;
+            .ok_or_else(|| HubError::local("the token command has no stdout"))?;
         // Read into one buffer that never grows (no copy left behind) and is wiped on drop; the
         // child is killed when this is dropped (a timeout, too much output).
         let run = async move {
@@ -183,17 +184,17 @@ impl HttpHub {
         };
         let (out, len, status) = tokio::time::timeout(TOKEN_COMMAND_WAIT, run)
             .await
-            .map_err(|_| HubError::unavailable("the token command did not answer in 30 s"))?
-            .map_err(|e| HubError::unavailable(format!("the token command: {e}")))?;
+            .map_err(|_| HubError::local("the token command did not answer in 30 s"))?
+            .map_err(|e| HubError::local(format!("the token command: {e}")))?;
         let Some(status) = status else {
-            return Err(HubError::unavailable("the token command printed too much"));
+            return Err(HubError::local("the token command printed too much"));
         };
         if !status.success() {
-            return Err(HubError::unavailable(format!("the token command failed ({status})")));
+            return Err(HubError::local(format!("the token command failed ({status})")));
         }
         let stdout = std::str::from_utf8(out.get(..len).unwrap_or_default())
-            .map_err(|_| HubError::unavailable("the token command printed no text"))?;
-        let token = parse_token(stdout).map_err(HubError::unavailable)?;
+            .map_err(|_| HubError::local("the token command printed no text"))?;
+        let token = parse_token(stdout).map_err(HubError::local)?;
         *held = Some((Arc::clone(&token.0), token.1));
         Ok(token.0)
     }
@@ -231,7 +232,7 @@ impl HttpHub {
                         continue;
                     }
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
-                    return Err(HubError::refused("revoked: run machine add again"));
+                    return Err(HubError::refused("revoked: run machine add again").from_hub());
                 }
                 if (200..300).contains(&status) && path == "/v1/mesh/heartbeat" {
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), false, true);
@@ -245,7 +246,7 @@ impl HttpHub {
                 .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
             {
                 if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
-                    return Err(HubError::unavailable("the hub's answer is too large"));
+                    return Err(HubError::unavailable("the hub's answer is too large").from_hub());
                 }
                 bytes.extend_from_slice(&chunk);
             }
@@ -254,7 +255,7 @@ impl HttpHub {
             }
             return answer(status, &bytes);
         }
-        Err(HubError::unavailable("the hub refused two tokens"))
+        Err(HubError::unavailable("the hub refused two tokens").from_hub())
     }
 }
 
@@ -301,7 +302,8 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
         .map(str::to_owned);
     let mut error = HubError::refused(
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
-    );
+    )
+    .from_hub();
     error.refused = !(status == 408 || status == 429 || status >= 500);
     error.status = Some(status);
     error.retry_after =
@@ -314,8 +316,9 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
 fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, HubError> {
     // Never serde's message: it quotes the value it refused, which could be anything the answer
     // carried.
-    serde_json::from_value(value)
-        .map_err(|_| HubError::unavailable("the hub's answer is not the shape its contract gives"))
+    serde_json::from_value(value).map_err(|_| {
+        HubError::unavailable("the hub's answer is not the shape its contract gives").from_hub()
+    })
 }
 
 const CALL_WAIT: Duration = Duration::from_secs(30);

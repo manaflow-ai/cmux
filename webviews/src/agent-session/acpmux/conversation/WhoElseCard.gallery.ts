@@ -146,6 +146,41 @@ export default agentPaneEntry({
         { title: "Add greet_loud", branch: "main" },
       ),
     },
+    topic: {
+      note: 'Leo, 2026-11-21, on a row reading "topic: above, background, message, rows, summary, tasks, wait": "we cannot afford to have this kind of formatting". A session that matched by topic alone says what it works on (its title), and the line says something similar, not these files; the daemon\'s matched words never show.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-who-else"));
+        const text = ctx.document.querySelector(".cv-who-else")?.textContent ?? "";
+        if (!text.includes("1 other session works on something similar")) throw new Error(`line: ${text}`);
+        if (/topic|background/.test(text)) throw new Error(`matched words shown: ${text}`);
+      },
+      snapshot: chat([
+        user("Look at the activity tray above the composer and who else touches it.", 3),
+        activity(
+          [
+            mcp({
+              ...answer([
+                {
+                  ...ROWS[0],
+                  sessionId: "who-swift-generated",
+                  name: "codex-swift-generated",
+                  ref: "codex-swift-generated",
+                  title: "Regenerate the Swift action surfaces",
+                  branch: undefined,
+                  pullRequests: [],
+                  agoMs: 3 * 60 * MINUTE,
+                  filesInCommon: 0,
+                  editedInCommon: 0,
+                  files: [],
+                  topicWords: ["above", "background", "message", "rows", "summary", "tasks", "wait"],
+                },
+              ]),
+            }),
+          ],
+          2.8,
+        ),
+      ]),
+    },
     nobody: {
       note: "Nobody else touches the files: one quiet line.",
       snapshot: chat([user(ask, 3), activity([mcp(answer([]))], 2.8)]),
