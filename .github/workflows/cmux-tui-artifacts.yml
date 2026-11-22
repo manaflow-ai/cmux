@@ -5152,7 +5152,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 70  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files, 20 for the Screen Sharing helper
+    timeout-minutes: 85  # 15 for the Cloud machine channel, at most 15 more each for the Linux release file, the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5227,6 +5227,24 @@ jobs:
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
+
+      # The signed apt and yum archive (cmuxterm-hq docs/design/linux-signed-packages.md phase 4): .deb
+      # and .rpm of the bytes the Linux release file above names, and repositories signed with the
+      # archive key's signing subkey (Leo, 2026-11-22, d-fce10e3659: "a certify-only primary stays out
+      # of CI. Only a signing subkey with an expiry sits in the artifacts environment."). Until the secret
+      # and the committed public keyring exist it publishes nothing, with a warning; like the release file
+      # it is delivery, not a gate, so a failure never fails the job.
+      - name: Publish the signed apt and yum archive
+        if: ${{ needs.verify-publish.result == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-archive-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-archive"
 
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
