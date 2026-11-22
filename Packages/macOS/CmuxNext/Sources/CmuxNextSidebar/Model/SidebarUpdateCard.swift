@@ -26,25 +26,22 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var automaticUpdates: Bool
     /// The hover popover.
     public var notes: Notes
-    /// The card id its Hide button and menu items are sent with (`noticeAction(card:action:)`).
+    /// The card id its x and menu items are sent with (`noticeAction(card:action:)`).
     public var id: String
     /// The default ``id`` (UPDATE-CARD-CLOSE).
     public static let cardID = "update-ready"
-    /// The Hide button: its text ("Hide"), its tooltip and VoiceOver label
-    /// ("Hide Until a Newer Version") and the action id one click sends; a nil
-    /// title shows no button (while installing).
+    /// The x in the top trailing corner (https://github.com/manaflow-ai/cmux/issues/50981): its tooltip
+    /// and VoiceOver label ("Hide") and the action id one click sends; a nil title shows no x (while installing).
     public var closeTitle: String?
-    public var closeLabel: String?
     public var closeAction: String?
     /// The card's right-click menu: each item sends `noticeAction(card: id, action: item.id)`.
     public var closeMenu: [SidebarNoticeCard.Action]
 
     public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
                 automaticUpdates: Bool, notes: Notes, id: String = SidebarUpdateCard.cardID, closeTitle: String? = nil,
-                closeLabel: String? = nil, closeAction: String? = nil, closeMenu: [SidebarNoticeCard.Action] = []) {
+                closeAction: String? = nil, closeMenu: [SidebarNoticeCard.Action] = []) {
         self.id = id
         self.closeTitle = closeTitle
-        self.closeLabel = closeLabel
         self.closeAction = closeAction
         self.closeMenu = closeMenu
         self.title = title

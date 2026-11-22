@@ -73,13 +73,12 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var shortcut: String?
     /// The x's tooltip and VoiceOver label; nil shows no x.
     public var dismissLabel: String?
-    /// With a title, a small text button with it ("Hide", the found-update
-    /// notice, UPDATE-CARD-CLOSE) takes the x's place: one click dismisses at
-    /// once (`dismissNotice`), `dismissLabel` is its tooltip and VoiceOver
-    /// label, and `dismissMenu` is only on the right-click menu.
-    public var dismissTitle: String?
+    /// The x dismisses on one click (`dismissNotice`) even with a `dismissMenu`, which then shows on
+    /// the right-click menu only: the found-update notice's x hides it, its menu reminds later
+    /// (UPDATE-CARD-CLOSE; https://github.com/manaflow-ai/cmux/issues/50981: the x, not a "Hide" text button).
+    public var dismissesAtOnce: Bool
     /// With items, the x opens this menu (the tip's Hide / Mute / Never)
-    /// instead of dismissing; an item sends `noticeAction` with its id.
+    /// instead of dismissing, unless `dismissesAtOnce`; an item sends `noticeAction` with its id.
     public var dismissMenu: [Action]
     /// An action the card sends once while it is on screen (a tip marks
     /// itself seen); nil sends none.
@@ -101,7 +100,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], trailing: Trailing? = nil, shortcut: String? = nil, dismissLabel: String? = nil,
-                dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil, userAsked: Bool = false) {
+                dismissesAtOnce: Bool = false, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil, userAsked: Bool = false) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -113,7 +112,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.trailing = trailing
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
-        self.dismissTitle = dismissTitle
+        self.dismissesAtOnce = dismissesAtOnce
         self.dismissMenu = dismissMenu
         self.shownAction = shownAction
         self.hiddenAction = hiddenAction

@@ -11,30 +11,31 @@ import QuartzCore
 /// Restart to Update button (one click installs and relaunches; disabled,
 /// Installing…, once taken). Hovering the card shows what it leaves out (Leo
 /// 2026-10-13): the full build, the highlights and "See all changes", in the
-/// themed popup beside it (the React surface, cx-urd.61.2). A small "Hide"
-/// button in the top right corner hides this version's card at once until a
-/// newer one (UPDATE-CARD-CLOSE, Lawrence 2026-10-14); the right-click menu
+/// themed popup beside it (the React surface, cx-urd.61.2). The x in the top
+/// right corner, labelled Hide (the cards' shared x, https://github.com/manaflow-ai/cmux/issues/50981),
+/// hides this version's card at once until a newer one (UPDATE-CARD-CLOSE, Lawrence 2026-10-14); the right-click menu
 /// adds Remind Me in 1 Day / 3 Days / 1 Week. Hidden without a staged update.
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
     var onAutomaticUpdates: ((Bool) -> Void)?
     /// "See all changes" (the button's accessibility action): the What's New page.
     var onOpenChanges: (() -> Void)?
-    /// The Hide button or a menu item: the card's id and the action's id.
+    /// The x or a menu item: the card's id and the action's id.
     var onCloseAction: ((String, String) -> Void)?
     private(set) var card: SidebarUpdateCard?
     /// The cards' surface, under everything else, its veil in the theme's glass tint (as the
     /// Updated and notice cards'; Leo 2026-11-03: "will this be themeed properly?").
     let surface = CardSurfaceView() // concentric-allow: `layout()` rounds it by `cardCornerRadius`, from `buttonContainer`
-    private let titleLabel = ChromeLabel(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
     let toggle = SidebarUpdateToggle()
     /// A fixed layout (the Restart to Update gallery); nil follows `sidebar.updateCard.layout`.
     var layoutOverride: SidebarUpdateCardLayout? { didSet { if layoutOverride != oldValue { needsLayout = true } } }
     let button = SidebarUpdateButton()
-    /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).
-    let closeButton = SidebarCardTextButton()
+    /// The x, labelled Hide: one click hides this version's card (``SidebarUpdateCard/closeAction``). The same
+    /// corner x as the notice, Updated and Now Playing cards.
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The staged update's highlights (the React ready surface; set by the sidebar).
     var highlights: (any SidebarSurfaceIsland)? {
         didSet {
@@ -132,6 +133,7 @@ final class SidebarUpdateCardView: NSView {
         button.setAccessibilityIdentifier("cmux.sidebar.update.install")
         closeButton.setAccessibilityIdentifier("cmux.sidebar.update.hide")
         button.onPress = { [weak self] in self?.onInstall?() }
+        closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         toggle.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
         setAccessibilityElement(false)
@@ -177,7 +179,7 @@ final class SidebarUpdateCardView: NSView {
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
         closeButton.isHidden = card.closeTitle == nil || card.closeAction == nil
-        closeButton.configure(title: card.closeTitle ?? "", help: card.closeLabel)
+        closeButton.label = card.closeTitle ?? ""
         toggle.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates, animated: wasShowing)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
@@ -203,6 +205,18 @@ final class SidebarUpdateCardView: NSView {
     private static var titleFont: NSFont { Typography.bodyEmphasized }
 
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
+    private static let closeSide: CGFloat = 16
+
+    /// The title row: the x in the top trailing corner, concentric with the card (as the notice card's), and the
+    /// title centred on it; `bottom` is where the row ends. Without the x the title starts at the padding.
+    private static func titleRow(width: CGFloat, showsClose: Bool) -> (close: CGRect, titleY: CGFloat, bottom: CGFloat) {
+        let pad = padding, th = ceil(titleFont.boundingRectForFont.height)
+        guard showsClose else { return (.zero, pad, pad + th) }
+        let corner = Metrics.cornerControl(outerRadius: cardCornerRadius, side: closeSide)
+        let close = corner.topTrailingFrame(side: closeSide, in: CGRect(x: 0, y: 0, width: width, height: 0), flipped: true)
+        let titleY = max(pad, close.midY - th / 2)
+        return (close, titleY, max(titleY + th, close.maxY))
+    }
 
     /// The card's height for `card` in `layout` (the tunable's, for the one-argument form). Card: padding, title,
     /// the detail line when present, the switch row, the button, padding. Compact: padding, title,
@@ -213,9 +227,8 @@ final class SidebarUpdateCardView: NSView {
     }
 
     static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout) -> CGFloat {
-        // The title row is as tall as Hide when the card shows it (Hide sits the padding from the top, in the corner).
-        let titleHeight = ceil(titleFont.boundingRectForFont.height)
-        let title = card.closeTitle != nil && card.closeAction != nil ? max(titleHeight, SidebarCardTextButton.height) : titleHeight
+        // The title row is as tall as the x when the card shows it (the x sits in the corner, the title centred on it).
+        let title = titleRow(width: 0, showsClose: card.closeTitle != nil && card.closeAction != nil).bottom - padding
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
         switch layout {
         case .card:
@@ -246,15 +259,7 @@ final class SidebarUpdateCardView: NSView {
         }
         [titleLabel, toggle].forEach { $0.isHidden = false }
         detailLabel.alignment = .natural
-        closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
-        let th = ceil(Self.titleFont.boundingRectForFont.height)
-        let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
-        let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: b.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
-        // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
-        let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
-        titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)
-        var y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY)
+        var y = layoutTitleRow(width: width)
         let caption = Self.captionHeight
         if !detailLabel.isHidden {
             y += Metrics.space1 / 2
@@ -267,21 +272,29 @@ final class SidebarUpdateCardView: NSView {
         presence.didLayout()
     }
 
-    /// Compact: the title (and Hide) on the first row; the version on the left of the second row
+    /// Layout's title row (``titleRow(width:showsClose:)``): the x in the corner and the title left of it. Returns
+    /// where the row ends.
+    private func layoutTitleRow(width: CGFloat) -> CGFloat {
+        let pad = Self.padding, th = ceil(Self.titleFont.boundingRectForFont.height)
+        closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
+        let row = Self.titleRow(width: bounds.width, showsClose: !closeButton.isHidden)
+        // The x in the card's top trailing corner, concentric with the card (as the notice card's).
+        let corner = Metrics.cornerControl(outerRadius: Self.cardCornerRadius, side: Self.closeSide)
+        closeButton.frame = closeButton.isHidden ? .zero : corner.topTrailingFrame(side: Self.closeSide, in: bounds, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
+        let closeRoom = closeButton.isHidden ? 0 : bounds.width - row.close.minX - pad + Metrics.space1
+        titleLabel.frame = NSRect(x: pad, y: row.titleY, width: max(0, width - closeRoom), height: th)
+        return row.bottom
+    }
+
+    /// Compact: the title (and the x) on the first row; the version on the left of the second row
     /// and Restart to Update, sized to its words, on its right. Automatic Updates lives in Settings.
     private func layoutCompact(width: CGFloat) {
-        let pad = Self.padding, th = ceil(Self.titleFont.boundingRectForFont.height)
+        let pad = Self.padding
         titleLabel.isHidden = false
         toggle.isHidden = true
         detailLabel.alignment = .natural
-        closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
-        let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
-        let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: bounds.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
-        // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
-        let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
-        titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)
-        let y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY) + Self.rowGap, h = SidebarUpdateButton.height
+        let y = layoutTitleRow(width: width) + Self.rowGap, h = SidebarUpdateButton.height
         let buttonWidth = min(width, button.fittingWidth)
         button.frame = NSRect(x: pad + width - buttonWidth, y: y, width: buttonWidth, height: h)
         detailLabel.font = Typography.caption
@@ -337,7 +350,7 @@ final class SidebarUpdateCardView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
 
-    /// Hide: one click hides this version's card (no menu). It fades out; under Reduce Motion it
+    /// The x: one click hides this version's card (no menu). It fades out; under Reduce Motion it
     /// goes in one frame (Lawrence 2026-10-20).
     private func closePressed() {
         hideNotes()

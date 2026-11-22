@@ -173,7 +173,7 @@ import CmuxNextTestSupport
         defer { h.close() }
         h.window.orderFront(nil)
         h.card.layoutSubtreeIfNeeded()
-        h.card.closeButton.press()
+        _ = h.card.closeButton.accessibilityPerformPress()
         await h.wait { h.card.card == nil }
         try #require(h.card.card == nil, "Hide did not take the card away")
         #expect(h.card.isHidden && !h.card.isLeaving, "under Reduce Motion the card faded out instead of going at once")

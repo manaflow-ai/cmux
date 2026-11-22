@@ -26,7 +26,7 @@ import Testing
         }
     }
 
-    /// Every kind of notice card: a symbol with list lines, a heading and an x menu, a text button for the x, a switch,
+    /// Every kind of notice card: a symbol with list lines, a heading and an x menu, an x that hides at once, a switch,
     /// a running download.
     static func cards() -> [(String, SidebarNoticeCard)] {
         let tip = SidebarNoticeCard(id: "tip.palette", eyebrow: "Did you know?", title: "Find any action",
@@ -35,7 +35,7 @@ import Testing
                                     dismissLabel: "Hide", dismissMenu: [SidebarNoticeCard.Action(id: "hide", title: "Hide")])
         let found = SidebarNoticeCard(id: "update.found", title: "Update Available", detail: "nightly 200 · Nov 5",
                                       actions: [SidebarNoticeCard.Action(id: "update", title: "Update", prominent: true)],
-                                      dismissLabel: "Hide this update", dismissTitle: "Hide")
+                                      dismissLabel: "Hide", dismissesAtOnce: true)
         let tidy = SidebarNoticeCard(id: "auto-archive.suggest", title: "2 idle workspaces", lines: ["api-refactor", "docs-pass"],
                                      actions: [SidebarNoticeCard.Action(id: "archive", title: "Archive", prominent: true),
                                                SidebarNoticeCard.Action(id: "always", title: "Always", isSwitch: true)],

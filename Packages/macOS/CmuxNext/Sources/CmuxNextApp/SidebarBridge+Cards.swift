@@ -201,7 +201,7 @@ enum SidebarCardFeed {
     /// notice takes the slot from Now Playing.
     static func notice(_ shown: UpdateCardPresentation, asked: Bool = false) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
-        // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
+        // A found update's x hides it at once, labelled Hide (remind me later on right-click); a result's x dismisses it.
         let closes = shown.actions.contains(.update)
         // A status card: the text starts at the card's padding, with no small glyph before it, and
         // its control sits on the right (Leo 2026-10-31: "WHY NOT JUST LEFT ALIGN THE TEXT PUT A
@@ -209,8 +209,8 @@ enum SidebarCardFeed {
         var notice = SidebarNoticeCard(id: updateCardID, symbol: nil, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
                                  trailing: shown.trailing.map { SidebarNoticeCard.Trailing(id: $0.rawValue, symbol: $0.symbol, label: $0.title) },
-                                 dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
-                                 dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
+                                 dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateHideTitle : UpdaterService.cardDismissLabel) : nil,
+                                 dismissesAtOnce: closes, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
                                  userAsked: asked)
         notice.leadingSpinner = false
         return notice
@@ -231,7 +231,7 @@ enum SidebarCardFeed {
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
                                            moreTitle: notes.moreTitle, moreURL: notes.moreURL),
-            closeTitle: card.isInstalling ? nil : UpdaterService.updateHideTitle, closeLabel: UpdaterService.updateCloseLabel,
+            closeTitle: card.isInstalling ? nil : UpdaterService.updateHideTitle,
             closeAction: UpdaterService.updateHideAction, closeMenu: UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init))
     }
 }
