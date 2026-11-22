@@ -127,6 +127,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
         display,
+        display_pick: opts.get("monitor").map(str::to_owned),
         max_fps: encode_profile.stream_fps(max_fps),
         encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
