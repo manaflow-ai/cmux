@@ -108,6 +108,8 @@ jobs:
           name: stress-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/stress/
           if-no-files-found: warn
+          # A same-run handoff to the compare job, whose step summary keeps the before/after.
+          retention-days: 1
 
   compare:
     needs: measure

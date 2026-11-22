@@ -351,6 +351,12 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-fast-gates.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-post-merge.yml":
+        "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: the only owned job it can "
+        "reach is ci-web.yml's react-apps-base-check (vars.CI_LINUX_GATE_OWNED_RUNNER), which runs only on a "
+        "pull_request event, and this workflow runs on workflow_dispatch (a batch or a probe) and on a "
+        "lane/post-merge-drill-* push, so that job is always skipped here; no other job of it reaches an owned pool, "
+        "and a stuck batch ends at its job timeouts and a person, or the next window's tick, starts another",
     ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
