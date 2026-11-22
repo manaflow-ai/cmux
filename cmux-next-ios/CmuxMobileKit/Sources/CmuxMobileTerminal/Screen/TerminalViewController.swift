@@ -252,6 +252,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tuiGridHold = TerminalTUIGridHold()
     private var tuiGridHoldExpiry: Task<Void, Never>?
     private var keyboardMovement = 0
+    /// The latest will-show/will-hide's key bar update (`setKeyBar`).
+    private var keyBarUpdate = 0
     /// The Mac's redraw at fewer rows that waits for the keyboard to stop
     /// (`TerminalKeyboardReplayHold`).
     private var replayHold = TerminalKeyboardReplayHold()
@@ -3778,9 +3780,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Keyboard state for the toolbar icon and the input target; layout
     /// follows the keyboard layout guide on its own.
+    ///
+    /// Set on the main queue's next turn, not in the will-show/will-hide
+    /// handler: UIKit posts those inside the keyboard's animation, and the
+    /// dock's `layoutIfNeeded` there re-rendered the key row's and toolbar's
+    /// SwiftUI hosts for the glyph swap, synchronously, in the commit that
+    /// starts the keyboard moving (trace b4eef07b: 35 ms of `follow`'s 63).
+    /// The glyph cross-dissolves on its own 0.2 s either way.
     private func setKeyBar(visible: Bool, note: Notification) {
-        guard model.keyboardVisible != visible else { return }
-        model.keyboardVisible = visible
+        keyBarUpdate &+= 1
+        let update = keyBarUpdate
+        DispatchQueue.main.async { [weak self] in
+            // A later will-show/will-hide decides.
+            guard let self, self.keyBarUpdate == update, self.model.keyboardVisible != visible else { return }
+            self.model.keyboardVisible = visible
+        }
     }
 }
 

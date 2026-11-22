@@ -26,13 +26,19 @@ public struct TabsView<Source: TabsDataSource>: View {
         // The outermost reader respects the keyboard: SwiftUI changes its
         // bottom inset inside the keyboard's own animation, so the address
         // field rides exactly with the keyboard (no notification lag).
+        // The height goes down as an environment value, read only by the
+        // views that ride the keyboard (the toolbar, the tab accessory): as
+        // an input of `TabsScreen` every keyboard show or hide re-rendered
+        // the whole screen (pages, grid, glass) synchronously inside the
+        // keyboard's animation, also for a page that docks its own controls
+        // to the keyboard (trace b4eef07b, a terminal's keyboard toggle).
         GeometryReader { withKeyboard in
             GeometryReader { outer in
                 GeometryReader { full in
                     let kb = withKeyboard.safeAreaInsets.bottom
                     TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
-                               safeBottom: outer.safeAreaInsets.bottom,
-                               keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
+                               safeBottom: outer.safeAreaInsets.bottom)
+                        .environment(\.tabsKitKeyboard, kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
                 }
                 .ignoresSafeArea()
             }
@@ -47,8 +53,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
     let size: CGSize
     let safeTop: CGFloat
     let safeBottom: CGFloat
-    /// Software keyboard height from the screen bottom (0 when hidden).
-    let keyboard: CGFloat
 
     @State private var chrome = ChromeState()
     /// Close All Tabs is waiting for the person's answer.
@@ -143,8 +147,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
                        pinned: pinnedCount)
     }
 
+    /// The toolbar's frames off the keyboard: the screen does not read the
+    /// keyboard (`tabsKitKeyboard`). The keyboard moves only the editing
+    /// field, and while editing neither the accessory nor the page menu shows.
     private var toolbarLayout: ToolbarLayout {
-        ToolbarLayout.make(metrics: theme.metrics, size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        ToolbarLayout.make(metrics: theme.metrics, size: size, safeBottom: safeBottom, keyboard: 0, bar: chrome.bar,
                            editing: chrome.editing, splitBack: activeTab?.navigation.canGoForward == true, labelWidth: 69,
                            noBack: activeTab?.features.contains(.history) != true)
     }
@@ -187,14 +194,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     Spacer(minLength: 0)
                     source.accessory(for: tab, context: contentContext)
                 }
-                .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
+                .modifier(KeyboardRidingInset(resting: size.height - layout.capsule.minY + 8))
                 .frame(width: size.width, height: size.height)
             }
 
             // Out of the hierarchy on the settled grid (invisible there, and
             // accessibility tools list hidden views too).
             if zoomState.phase != .overview {
-            TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom, keyboard: keyboard,
+            TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
                         } : nil,
@@ -914,4 +921,24 @@ struct BarCutout: View {
         .compositingGroup()
     }
 }
+
+extension EnvironmentValues {
+    /// Software keyboard height from the screen bottom (0 when hidden), set
+    /// by `TabsView` inside the keyboard's own animation. Only the views that
+    /// ride the keyboard read it.
+    @Entry var tabsKitKeyboard: CGFloat = 0
+}
+
+/// The tab accessory's bottom inset: on the keyboard while it is up, else
+/// `resting` (above the toolbar). Its own view, so a keyboard change lays
+/// out the accessory alone.
+private struct KeyboardRidingInset: ViewModifier {
+    let resting: CGFloat
+    @Environment(\.tabsKitKeyboard) private var keyboard
+
+    func body(content: Content) -> some View {
+        content.padding(.bottom, keyboard > 0 ? keyboard : resting)
+    }
+}
+
 #endif

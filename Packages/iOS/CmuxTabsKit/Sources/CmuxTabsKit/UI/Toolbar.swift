@@ -57,7 +57,7 @@ struct TabsToolbar: View {
     var tab: TabsKitTab?
     var size: CGSize
     var safeBottom: CGFloat
-    var keyboard: CGFloat
+    @Environment(\.tabsKitKeyboard) private var keyboard
     /// Long-press menus on back and forward (nil: none).
     var history: ((TabsKitHistoryDirection) -> [TabsKitHistoryItem])?
     var onHistoryItem: (TabsKitHistoryItem) -> Void
