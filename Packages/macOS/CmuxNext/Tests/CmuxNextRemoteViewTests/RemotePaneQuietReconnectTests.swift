@@ -47,14 +47,12 @@ import Testing
     }
 
     /// The pane stamps its first connect at its start: no card for the coming-up time, then the card with Cancel.
-    @Test func aNewPaneHoldsItsConnectingCardForTheComingUpTime() {
+    @Test func aNewPaneHoldsItsConnectingCardForTheComingUpTime() throws {
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .connecting))
         let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view)
-        let since = try? #require(pane.state.connectingSince)
+        let since = try #require(pane.state.connectingSince)
         #expect(pane.state.overlay == nil)
         #expect(pane.view.connectingCard == nil)
-        guard let since else { return }
-        pane.apply(.connectNoticeCheck)
         let due = RemotePaneReducer().reduce(pane.state, .connectNoticeCheck, now: since + RemotePaneState.connectNoticeDelay)
         #expect(due.overlay == .connecting)
         #expect(due.connectingSince == since)
