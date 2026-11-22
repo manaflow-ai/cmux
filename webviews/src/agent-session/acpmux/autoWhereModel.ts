@@ -83,6 +83,13 @@ export async function decideAuto(
   }
 }
 
+/// The decided send's outcome: `refused` runs if it did not go (refused now, or its promise
+/// rejected), so the next Send asks the daemon again. A decision lasts one send.
+export function whenSendRefused(sent: boolean | void | Promise<unknown>, refused: () => void): void {
+  if (sent === false) refused();
+  else if (sent instanceof Promise) sent.catch(refused);
+}
+
 /// The arrival line's sentence for a landing: one plain sentence, the same words wherever it shows.
 export function landingTextKey(landing: AutoLanding): StringKey {
   if (landing.went === "cloud") return "auto.wentCloud";

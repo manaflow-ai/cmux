@@ -181,10 +181,11 @@ async function pressSend() {
 }
 
 /// A new chat whose host offers Cloud, with Auto the remembered Where (lastNewChatPlace.ts). Every
-/// `cloud.startChat` is recorded and left out (never answered).
+/// `cloud.startChat` is recorded and left out until `fail` answers the newest with a failure.
 async function mount() {
   dom.window.localStorage.setItem("cmux.agentPane.lastNewChatPlace", JSON.stringify({ kind: "auto" }));
   const starts: Record<string, unknown>[] = [];
+  let settle: ((reply: unknown) => void) | undefined;
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
@@ -192,7 +193,7 @@ async function mount() {
           postMessage: (message: { method: string; params?: Record<string, unknown> }) => {
             if (message.method === "cloud.startChat") {
               starts.push({ ...message.params });
-              return new Promise(() => {});
+              return new Promise((done) => (settle = done));
             }
             return Promise.resolve({
               ok: true,
@@ -222,7 +223,16 @@ async function mount() {
   root = createRoot(host);
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => actions() !== undefined && promptField() !== undefined, "the new chat connects");
-  return { starts };
+  return {
+    starts,
+    fail: () =>
+      act(async () =>
+        settle?.({
+          ok: false,
+          error: { code: "cloud_start_failed", userMessage: "The machine stopped answering.", retryable: true },
+        }),
+      ),
+  };
 }
 
 /// The empty local chat New Agent Chat opens, in which Cloud (and so Auto) is offered.
@@ -286,4 +296,29 @@ test("Auto picked + Send: the daemon's here answer sends the prompt to this Mac'
   for (let step = 0; step < 10; step += 1) await tick();
   expect(pane.starts.length).toBe(0);
   expect(placeCalls().length).toBe(1);
+}, 60_000);
+
+test("Auto picked + Send: a decided send that does not go is not decided for the next Send, which asks the daemon again", async () => {
+  await daemonDecides({
+    placement: { at: "there", place: "cloud" },
+    reason: { code: "over_budget", over: ["load1 9.0 >= 8 (8 cores)"] },
+    why: "This Mac is over budget (load1 9.0 >= 8 (8 cores)); cloud has room.",
+  });
+  const pane = await mount();
+  await openEmptyLocalChat();
+  await sendWithAutoPicked();
+  await until(() => pane.starts.length === 1, "the first Send starts the chat in Cloud");
+  expect(placeCalls().length).toBe(1);
+  // The Cloud start fails: the prompt comes back to the composer, and the decision with it goes.
+  await pane.fail();
+  await until(
+    () => host.querySelector<HTMLElement>(".acpmux-cloud-start")?.dataset.state === "failed",
+    "the start failed",
+  );
+  if (promptField()?.value() !== PROMPT) await act(async () => void promptField()!.type(PROMPT));
+  await until(() => promptField()?.value() === PROMPT, "the composer holds the prompt again");
+  await pressSend();
+  await until(() => placeCalls().length === 2, "the second Send asks the daemon where the chat runs again");
+  await until(() => pane.starts.length === 2, "and starts it where the new answer says");
+  expect(pane.starts[1]!.task).toBe(PROMPT);
 }, 60_000);

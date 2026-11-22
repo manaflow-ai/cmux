@@ -303,6 +303,7 @@ import {
   keepCloudLanding,
   landingMove,
   takeCloudLanding,
+  whenSendRefused,
   type AutoLanding,
 } from "./autoWhereModel";
 import { usePeerCloudMachine } from "./peerCloudMachine";
@@ -5138,6 +5139,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const autoOffered = cloudOfferable && !onOtherMachinePage;
   const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
   const pickAuto = (on: boolean) => {
+    autoDecided.current = undefined;
     setAutoPick({ page: newTabGeneration, on });
     // Off by another row's pick: that row remembers its own place after this.
     rememberNewChatPlace(on ? { kind: "auto" } : { kind: "local" });
@@ -5152,6 +5154,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [autoArrival, setAutoArrival] = useState<{ page: number; landing: AutoLanding | "deciding" }>();
   /// The decided send waiting for its mode (cloud or this Mac's), then sent once (the effect below).
   const autoSend = useRef<{ page: number; went: AutoLanding["went"] } | undefined>(undefined);
+  /// The page whose next Send Auto has decided, for that one send: a send that does not go, or
+  /// another Where pick, clears it, and the next Send asks the daemon again.
   const autoDecided = useRef<number | undefined>(undefined);
   const autoSignedIn = useCloudSignedIn();
   const sandboxModeRows = {
@@ -5160,6 +5164,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ...(autoRow ? { auto: autoRow } : {}),
     /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
+      // Another Where pick: an Auto decision made before it is not this send's.
+      autoDecided.current = undefined;
       const place = placeOfRunMode(mode);
       if (place) rememberNewChatPlace(place);
       applyRunMode(mode);
@@ -5351,6 +5357,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
     runModePicked.current = true;
     runHereSend.current = true;
+    // The person's Run on This Mac answers Auto for this send: it goes here, nothing asks the daemon.
+    autoDecided.current = newTabGeneration;
     sandbox.setMode("persistent");
   };
   /// The folder the latest Cloud send named (the card's "Start without a folder", or its project): Retry
@@ -5797,6 +5805,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.placeChat,
       autoTargets({ cloudOffered, ...(autoSignedIn !== undefined ? { signedIn: autoSignedIn } : {}) }),
     ).then((landing) => {
+      // The person picked another Where while the daemon answered: this decision is not theirs.
+      if (autoDecided.current !== page) return setAutoArrival(undefined);
       setAutoArrival({ page, landing });
       autoSend.current = { page, went: landing.went };
       if (landing.went === "cloud") {
@@ -5811,6 +5821,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
     });
   };
+  type ComposerSend = React.ComponentProps<typeof Composer>["onSend"];
+  /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
+  const autoDecisionOnce =
+    (send: ComposerSend): ComposerSend =>
+    (...args) => {
+      const page = newTabGeneration;
+      const decided = autoPicked && autoDecided.current === page && autoSend.current === undefined;
+      const sent = send(...args);
+      if (decided)
+        whenSendRefused(sent, () => {
+          if (autoDecided.current === page) autoDecided.current = undefined;
+        });
+      return sent;
+    };
+  /// A Cloud start that failed was not the decided send's going: the next Send asks the daemon again.
+  useEffect(() => {
+    if (cloudStart?.state === "failed") autoDecided.current = undefined;
+  }, [cloudStart?.state]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
@@ -13242,7 +13270,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
-            onSend={(text, chips, steer, gesture) => {
+            onSend={autoDecisionOnce((text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
@@ -13571,7 +13599,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
               });
               return held;
-            }}
+            })}
             // A prompt held while the agent starts goes back to the composer; else Stop stops the turn.
             onResume={
               interruptedResumeOwner

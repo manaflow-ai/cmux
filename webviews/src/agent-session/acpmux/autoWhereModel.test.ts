@@ -9,6 +9,7 @@ import {
   landingTextKey,
   parseAutoDecision,
   takeCloudLanding,
+  whenSendRefused,
 } from "./autoWhereModel";
 
 // The daemon's replies as server/place.rs answers them (place_chat_tests.rs).
@@ -112,4 +113,20 @@ test("a Cloud landing is taken once, by the chat whose first prompt it is, while
   expect(takeCloudLanding("fix the build", 2000)).toBeUndefined();
   keepCloudLanding(landing, "fix the build", 0);
   expect(takeCloudLanding("fix the build", 31 * 60_000)).toBeUndefined();
+});
+
+test("a decided send that does not go clears the decision; one that goes keeps it", async () => {
+  let cleared = 0;
+  const clear = () => void (cleared += 1);
+  whenSendRefused(false, clear);
+  expect(cleared).toBe(1);
+  whenSendRefused(true, clear);
+  whenSendRefused(undefined, clear);
+  await whenSendRefused(Promise.resolve(true), clear);
+  expect(cleared).toBe(1);
+  const refused = Promise.reject(new Error("refused"));
+  whenSendRefused(refused, clear);
+  await refused.catch(() => undefined);
+  await Promise.resolve();
+  expect(cleared).toBe(2);
 });
