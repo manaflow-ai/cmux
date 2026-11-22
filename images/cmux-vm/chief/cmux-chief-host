@@ -1,0 +1,16 @@
+#!/bin/sh
+# cmux-chief.service's ExecStart: the daemon socket the image recorded at bake (/etc/cmux/daemon-socket)
+# unless chief.env names one, then the host on whatever build /var/lib/cmux-chief/current points at.
+set -eu
+sock="${CMUX_DAEMON_SOCKET:-}"
+if [ -z "$sock" ] && [ -r /etc/cmux/daemon-socket ]; then
+  sock="$(head -n 1 /etc/cmux/daemon-socket)"
+fi
+if [ -z "$sock" ]; then
+  echo "cmux-chief-host: no daemon socket (/etc/cmux/daemon-socket is empty and CMUX_DAEMON_SOCKET is unset)" >&2
+  exit 2
+fi
+exec /var/lib/cmux-chief/current host \
+  --conversation-source cloud \
+  --cloud-install "${OPTCHAT_CLOUD_INSTALL:-/home/cmux/.cmux/chief/cloud/install.json}" \
+  --daemon-socket "$sock"
