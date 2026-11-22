@@ -31,7 +31,9 @@ if [[ -z "${CUEVAL_CMUX_CU_COMMAND:-}" ]]; then
   bridge=""
   for app in /Applications/*.app "$HOME"/Applications/*.app; do
     [[ -x "$app/Contents/Resources/bin/acpmux" ]] || continue
-    id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null)"
+    plist="$app/Contents/Info.plist"
+    [[ -f "$plist" ]] || continue
+    id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null || true)"
     [[ "$id" == com.cmuxterm.* && "$id" != "com.cmuxterm.app" ]] || continue
     bridge="$app/Contents/Resources/bin/acpmux"
     echo "DURESS bridge $bridge ($id)"
