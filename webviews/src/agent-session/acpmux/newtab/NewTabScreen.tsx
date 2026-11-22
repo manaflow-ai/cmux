@@ -490,7 +490,10 @@ export function NewTabScreen(props: Props) {
   // A temporary folder (the tab beside a scratch chat or terminal in /tmp) is no project of its own
   // either: the page starts on the last one used (cmux#49610).
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd) || isTemporaryFolder(props.cwd);
-  const startsRecent = !picked && folderless && !props.startCwd;
+  // The host's start folder wins, unless it is a temporary one: the app proposes the folder of the
+  // tab beside the page, which is /tmp beside a scratch chat or terminal (cmux#49610).
+  const hostStart = props.startCwd && !isTemporaryFolder(props.startCwd) ? props.startCwd : undefined;
+  const startsRecent = !picked && folderless && !hostStart;
   const candidate = useMemo(
     () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
     [startsRecent, snapshot.sessions, home, props.knownProjects],

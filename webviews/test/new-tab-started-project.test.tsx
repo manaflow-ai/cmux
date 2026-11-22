@@ -127,7 +127,13 @@ async function startChat(
 /// A fresh New Tab page (no folder of its own) over `sessions`: its chip and the folder Enter asks in.
 async function newTab(
   sessions: ReturnType<typeof session>[],
-  fields: { knownProjects?: string[] | null; startedProject?: string; home?: string | undefined; cwd?: string } = {},
+  fields: {
+    knownProjects?: string[] | null;
+    startedProject?: string;
+    home?: string | undefined;
+    cwd?: string;
+    startCwd?: string;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -352,6 +358,12 @@ test("a New Tab opened beside a tab in a temporary folder starts on the folder u
     expect(page.chip).toContain("atlas");
     expect(page.folder).toBe(PICKED);
   }
+  // The app's start folder for a page beside a /tmp tab is that /tmp folder: it does not win either.
+  const hosted = await newTab([theirs, ...SCRATCH], { cwd: "/private/tmp", startCwd: "/private/tmp" });
+  expect(hosted.chip).toContain("atlas");
+  expect(hosted.folder).toBe(PICKED);
+  // A project start folder from the app still wins over the folder used last.
+  expect((await newTab([theirs, ...SCRATCH], { startCwd: "/Users/you/src/billing" })).chip).not.toContain("atlas");
   // A real project folder the tab has is still the page's own.
   expect((await newTab([theirs, ...SCRATCH], { cwd: "/Users/you/src/billing" })).folder).toBe("/Users/you/src/billing");
   // The classic page too.
