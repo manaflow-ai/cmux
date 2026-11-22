@@ -19,11 +19,10 @@ optchat-chief memory check [--mux-home DIR]               opens the memory as th
 optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note lines
                                                           name (failed: every \"no description\" note), rewrites each note
                                                           and rebuilds the summaries above it (journaled, undoable)
-optchat-chief memory place [--daemon-socket S]            where the memory is: a projected folder (projection-v1) or plain files
-optchat-chief memory place local                          a projected memory back to plain files under optchat/ (host stopped)
+optchat-chief memory place [--daemon-socket S]            whether the memory can move over a projected folder (projection-v1) here
 optchat-chief memory hand-out --to MACHINE [--socket S --at REMOTE] DIR
                                                           the memory for another machine to project (host stopped; marks this home moved)
-optchat-chief memory take-in                              take a mounted hand-out in on this machine (the host does it at start)";
+optchat-chief memory take-in                              copy a mounted hand-out to this machine's disk (the host does it at start)";
 
 /// Runs `memory <verb>`; returns what to print.
 pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
@@ -120,21 +119,14 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
             }
             crate::tools::ask_redescribe(&paths.tools_socket, &notes)
         }
-        Some("place") => match words.as_slice() {
-            [] => {
-                let capability = flags
-                    .value("daemon-socket")
-                    .map(str::to_owned)
-                    .or_else(|| crate::cli::env("CMUX_DAEMON_SOCKET"))
-                    .and_then(|s| crate::memory_place::daemon_capability(Path::new(&s)));
-                Ok(crate::memory_place::status(&paths.root, capability))
-            }
-            ["local"] => {
-                let _lock = stopped_host(&paths)?;
-                crate::memory_place::place_local(&paths.root)
-            }
-            _ => Err(format!("memory place takes nothing or local\n{USAGE}")),
-        },
+        Some("place") => {
+            let capability = flags
+                .value("daemon-socket")
+                .map(str::to_owned)
+                .or_else(|| crate::cli::env("CMUX_DAEMON_SOCKET"))
+                .and_then(|s| crate::memory_place::daemon_capability(Path::new(&s)));
+            Ok(crate::memory_place::status(&paths.root, capability))
+        }
         Some("hand-out") => {
             let [out] = words.as_slice() else {
                 return Err(format!("memory hand-out needs one directory\n{USAGE}"));
@@ -157,7 +149,7 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
         }
         Some("take-in") => {
             let _lock = stopped_host(&paths)?;
-            crate::memory_place::at_host_start(&paths.root, true)
+            crate::memory_place::at_host_start(home, true)
         }
         Some("check") => {
             let started = std::time::Instant::now();

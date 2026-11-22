@@ -1,36 +1,39 @@
-//! Where the Chief's memory lives: a projected folder (RFD 0007, `projection-v1`) when the
-//! machine serves one, so the memory follows the Chief from one machine to another without a
-//! copy first; else the plain files under `optchat/`, moved with `optchat-chief memory
-//! export/import` (or a `move` checkpoint), as before.
+//! How the Chief's memory follows it to another machine: over a projected folder (RFD 0007,
+//! `projection-v1`) when the machine serves one, so the new machine reads the memory from the
+//! old one without a copy made first; else, as before, `optchat-chief memory export/import`
+//! (or a `move` checkpoint).
 //!
 //! Leo, 2026-11-22: "chief in cloud. likely under our projection protocol or something, since it
 //! has some semblance of memory or whatever, but they may be sized with their own vms."
 //!
 //! The memory is `memory.sqlite3` (log, tree, host state) and `memory-files.sqlite3` (notes,
-//! rules, open loops). On a projected home both live in `optchat/memory/`, the mount point of a
-//! projection named [`projection_name`]; everything else of the home stays where it was.
+//! rules, open loops). The projection carries a consistent snapshot of both; the live stores, with
+//! their WAL and `-shm`, always stay on the local disk of the machine that writes them. SQLite on
+//! the FUSE mount itself is not covered by the projection's tests (byte-range locks, a shared
+//! writable mmap of `-shm`), so the memory is never opened there.
 //!
 //! The steps of a move from machine A to machine B:
 //!
 //! 1. **Hand out** on A (`optchat-chief memory hand-out --to MACHINE DIR`, host stopped): under
-//!    the host lock, `VACUUM INTO` a consistent copy of each store into `DIR`, then `writer.json`
-//!    last (epoch + 1, the one machine that may write it, each file's hash and row counts), then
-//!    A's home is marked moved (`state/moved.json`), so A's host refuses to start. A crash before
-//!    `writer.json` leaves no hand-out at all and A still the writer.
+//!    the host lock, `VACUUM INTO` a consistent copy of each store into `DIR` (never the live file
+//!    with its WAL), then `writer.json` last (epoch + 1, the one machine that may write it, each
+//!    file's sha256 and row counts), then A's home is marked moved (`state/moved.json`), so A's
+//!    host refuses to start. A crash before `writer.json` leaves no hand-out and A the writer.
 //! 2. **Project** `DIR` at B's `optchat/memory/` under the name [`projection_name`] (`cmux link
 //!    project serve --socket S --at REMOTE --name NAME DIR`, the merged `projection.serve` dial;
-//!    `hand-out --socket S --at REMOTE` starts it).
+//!    `hand-out --socket S --at REMOTE` starts it). B reads it; nothing is written there.
 //! 3. **Take in** on B, by the host itself at its first start (or `memory take-in`): the folder
 //!    must be a mount, `writer.json` must name this machine at an epoch above any this home took
-//!    in before, and every file's hash and row counts must match. Each file is opened for writing
-//!    and fsynced through the mount: that copies it whole into B's upper layer and puts it on B's
-//!    disk, so B never needs A again. Then `optchat/memory-place.json` (machine-local) records the
-//!    epoch, and every [`crate::paths::Paths`] of the home points into the folder.
+//!    in before. Each store is copied byte for byte off the mount into `optchat/` beside a temp
+//!    name, fsynced, checked against the hand-out's sha256 and row counts, and only then renamed
+//!    over; a plain memory already there is kept as `NAME.before-take-in-EPOCH`. Then
+//!    `optchat/memory-place.json` (machine-local) records the epoch. From then on B never needs
+//!    A or the mount: `cmux link project stop` ends it.
 //!
 //! One writer at a time, and what enforces it:
-//! - A projection never writes back to its source: B's writes land in B's upper layer, so no two
-//!   machines ever write the same bytes; a second writer could only fork the memory, and these
-//!   rules keep a fork from starting.
+//! - A projection never writes back to its source, and nothing writes the mount: B's memory is
+//!   B's own files, so no two machines ever write the same bytes; a second writer could only fork
+//!   the memory, and these rules keep a fork from starting.
 //! - The source stops being a writer before the hand-out exists: the host lock (flock) is held
 //!   for the whole hand-out and `state/moved.json` is written before it is released, which the
 //!   host already refuses to start on (`migrate::refusal`).
@@ -38,21 +41,17 @@
 //!   that mounts the same hand-out refuses it, and so does a machine that took this or a later
 //!   epoch already.
 //! - On one machine, the host lock (flock on `state/host.lock`) keeps a second host off the home.
-//! - A projected home whose folder is not mounted refuses to start ([`Choice::Refuse`]) instead of
-//!   opening an empty memory beside the real one.
 //!
-//! No loss when the machine dies mid-write: SQLite runs WAL with `synchronous=FULL` on the
-//! mount, whose fsync is the upper file's `sync_all` and which has no writeback cache
-//! (cmux-projection `mount.rs`), so a commit that returned is on the machine's disk, and the
-//! upper layer survives a daemon restart (the projection attaches to it again by name, which is
-//! why the name carries the epoch: a later hand-out never sits under an older upper layer). A
-//! machine that is destroyed, not restarted, loses what it wrote since the hand-out: the
-//! projection does not bring writes back yet, so the per-turn remote backup (`backup.rs`) and
-//! `memory export` are what keep those.
+//! No loss when the machine dies mid-write: the live memory is plain SQLite on the local disk (WAL,
+//! `synchronous=FULL`), as on any Chief. A death mid-take-in leaves either the old file or the
+//! whole checked copy at each name (a rename after an fsync) and no record, so the next start
+//! takes the same hand-out in again. A machine destroyed, not restarted, loses what it wrote since
+//! its take-in: the projection does not bring writes back, so the per-turn remote backup
+//! (`backup.rs`) and `memory export` are what keep those.
 //!
-//! Going back: `optchat-chief memory place local` on a projected home copies the memory out of
-//! the folder into `optchat/` (a `VACUUM INTO`, checked by row counts) and removes the record;
-//! on the source, `optchat-chief move rollback` makes it the writer again.
+//! Going back: hand the memory out again from B to A (a later epoch) and run `optchat-chief memory
+//! take-in` on A, which also lifts A's `projected:` moved mark; or, if B never wrote, `optchat-chief
+//! move rollback` on A.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -61,16 +60,20 @@ use serde::{Deserialize, Serialize};
 
 /// The daemon capability that mounts a projected folder (cmux-tui-core `projection.rs`).
 pub const CAPABILITY: &str = "projection-v1";
-/// The folder under `optchat/` a projected memory is mounted at.
+/// The folder under `optchat/` a hand-out is mounted at.
 pub const FOLDER: &str = "memory";
 /// The hand-out's marker, written last into the folder.
 pub const WRITER_FILE: &str = "writer.json";
-/// This machine's record of a projected memory it took in (never carried by a move).
+/// This machine's record of the last hand-out it took in (never carried by a move).
 pub const RECORD_FILE: &str = "memory-place.json";
 /// The stores that are the memory, by file name.
 pub const STORES: [&str; 2] = ["memory.sqlite3", crate::memory_files::FILE];
 /// The env switch projected folders share (`0`/`false` turns them off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
+/// What the record's `place` says.
+const TAKEN_IN: &str = "taken-in";
+/// The moved mark a hand-out leaves on its source.
+const MOVED_PREFIX: &str = "projected:";
 
 /// The fallback steps when the memory cannot be projected.
 pub const FALLBACK: &str = "move the memory with `optchat-chief memory export --text DIR` on the \
@@ -79,7 +82,7 @@ pub const FALLBACK: &str = "move the memory with `optchat-chief memory export --
 /// `writer.json`: the hand-out of one epoch of the memory to one machine.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Writer {
-    /// One more than the epoch the source held (0 for a memory never handed out).
+    /// One more than the epoch the source took in last (0 for a memory never projected).
     pub epoch: u64,
     /// The one machine that may take it in and write it ([`machine_id`]).
     pub to: String,
@@ -99,12 +102,13 @@ pub struct Store {
     pub rows: BTreeMap<String, u64>,
 }
 
-/// `optchat/memory-place.json`: this machine holds the memory in the projected folder.
+/// `optchat/memory-place.json`: this machine took the hand-out of `epoch` in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
     pub place: String,
     pub epoch: u64,
     pub name: String,
+    pub from: String,
     pub at: String,
 }
 
@@ -115,7 +119,7 @@ pub struct Inputs {
     pub capability: bool,
     /// Projected folders are not turned off ([`ENV`]).
     pub enabled: bool,
-    /// This machine's record of a projected memory.
+    /// This machine's record of the last hand-out it took in.
     pub record: Option<Record>,
     /// `optchat/memory/` is a mount.
     pub mounted: bool,
@@ -123,66 +127,27 @@ pub struct Inputs {
     pub writer: Option<Writer>,
     /// This machine ([`machine_id`]).
     pub machine: String,
-    /// `optchat/memory.sqlite3` exists (a memory kept as plain files).
+    /// `optchat/memory.sqlite3` exists.
     pub local_memory: bool,
 }
 
-/// Where this start keeps the memory.
+/// What this start does about the memory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice {
-    /// In the projected folder, which this machine took in at the record's epoch.
-    Projected,
-    /// A hand-out to this machine is mounted and not taken in yet: take it in, then
-    /// [`Choice::Projected`].
+    /// A hand-out to this machine is mounted and newer than any it took in: take it in.
     TakeIn(Writer),
-    /// The plain files under `optchat/`. `fallback` says why not projected and how the memory
-    /// moves instead, when that is the reason (no capability, turned off); None for a memory
-    /// kept local by choice (an existing memory is never moved without a hand-out).
+    /// The memory is this machine's files under `optchat/` (taken in before, or never moved).
+    /// `fallback` says why a move would not go over a projection and how it goes instead, when
+    /// that is so (no capability, turned off).
     Local { fallback: Option<String> },
-    /// Do not start: the memory is elsewhere or not this machine's to write.
+    /// Do not start: the mounted memory is not this machine's to write.
     Refuse(String),
 }
 
-/// The pure rule: where the memory is, from what a start knows.
+/// The pure rule: what to do about the memory, from what a start knows.
 pub fn choose(inputs: &Inputs) -> Choice {
     let projectable = inputs.capability && inputs.enabled;
-    if let Some(record) = &inputs.record {
-        if !inputs.mounted {
-            return Choice::Refuse(format!(
-                "the memory is on a projected folder (epoch {}) that is not mounted at optchat/{FOLDER}: \
-                 project it again (`cmux link project serve ... --name {}`), or {FALLBACK}",
-                record.epoch, record.name
-            ));
-        }
-        return match &inputs.writer {
-            Some(w) if w.epoch > record.epoch && w.to == inputs.machine => {
-                Choice::TakeIn(w.clone())
-            }
-            Some(w) if w.epoch == record.epoch && w.to == inputs.machine => Choice::Projected,
-            Some(w) => Choice::Refuse(format!(
-                "the projected memory is handed to {} at epoch {}, not to this machine at epoch {}: not writing it",
-                w.to, w.epoch, record.epoch
-            )),
-            None => Choice::Refuse(format!(
-                "the projected folder at optchat/{FOLDER} has no {WRITER_FILE}: not writing it"
-            )),
-        };
-    }
-    if inputs.mounted {
-        return match &inputs.writer {
-            Some(w) if w.to == inputs.machine && projectable => Choice::TakeIn(w.clone()),
-            Some(w) if w.to == inputs.machine => Choice::Refuse(format!(
-                "a projected memory is mounted here but this machine does not serve {CAPABILITY}: {FALLBACK}"
-            )),
-            Some(w) => Choice::Refuse(format!(
-                "the projected memory is handed to {}, not to this machine ({}): not taking it",
-                w.to, inputs.machine
-            )),
-            None => Choice::Refuse(format!(
-                "optchat/{FOLDER} is a mount without {WRITER_FILE}: not a memory hand-out"
-            )),
-        };
-    }
+    let taken = inputs.record.as_ref().map(|r| r.epoch);
     let fallback = if !inputs.capability {
         Some(format!(
             "this machine does not serve {CAPABILITY}: {FALLBACK}"
@@ -192,7 +157,27 @@ pub fn choose(inputs: &Inputs) -> Choice {
     } else {
         None
     };
-    Choice::Local { fallback }
+    if !inputs.mounted {
+        return Choice::Local { fallback };
+    }
+    match &inputs.writer {
+        Some(w) if w.to == inputs.machine && taken.is_some_and(|t| w.epoch <= t) => {
+            // Taken in already (or older): the memory is local; the mount is only stale.
+            Choice::Local { fallback }
+        }
+        Some(w) if w.to == inputs.machine && projectable => Choice::TakeIn(w.clone()),
+        Some(w) if w.to == inputs.machine => Choice::Refuse(format!(
+            "a memory hand-out is mounted here but {}: not taking it",
+            fallback.unwrap_or_default()
+        )),
+        Some(w) => Choice::Refuse(format!(
+            "the mounted memory is handed to {} at epoch {}, not to this machine ({}): not taking it",
+            w.to, w.epoch, inputs.machine
+        )),
+        None => Choice::Refuse(format!(
+            "optchat/{FOLDER} is a mount without {WRITER_FILE}: not a memory hand-out"
+        )),
+    }
 }
 
 /// The projection's name for `home_id`'s memory at `epoch`. The epoch keeps a later hand-out
@@ -206,24 +191,12 @@ pub fn folder(root: &Path) -> PathBuf {
     root.join(FOLDER)
 }
 
-/// The record, when this machine took a projected memory in.
+/// The record of the last hand-out this machine took in.
 pub fn record(root: &Path) -> Option<Record> {
     let text = std::fs::read_to_string(root.join(RECORD_FILE)).ok()?;
     serde_json::from_str::<Record>(&text)
         .ok()
-        .filter(|r| r.place == "projected")
-}
-
-/// The directory the memory's stores are in: the projected folder when recorded (or when it
-/// holds the only memory, as after a `move` checkpoint carried it as plain files, without this
-/// machine-local record), else `root`.
-pub fn memory_dir(root: &Path) -> PathBuf {
-    let only_in_folder = folder(root).join(STORES[0]).is_file() && !root.join(STORES[0]).exists();
-    if only_in_folder || record(root).is_some() {
-        folder(root)
-    } else {
-        root.to_owned()
-    }
+        .filter(|r| r.place == TAKEN_IN)
 }
 
 /// The folder's `writer.json`.
@@ -240,7 +213,7 @@ pub fn enabled() -> bool {
     }
 }
 
-/// This machine's id: `/etc/machine-id`, else its host name.
+/// This machine's id: `OPTCHAT_MACHINE_ID`, else `/etc/machine-id`, else its host name.
 pub fn machine_id() -> String {
     if let Some(id) = crate::cli::env("OPTCHAT_MACHINE_ID") {
         return id;
@@ -325,27 +298,30 @@ pub fn daemon_capability(socket: &Path) -> Option<bool> {
     Some(caps.iter().any(|c| c == CAPABILITY))
 }
 
-/// The host start's step: takes a mounted hand-out in, or says why the host must not start.
-/// Returns a line to log (the place, or why the memory stays plain files), or the refusal.
-pub fn at_host_start(root: &Path, capability: bool) -> Result<String, String> {
-    let inputs = inputs(root, capability);
+/// The start's step, before anything opens the memory: takes a mounted hand-out in, or says why
+/// the host must not start. Returns a line to log, or the refusal.
+pub fn at_host_start(home: &Path, capability: bool) -> Result<String, String> {
+    let root = crate::paths::Paths::new(home).root;
+    let inputs = inputs(&root, capability);
     match choose(&inputs) {
-        Choice::Projected => Ok(format!(
-            "memory: projected folder {} (epoch {})",
-            folder(root).display(),
-            inputs.record.map_or(0, |r| r.epoch)
-        )),
         Choice::TakeIn(w) => {
-            let record = take_in(root, &w)?;
+            let record = take_in(home, &w)?;
             Ok(format!(
-                "memory: took in the projected memory from {} (epoch {}, projection {})",
-                w.from, record.epoch, record.name
+                "memory: took in the hand-out from {} (epoch {}, projection {}); `cmux link project stop --at {}` ends the projection",
+                w.from,
+                record.epoch,
+                record.name,
+                folder(&root).display()
             ))
         }
-        Choice::Local {
-            fallback: Some(why),
-        } => Ok(format!("memory: plain files; {why}")),
-        Choice::Local { fallback: None } => Ok("memory: plain files".to_owned()),
+        Choice::Local { fallback } => Ok(match (inputs.record, fallback) {
+            (Some(r), _) => format!(
+                "memory: plain files, taken in from {} at epoch {}",
+                r.from, r.epoch
+            ),
+            (None, Some(why)) => format!("memory: plain files; {why}"),
+            (None, None) => "memory: plain files".to_owned(),
+        }),
         Choice::Refuse(why) => Err(why),
     }
 }
@@ -363,6 +339,9 @@ fn store_of(path: &Path) -> Result<Store, String> {
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     crate::migrate::write_private(&tmp, bytes)?;
+    std::fs::File::open(&tmp)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("renaming {}: {e}", path.display()))?;
     sync_dir(path.parent().unwrap_or(Path::new(".")));
     Ok(())
@@ -380,8 +359,7 @@ pub fn hand_out(home: &Path, to: &str, out: &Path) -> Result<Writer, String> {
     if to.trim().is_empty() {
         return Err("hand-out needs --to MACHINE (the target's /etc/machine-id)".into());
     }
-    let paths = crate::paths::Paths::new(home);
-    let src_dir = paths.memory_db.parent().unwrap_or(&paths.root).to_owned();
+    let root = crate::paths::Paths::new(home).root;
     crate::migrate::create_private_dir(out)?;
     if std::fs::read_dir(out)
         .map_err(|e| format!("{}: {e}", out.display()))?
@@ -390,10 +368,10 @@ pub fn hand_out(home: &Path, to: &str, out: &Path) -> Result<Writer, String> {
     {
         return Err(format!("{} is not empty", out.display()));
     }
-    let epoch = record(&paths.root).map_or(0, |r| r.epoch) + 1;
+    let epoch = record(&root).map_or(0, |r| r.epoch) + 1;
     let mut files = BTreeMap::new();
     for name in STORES {
-        let from = src_dir.join(name);
+        let from = root.join(name);
         if !from.exists() {
             continue;
         }
@@ -405,10 +383,7 @@ pub fn hand_out(home: &Path, to: &str, out: &Path) -> Result<Writer, String> {
         files.insert(name.to_owned(), store_of(&to_file)?);
     }
     if !files.contains_key(STORES[0]) {
-        return Err(format!(
-            "no memory at {}",
-            src_dir.join(STORES[0]).display()
-        ));
+        return Err(format!("no memory at {}", root.join(STORES[0]).display()));
     }
     let writer = Writer {
         epoch,
@@ -423,86 +398,102 @@ pub fn hand_out(home: &Path, to: &str, out: &Path) -> Result<Writer, String> {
     write_atomic(&out.join(WRITER_FILE), text.as_bytes())?;
     crate::migrate::mark_moved(
         home,
-        &format!("projected:{to}"),
+        &format!("{MOVED_PREFIX}{to}"),
         &writer.files[STORES[0]].sha256,
     )?;
     Ok(writer)
 }
 
-/// Takes the mounted hand-out `writer` in on this machine: checks every store, copies each
-/// into the upper layer (a write open) and fsyncs it, then writes the record.
-pub fn take_in(root: &Path, writer: &Writer) -> Result<Record, String> {
-    let dir = folder(root);
+/// Copies `from` (on the mount) to `to` byte for byte and fsyncs it.
+fn copy_synced(from: &Path, to: &Path) -> Result<(), String> {
+    let mut src =
+        std::fs::File::open(from).map_err(|e| format!("reading {}: {e}", from.display()))?;
+    let mut dst = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)
+        .map_err(|e| format!("{}: {e}", to.display()))?;
+    std::io::copy(&mut src, &mut dst).map_err(|e| format!("copying {}: {e}", from.display()))?;
+    dst.sync_all()
+        .map_err(|e| format!("syncing {}: {e}", to.display()))
+}
+
+/// Removes a temp copy and the SQLite side files checking it may have left.
+fn remove_temp(tmp: &Path) {
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        let mut p = tmp.as_os_str().to_owned();
+        p.push(suffix);
+        let _ = std::fs::remove_file(PathBuf::from(p));
+    }
+}
+
+/// Takes the mounted hand-out `writer` in on the home at `home`: every store is copied off the
+/// mount to a temp file, fsynced and checked against the hand-out, then renamed into place (a
+/// different plain memory already there is kept beside it); then the record is written, and a
+/// `projected:` moved mark this home carries from its own earlier hand-out is lifted.
+pub fn take_in(home: &Path, writer: &Writer) -> Result<Record, String> {
+    let root = crate::paths::Paths::new(home).root;
+    let dir = folder(&root);
+    let mut placed = Vec::new();
     for (name, want) in &writer.files {
-        let path = dir.join(name);
-        let got = store_of(&path)?;
+        let tmp = root.join(format!("{name}.tmp-take-in"));
+        remove_temp(&tmp);
+        copy_synced(&dir.join(name), &tmp).inspect_err(|_| remove_temp(&tmp))?;
+        let got = store_of(&tmp);
+        remove_temp_sides(&tmp);
+        let got = got.inspect_err(|_| remove_temp(&tmp))?;
         if got.sha256 != want.sha256 || got.rows != want.rows {
+            remove_temp(&tmp);
             return Err(format!(
                 "{name} in the projected folder does not match its hand-out (sha256 {} rows {:?}, want {} {:?})",
                 got.sha256, got.rows, want.sha256, want.rows
             ));
         }
-        // A write open copies the whole file into this machine's upper layer; the fsync puts it
-        // on this machine's disk, so the memory no longer needs the source.
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| format!("copying {name} onto this machine: {e}"))?;
+        placed.push((name.clone(), tmp, want.sha256.clone()));
     }
+    for (name, tmp, sha) in placed {
+        let to = root.join(&name);
+        let same = crate::migrate::sha256_file(&to).is_ok_and(|(s, _)| s == sha);
+        if to.exists() && !same {
+            let mut kept = root.join(format!("{name}.before-take-in-{}", writer.epoch));
+            if kept.exists() {
+                kept = root.join(format!(
+                    "{name}.before-take-in-{}-{}",
+                    writer.epoch,
+                    std::process::id()
+                ));
+            }
+            std::fs::rename(&to, &kept).map_err(|e| format!("keeping {}: {e}", to.display()))?;
+        }
+        // The old file's side files belong to the old file.
+        remove_temp_sides(&to);
+        std::fs::rename(&tmp, &to).map_err(|e| format!("placing {}: {e}", to.display()))?;
+    }
+    sync_dir(&root);
     let record = Record {
-        place: "projected".into(),
+        place: TAKEN_IN.into(),
         epoch: writer.epoch,
         name: projection_name(&writer.home_id, writer.epoch),
+        from: writer.from.clone(),
         at: crate::migrate::now_rfc3339(),
     };
     let text = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?;
     write_atomic(&root.join(RECORD_FILE), text.as_bytes())?;
+    if crate::migrate::moved(home).is_some_and(|m| m.to.starts_with(MOVED_PREFIX)) {
+        std::fs::remove_file(home.join(crate::migrate::MOVED_FILE))
+            .map_err(|e| format!("lifting this home's moved mark: {e}"))?;
+        sync_dir(&home.join("state"));
+    }
     Ok(record)
 }
 
-/// Brings a projected memory back to plain files under `root` (host stopped): each store is
-/// copied out with `VACUUM INTO`, checked by row counts, and only then the record goes. An
-/// existing plain memory is kept beside it (`.before-local-<epoch>`), never overwritten.
-pub fn place_local(root: &Path) -> Result<String, String> {
-    let Some(rec) = record(root) else {
-        return Ok("the memory is already kept as plain files".into());
-    };
-    let dir = folder(root);
-    for name in STORES {
-        let from = dir.join(name);
-        if !from.exists() {
-            continue;
-        }
-        let to = root.join(name);
-        let tmp = root.join(format!("{name}.tmp-local"));
-        let _ = std::fs::remove_file(&tmp);
-        crate::migrate::vacuum_into(&from, &tmp)?;
-        let (want, got) = (
-            crate::migrate::table_counts(&from)?,
-            crate::migrate::table_counts(&tmp)?,
-        );
-        if want != got {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(format!("{name}: copied rows {got:?} differ from {want:?}"));
-        }
-        if to.exists() {
-            let kept = root.join(format!("{name}.before-local-{}", rec.epoch));
-            std::fs::rename(&to, &kept).map_err(|e| format!("keeping {}: {e}", to.display()))?;
-        }
-        std::fs::rename(&tmp, &to).map_err(|e| format!("placing {}: {e}", to.display()))?;
+/// Removes the SQLite side files of `db` (never `db` itself).
+fn remove_temp_sides(db: &Path) {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut p = db.as_os_str().to_owned();
+        p.push(suffix);
+        let _ = std::fs::remove_file(PathBuf::from(p));
     }
-    sync_dir(root);
-    std::fs::remove_file(root.join(RECORD_FILE))
-        .map_err(|e| format!("removing the record: {e}"))?;
-    sync_dir(root);
-    Ok(format!(
-        "the memory (epoch {}) is plain files under {} again; `cmux link project stop --at {}` ends its projection",
-        rec.epoch,
-        root.display(),
-        dir.display()
-    ))
 }
 
 /// A one-line status of the memory's place.
@@ -514,22 +505,23 @@ pub fn status(root: &Path, capability: Option<bool>) -> String {
         None => format!("{CAPABILITY} not asked (no daemon)"),
     };
     let place = match choose(&inputs) {
-        Choice::Projected => format!(
-            "projected folder {} (epoch {})",
-            folder(root).display(),
-            inputs.record.as_ref().map_or(0, |r| r.epoch)
-        ),
         Choice::TakeIn(w) => format!(
-            "a hand-out (epoch {}) is mounted, not taken in yet",
-            w.epoch
+            "a hand-out (epoch {}) from {} is mounted, not taken in yet",
+            w.epoch, w.from
         ),
-        Choice::Local {
-            fallback: Some(why),
-        } => format!("plain files under {}; {why}", root.display()),
-        Choice::Local { fallback: None } => format!(
-            "plain files under {} (an existing memory moves to a projected folder only by `memory hand-out`)",
-            root.display()
-        ),
+        Choice::Local { fallback } => {
+            let mut line = format!("plain files under {}", root.display());
+            if let Some(r) = &inputs.record {
+                line.push_str(&format!(", taken in from {} at epoch {}", r.from, r.epoch));
+            }
+            match fallback {
+                Some(why) => line.push_str(&format!("; {why}")),
+                None => {
+                    line.push_str("; `memory hand-out --to MACHINE` moves it over a projection")
+                }
+            }
+            line
+        }
         Choice::Refuse(why) => format!("not usable here: {why}"),
     };
     format!("memory: {place}\nmachine {}: {cap}", inputs.machine)
@@ -550,11 +542,12 @@ mod tests {
         }
     }
 
-    fn record(epoch: u64) -> Record {
+    fn rec(epoch: u64) -> Record {
         Record {
-            place: "projected".into(),
+            place: TAKEN_IN.into(),
             epoch,
             name: projection_name("0123abcd", epoch),
+            from: "a".into(),
             at: "t".into(),
         }
     }
@@ -641,45 +634,53 @@ mod tests {
     }
 
     #[test]
-    fn taken_in_epoch_is_projected() {
+    fn a_taken_in_epoch_is_not_taken_again() {
         let choice = choose(&Inputs {
-            record: Some(record(2)),
+            record: Some(rec(2)),
             mounted: true,
             writer: Some(writer(2, "b")),
+            local_memory: true,
             ..base()
         });
-        assert_eq!(choice, Choice::Projected);
+        assert_eq!(choice, Choice::Local { fallback: None });
     }
 
     #[test]
-    fn a_later_epoch_to_this_machine_is_taken_in_an_older_one_refused() {
+    fn a_later_epoch_is_taken_in_an_older_one_not() {
         let later = choose(&Inputs {
-            record: Some(record(2)),
+            record: Some(rec(2)),
             mounted: true,
             writer: Some(writer(3, "b")),
             ..base()
         });
         assert!(matches!(later, Choice::TakeIn(ref w) if w.epoch == 3));
         let older = choose(&Inputs {
-            record: Some(record(2)),
+            record: Some(rec(2)),
             mounted: true,
             writer: Some(writer(1, "b")),
             ..base()
         });
-        assert!(matches!(older, Choice::Refuse(_)), "{older:?}");
+        assert!(matches!(older, Choice::Local { .. }), "{older:?}");
     }
 
     #[test]
-    fn recorded_but_unmounted_refuses_instead_of_an_empty_memory() {
+    fn taken_in_needs_no_mount() {
         let choice = choose(&Inputs {
-            record: Some(record(1)),
+            record: Some(rec(1)),
             mounted: false,
-            local_memory: false,
+            local_memory: true,
             ..base()
         });
-        assert!(
-            matches!(choice, Choice::Refuse(ref w) if w.contains("not mounted") && w.contains("memory export"))
-        );
+        assert_eq!(choice, Choice::Local { fallback: None });
+    }
+
+    #[test]
+    fn a_mount_without_writer_is_refused() {
+        let choice = choose(&Inputs {
+            mounted: true,
+            ..base()
+        });
+        assert!(matches!(choice, Choice::Refuse(ref w) if w.contains(WRITER_FILE)));
     }
 
     #[test]
@@ -699,27 +700,61 @@ mod tests {
         assert!(!mountinfo_has_fuse(info, Path::new("/home/u/none")));
     }
 
-    fn seed_memory(dir: &Path) {
+    fn seed_memory(dir: &Path, rows: &[&str]) {
         std::fs::create_dir_all(dir).unwrap();
         let conn = rusqlite::Connection::open(dir.join(STORES[0])).unwrap();
         conn.execute_batch(
-            "PRAGMA journal_mode=WAL; CREATE TABLE log(id INTEGER PRIMARY KEY, text TEXT);
-             INSERT INTO log(text) VALUES ('remember the blue door'), ('second');",
+            "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS log(id INTEGER PRIMARY KEY, text TEXT);",
         )
         .unwrap();
+        for row in rows {
+            conn.execute("INSERT INTO log(text) VALUES (?1)", [row])
+                .unwrap();
+        }
     }
 
-    /// The whole path on one disk: a plain folder stands in for the mount (the FUSE mount and
-    /// its copy-up are cmux-projection's, tested there).
+    fn count(db: &Path, like: &str) -> i64 {
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM log WHERE text LIKE ?1", [like], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    }
+
+    /// Stands in for the projection: the hand-out's files at `root/memory`.
+    fn project(out: &Path, root: &Path) {
+        let dir = folder(root);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for entry in std::fs::read_dir(out).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
+        }
+    }
+
+    fn mounted(root: &Path, machine: &str) -> Inputs {
+        Inputs {
+            mounted: true,
+            writer: read_writer(&folder(root)),
+            record: record(root),
+            machine: machine.into(),
+            capability: true,
+            enabled: true,
+            local_memory: root.join(STORES[0]).exists(),
+        }
+    }
+
+    /// A to B and back to A on one disk: a plain folder stands in for the mount (the FUSE mount
+    /// is cmux-projection's; `measure/projected_memory_crash.sh` copies off a real one).
     #[test]
     fn hand_out_take_in_and_back_round_trip() {
-        let a = tempfile::tempdir().unwrap();
-        let b = tempfile::tempdir().unwrap();
-        let a_home = a.path().join("mux");
-        let a_paths = crate::paths::Paths::new(&a_home);
-        a_paths.create().unwrap();
-        seed_memory(&a_paths.root);
-        let out = a.path().join("out");
+        let t = tempfile::tempdir().unwrap();
+        let a_home = t.path().join("a");
+        let a = crate::paths::Paths::new(&a_home);
+        a.create().unwrap();
+        seed_memory(&a.root, &["remember the blue door", "second"]);
+        let out = t.path().join("out1");
         let w = hand_out(&a_home, "machine-b", &out).unwrap();
         assert_eq!(w.epoch, 1);
         assert_eq!(w.files[STORES[0]].rows["log"], 2);
@@ -728,66 +763,79 @@ mod tests {
         // A second hand-out into the same folder is refused.
         assert!(hand_out(&a_home, "machine-b", &out).is_err());
 
-        // Machine B: the projected folder is mounted at optchat/memory (a copy here).
-        let b_home = b.path().join("mux");
-        let b_paths = crate::paths::Paths::new(&b_home);
-        b_paths.create().unwrap();
-        let dir = folder(&b_paths.root);
-        std::fs::create_dir_all(&dir).unwrap();
-        for entry in std::fs::read_dir(&out).unwrap() {
-            let entry = entry.unwrap();
-            std::fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
-        }
-        let inputs = Inputs {
-            mounted: true,
-            writer: read_writer(&dir),
-            machine: "machine-b".into(),
-            capability: true,
-            enabled: true,
-            ..Inputs::default()
-        };
-        let Choice::TakeIn(w) = choose(&inputs) else {
+        // Machine B.
+        let b_home = t.path().join("b");
+        let b = crate::paths::Paths::new(&b_home);
+        b.create().unwrap();
+        project(&out, &b.root);
+        // A third machine refuses the same hand-out.
+        assert!(matches!(
+            choose(&mounted(&b.root, "machine-c")),
+            Choice::Refuse(_)
+        ));
+        let Choice::TakeIn(w) = choose(&mounted(&b.root, "machine-b")) else {
             panic!()
         };
-        take_in(&b_paths.root, &w).unwrap();
-        // Every Paths of the home now points into the projected folder.
-        let after = crate::paths::Paths::new(&b_home);
-        assert_eq!(after.memory_db, dir.join(STORES[0]));
-        let n: i64 = rusqlite::Connection::open(&after.memory_db)
-            .unwrap()
-            .query_row(
-                "SELECT count(*) FROM log WHERE text LIKE '%blue door%'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(n, 1);
-        // The same hand-out is not taken twice.
-        let again = Inputs {
-            record: record_of(&b_paths.root),
-            ..inputs.clone()
-        };
-        assert_eq!(choose(&again), Choice::Projected);
-
-        // A tampered store is refused.
-        let c = tempfile::tempdir().unwrap();
-        let c_root = c.path().join("optchat");
-        std::fs::create_dir_all(folder(&c_root)).unwrap();
-        std::fs::write(folder(&c_root).join(STORES[0]), b"not sqlite").unwrap();
-        assert!(take_in(&c_root, &w).is_err());
-
-        // Going back to plain files keeps every row.
-        place_local(&b_paths.root).unwrap();
-        let back = crate::paths::Paths::new(&b_home);
-        assert_eq!(back.memory_db, b_paths.root.join(STORES[0]));
+        take_in(&b_home, &w).unwrap();
+        // The memory is B's own plain files: the mount can go.
+        assert_eq!(b.memory_db, b.root.join(STORES[0]));
+        std::fs::remove_dir_all(folder(&b.root)).unwrap();
+        assert_eq!(count(&b.memory_db, "%blue door%"), 1);
         assert_eq!(
-            crate::migrate::table_counts(&back.memory_db).unwrap()["log"],
-            2
+            choose(&Inputs {
+                mounted: false,
+                ..mounted(&b.root, "machine-b")
+            }),
+            Choice::Local { fallback: None }
         );
+        // The same hand-out is not taken twice.
+        project(&out, &b.root);
+        assert!(matches!(
+            choose(&mounted(&b.root, "machine-b")),
+            Choice::Local { .. }
+        ));
+
+        // B writes, then hands the memory back to A at a later epoch.
+        seed_memory(&b.root, &["written on b"]);
+        let out2 = t.path().join("out2");
+        let w2 = hand_out(&b_home, "machine-a", &out2).unwrap();
+        assert_eq!(w2.epoch, 2);
+        assert!(crate::migrate::refusal(&b_home).is_some());
+        project(&out2, &a.root);
+        let Choice::TakeIn(w2) = choose(&mounted(&a.root, "machine-a")) else {
+            panic!()
+        };
+        take_in(&a_home, &w2).unwrap();
+        assert_eq!(count(&a.memory_db, "written on b"), 1);
+        assert_eq!(count(&a.memory_db, "%blue door%"), 1);
+        // A's old memory is kept beside it, and A may start again.
+        assert!(
+            a.root
+                .join(format!("{}.before-take-in-2", STORES[0]))
+                .is_file()
+        );
+        assert!(crate::migrate::refusal(&a_home).is_none());
     }
 
-    fn record_of(root: &Path) -> Option<Record> {
-        super::record(root)
+    #[test]
+    fn a_tampered_store_is_refused_and_nothing_placed() {
+        let t = tempfile::tempdir().unwrap();
+        let a_home = t.path().join("a");
+        let a = crate::paths::Paths::new(&a_home);
+        a.create().unwrap();
+        seed_memory(&a.root, &["remember the blue door"]);
+        let out = t.path().join("out");
+        let w = hand_out(&a_home, "b", &out).unwrap();
+        let c_home = t.path().join("c");
+        let c = crate::paths::Paths::new(&c_home);
+        c.create().unwrap();
+        seed_memory(&c.root, &["c's own"]);
+        project(&out, &c.root);
+        std::fs::write(folder(&c.root).join(STORES[0]), b"not sqlite").unwrap();
+        assert!(take_in(&c_home, &w).is_err());
+        assert_eq!(count(&c.memory_db, "c's own"), 1);
+        assert!(record(&c.root).is_none());
+        assert!(!c.root.join(format!("{}.tmp-take-in", STORES[0])).exists());
     }
 
     #[test]
