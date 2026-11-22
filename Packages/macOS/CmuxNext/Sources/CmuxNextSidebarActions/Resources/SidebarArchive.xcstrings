@@ -1835,6 +1835,137 @@
         }
       }
     },
+    "archive.refusal.noSettledChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no settled chats to archive. Unread answers, failed turns and lost agents stay until you look at them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد محادثات منتهية لأرشفتها. تبقى الردود غير المقروءة والأدوار الفاشلة والوكلاء المفقودون حتى تطّلع عليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema završenih razgovora za arhiviranje. Nepročitani odgovori, neuspjeli krugovi i izgubljeni agenti ostaju dok ih ne pogledate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen afsluttede chats at arkivere. Ulæste svar, mislykkede ture og mistede agenter bliver, til du har set på dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es gibt keine abgeschlossenen Chats zum Archivieren. Ungelesene Antworten, fehlgeschlagene Züge und verlorene Agenten bleiben, bis du sie ansiehst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay chats cerrados que archivar. Las respuestas sin leer, los turnos fallidos y los agentes perdidos se quedan hasta que los revises."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune discussion réglée à archiver. Les réponses non lues, les tours en échec et les agents perdus restent jusqu’à ce que vous les regardiez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ci sono chat concluse da archiviare. Risposte non lette, turni non riusciti e agenti persi restano finché non li guardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブする完了済みのチャットはありません。未読の回答、失敗したターン、見失ったエージェントは確認するまで残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានការជជែកដែលបានបញ្ចប់ដើម្បីទុកក្នុងប័ណ្ណសារទេ។ ចម្លើយមិនទាន់អាន វេនបរាជ័យ និងភ្នាក់ងារដែលបាត់ នៅដដែលរហូតដល់អ្នកមើលវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관할 정리된 채팅이 없습니다. 읽지 않은 답변, 실패한 턴, 끊긴 에이전트는 확인할 때까지 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det finnes ingen avsluttede chatter å arkivere. Uleste svar, mislykkede turer og tapte agenter blir til du har sett på dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak zakończonych czatów do archiwizacji. Nieprzeczytane odpowiedzi, nieudane tury i utracone agenty zostają, dopóki ich nie obejrzysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há conversas concluídas para arquivar. Respostas não lidas, turnos com falha e agentes perdidos ficam até você olhar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет завершённых чатов для архивации. Непрочитанные ответы, неудачные ходы и потерянные агенты остаются, пока вы их не посмотрите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแชตที่เสร็จแล้วให้เก็บถาวร คำตอบที่ยังไม่ได้อ่าน รอบที่ล้มเหลว และเอเจนต์ที่หายไปจะอยู่จนกว่าคุณจะดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenecek tamamlanmış sohbet yok. Okunmamış yanıtlar, başarısız turlar ve kaybolan ajanlar siz bakana kadar kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає завершених чатів для архівації. Непрочитані відповіді, невдалі ходи та втрачені агенти лишаються, доки ви їх не переглянете."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có cuộc trò chuyện đã xong nào để lưu trữ. Câu trả lời chưa đọc, lượt thất bại và tác tử bị mất sẽ ở lại cho đến khi bạn xem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可归档的已处理对话。未读的回复、失败的轮次和丢失的代理会保留，直到你查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可封存的已處理對話。未讀的回覆、失敗的輪次和遺失的代理會保留，直到你查看。"
+          }
+        }
+      }
+    },
     "archive.refusal.noOtherWorkspaces": {
       "extractionState": "manual",
       "localizations": {
