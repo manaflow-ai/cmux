@@ -16,7 +16,7 @@ import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
 import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { askSiteAgain, usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
@@ -137,11 +137,14 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 /// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
 export function UrlChip({
   href,
+  target,
   icon,
   reference = false,
   children,
 }: {
   href: string;
+  /** Run-step links keep opening a new browsing context while sharing the preview card. */
+  target?: "_blank";
   icon?: ReactNode;
   reference?: boolean;
   children: ReactNode;
@@ -223,13 +226,16 @@ export function UrlChip({
         data-open-session={agent["data-open-session"]}
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
+        target={target}
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onPointerEnter?.();
           enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onFocus?.();
           enter().onFocus?.(event);
         }}
@@ -244,6 +250,9 @@ export function UrlChip({
         <LinkHoverCard
           href={href}
           anchor={anchor}
+          // Preserve the page's link-click route for links with an explicit browsing target.
+          // Channels has no agent browser.openIn host; clicking its anchor lets the app handle it.
+          onOpenLink={target === "_blank" ? () => anchor?.click() : undefined}
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
