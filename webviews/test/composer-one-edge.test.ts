@@ -3,7 +3,8 @@
 // card, the card's own edge, the running tray, the queued prompts, an attachment tile and the pane's
 // menus all draw --acpmux-composer-edge, in light and dark, on an opaque window, over art and under
 // Reduce Transparency, resting and focused: a focused composer lifts the whole stack's edge at once,
-// never the card alone. The glass's light stays inside the edge (the band under the top and the sheen)
+// never the card alone. A glass menu's lit top hairline (design/glass-system.md rule 4, #48174) is its
+// light, not an edge. The glass's light stays inside the edge (the band under the top and the sheen)
 // and never paints a line on it, and where a hat joins the card only the hat is lit from above.
 //
 // Before: the card's specular top line sat on the seam under the banner (165 gray in the user's shot,
@@ -96,6 +97,18 @@ await requireBrowserLane("composer-one-edge.test.ts", async () => {
         const element = document.getElementById(id)!;
         const edges: string[] = [];
         const lights: string[] = [];
+        // A glass surface's lit top hairline (--glass-edge-top, design/glass-system.md rule 4, "one
+        // edge": the ring plus one lit hairline on top, #48174) is the glass's light, not a second
+        // edge color: resolve it here so the line it draws counts with the lights. Only a popup's:
+        // a lit line on the composer stack's seam is what this file catches.
+        let litTop = "";
+        if (element.matches(".ui-popup") && getComputedStyle(element).getPropertyValue("--glass-edge-top").trim()) {
+          const probe = document.createElement("span");
+          probe.style.color = "var(--glass-edge-top)";
+          element.appendChild(probe);
+          litTop = getComputedStyle(probe).color;
+          probe.remove();
+        }
         const before = getComputedStyle(element, "::before");
         // A ::before with no content draws nothing.
         const drawn = before.content === "none" || before.content === "normal" ? [] : [before];
@@ -117,7 +130,8 @@ await requireBrowserLane("composer-one-edge.test.ts", async () => {
               blur === 0 &&
               spread === 0 &&
               ((x === 0 && y !== 0 && Math.abs(y) <= 1) || (y === 0 && x !== 0 && Math.abs(x) <= 1));
-            if (ring || line) edges.push(color);
+            if (line && x === 0 && y > 0 && litTop && color === litTop) lights.push(`lit top ${y}px`);
+            else if (ring || line) edges.push(color);
             else lights.push(`${x}px ${y}px ${blur}px ${spread}px`);
           }
         }

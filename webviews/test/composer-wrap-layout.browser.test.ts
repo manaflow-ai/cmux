@@ -142,11 +142,14 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               for (const key of ["--cmux-density-scale", "--cmux-density-text-scale", "--cmux-composer-zoom"])
                 document.documentElement.style.setProperty(key, String(density));
             }, density);
+            // New Tab also keeps the chat view built and hidden under it (#44638), with its own field.
+            const fieldSelector = layout.newTab ? ".nt-field" : ".acpmux-md-field";
             const editor = page.locator(layout.newTab ? ".nt-field .ProseMirror" : ".acpmux-composer-box .ProseMirror");
             const placeholderTop = async () => {
               await editor.fill("");
               await page.waitForFunction(
-                () => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0,
+                (selector) => document.querySelector(selector)!.getAnimations().length === 0,
+                fieldSelector,
               );
               await frame(page);
               return page.evaluate(() => {
@@ -302,11 +305,14 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             if (layout.newTab) expect(Math.abs((await placeholderTop()) - placeholder!)).toBeLessThan(0.5);
             await editor.fill(Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n"));
             await editor.press("Control+End");
-            await page.waitForFunction(() => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0);
+            await page.waitForFunction(
+              (selector) => document.querySelector(selector)!.getAnimations().length === 0,
+              fieldSelector,
+            );
             await frame(page);
-            expect(
-              await page.locator(".acpmux-md-field").evaluate((field) => field.scrollHeight > field.clientHeight),
-            ).toBe(true);
+            expect(await page.locator(fieldSelector).evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(
+              true,
+            );
             if (!layout.newTab && !layout.bottom) {
               const capped = await measure(page, false);
               for (let index = 0; index < before.controls.length; index++)
@@ -314,7 +320,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             }
             await page.keyboard.type("x");
             await frame(page);
-            expect(await page.locator(".acpmux-md-field").evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
+            expect(await page.locator(fieldSelector).evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
           } finally {
             await page.close();
           }

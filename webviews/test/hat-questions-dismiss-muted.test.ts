@@ -3,7 +3,7 @@
 // text colour only on hover or focus. Its rule once had one class and lost to the shared button's
 // `.ui-button.ui-btn { color: var(--ds-color-fg) }` (ui/controls.css), so the × showed at full
 // contrast. It renders the gallery stage `agent-pane.hat-questions` (variant `dismiss-always`, the ×
-// shown at rest) in Chromium and compares the ×'s computed colour with the pager's muted one.
+// shown at rest) in Chromium and compares the ×'s computed colour with the muted ink where it sits.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/hat-questions-dismiss-muted.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -57,8 +57,10 @@ await requireBrowserLane("hat-questions-dismiss-muted.test.ts", async () => {
               const element = document.querySelector(selector);
               return element ? getComputedStyle(element).color : "";
             };
+            // The tokens as the × resolves them: inside glass, --agent-muted is the glass's secondary
+            // ink (ui/glass/glass.css, design/glass-system.md rule 5, #48174), not the page's.
             const probe = document.createElement("span");
-            document.body.append(probe);
+            document.querySelector(".acpmux-hat-questions__dismiss")!.parentElement!.append(probe);
             probe.style.color = "var(--agent-text)";
             const text = getComputedStyle(probe).color;
             probe.style.color = "var(--agent-muted)";

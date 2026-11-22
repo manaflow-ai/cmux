@@ -75,7 +75,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
         expect(await dots(page, ".nt-style")).toEqual([]);
         expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
         expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-        expect(await page.locator(".nt-create button").count()).toBe(3);
+        // Home creation commands are found by search, not three fixed buttons (#45219).
+        expect(await page.locator(".nt-create button").count()).toBe(0);
         expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe(saved);
         await page.reload();
         await ready(page);

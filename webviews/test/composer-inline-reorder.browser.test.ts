@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Page, webkit } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => {
   const CHIP = ".acpmux-md [data-inline-attachment]";
@@ -20,6 +20,10 @@ await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => 
       .locator(".acpmux-attachment-remove")
       .evaluate((button) => Number(getComputedStyle(button).opacity));
 
+  const engines = [chromium];
+  if (await probeEngineOrSkip("composer-inline-reorder.browser.test.ts (webkit)", "webkit", webkit))
+    engines.push(webkit);
+
   test("a press on a thumbnail's centre drags it past the next one; the × shows only on hover", async () => {
     const { createServer } = await import("vite");
     const vite = await createServer({
@@ -30,7 +34,7 @@ await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => 
     try {
       await vite.listen();
       const port = (vite.httpServer!.address() as { port: number }).port;
-      for (const engine of [chromium, webkit]) {
+      for (const engine of engines) {
         const browser = await engine.launch({ headless: true });
         try {
           await warmGalleryFrame(vite, "agent-pane.composer", { browser });

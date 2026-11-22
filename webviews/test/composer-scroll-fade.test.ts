@@ -15,7 +15,7 @@
 // CMUX_BROWSER_TESTS=1 bun test test/composer-scroll-fade.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
@@ -26,12 +26,9 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
     ["chromium", chromium],
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
-    try {
-      await (await engine[1].launch({ headless: true })).close();
+    // Fails where the lane is required, skips the engine where it cannot launch (probeEngineOrSkip).
+    if (await probeEngineOrSkip(`composer-scroll-fade.test.ts (${engine[0]})`, engine[0], engine[1]))
       engines.push(engine);
-    } catch {
-      throw new Error(`composer-scroll-fade: cannot launch ${engine[0]}`);
-    }
   }
   const browsers = new Map<string, Browser>();
   let current: Browser | undefined;

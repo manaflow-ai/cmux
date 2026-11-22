@@ -8,14 +8,17 @@
 // end and back, clicks it without dragging, misses it by a few px, double-clicks it, and drags it
 // again and again; the probe (test/feel/probe.ts) reads every painted frame. Verdicts (numbers, not
 // screenshots; test/feel/verdicts.ts):
-// - the rim stays under the hand from the grab point, 1:1 (a frame of lag forgiven), with no jump;
-// - it stays where it was let go, on a whole line (the snap: no line cut in half);
+// - the rim stays under the hand from the grab point, 1:1 (a frame of lag forgiven), with no jump; a
+//   line's edge is a detent (trayResize.ts HAT_DETENT, #50154: "satisfying snap alongs"), so the rim
+//   may sit on one while the hand is within HAT_DETENT of it and step off it by that much, no more;
+// - let go, it lands on the nearer whole line, half a line at most (the snap: no line cut in half);
 // - a shaky hand at the fold point folds or opens it once, not back and forth;
 // - a click or a 3 px wobble on the rim, or a click just above it, moves and changes nothing;
 // - a double-click moves the hat once, one way.
 // The report and a recording per scenario go to $CMUX_FEEL_OUT/plan-tray (test/feel/report.ts).
 import { describe, setDefaultTimeout, test } from "bun:test";
 import type { Page } from "playwright";
+import { HAT_DETENT, HAT_OPEN_SLOP } from "../src/agent-session/acpmux/subagents/trayResize";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { click, doubleClick, drag, dragPath, play, type DragStyle } from "./feel/cursor";
 import { frames, record } from "./feel/probe";
@@ -44,9 +47,13 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  // Red on feat-cmux-next today; the plan-display-proper lane is fixing the tray's drag.
-  const FIX = "the plan-display-proper lane";
-  const SNAP = `${FIX}: the list stops between lines (it sizes to raw px)`;
+  // The rim follows the hand once it moves past the drag slop (HAT_OPEN_SLOP); within HAT_DETENT of a
+  // line's edge it settles on the edge (#50154). Off the hand by more than the detent (and a pixel of
+  // rounding: the list's heights round to whole px) is a miss, and a frame's step that much beyond the
+  // hand's is a jump.
+  const FOLLOW = { box: "tray", edge: "top", slop: HAT_OPEN_SLOP } as const;
+  const OFF_HAND = HAT_DETENT + 1;
+  const JUMP = HAT_DETENT + 1;
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.feel-plan-tray",
     variant: "fifty",
@@ -55,16 +62,6 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     prepare: async (page) => {
       await page.evaluate(() => localStorage.removeItem("cmux.agentPane.hatListHeight"));
       await page.waitForSelector(`${TRAY}[data-open] ${LIST}`);
-    },
-    known: {
-      "drag-slow--60": SNAP,
-      "drag-fast--60": SNAP,
-      "drag-jitter--60": SNAP,
-      "drag-burst--60": SNAP,
-      "drag-slow-40": SNAP,
-      "fold-hysteresis": `${FIX}: a shaky hand at the fold point folds and opens it 9 times`,
-      "rim-click": `${FIX}: a click on the rim folds the hat`,
-      "rim-wobble-3px": `${FIX}: a click on the rim folds the hat`,
     },
   });
 
@@ -94,10 +91,12 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
           const trace = await record(page, SPEC, () =>
             drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, style)),
           );
-          const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
-          v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
-          v.atMost("jumps (frames off the hand by over 4 px)", report.jumps.length, 0);
-          v.atMost("move after release", report.releaseMove, 1, " px");
+          const report = follow(trace, FOLLOW, JUMP);
+          v.atMost("rim offset from the grab point (max)", report.maxError, OFF_HAND, " px");
+          v.atMost(`jumps (frames off the hand by over ${JUMP} px)`, report.jumps.length, 0);
+          // Let go between lines, it lands on the nearer whole line (trayResize.ts hatDragEnd, #50154):
+          // never more than half a line.
+          v.atMost("move after release", report.releaseMove, line / 2 + 1, " px");
           // A rim that never moves is "never off the hand" too: it must cover the way the hand went.
           v.atLeast("rim travel / hand travel", report.coverage, 0.9);
           const list = trace.frames.at(-1)!.boxes.list;
@@ -126,8 +125,8 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
         const trace = await record(page, SPEC, () =>
           drag(page, { x, y }, dragPath({ x, y }, { x, y: Math.max(20, y - 420) }, "overshoot")),
         );
-        const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
-        v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
+        const report = follow(trace, FOLLOW, JUMP);
+        v.atMost("rim offset from the grab point (max)", report.maxError, OFF_HAND, " px");
         v.atMost("jumps", report.jumps.length, 0);
         v.atMost("move after release", report.releaseMove, 1, " px");
         return report;
@@ -216,11 +215,11 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
               settleFrames: 6,
             },
           );
-          const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
+          const report = follow(trace, FOLLOW, JUMP);
           worst = Math.max(worst, report.maxError);
           jumps += report.jumps.length;
         }
-        v.atMost("rim offset from the grab point (worst of five)", worst, 3, " px");
+        v.atMost("rim offset from the grab point (worst of five)", worst, OFF_HAND, " px");
         v.atMost("jumps (all five)", jumps, 0);
         return { worst, jumps };
       });

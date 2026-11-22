@@ -98,6 +98,7 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
               title: box(head.querySelector(".acpmux-running-tray__title")),
               stack: box(head.querySelector(".acpmux-running-tray__stack")),
               more: box(head.querySelector(".acpmux-running-tray__more")),
+              kinds: head.querySelector(".acpmux-running-tray__kinds") !== null,
               timeCut: node.scrollWidth > node.clientWidth + 1,
             };
           }, text);
@@ -105,9 +106,11 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
         const shown: Awaited<ReturnType<typeof at>>[] = [];
         for (const text of ticks) shown.push(await at(text));
         const first = shown[0]!;
-        // The folded header names what runs and counts the rest: both are measured, never absent.
-        expect(first.title, "the folded header shows no names").toBeDefined();
-        expect(first.more, "the folded header shows no +N more").toBeDefined();
+        // The folded header says what runs, measured, never absent. Its default arm is each kind's mark
+        // and count (trayFoldHead.experiment.ts `kinds`, #48542), which draws no "+N more"; a named arm
+        // names what runs and counts the rest, and both are measured.
+        expect(first.title, "the folded header shows no names or counts").toBeDefined();
+        if (!first.kinds) expect(first.more, "the folded header shows no +N more").toBeDefined();
         for (const [index, step] of shown.entries()) {
           expect(step.text).toBe(ticks[index]!);
           expect(step.timeCut, `the time was cut at ${step.text}`).toBe(false);

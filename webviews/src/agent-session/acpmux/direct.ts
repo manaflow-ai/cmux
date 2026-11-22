@@ -6726,7 +6726,15 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = false;
       // Hidden notices were deliberately not reduced into the list. Refresh once on return so
       // the next visible list includes those changes, even on a live socket.
-      void this.refreshSessions().catch(() => this.rereadSessionsLater());
+      // A read ahead owed for a chat that ran on while hidden reads the refreshed list: before it
+      // lands the list still holds the chat as it was read, and nothing would be read again.
+      const readAheadOwed = this.readAheadOwed;
+      void this.refreshSessions().then(
+        () => {
+          if (readAheadOwed && !this.closed) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
+        },
+        () => this.rereadSessionsLater(),
+      );
       this.emitInFrame("session changed");
     }
     if (this.closed) return;
@@ -8605,6 +8613,9 @@ export class AcpmuxDirectClient {
     ) {
       this.listChangedWhileHidden = true;
       this.sessionPages.invalidate();
+      // A chat read ahead ran on: its read is owed for when the page shows, read once the refresh on
+      // return lists the change (`showChanged`), as a visible page reads it again below.
+      if (this.readAheadAt.has(session.sessionId)) this.readAheadOwed = true;
       return;
     }
     // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).

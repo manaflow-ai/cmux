@@ -19,24 +19,19 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { papercutPane } from "./support/papercutChat";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
   setDefaultTimeout(300_000);
   /// The page's frame record (`record`, `recorded`).
   type Recording = Window & { __composerBars?: { bar: number; overflow: number }[]; __stopComposerBars?: () => void };
-  const launchers: [string, () => Promise<Browser>][] = [
-    ["chromium", () => chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] })],
-    ["webkit", () => webkit.launch({ headless: true })],
-  ];
-  for (const [name, launch] of launchers) {
-    try {
-      await (await launch()).close();
-    } catch {
-      throw new Error(`composer-persistent-scrollbar: cannot launch ${name}`);
-    }
-  }
+  const launchers: [string, () => Promise<Browser>][] = [];
+  // Fails where the lane is required, skips the engine where it cannot launch (probeEngineOrSkip).
+  if (await probeEngineOrSkip("composer-persistent-scrollbar.test.ts (chromium)", "chromium", chromium))
+    launchers.push(["chromium", () => chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] })]);
+  if (await probeEngineOrSkip("composer-persistent-scrollbar.test.ts (webkit)", "webkit", webkit))
+    launchers.push(["webkit", () => webkit.launch({ headless: true })]);
   const browsers = new Map<string, Browser>();
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;

@@ -46,9 +46,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   const GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
-  /** Codex's chat look: the prompt-to-row gap and the room under the row (composerLook.css). */
+  /** Codex's chat look: the prompt-to-row gap, the room under the row and the prompt's side inset
+   *  (composerLook.css). Since #42247 (aligned with Codex) the row stands the control inset (8 px)
+   *  over the box's bottom and the prompt starts 18 px in. */
   const CODEX_PROMPT_GAP = 16;
-  const CODEX_ROW_BOTTOM = 12;
+  const CODEX_ROW_BOTTOM = 8;
+  const CODEX_PROMPT_SIDE = 18;
   /** The least room under a one-line prompt's text, to the box's bottom (10 px block inset). */
   const MIN_ROOM = 12;
 
@@ -523,9 +526,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       // ChatGPT's two-row spacing in Codex's look (Leo 2026-11-04): the prompt starts over the
       // lower row, with one 16px gap before the controls (24px before Leo 2026-11-08: "we need to
       // not have our thing be so tall"). It never reserves +'s blank column.
-      if (m.text === null || Math.abs(m.text - m.box.left - 16) > TOLERANCE)
+      if (m.text === null || Math.abs(m.text - m.box.left - CODEX_PROMPT_SIDE) > TOLERANCE)
         out.push(
-          `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not 16`,
+          `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not ${CODEX_PROMPT_SIDE}`,
         );
       if (!m.line || plus.top - m.line.bottom < CODEX_PROMPT_GAP - TOLERANCE)
         out.push("the lower controls crowd the prompt's first line");
@@ -607,8 +610,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
     // Equal insets. In Codex's look + and the last control stand the control inset off the box's
-    // sides, and the row CODEX_ROW_BOTTOM over its bottom (Leo 2026-11-08: "have more padding on the
-    // bottom"; it was the 8px side inset before). In Claude's,
+    // sides, and the row CODEX_ROW_BOTTOM over its bottom (12 px after Leo 2026-11-08: "have more
+    // padding on the bottom"; #42247 set it back to the 8px control inset to match Codex). In Claude's,
     // + stands as far under the box's top as over its bottom (one line), and as far off its left as
     // the last control off its right.
     const floor = m.box.bottom;

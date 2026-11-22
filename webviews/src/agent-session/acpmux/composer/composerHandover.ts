@@ -38,12 +38,14 @@ function first(doc: ParentNode, selectors: string[]): Element | null {
   return null;
 }
 
-function place(element: Element | null | undefined): Place | undefined {
+function place(element: Element | null | undefined, laidOut = (rect: DOMRect) => rect.height > 0): Place | undefined {
   const rect = element?.getBoundingClientRect();
-  return rect && rect.height > 0
-    ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
-    : undefined;
+  return rect && laidOut(rect) ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : undefined;
 }
+
+/// A field's place is where its text starts: the editor's root is laid out but still empty (no height)
+/// when the composer mounts, as its editable mounts after it, so a width alone places it.
+const fieldPlace = (element: Element | null | undefined) => place(element, (rect) => rect.width > 0);
 
 /** Called as New Tab leaves for the chat it started: remembers where its card and field drew. */
 export function holdComposerPlace(doc: Document = document): void {
@@ -71,7 +73,7 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
   const cardElement = form.querySelector<HTMLElement>(CHAT_CARD);
   const card = place(cardElement) ?? place(form);
   const fieldElement = first(form, CHAT_FIELD) as HTMLElement | null;
-  const field = place(fieldElement);
+  const field = fieldPlace(fieldElement);
   if (!card) return;
   const timing: KeyframeAnimationOptions = {
     duration,

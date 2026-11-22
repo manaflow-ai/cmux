@@ -11,7 +11,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
@@ -23,12 +23,9 @@ await requireBrowserLane("composer-paste-end.test.ts", async () => {
     ["chromium", chromium],
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
-    try {
-      await (await engine[1].launch({ headless: true })).close();
+    // Fails where the lane is required, skips the engine where it cannot launch (probeEngineOrSkip).
+    if (await probeEngineOrSkip(`composer-paste-end.test.ts (${engine[0]})`, engine[0], engine[1]))
       engines.push(engine);
-    } catch {
-      throw new Error(`composer-paste-end: cannot launch ${engine[0]}`);
-    }
   }
 
   const { createServer } = await import("vite");

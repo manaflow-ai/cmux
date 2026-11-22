@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { papercutPane } from "./support/papercutChat";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-header-solo-tab.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -79,7 +79,8 @@ await requireBrowserLane("chat-header-solo-tab.test.ts", async () => {
 
   // The page's own sheets, as the fade test in chat-header-tab-row-surface loads them, in both CI engines: WebKit
   // is the App's. The page's color is red and the rows are black.
-  for (const engine of ["chromium", "webkit"] as const) {
+  const webkitRuns = await probeEngineOrSkip("chat-header-solo-tab.test.ts (webkit)", "webkit", webkit);
+  for (const engine of webkitRuns ? (["chromium", "webkit"] as const) : (["chromium"] as const)) {
     test(`${engine}: a solo row is no band, and text under it fades out and blurs`, async () => {
       const shellCss = [
         read("styles.css"),
