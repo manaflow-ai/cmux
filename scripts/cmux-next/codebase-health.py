@@ -38,7 +38,7 @@ PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 
 
 def refresh_base(root, ref: str) -> str:
@@ -598,7 +598,7 @@ def measured_at(repo: Path) -> str:
     refresh_base(repo, UPSTREAM)
     found = subprocess.run(["git", "-C", str(repo), "merge-base", "HEAD", UPSTREAM], capture_output=True, text=True)
     if found.returncode != 0:
-        return f"at `{head}` (this repository has no `{UPSTREAM}`)"
+        return f"at `{head}` (this repository has no `{UPSTREAM.removeprefix('refs/remotes/')}`)"
     base = found.stdout.strip()
     changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", base, "--", *MEASURED).split("\n") if p]
     short = git(repo, "rev-parse", "--short=11", base).strip()

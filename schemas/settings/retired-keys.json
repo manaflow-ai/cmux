@@ -182,6 +182,11 @@
       "key": "agents.hiddenChats.discardAfterMinutes",
       "reason": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
       "why": "Leo (2026-11-14): \"obviously if something isn't drawn/is completely proven idle then dont bother taking memory\"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page."
+    },
+    {
+      "key": "home.chiefPanel.seesScreen",
+      "reason": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
+      "why": "Lawrence (2026-11-20): \"remove share screen with chief\". Its capture host had already gone with the cmux Computer Use helper."
     }
   ]
 }
