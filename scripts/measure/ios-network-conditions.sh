@@ -141,7 +141,9 @@ bench() {
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
     NETCOND_DURESS_PROFILES="$duress_profiles" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
-      ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 >"$log" 2>&1) || code=$?
+      ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
+    # Live as they come, so a run cut at its deadline still shows how far it got.
+    { sed -un -e "s/^NETCOND /NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
   sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-(ERROR|FIXTURE)' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label $surface exit=$code log=$log"
