@@ -123,7 +123,8 @@ jobs:
           out="$RUNNER_TEMP/parity"
           status=0
           PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 || status=$?
-          for f in "$out/parity.md" "$out/resize.md"; do
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test bench -- --ignored --nocapture layout_change || status=$?
+          for f in "$out/parity.md" "$out/resize.md" "$out/layout.md"; do
             [ -f "$f" ] && { cat "$f"; echo; } >> "$GITHUB_STEP_SUMMARY"
           done
           exit "$status"
