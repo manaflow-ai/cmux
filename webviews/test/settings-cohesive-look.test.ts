@@ -8,7 +8,8 @@
 //   between them, only the two fills, as the window's main pane beside the app sidebar (Lucas 2026-11-12);
 // - the sidebar opens with the page's title ("Settings") above the search field;
 // - the content is one centered column of at most 680 px;
-// - a row's description wraps at about 60% of the card, leaving the right side to the control.
+// - a row's description wraps at about 60% of the card, leaving the right side to the control (a row
+//   with no control may run its text the full width).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type BrowserType, type Page } from "playwright";
@@ -88,6 +89,9 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
       const helps: string[] = [];
       for (const help of document.querySelectorAll<HTMLElement>(".content .rows .row .row-help")) {
         const row = help.closest<HTMLElement>(".row")!;
+        // A row of text alone (the Customization Library's lead line, in Appearance since 75d22c950b6)
+        // has no control to leave the right side to.
+        if (!row.querySelector("button, input, select, textarea, [role=switch], [role=combobox]")) continue;
         const ratio = help.getBoundingClientRect().width / row.getBoundingClientRect().width;
         if (ratio > 0.66) helps.push(`${help.textContent?.slice(0, 30)}: ${ratio.toFixed(2)}`);
       }
