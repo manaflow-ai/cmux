@@ -36,5 +36,27 @@ class Divider(unittest.TestCase):
         self.assertEqual(split_resize._divider(sample, "chat")[0], "near")
 
 
+class FromPoint(unittest.TestCase):
+    """A divider drag reads where the divider is before its trace starts (split_resize.from_point)."""
+
+    def test_the_point_is_read_when_prepared_not_inside_the_gesture(self) -> None:
+        log: list = []
+
+        def point_of():
+            log.append("read")  # in the app, a short motion trace of its own
+            return 662.0, 358.5
+
+        prepare = split_resize.from_point(point_of, lambda x, y: log.append(("drag", x, y)) or "dragged")
+        act = prepare()
+        self.assertEqual(log, ["read"])
+        log.append("trace_start")
+        self.assertEqual(act(), "dragged")
+        self.assertEqual(log, ["read", "trace_start", ("drag", 662.0, 358.5)])
+
+    def test_no_divider_is_an_error_not_a_drag(self) -> None:
+        act = split_resize.from_point(lambda: None, lambda x, y: self.fail("dragged with no divider"))()
+        self.assertEqual(act(), {"error": "no divider"})
+
+
 if __name__ == "__main__":
     unittest.main()

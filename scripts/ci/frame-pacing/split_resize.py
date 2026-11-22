@@ -209,6 +209,20 @@ def _cef_counters(reply) -> dict[str, float]:
     return found
 
 
+def from_point(point_of, run):
+    """A gesture that starts where `point_of()` says (a divider's center), prepared before its trace: calling the
+    result reads the point now and returns the gesture, which `run`s from it (an error with no point).
+
+    The app has one motion trace (MotionFrameTrace.shared), and reading a divider's place is a trace of its own
+    (`at_rest`). Read inside the gesture's trace, it ended that trace, and the gesture's trace_stop returned the
+    0.2 s at rest: every divider drag of steps d315c76a, bee050aa, c9df4d3c and bead182b (2026-11-20 to 22) read
+    12 to 16 samples of a still divider, and the bench measured nothing."""
+    def prepare():
+        point = point_of()
+        return (lambda: run(*point)) if point else (lambda: {"error": "no divider"})
+    return prepare
+
+
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
           gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0, profile=None, sight=None) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
@@ -482,33 +496,33 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         return {"from": [x0, y0], "dx": x - x0, "dy": 0, "down": down, "wall_s": round(time.monotonic() - began, 3)}
 
     def acts(gesture: str) -> list:
+        """Each gesture's preparation: called before its trace starts, it returns the gesture (`from_point`)."""
         if gesture == "divider-pause":
             point = divider_point()
             if point is None:
                 return []
             # Each drag starts from the divider's place then (PAUSED_DRAG's moves add up to none).
-            return [lambda: (lambda p: paused_drag(*p) if p else {"error": "no divider"})(divider_point())
-                    for _ in range(4)]
+            return [from_point(divider_point, paused_drag) for _ in range(4)]
         if gesture == "divider":
             if divider_point() is None:
                 return []
-            return [lambda dx=dx: (lambda p: drag_path(p[0], p[1], dx, 0) if p else {"error": "no divider"})(
-                divider_point()) for dx in DRAGS]
+            return [from_point(divider_point, lambda x, y, dx=dx: drag_path(x, y, dx, 0)) for dx in DRAGS]
         if gesture == "sidebar":
-            return [lambda: driver.call("action.run", {"action": "toggleSidebar"}) for _ in range(4)]
+            return [lambda: lambda: driver.call("action.run", {"action": "toggleSidebar"}) for _ in range(4)]
         sample = at_rest()
         if not sample:
             return []
         w, h = float(sample["window"][0]), float(sample["window"][1])
         moves = []
         for dx, dy in EDGE_DRAGS:
-            moves.append(lambda w=w, h=h, dx=dx, dy=dy: drag_path(w - 1, h - 1, dx, dy))
+            moves.append(lambda w=w, h=h, dx=dx, dy=dy: lambda: drag_path(w - 1, h - 1, dx, dy))
             w, h = w + dx, h + dy
         return moves
 
     drags = []
     for gesture in gestures:
-        for act in acts(gesture):
+        for prepare in acts(gesture):
+            act = prepare()  # where it starts, read before its trace (from_point)
             reset()
             cef_before = _cef_counters(driver.call("debug.cef", {}, timeout=10))
             if pane == "terminal":
