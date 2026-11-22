@@ -39,6 +39,15 @@ export function usePropChurn(name: string, props: object, enabled: boolean, coun
   const before = last.current;
   last.current = now;
   if (!enabled || !before) return;
-  for (const key of new Set([...Object.keys(before), ...Object.keys(now)]))
-    if (!Object.is(before[key], now[key])) count(`${name}.prop:${key}`);
+  for (const key of new Set([...Object.keys(before), ...Object.keys(now)])) {
+    const was = before[key];
+    const is = now[key];
+    if (Object.is(was, is)) continue;
+    count(`${name}.prop:${key}`);
+    // An object prop names the members that changed too (`snapshot.summary`), one level down.
+    if (was && is && typeof was === "object" && typeof is === "object" && !Array.isArray(was))
+      for (const member of new Set([...Object.keys(was), ...Object.keys(is)]))
+        if (!Object.is((was as Record<string, unknown>)[member], (is as Record<string, unknown>)[member]))
+          count(`${name}.prop:${key}.${member}`);
+  }
 }

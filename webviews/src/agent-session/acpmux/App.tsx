@@ -2577,15 +2577,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChatRoute,
     useCallback(() => setAuthRouteVersion((version) => version + 1), []),
   );
+  // The read keeps its identity across a drop and a reconnect: a new `read` is a new selection to
+  // useSessionAuth, which drops the answer it holds and reads "Checking…" (authBlock) until the next
+  // one, so each drop and each reconnect drew the composer twice with Send disabled between (Leo,
+  // 2026-11-22: "idk if the waiting for agent service bullshit has anything to do with it"). With no
+  // connection the read fails, which keeps the answer the chat had; the reconnect reads it again
+  // (`authObservation`) and the answer replaces it only when it differs.
+  const authConnected = useRef(connected);
+  authConnected.current = connected;
   const readAuth = useCallback<NonNullable<SignIn["readSessionAuth"]>>(
     (query, refresh) =>
-      connected && directClient.current
+      authConnected.current && directClient.current
         ? directClient.current.sessionAuth(query, refresh)
-        : Promise.resolve(UNKNOWN_AUTH),
-    [connected],
+        : Promise.reject(new Error("acpmux.notConnected")),
+    [],
   );
   const authEpoch = authRouteVersion;
-  const authObservation = snapshot.isWorking ? 1 : 0;
+  // A turn's start or end and the link coming back each read the chat's sign-in again, keeping the answer meanwhile.
+  const authObservation = (snapshot.isWorking ? 1 : 0) + (connected ? 2 : 0);
   // Before the first prompt there is no session id, so ask acpmux about the exact harness the
   // composer displays. An unknown target answer stays unknown; it must never become a sign-in card.
   const authQuery = snapshot.sessionId
@@ -13726,7 +13735,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
+            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={blockSend || cloudSendHeld || machineCheck.blocked}
             closeOnTrustAsk={Boolean(
