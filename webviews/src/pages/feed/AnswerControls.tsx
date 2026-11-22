@@ -210,7 +210,7 @@ function ChoiceControls({ item, store, snap, strings, disabled }: ControlProps) 
                     type="button"
                     className="feed-chip"
                     aria-pressed={selected}
-                    title={option.description}
+                    aria-description={option.description}
                     disabled={disabled}
                     onClick={() => store.toggleChoice(item.id, question, option.id, oneTap)}
                   >
