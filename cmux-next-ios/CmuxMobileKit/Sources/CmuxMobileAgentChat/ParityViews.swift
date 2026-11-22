@@ -282,9 +282,11 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
-            // Following, growth keeps the end in place in the same layout pass (no frame with the
-            // new row below the screen); otherwise it keeps the reader's row in place.
-            .defaultScrollAnchor(follows ? .bottom : .top, for: .sizeChanges)
+            // Following a running subagent, growth keeps the end in place in the same layout pass
+            // (no frame with the new row below the screen); otherwise it keeps the reader's row in
+            // place. A finished transcript never anchors at the bottom: a lazy row measured as the
+            // reader scrolls (a 15,000 pt log) would move everything above it.
+            .defaultScrollAnchor(follows && running ? .bottom : .top, for: .sizeChanges)
             .scrollPosition($position)
             .onScrollPhaseChange { _, new in phase = new }
             .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
