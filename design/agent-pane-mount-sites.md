@@ -10,7 +10,9 @@ measured` has no number yet; nothing here is estimated.
 Harness for every number: `webviews/bench/first-load-after-restart.bench.ts` (production build, stand-in
 acpmux, `LINK`, `PAGES`, `CPU` knobs) and `scripts/measure/restart-settled-linux.sh` (the same bench beside
 the terminal's reattach). Both run on Linux Chromium: they leave out the app's process start, CEF start and
-the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` and the `agent_pane.*` marks.
+the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` and the `agent_pane.*` marks. Rows 6, 8 and 9 come from
+`webviews/bench/pane-mount-sites.bench.ts` (`ROW=newtab`, `ROW=switch`), row 10 from `webviews/bench/home-pane-imports.bench.ts`;
+medians of 5, loaded means CPU 4x and, for a switch, a chat streaming (`SIM=long:400 RUNNING=1`).
 
 ## Mount sites
 
@@ -21,11 +23,11 @@ the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` an
 | 3 | Mac, chat tab not selected in its pane | `AgentTabs.view(for:)` on first show or on hover (`PaneController+Neighbors.swift`) | show, hover | hover loads it before it shows | same as 1 | not measured | | code |
 | 4 | Mac, every agent page under Chromium | `CmuxNextPages/PageWebView.swift` init builds a `PageWKWebView` before the engine is chosen | every page | yes: a WebKit view nobody draws when the engine is CEF | n/a | first view in the process 26 to 43 ms main thread and 3.4 to 4.9 MB; each later one about 1 ms and about 75 KB (stand-in script, air-blue M5 under load average 57 to 85, 5 runs of 20 views; helper processes not checked) | not cut: about 1 ms a page | run |
 | 5 | Mac, New Tab spare | `AgentTabs.makeSpare`, `NewTabSparePool` | after first frame; refill 250 ms after an open | yes, parked | n/a | page only: 42 MB JS heap, 1839 DOM nodes parked; taking a chat 91 ms quiet, 328 ms at CPU 4x | | code |
-| 6 | Mac, chat view under New Tab | `App.tsx` `<Activity mode="hidden">` (`premountsChatView`) | New Tab shown | yes, hidden React tree | n/a | not measured | | code |
+| 6 | Mac, chat view under New Tab | `App.tsx` `<Activity mode="hidden">` (`premountsChatView`) | New Tab shown | yes, hidden React tree | n/a | New Tab with it: script 238 ms quiet, 922 ms at CPU 4x; 18.8 MB heap, 287 DOM nodes; quiet from 383 ms and 1235 ms | without it (bench variant, not shipped): script 211 ms and 849 ms, 17.3 MB, 157 nodes, quiet from 357 ms and 1137 ms | run 45032932308 |
 | 7 | Mac, hidden chat released and reopened | `CmuxNextHibernation/HiddenChatPages.swift` (60 s idle, 2 kept warm) → `AgentPageHibernation.releasePage` | show after release | n/a | saved frame, except under Chromium where hidden capture is skipped | page only, see Hidden reopen: quiet 65 ms first content, 333 ms live; 6 pages at CPU 4x 1111 ms first content, 5249 ms live; a warm spare instead 122 ms and 446 ms | 6 pages at CPU 4x live 6416 ms to 3334 ms in one run; quiet restart live 2425 ms to 489 ms | run (page), code (native) |
-| 8 | Mac, chat switch in one page | `chatSwitch.ts`, `selectSession` | click | no | kept tail (20 chats, 400 events) | not measured | | code |
-| 9 | Mac, sub-session tray, Session Info card | `App.tsx` `key={shownSessionId}` | every chat switch | remounts and re-reads each switch | none | not measured | | code |
-| 10 | Mac, Home channels and messages | `pages/home-channels`, `pages/home-messages` import `PromptEditor`, `AgentMessageRow`, `Markdown` | Home open | pane code (Milkdown) in a page that is not the pane | their own | not measured | | code |
+| 8 | Mac, chat switch in one page | `chatSwitch.ts`, `selectSession` | click | no | kept tail (20 chats, 400 events) | quiet: kept chat first content 66 ms, live 72 ms, 9 requests, 113 KB; outside the tail 79 ms, 12 requests, 242 KB. CPU 4x and streaming: kept 341 ms first, 650 ms live, 18 requests; outside 394 ms | | run 45034677399, 45034557700 |
+| 9 | Mac, sub-session tray, Session Info card | `App.tsx` `key={shownSessionId}` | every chat switch | remounts each switch; reads nothing over the socket | none | quiet: tray 1.1 ms, card 3.8 ms a switch. CPU 4x and streaming: tray 92 ms (73 to 183), card 22 ms | without the keys: same requests and bytes, script within noise; no cut here | run 45034677399, 45034557700 |
+| 10 | Mac, Home channels and messages | `pages/home-channels`, `pages/home-messages` import `PromptEditor`, `AgentMessageRow`, `Markdown` | Home open | pane code (Milkdown) in a page that is not the pane | their own | Channels: 2900 KB eager JS, 2081 KB of it pane code (72%), 270 KB of 419 KB CSS; to composer ready 86 ms, 339 ms at CPU 4x. Messages: 782 KB, 198 KB pane code; settled 34 ms, 127 ms | | run 45032004528 |
 | 11 | Mac, Cloud or remote chat | `direct.ts` attach through the native relay, `cloudChatRecovery.ts` | open | no | saved copy and kept tail, as 1 | not measured | | code |
 | 12 | Browser build | `browser/host.ts`, served by `acpmux web --app` | link opened | no | `sessionStorage` copy only: a fresh browser draws nothing first | not measured | | code |
 | 13 | Guest page | `agent-session/guest/main.tsx` | share link | no | `sessionStorage` after joining | not measured | | code |
@@ -87,6 +89,12 @@ No blank or shifted frame in any round. Still open: under load the copy is live 
 copy. With a copy up, the page does about 7.0 s of work a round against 3.8 s: React render 2734 ms against 1122 ms,
 `getPropertyValue` 679 ms against 54 ms (`gridScale`, `updateSeeThrough`, `readUIScale`), and a measure and layout
 pass that repeats every 500 ms from 3.5 s to 7 s.
+
+A second pass (branch `lane/pane-load-copy-perf`, a3bb33790a55, not merged) removed two of the three full restyles of
+the copy's tree per page and did not close the gap: copy live 3431 to 3134 ms in one run (45039334720), 3351 to 3428 ms
+in the next (45043474918), inside the noise. Its style trace says total style time is not the cost; the copy's work on
+the main thread delays the bundle's start, so the socket opens and the tail is asked about 1 s later. Next to try: open
+the socket and ask for the tail before the copy draws.
 
 ## Restart under duress, live content and offline
 
