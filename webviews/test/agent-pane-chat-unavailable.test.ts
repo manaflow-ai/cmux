@@ -159,6 +159,26 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     return page;
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
+  // The loading node can mount before the pane's layout-effect report and composer commit.
+  // Settle every element the layout checks read, not just the node that starts the transition.
+  async function waitForLoadingLayout(page: Page) {
+    await page.waitForFunction(
+      () => {
+        const pane = document.querySelector(".acpmux-main[data-stage-loading]");
+        return [
+          ":scope > .acpmux-stage > [data-unavailable=connecting]",
+          ":scope > .acpmux-stage > .acpmux-header",
+          ":scope > .acpmux-dock .acpmux-composer-box",
+        ].every((selector) => {
+          const node = pane?.querySelector(selector);
+          return node && node.getBoundingClientRect().height > 0;
+        });
+      },
+      undefined,
+      { timeout: 60_000 },
+    );
+    expect(await page.locator(".acpmux-main").getAttribute("data-stage-loading")).toBe("");
+  }
   const notify = (method: string, params: Record<string, unknown>) =>
     socket!.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
   /// Every line the pane drew that says a chat is gone or cannot be reached, from the page's first frame.
@@ -352,7 +372,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     };
     const page = await open("chat-on-box");
     const shown = page.locator('[data-unavailable="connecting"]');
-    await shown.waitFor({ timeout: 60_000 });
+    await waitForLoadingLayout(page);
     expect(await shown.innerText()).toBe("");
     expect(await shown.locator("*").count()).toBe(0);
     expect(await shown.getAttribute("role")).toBeNull();
@@ -406,7 +426,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
     };
     const page = await open("chat-on-box");
-    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    await waitForLoadingLayout(page);
     const notices = {
       paneNotice:
         '<output class="acpmux-host-error acpmux-harness-notice" data-pane-notice="test"><div class="acpmux-host-error-card"><p class="acpmux-host-error-message">cmux blocked opening this chat.</p><div class="acpmux-host-error-actions"><button type="button">Retry</button></div></div></output>',

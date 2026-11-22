@@ -67,6 +67,7 @@ test("an offline chat uses a neutral status spinner", async () => {
 
 test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
   jest.useFakeTimers();
+  const loading = jest.fn();
   const container = installDom();
   root = createRoot(container);
   await act(async () => {
@@ -77,16 +78,43 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
         onRemove={() => undefined}
         onReconnect={() => undefined}
         offlineDelayMs={40}
+        onStageLoading={loading}
       />,
     );
   });
   expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
+  expect(loading).toHaveBeenLastCalledWith(true);
   expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(39));
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
+  expect(loading).toHaveBeenLastCalledWith(false);
   expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("the stage loading report clears on unmount and never marks a header line", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const loading = jest.fn();
+  const render = (line = false) => (
+    <ChatUnavailableState
+      unavailable={{ reason: "connecting" }}
+      onRemove={() => undefined}
+      onReconnect={() => undefined}
+      onStageLoading={loading}
+      line={line}
+    />
+  );
+  await act(async () => root!.render(render()));
+  expect(loading).toHaveBeenLastCalledWith(true);
+  await act(async () => root!.render(render(true)));
+  expect(container.children).toHaveLength(0);
+  expect(loading).toHaveBeenLastCalledWith(false);
+  await act(async () => root!.render(render()));
+  expect(loading).toHaveBeenLastCalledWith(true);
+  await act(async () => root!.render(null));
+  expect(loading).toHaveBeenLastCalledWith(false);
 });
 
 test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
