@@ -956,11 +956,12 @@ class Stall(unittest.TestCase):
         for key in ("hosted_jobs", "hosted_runner"):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
-        # The fast tier and the canary keep their own budget. The fast tier's is 60: a cold owned-mini
-        # CmuxNext build-tests build ran 28.5 min and was cancelled at 30 (docs/ci/cmux-next-workflow-notes.md#note-39).
+        # The fast tier and the canary keep their own budget. The fast tier's is 120: a cold owned-mini
+        # CmuxNext build-tests build at 3 cores ran 51.5 min of a 58-min job, and its time scales with the
+        # core grant (docs/ci/cmux-next-workflow-notes.md#note-39).
         # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
         fast = jobs["fast-tier"]["timeout-minutes"]
-        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 60)
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 120)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
