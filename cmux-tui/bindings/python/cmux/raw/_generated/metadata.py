@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362'
+IR_SHA256 = 'a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095'
 
 
 @dataclass(frozen=True)
@@ -892,6 +892,41 @@ COMMANDS = {
         'local-admin',
         12,
         'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'computer-use-approvals': CommandMetadata(
+        'computer-use-approvals',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'action': CommandFieldMetadata(None, None),
+            'answer': CommandFieldMetadata(None, None),
+            'app_id': CommandFieldMetadata(None, None),
+            'id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-config': CommandMetadata(
+        'computer-use-config',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'config': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-endpoint': CommandMetadata(
+        'computer-use-endpoint',
+        'local-admin',
+        12,
+        'computer-use-v1',
         ('local-admin',),
         None,
         {
@@ -2670,6 +2705,22 @@ COMMANDS = {
             'transport': CommandFieldMetadata(None, None),
         },
     ),
+    'quick-terminal': CommandMetadata(
+        'quick-terminal',
+        'control',
+        12,
+        'quick-terminal-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'h': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+            'w': CommandFieldMetadata(None, None),
+            'x': CommandFieldMetadata(None, None),
+            'y': CommandFieldMetadata(None, None),
+        },
+    ),
     'read-screen': CommandMetadata(
         'read-screen',
         'control',
@@ -2786,6 +2837,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'app_permissions': CommandFieldMetadata(None, None),
             'computer_use': CommandFieldMetadata(None, None),
             'headless': CommandFieldMetadata(None, None),
             'screen_sharing': CommandFieldMetadata(None, None),
@@ -3110,6 +3162,7 @@ COMMANDS = {
             'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'flow': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, 'send-key-v1'),
             'paste': CommandFieldMetadata(7, None),
             'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
@@ -3590,6 +3643,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),
@@ -4129,6 +4183,7 @@ EVENTS = {
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
+    'agent-session-share-changed': EventMetadata('agent-session-share-changed', 12, 'agent-session-share-events-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),

@@ -325,17 +325,21 @@ mod with_link {
             let mut answered = Ok(());
             for item in incoming.drain(..) {
                 let result = match item {
-                    Incoming::Control(Control::LinkOffer { session, key, candidates }) => {
-                        self.on_offer(session, key, candidates)
-                    }
-                    Incoming::Control(Control::LinkCandidate { candidate }) => {
-                        self.on_candidate(&candidate);
-                        Ok(())
-                    }
-                    // Host-to-viewer messages are not taken from the viewer.
-                    Incoming::Control(Control::LinkAnswer { .. } | Control::LinkState { .. }) => {
-                        Ok(())
-                    }
+                    Incoming::Control(control) => match *control {
+                        Control::LinkOffer { session, key, candidates } => {
+                            self.on_offer(session, key, candidates)
+                        }
+                        Control::LinkCandidate { candidate } => {
+                            self.on_candidate(&candidate);
+                            Ok(())
+                        }
+                        // Host-to-viewer messages are not taken from the viewer.
+                        Control::LinkAnswer { .. } | Control::LinkState { .. } => Ok(()),
+                        other => {
+                            out.push(Incoming::Control(Box::new(other)));
+                            Ok(())
+                        }
+                    },
                     other => {
                         out.push(other);
                         Ok(())
@@ -481,7 +485,9 @@ mod tests {
             carrier.receive(&mut out).expect("receive");
         }
         // The link messages are the carrier's; the session sees only the rest.
-        assert!(matches!(out.as_slice(), [Incoming::Control(Control::Stop)]));
+        assert!(
+            matches!(out.as_slice(), [Incoming::Control(control)] if matches!(**control, Control::Stop))
+        );
         let states = controls(&viewer.frames());
         assert!(
             states.iter().any(|c| matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("64 hex"))),

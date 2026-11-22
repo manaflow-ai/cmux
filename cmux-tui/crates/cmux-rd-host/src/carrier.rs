@@ -23,7 +23,8 @@ const MAX_UDP_PER_WAKE: usize = 64;
 
 /// One thing that arrived.
 pub enum Incoming {
-    Control(Control),
+    /// Boxed: a stats message is hundreds of bytes, a datagram is a `Vec` header.
+    Control(Box<Control>),
     Datagram(Vec<u8>),
 }
 
@@ -148,7 +149,7 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
                 Ok(Some((FRAME_CONTROL, payload))) => {
                     // A message the host does not know is ignored, as before.
                     if let Ok(control) = serde_json::from_slice::<Control>(&payload) {
-                        out.push(Incoming::Control(control));
+                        out.push(Incoming::Control(Box::new(control)));
                     }
                 }
                 Ok(Some((FRAME_DATAGRAM, payload))) => out.push(Incoming::Datagram(payload)),
@@ -259,7 +260,7 @@ impl Carrier for LinkCarrier {
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     if let Ok(control) = serde_json::from_slice::<Control>(&record) {
-                        out.push(Incoming::Control(control));
+                        out.push(Incoming::Control(Box::new(control)));
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
@@ -422,5 +423,11 @@ mod departure_tests {
         receipts.clear();
         carrier.drain_departures(&mut receipts);
         assert!(receipts.is_empty());
+
+        let input = DatagramHeader { kind: cmux_rd_proto::DatagramKind::Input, ..header }.encode();
+        carrier.send_datagram(&input).unwrap();
+        receipts.clear();
+        carrier.drain_departures(&mut receipts);
+        assert!(receipts.is_empty(), "control/input datagrams never become media receipts");
     }
 }

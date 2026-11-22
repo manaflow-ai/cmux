@@ -10,6 +10,17 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
         public var until: Date
         /// The entry kind it clears (`agent`, `command`); nil: every kind.
         public var kind: String?
+
+        /// This range with both ends at whole Unix milliseconds, the precision the daemon stores
+        /// (cmux-history `HiddenRange`), so a local hide equals its daemon copy (cmux#38381).
+        public var daemonRounded: Range {
+            Range(from: HiddenHistory.daemonRounded(from), until: HiddenHistory.daemonRounded(until), kind: kind)
+        }
+    }
+
+    /// `date` at whole Unix milliseconds, the way the daemon rounds it (`unix_ms`, then back to seconds).
+    public static func daemonRounded(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: (date.timeIntervalSince1970 * 1_000).rounded() / 1_000)
     }
 
     public static let schemaVersion: UInt32 = 1
@@ -26,7 +37,7 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
     /// Hides everything active from `since` (nil: all time) until `now`.
     /// Later activity shows again.
     public mutating func hide(since: Date?, now: Date, kind: String? = nil) {
-        ranges.append(Range(from: since ?? .distantPast, until: now, kind: kind))
+        ranges.append(Range(from: since ?? .distantPast, until: now, kind: kind).daemonRounded)
         if ranges.count > Self.rangeLimit { ranges.removeFirst(ranges.count - Self.rangeLimit) }
     }
 
@@ -45,7 +56,10 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
     /// Both documents' hides (a conflict merge keeps every clear).
     public func merged(with other: HiddenHistory) -> HiddenHistory {
         var result = self
-        for range in other.ranges where !result.ranges.contains(range) { result.ranges.append(range) }
+        // Ranges at daemon precision, so a local clear and its daemon copy are one range.
+        var seen = Set<Range>()
+        result.ranges = result.ranges.map(\.daemonRounded).filter { seen.insert($0).inserted }
+        for range in other.ranges.map(\.daemonRounded) where !result.ranges.contains(range) { result.ranges.append(range) }
         result.ranges.sort { $0.until < $1.until }
         if result.ranges.count > Self.rangeLimit { result.ranges.removeFirst(result.ranges.count - Self.rangeLimit) }
         for id in other.entries { result.hide(entry: id) }

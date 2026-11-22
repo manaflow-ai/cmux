@@ -1,15 +1,13 @@
 // The page's side of the host contract for a chat's rows (decision 224): five operations under
-// `cmux.agent.chat.rows.*` and one event, `{batch, changes}`, which the host passes to a receiver
-// the page installs (decision 227). Each change string is one change as the client core gave it;
-// this decodes them, hands the batch to the store and answers `taken` at once, so the host sends
-// the next. It holds at most the batch it is applying, and queues nothing behind a render: a page
-// that stalls costs the daemon's credit, not this page memory.
+// `cmux.agent.chat.rows.*` and one event, `{batch, changes}`, which the host passes to the
+// document's receiver (decision 227, receiver.ts). Each change string is one change as the client
+// core gave it; the receiver decodes them, hands each to the store that holds its sid and answers
+// `taken` at once, so the host sends the next.
 //
 // No order is promised between an operation's answer and the event (decision 228), so the page
 // names each sid and blob id itself and the store holds it before the operation is posted: a
 // change that comes before the answer is applied, never dropped.
 import { ChatRowStore, type BlobTarget, type ChatAnchor } from "./store";
-import { parseChange, type ChatChange } from "./wire";
 
 /// The host's `postNative`, injected so a test (and the browser dev slot) can give its own.
 export type ChatRowsPost = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -41,6 +39,13 @@ export const CHAT_ROWS_LATE = "chat.rows.late";
 /// The page's own code for an open refused with no code (a lost link, decision 277c): that chat
 /// falls to v1 this once; the next open of it asks again.
 export const CHAT_ROWS_LOST = "chat.rows.lost";
+/// The page's own code for an open answered with a sid other than the one it named: that chat falls
+/// to v1 this once, and the next open of it asks again. Counted (chatSource.ts `chatRowsOtherSids`).
+export const CHAT_ROWS_OTHER_SID = "chat.rows.otherSid";
+/// The page's own code for a chat on the store whose first window did not come within
+/// `FIRST_WINDOW_MS` of its open's answer (chatSource.ts): that chat falls to v1 until another is
+/// chosen.
+export const CHAT_ROWS_SLOW = "chat.rows.slow";
 /// The longest a switch waits on the host's answer to an open (decision 276 e). `postNative` has
 /// no deadline of its own, so this is the one timer.
 export const OPEN_ANSWER_MS = 250;
@@ -92,10 +97,13 @@ export class ChatRowsHost {
       this.close(sid);
       return { fallen: CHAT_ROWS_LATE };
     }
-    // The answer names the same sid; any other answer is a host that does not have the operation.
-    if ((reply as { sid?: unknown } | null)?.sid !== sid) {
+    // The answer names the same sid. One that names no sid is a host that does not have the
+    // operation; one that names another sid has it and answered this open wrong: only this chat
+    // falls, this once.
+    const answered = (reply as { sid?: unknown } | null)?.sid;
+    if (answered !== sid) {
       this.store.close(sid);
-      return { fallen: CHAT_ROWS_OFF };
+      return { fallen: typeof answered === "string" && answered ? CHAT_ROWS_OTHER_SID : CHAT_ROWS_OFF };
     }
     return { sid };
   }
@@ -146,20 +154,5 @@ export class ChatRowsHost {
       return null;
     }
     return id;
-  }
-
-  /// The host's event: applies the batch, then answers `taken`. A string that is not a change is
-  /// skipped; the batch is still taken, or the host would wait on it for good.
-  receive(event: ChatRowsBatch): void {
-    const changes: ChatChange[] = [];
-    for (const line of event.changes) {
-      const change = parseChange(line);
-      if (change) changes.push(change);
-    }
-    try {
-      this.store.applyBatch(changes);
-    } finally {
-      void this.post("chat.rows.taken", { batch: event.batch }).catch(() => {});
-    }
   }
 }
