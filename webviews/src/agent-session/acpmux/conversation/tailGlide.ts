@@ -456,14 +456,16 @@ export function createTailGlide(): TailGlide {
         gliding.forEach((part, index) => (part.start += drawn[index]! - drawnY(part.row)));
       }
       // Out of the view, a row is drawn at its place at once: no glide starts where nobody sees it play
-      // (Leo, 2026-11-22: "some bullshit ABOVE folds...? and plays an animation!?"). Its drawn box now
-      // (its place, under the follow chase's draw) and where its glide would start: a row whose span
-      // misses the view glides for no one. One view read and one box read per row that moves.
+      // (Leo, 2026-11-22: "some bullshit ABOVE folds...? and plays an animation!?"). Judged where the
+      // glide starts it (its box now, its place under the follow chase's draw, plus where it starts
+      // from): a row drawn outside the view in its first frame lands at once, even one that would have
+      // glided into the view (it starts where nobody sees it). One view read and one box read per row
+      // that moves.
       const shown = readView?.();
       const seen = (part: Part) => {
         if (!shown) return true;
         const box = part.row.getBoundingClientRect();
-        return !missesView(box.top + Math.min(0, part.start), box.bottom + Math.max(0, part.start), shown);
+        return !missesView(box.top + part.start, box.bottom + part.start, shown);
       };
       if (shown) for (const part of parts) if (part.start !== 0 && !seen(part)) part.start = 0;
       const { ms, easing } = timing(
