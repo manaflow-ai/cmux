@@ -158,7 +158,7 @@ extension NewTabCommandListKeptTests {
             let reads = PageReads()
             let pages: @MainActor @Sendable () -> [AgentPaneNewTabActions.Page] = {
                 reads.count += 1
-                return [AgentPaneNewTabActions.Page(view: view, stored: AgentPaneNewTab(kind: .agent), store: { _ in })]
+                return [AgentPaneNewTabActions.Page(view: view)]
             }
             try #require(!view.model.userTouched, "the row did not make its case: the first page has an input already")
             let before = lister.counts
