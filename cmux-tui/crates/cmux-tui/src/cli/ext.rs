@@ -15,6 +15,7 @@ mod dev;
 #[cfg(test)]
 mod kinds_tests;
 mod pack;
+mod preview;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
@@ -100,6 +101,12 @@ cmux ext: make a cmux extension and watch it change as you work.
                                the design check ext dev runs, on recorded scenes (a JSON array
                                of scene ops, or an object of them by name), against cmux's design
                                system or yours (ext dev reads DIR/cmux-design.json); exit 1 on a warning
+  cmux ext preview DIR... [--out FILE] [--check] [--json]
+                               the auto gallery's states for every widget in DIR (a widget folder
+                               or a folder of them): its recorded preview/scenes.json states at
+                               each declared size, plus long-text, empty and error states derived
+                               from them, each with its design warnings; --out writes the gallery
+                               file, --check exits 1 when it is stale
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -166,6 +173,8 @@ pub(super) enum Request {
         /// `--system FILE`: a `cmux-design.json` to check against instead of cmux's system.
         system: Option<PathBuf>,
     },
+    /// `ext preview DIR... [--out FILE] [--check]`: the auto gallery's widget states.
+    Preview(preview::PreviewOptions),
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -348,6 +357,33 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 return Err(usage("ext design needs a scene FILE"));
             }
             Ok(Request::Design { files, widget, system })
+        }
+        "preview" => {
+            let mut dirs = Vec::new();
+            let mut out = None;
+            let mut check = false;
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--check" => check = true,
+                    "--out" => {
+                        out = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--out needs a FILE"))?,
+                        ));
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ => dirs.push(PathBuf::from(word)),
+                }
+            }
+            if dirs.is_empty() {
+                return Err(usage("ext preview needs a widget folder DIR"));
+            }
+            if check && out.is_none() {
+                return Err(usage("ext preview --check needs --out FILE"));
+            }
+            Ok(Request::Preview(preview::PreviewOptions { dirs, out, check }))
         }
         "pack" => {
             let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
@@ -581,6 +617,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             };
             design::run(&files, surface, &system, json_out)
         }
+        Request::Preview(options) => preview::run(&options, json_out),
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
