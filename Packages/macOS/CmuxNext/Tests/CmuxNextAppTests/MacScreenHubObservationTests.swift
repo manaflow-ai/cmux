@@ -41,7 +41,7 @@ struct MacScreenHubObservationTests {
     }
 
     /// Final class: the onChange closure may run off the main actor.
-    private final class Fired: @unchecked Sendable { var count = 0 }
+    nonisolated private final class Fired: @unchecked Sendable { var count = 0 }
 
     /// A reason that reads the hub is read again when the hub comes up, and again when it goes.
     @Test func aReasonReadingTheHubSeesItArriveAndLeave() {
