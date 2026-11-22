@@ -1,4 +1,4 @@
-title: Jump to latest is back in the middle; the subagents count shows the real number
+title: Jump to latest is centered again; the hat counts past 99
 category: improved
 docs: https://cmux.com/docs/next/agents
 gallery: agent-pane.jump-place/pill-end-128
