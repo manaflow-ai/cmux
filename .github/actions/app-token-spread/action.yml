@@ -135,6 +135,8 @@ runs:
           local body
           body="$(curl -sS --max-time 10 -H "Authorization: Bearer $1" \
             -H "Accept: application/vnd.github+json" "${GITHUB_API_URL:-https://api.github.com}/rate_limit" 2>/dev/null)" || body=""
+          # The API pretty-prints ("core": {), so drop all whitespace before matching.
+          body="$(printf '%s' "$body" | tr -d ' \t\r\n')"
           local core="${body#*\"core\":}"
           core="${core%%\}*}"
           local value
