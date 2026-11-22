@@ -276,8 +276,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)
-    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
-    /// (``AgentPaneHostGlass``); empty when none shows.
+    /// `pane.glass {surfaces, zoom}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``), measured at the page zoom `zoom`; empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
@@ -423,8 +423,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportClose(connection: Int)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
-    /// contract (``AgentPaneGestureIntent``).
-    case transportGesture(AgentPaneGestureIntent?)
+    /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
+    /// why, for the app log (``AgentPaneRefusalLog``).
+    case transportGesture(AgentPaneGestureIntent?, method: String? = nil, refusal: String? = nil)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).

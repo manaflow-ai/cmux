@@ -100,8 +100,23 @@ function header() {
     VStack({ spacing: 2, alignment: "trailing" }, [
       Text(clock).font("largeTitle").weight("light").monospaced().contentTransition("numericText"),
       Text(date).font("callout").color(cmux.theme.text.secondary)
-    ])
+    ]).fixedSize("horizontal")
   ])
+}
+
+// ---- Layout: two cards a row --------------------------------------------------------------------
+
+// The page has no wrap and no pane width to read, and with the Chief docked beside it the pane can be
+// under 500 pt. So cards go two a row, each one half of the row whatever its content (a width of
+// "infinity" in both makes their flex bases equal, so they share the row evenly), and an odd last
+// card takes a row of its own.
+function grid(cards, spacing = 12) {
+  const rows = []
+  for (let i = 0; i < cards.length; i += 2) {
+    const pair = cards.slice(i, i + 2).map((card) => card.frame({ width: "infinity" }))
+    rows.push(HStack({ spacing, alignment: "top" }, pair))
+  }
+  return VStack({ spacing }, rows)
 }
 
 // ---- The counters: icon in a tinted disc, a big rolling number, a label ------------------------
@@ -113,13 +128,14 @@ function stat(symbol, label, value, tone) {
         Circle().fill(tone).opacity(0.18).frame({ width: 40, height: 40 }),
         Icon(symbol).font("title3").color(tone).symbolRendering("hierarchical")
       ]).frame({ width: 40, height: 40 }),
+      // The number and its label keep their width: the spacer gives, never a word.
       VStack({ spacing: 0, alignment: "leading" }, [
         Text(value).font("title").weight("semibold").monospaced().contentTransition("numericText").color(tone).animation("smooth"),
         Text(label).font("caption").weight("medium").color(cmux.theme.text.secondary)
-      ]),
+      ]).fixedSize("horizontal"),
       Spacer()
     ])
-  ]).frame({ maxWidth: "infinity" })
+  ])
 }
 
 // ---- Launch tiles: one tap to a new chat, terminal, browser, or the next chat that waits ------
@@ -147,7 +163,7 @@ function card(symbol, title, tone, count, children) {
   return Panel({ style: "glass", spacing: 8 }, [
     HStack({ spacing: 8 }, [
       Icon(symbol).color(tone).symbolRendering("hierarchical"),
-      Text(title).font("headline"),
+      Text(title).font("headline").lineLimit(1),
       Spacer(),
       Badge(count, tone)
     ]),
@@ -155,6 +171,8 @@ function card(symbol, title, tone, count, children) {
     ...children
   ]).frame({ maxWidth: "infinity" })
 }
+
+const NEEDS_SHOWN = 8
 
 function renderCockpit() {
   follow()
@@ -165,10 +183,10 @@ function renderCockpit() {
   const reviews = computed(() => prList().filter((p) => p.roles.includes("review-requested")).length)
   return VStack({ spacing: 18 }, [
     header(),
-    HStack({ spacing: 12 }, [
+    grid([
       stat("notification", "need you", () => String(needsYou().length), () => (needsYou().length ? cmux.theme.warning : cmux.theme.text.secondary)),
       stat("agent.session", "at work", () => String(working().length), cmux.theme.accent),
-      stat("action.watching", "reviews for you", () => String(reviews()), () => (reviews() ? cmux.theme.warning : cmux.theme.text.secondary)),
+      stat("action.watching", "reviews", () => String(reviews()), () => (reviews() ? cmux.theme.warning : cmux.theme.text.secondary)),
       stat("workspace", "workspaces", () => String((workspaces.value() ?? []).length), cmux.theme.success)
     ]),
     HStack({ spacing: 10 }, [
@@ -177,12 +195,17 @@ function renderCockpit() {
       tile("browser", "Browser", "A new page", () => run("openBrowser")),
       tile("agent.handoff", "Next waiting", "Jump to it", nextWaiting)
     ]),
-    HStack({ spacing: 12, alignment: "top" }, [
+    grid([
       card("notification", "Needs you", () => (needsYou().length ? cmux.theme.warning : cmux.theme.success), () => String(needsYou().length), [
-        ForEach({ items: needsYou, key: (c) => c.id }, chatRow),
+        // The first few; the sidebar's Needs You section lists every one.
+        ForEach({ items: () => needsYou().slice(0, NEEDS_SHOWN), key: (c) => c.id }, chatRow),
+        () =>
+          needsYou().length > NEEDS_SHOWN
+            ? Text(() => `${needsYou().length - NEEDS_SHOWN} more in the sidebar's Needs You`).font("caption").color(cmux.theme.text.tertiary).paddingHorizontal(10)
+            : null,
         () => (needsYou().length ? null : EmptyState({ title: "Nothing waits on you", message: "Chats that ask you something or finish show up here.", symbol: "trust.verified" }))
       ]),
-      card("arrow.triangle.pull", "Your pull requests", cmux.theme.accent, () => String(prList().length), [
+      card("git.pullrequest", "Pull requests", cmux.theme.accent, () => String(prList().length), [
         ForEach({ items: prList, key: (p) => p.id }, (p) =>
           Row({
             title: () => p().title,
@@ -197,7 +220,7 @@ function renderCockpit() {
           prs.status() === "error"
             ? EmptyState({ title: "GitHub is not connected", message: "Connect it in Settings > Integrations to see your pull requests here.", symbol: "link" })
             : prs.value() && !prList().length
-              ? EmptyState({ title: "No open pull requests", symbol: "checkmark.circle" })
+              ? EmptyState({ title: "No open pull requests", symbol: "status.success" })
               : null
       ])
     ]),

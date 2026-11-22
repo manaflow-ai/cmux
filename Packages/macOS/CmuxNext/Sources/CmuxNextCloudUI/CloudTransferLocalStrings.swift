@@ -6,49 +6,49 @@ import Foundation
 public struct CloudTransferLocalStrings {
     public init() {}
     public static var copying: String {
-        String(localized: "cloud.transferLocal.copying", defaultValue: "Copying the chat's folder to this Mac…", table: "Cloud", bundle: .module)
+        String(localized: "cloud.transferLocal.copying", defaultValue: "Copying the chat's folder to this Mac…", table: "Cloud", bundle: .localizedModule)
     }
     /// The folder under the home folder new transfers go to.
     public static var folderName: String {
-        String(localized: "cloud.transferLocal.folderName", defaultValue: "Cloud Transfers", table: "Cloud", bundle: .module)
+        String(localized: "cloud.transferLocal.folderName", defaultValue: "Cloud Transfers", table: "Cloud", bundle: .localizedModule)
     }
     public static func copied(_ machine: String) -> String {
         String(format: String(localized: "cloud.transferLocal.copied",
                               defaultValue: "Your copy of the folder is open on this Mac. The chat keeps running on %@.",
-                              table: "Cloud", bundle: .module), machine)
+                              table: "Cloud", bundle: .localizedModule), machine)
     }
     public static var notAMachineChat: String {
         String(localized: "cloud.transferLocal.notAMachineChat", defaultValue: "Transfer to This Mac works on a chat that runs on a Cloud machine.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
     public static var noFolder: String {
-        String(localized: "cloud.transferLocal.noFolder", defaultValue: "This chat has no folder on the machine to copy.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.transferLocal.noFolder", defaultValue: "This chat has no folder on the machine to copy.", table: "Cloud", bundle: .localizedModule)
     }
     public static var tooBroad: String {
-        String(localized: "cloud.transferLocal.tooBroad", defaultValue: "This chat's folder is the machine's home or top folder, which holds its sign-ins. Open the chat in a project folder to transfer it.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.transferLocal.tooBroad", defaultValue: "This chat's folder is the machine's home or top folder, which holds its sign-ins. Open the chat in a project folder to transfer it.", table: "Cloud", bundle: .localizedModule)
     }
     public static func copyFailed(_ machine: String, _ detail: String) -> String {
-        String(format: String(localized: "cloud.transferLocal.copyFailed", defaultValue: "Couldn't copy the folder from %1$@: %2$@", table: "Cloud", bundle: .module),
+        String(format: String(localized: "cloud.transferLocal.copyFailed", defaultValue: "Couldn't copy the folder from %1$@: %2$@", table: "Cloud", bundle: .localizedModule),
                machine, detail)
     }
     public static func folderNotEmpty(_ folder: String) -> String {
         String(format: String(localized: "cloud.transferLocal.folderNotEmpty",
-                              defaultValue: "%@ already has files. Pick a new or empty folder.", table: "Cloud", bundle: .module), folder)
+                              defaultValue: "%@ already has files. Pick a new or empty folder.", table: "Cloud", bundle: .localizedModule), folder)
     }
     public static var notOnRemote: String {
         String(localized: "cloud.transferLocal.notOnRemote",
                defaultValue: "The machine's branch isn't on its remote yet. Push it from the machine, then transfer again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
     public static var cloneFailed: String {
         String(localized: "cloud.transferLocal.cloneFailed",
                defaultValue: "This Mac couldn't clone the project from its remote. Check that you can reach the repository, then try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
     public static func failed(_ detail: String) -> String {
         String(format: String(localized: "cloud.transferLocal.failed",
                               defaultValue: "Couldn't transfer the chat to this Mac. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@",
-                              table: "Cloud", bundle: .module), detail)
+                              table: "Cloud", bundle: .localizedModule), detail)
     }
 
     /// A `cmux link seed fetch` refusal, in plain words; nil for `sync_conflict`, whose text names the files.

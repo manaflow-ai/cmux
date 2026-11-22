@@ -53,6 +53,8 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// The reads sent: each is one round trip through the hub and the receiver's inbox.
+    asks: std::sync::atomic::AtomicUsize,
 }
 
 impl Loopback {
@@ -62,7 +64,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            asks: Default::default(),
+        }
     }
 }
 
@@ -85,6 +94,7 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -159,6 +169,23 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     assert_eq!(
         serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"],
         json!({})
+    );
+    let search: Value = serde_json::from_str(&body(
+        method::MUX_SESSION_SEARCH,
+        &json!({
+            "sessionId": "x",
+            "host": "y",
+            "query": "ship the build",
+            "withTurnTime": true,
+            "role": "assistant",
+            "sinceMs": 123,
+            "limit": 4,
+        }),
+    ))
+    .unwrap();
+    assert_eq!(
+        search["params"],
+        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4, "withTurnTime": true})
     );
 }
 
@@ -288,6 +315,73 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     assert_eq!(replies, [format!("echo: {big}")]);
 }
 
+/// cmuxterm-hq#15806: claude-sr2-coord's 373 KB detail went through the hub in ten round trips,
+/// 52 to 106 s on a busy host, past the 50 s a read waits, and `acpmux last` reads it first.
+/// A detail of any size is one round trip now, its largest fields marked omitted.
+#[tokio::test]
+async fn a_chat_detail_of_any_size_reads_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-detail"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // About 400 KB of commands, as a coordinator's detail was 373 KB.
+    let commands: Vec<Value> = (0..3000)
+        .map(|i| json!({"name": format!("command-{i}"), "description": "d".repeat(110)}))
+        .collect();
+    b.resolve(&session).unwrap().set_available_commands_for_test(json!(commands));
+    let whole = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+    assert!(
+        whole.to_string().len() > 350 * 1024,
+        "the detail is {} bytes",
+        whole.to_string().len()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    let info = read(&hub, "machine-b", "big-detail", method::MUX_INFO, &json!({})).await.unwrap();
+    let asks = hub.asks.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(asks, 1, "info took {asks} round trips through the hub");
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((info["peer"].as_str(), info["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let omitted: Vec<&str> =
+        info["omitted"]["fields"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(omitted.contains(&"availableCommands"), "{omitted:?}");
+    // `acpmux last`'s id: what it reads from the detail is whole.
+    assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("machine-b/{session}"));
+}
+
+/// The queue an `_acpmux/info` through the hub carries is its next [`HUB_QUEUE_KEEP`] prompts
+/// and their count, whatever its length: 368 queued prompts were 229 KB of one detail.
+#[test]
+fn a_detail_through_the_hub_carries_the_queue_head_and_its_count() {
+    let queued: Vec<Value> = (0..400)
+        .map(|i| json!({"promptId": format!("p-{i}"), "prompt": "q".repeat(600)}))
+        .collect();
+    let mut detail = json!({
+        "sessionId": "s", "status": "running", "queue": queued,
+        "timeBreakdown": {"rows": "t".repeat(80 * 1024)},
+    });
+    fit_info(&mut detail);
+    assert!(detail.to_string().len() <= HUB_INFO_BYTES, "{} bytes", detail.to_string().len());
+    let queue = detail["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), HUB_QUEUE_KEEP);
+    assert_eq!(queue[0]["promptId"], "p-0");
+    assert_eq!(
+        (detail["queueCount"].as_u64(), detail["queueTruncated"].as_bool()),
+        (Some(400), Some(true))
+    );
+    assert_eq!(detail["sessionId"], "s");
+    // A short queue goes whole, with no count.
+    let mut short = json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]});
+    fit_info(&mut short);
+    assert_eq!(short, json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]}));
+}
+
 #[tokio::test]
 async fn a_read_runs_only_a_read_method() {
     let b = machine_b();
@@ -392,12 +486,16 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
         (Some("machine-b"), Some("hub"))
     );
 
-    for m in [
+    let found = call(
+        &a,
         method::MUX_SESSION_SEARCH,
-        method::MUX_QUEUE_TEXT,
-        method::MUX_ATTACHMENT,
-        method::MUX_WAIT,
-    ] {
+        json!({"sessionId": "machine-b/own-e2e", "query": "turn on b", "role": "user"}),
+    )
+    .await;
+    assert_eq!(found["hits"][0]["snippet"], "turn on b");
+    assert_eq!(found["peer"], "machine-b");
+
+    for m in [method::MUX_QUEUE_TEXT, method::MUX_ATTACHMENT, method::MUX_WAIT] {
         let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
         assert_eq!(
             refused.pointer("/data/reason"),
@@ -422,4 +520,274 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
             return value.get("error").cloned().unwrap_or_else(|| panic!("no error: {value}"));
         }
     }
+}
+
+/// Which hub call a [`Flaky`] failure stands in for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Call {
+    Send,
+    Answer,
+}
+
+/// The hub as gcp-codex-swarm-07 saw it on 2026-11-19..20: the failures queued here come first,
+/// one per call of their kind, then [`Loopback`] answers. `calls` counts every call that reached it.
+struct Flaky {
+    inner: Loopback,
+    failures: Mutex<std::collections::VecDeque<(Call, HubError)>>,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl Flaky {
+    fn new(inner: Loopback, failures: Vec<(Call, HubError)>) -> Self {
+        Self { inner, failures: Mutex::new(failures.into()), calls: Mutex::default() }
+    }
+
+    fn fail(&self, call: Call) -> Option<HubError> {
+        self.calls.lock().unwrap().push(call);
+        let mut failures = self.failures.lock().unwrap();
+        if failures.front().is_some_and(|(c, _)| *c == call) {
+            return failures.pop_front().map(|(_, e)| e);
+        }
+        None
+    }
+}
+
+/// A hub answer with `status` and `code`, as `mesh_http::answer` makes it.
+fn hub_status(status: u16, code: &str) -> HubError {
+    let mut e = HubError::refused(format!("the hub answered {status} {code}"));
+    e.refused = !(status == 408 || status == 429 || status >= 500);
+    e.status = Some(status);
+    e.code = Some(code.into());
+    e
+}
+
+impl MeshHub for Flaky {
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        self.inner.inbox(wait, max)
+    }
+
+    fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        self.inner.ack(id, ack)
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        self.inner.heartbeat(beat)
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Send) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.send(m),
+        }
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.inner.receipt(id)
+    }
+
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Answer) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.answer(id, wait),
+        }
+    }
+}
+
+/// `acpmux last HOST/NAME` through a hub that drops a connection, answers 503 and lets go of the
+/// read's receipt (404 `mesh.not_found`) still reads the session: each blip is tried again, and
+/// the read whose receipt is gone is sent afresh.
+#[tokio::test]
+async fn a_read_through_a_hub_that_blips_still_answers() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![
+            (Call::Send, HubError::unavailable("the hub: error sending request")),
+            (Call::Answer, hub_status(503, "mesh.unavailable")),
+            (Call::Answer, hub_status(404, "mesh.not_found")),
+        ],
+    );
+    let info = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap();
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()), "{info}");
+    assert_eq!(info["via"], "hub");
+    // Send (dropped), send, answer (503), answer (404: gone), send again, answer.
+    assert_eq!(
+        *hub.calls.lock().unwrap(),
+        [Call::Send, Call::Send, Call::Answer, Call::Answer, Call::Send, Call::Answer]
+    );
+}
+
+/// A hub that stays down is tried a bounded number of times, and the error names the only route
+/// this machine has to the host and the one that does not need the hub. A refusal is not retried.
+#[tokio::test]
+async fn a_hub_that_stays_down_fails_bounded_and_names_the_direct_route() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let down: Vec<_> = (0..crate::mesh_retry::ATTEMPTS)
+        .map(|_| (Call::Send, hub_status(503, "mesh.unavailable")))
+        .collect();
+    let hub = Flaky::new(Loopback::new(&b, dir.path(), "person-1"), down);
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(hub.calls.lock().unwrap().len(), crate::mesh_retry::ATTEMPTS);
+    assert!(e.message.contains("the hub answered 503 mesh.unavailable"), "{e:?}");
+    assert!(e.message.contains("only through the mesh hub"), "{e:?}");
+    assert!(e.message.contains("`acpmux machine add machine-b`"), "{e:?}");
+    let data = e.data.unwrap();
+    assert_eq!((&data["reason"], &data["route"]), (&json!("mesh.unavailable"), &json!("hub")));
+
+    let refused = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![(Call::Send, hub_status(403, "mesh.forbidden"))],
+    );
+    let e = read(&refused, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(refused.calls.lock().unwrap().len(), 1);
+    assert_eq!(e.data.unwrap()["retryable"], json!(false));
+}
+
+/// How long the HTTP client waits on one hub call before it gives up (`mesh_http`'s `CALL_WAIT`).
+const CLIENT_WAIT: Duration = Duration::from_secs(30);
+
+/// A receipt the hub has taken and not yet delivered.
+fn queued() -> Receipt {
+    serde_json::from_value(json!({"messageId": "msg_silent", "state": "queued"})).unwrap()
+}
+
+/// A hub that takes a connection and never answers it: each call hangs for the client's whole
+/// wait, then fails as no answer. With `takes_send`, the send is taken at once and only the
+/// receipt's long-poll hangs.
+struct Silent {
+    takes_send: bool,
+    calls: Mutex<Vec<Call>>,
+}
+
+fn timed_out() -> HubError {
+    HubError::unavailable("the hub: error sending request: operation timed out")
+}
+
+impl MeshHub for Silent {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        let takes = self.takes_send;
+        Box::pin(async move {
+            if takes {
+                return Ok(queued());
+            }
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        Box::pin(async {
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+}
+
+/// A read through a hub that never answers ends within `READ_WAIT`, whether the send or the
+/// answer is what hangs: no try outlives the read's wait, and none starts after it. Before,
+/// three tries of a 30 s call each, plus the resend, took a read past four minutes.
+#[tokio::test(start_paused = true)]
+async fn a_hub_that_never_answers_ends_the_read_within_its_wait() {
+    for takes_send in [false, true] {
+        let hub = Silent { takes_send, calls: Mutex::default() };
+        let started = tokio::time::Instant::now();
+        let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+        let took = started.elapsed();
+        let calls = hub.calls.lock().unwrap().clone();
+        assert!(
+            took <= READ_WAIT + Duration::from_secs(1),
+            "takes_send {takes_send}: the read took {took:?} ({calls:?})"
+        );
+        assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"), "{calls:?}");
+    }
+}
+
+/// A hub that lets go of the read's receipt (404 `mesh.not_found`) only as the read's wait runs
+/// out.
+struct GoneLate {
+    started: tokio::time::Instant,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl MeshHub for GoneLate {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        Box::pin(async { Ok(queued()) })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        let gone = self.started + READ_WAIT;
+        Box::pin(async move {
+            tokio::time::sleep_until(gone).await;
+            Err(hub_status(404, "mesh.not_found"))
+        })
+    }
+}
+
+/// A receipt the hub lets go of once the read's wait has run out is not sent again: the read
+/// fails as unanswered with the one send it made, never a second read no one waits for.
+#[tokio::test(start_paused = true)]
+async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
+    let hub = GoneLate { started: tokio::time::Instant::now(), calls: Mutex::default() };
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
+    assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
 }
