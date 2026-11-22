@@ -95,7 +95,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "agent daemon restart",
     secs: 0,
-    command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
+    command: `p=$("$c" acp --json daemon status 2>/dev/null | sed -n 's/.*"pid": *\\([0-9]*\\).*/\\1/p' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p" && ${restartStatusSampler()}`,
   },
 ];
 
@@ -960,6 +960,22 @@ export const STALL_FACTS_COMMAND = [
   `echo "@@daemon.log"; tail -n 400 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -iE 'warn|error|lag|overrun|attach|subscri|peer|fanout|too.slow' | tail -n 15 | cut -c1-300`,
 ].join("; ");
 
+/** Where the restart fault's status sampler writes on the machine (a function: the fault list reads it first). */
+export function restartStatusFile(): string {
+  return "/tmp/crn-restart-status.txt";
+}
+
+/**
+ * Started right after the kill, in the background: asks the restarted acpmux for its status every 250 ms for 30 s
+ * and writes one `unix.secs status ...` line each time the answer changes (no answer, then each loading phase, then
+ * ready), so the restart timeline shows how long each startup phase held the chat.
+ */
+export function restartStatusSampler(): string {
+  const file = restartStatusFile();
+  const ask = `timeout 2 "$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"(phase|state|ready|loading)": *("[^"]*"|true|false|null|[0-9]+)' | tr '\\n' ' '`;
+  return `( s=""; for i in $(seq 120); do t=$(${ask}); [ -n "$t" ] || t="no answer"; [ "$t" = "$s" ] || echo "$(date +%s.%N) sampler status: $t"; s=$t; sleep 0.25; done ) </dev/null >${file} 2>&1 &`;
+}
+
 /**
  * acpmux's own record of a restart from `sinceMs` (epoch ms): systemd's lines for the user unit acpmux.service (the
  * kill, the restart) and the daemon's own `daemon.log` lines (each with its time: the lock, the ready line, "agents
@@ -970,7 +986,7 @@ export function restartTimelineCommand(sinceMs: number): string {
   const since = `@${Math.floor(sinceMs / 1000) - 1}`;
   const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -iE 'start|stop|kill|exited|signal|fail' | head -n 15`;
   const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
-  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}`;
+  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null`;
 }
 
 /**
@@ -978,7 +994,7 @@ export function restartTimelineCommand(sinceMs: number): string {
  * of them: the journal's `short-unix` lines and daemon.log's RFC 3339 ones. The machine's `@@now` against `readAtMs`
  * (when this runner got the answer) corrects for the two clocks' skew.
  */
-export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN, max = 60): string {
+export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN, max = 90): string {
   const now = Number(/@@now (\d+)/.exec(stdout)?.[1]);
   const skew = Number.isFinite(now) && Number.isFinite(readAtMs) ? now - readAtMs : 0;
   zeroMs += skew;

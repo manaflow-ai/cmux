@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -761,6 +761,26 @@ describe("the felt time after a send", () => {
     expect(chaos.restartTimeline(stdout, 1000000000)).toBe(
       "+3000 ms systemd[1]: Started acpmux.service. | +4500 ms INFO acpmux daemon ready | +6000 ms INFO agents may start",
     );
+  });
+
+  test("the restart status sampler writes a line only when acpmux's answer changes, and the timeline reads it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "crn-sampler-"));
+    const fake = join(dir, "fake");
+    const count = join(dir, "n");
+    writeFileSync(
+      fake,
+      `#!/bin/bash\nn=$(cat ${count} 2>/dev/null || echo 0); echo $((n+1)) > ${count}\nif [ $n -lt 2 ]; then exit 1; elif [ $n -lt 4 ]; then echo '{"pid": 5, "loading": {"phase": "adopt agent hosts"}}'; else echo '{"pid": 5, "ready": true}'; fi\n`,
+    );
+    chmodSync(fake, 0o755);
+    const out = join(dir, "out");
+    const cmd = chaos.restartStatusSampler().replace("seq 120", "seq 7").replace("sleep 0.25", "sleep 0.01").replace(chaos.restartStatusFile(), out).replace(/&$/, "");
+    spawnSync("bash", ["-c", cmd], { env: { ...process.env, c: fake } });
+    const lines = readFileSync(out, "utf8").trim().split("\n");
+    rmSync(dir, { recursive: true, force: true });
+    expect(lines.map((l: string) => l.replace(/^\d+\.\d+ /, ""))).toEqual(['sampler status: no answer', 'sampler status: "phase": "adopt agent hosts" ', 'sampler status: "ready": true']);
+    const zero = Math.round(Number(lines[0].split(" ")[0]) * 1000);
+    expect(chaos.restartTimeline(lines.join("\n"), zero)).toStartWith("+0 ms status: no answer | +");
+    expect(chaos.restartTimelineCommand(1_000_000_000)).toContain(`cat ${chaos.restartStatusFile()}`);
   });
 
   test("no reply within the deadline is null, with the last error", async () => {
