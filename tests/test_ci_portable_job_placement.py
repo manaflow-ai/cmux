@@ -778,7 +778,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(gcp["env"]["FLEET_LINUX"], "${{ vars.LINUX_RUNNER_DARWIN_CROSS }}")
         self.assertEqual(gcp["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         self.assertEqual(set(gcp["env"]["JOBS"].split()), set(gcp["env"]["LINUX_ONLY"].split()))
-        for name in ("build", "build-linux"):
+        for name in ("build",):
             with self.subTest(call=name):
                 runner = workflow[name]["with"]["linux_runner"]
                 self.assertNotIn("outputs.linux_runner", runner)
@@ -796,12 +796,13 @@ class Wiring(unittest.TestCase):
         picker = preflight["steps"][ids.index("linux-build-placement")]
         config = picker["env"]
         self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
-        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
-                                                  "machine-x86_64-musl", "machine-aarch64-musl"])
+        # The shipped tree's pair only: the Cloud machine channel reads those same legs (MUSL_BUILT_ONCE).
+        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl"])
         self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
-        # The nightly's tree pair first, then the Cloud machine channel's thin pair, each whole or not at all.
-        self.assertEqual(config["LINUX_GROUPS"].split(),
-                         ["tree-x86_64-musl,tree-aarch64-musl", "machine-x86_64-musl,machine-aarch64-musl"])
+        # Both legs or neither.
+        self.assertEqual(config["LINUX_GROUPS"].split(), ["tree-x86_64-musl,tree-aarch64-musl"])
+        self.assertNotIn("machine_build_runner", preflight["outputs"])
+        self.assertNotIn("build-linux", workflow)
         for knob in ("REQUIRE_LIVE_CAPACITY", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
             with self.subTest(knob=knob):
                 self.assertEqual(config[knob], "1")
@@ -816,9 +817,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(ids.index("inspect"), ids.index("linux-build-placement"))
         # The placement can wait 2 minutes inside the preflight job's own bound.
         self.assertGreaterEqual(int(preflight["timeout-minutes"]), 9)
-        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),
-                                 ("machine_build_runner", "build-linux",
-                                  ("machine-x86_64-musl", "machine-aarch64-musl"))):
+        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),):
             with self.subTest(output=name):
                 output = preflight["outputs"][name]
                 for job in config["JOBS"].split():
@@ -849,8 +848,7 @@ class Wiring(unittest.TestCase):
                       if step.get("id") == "linux-build-placement")
         config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
         tree = ("tree-x86_64-musl", "tree-aarch64-musl")
-        both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
-        for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
+        for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, tree)):
             with self.subTest(idle=count):
                 fleet = [fleet_runner(f"gcp-{index}") for index in range(count)] + [fleet_runner("gcp-busy", busy=True)]
                 placed = placement.decide(config, fleet, snapshot(), NOW)
@@ -889,33 +887,6 @@ class Wiring(unittest.TestCase):
                 sleep.assert_called_once_with(30)
                 self.assertEqual(read.call_count, 2)
                 self.assertEqual(write.call_args.args[0].linux_runner, expected)
-
-    def test_the_machine_channel_pair_takes_the_fleet_only_when_free_and_never_holds_the_tree_pair(self):
-        # goals/cloud-fix-to-machine.md: the thin legs queued 18-27 min on blacksmith-16vcpu on 2026-11-18.
-        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
-                      if step.get("id") == "linux-build-placement")
-        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
-        # Four free: both pairs take the fleet.
-        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
-        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
-                                             "machine-x86_64-musl", "machine-aarch64-musl"))
-        # Three free: the tree pair takes two, and the machine pair does not split onto the third.
-        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
-        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
-        # Without the tree pair (a run that builds no shipped tree), two free take the machine pair.
-        alone = {**config, "JOBS": "machine-x86_64-musl machine-aarch64-musl"}
-        self.assertEqual(placement.decide(alone, [fleet_runner("a"), fleet_runner("b")], snapshot(), NOW).linux_jobs,
-                         ("machine-x86_64-musl", "machine-aarch64-musl"))
-        # The tree pair placed at once: no wait for room for the machine pair.
-        with mock.patch.object(placement, "read", return_value=([fleet_runner("a"), fleet_runner("b")], snapshot())), \
-             mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
-             mock.patch.object(placement.time, "sleep") as sleep, \
-             mock.patch.object(placement.signal, "setitimer"), \
-             mock.patch.object(placement, "write") as write:
-            clock.now.return_value = NOW
-            self.assertEqual(placement.main(config), 0)
-            sleep.assert_not_called()
-            self.assertEqual(write.call_args.args[0].linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
 
     def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
         # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that

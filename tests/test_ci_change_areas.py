@@ -2065,6 +2065,8 @@ def run_guard_status(
     *,
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
     route_inputs.setdefault(
@@ -2085,6 +2087,8 @@ def run_guard_status(
         "GUARD_NEEDS": json.dumps(
             {name: {"result": result} for name, result in job_results.items()}
         ),
+        "GUARD_EVENT": event,
+        "GUARD_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
