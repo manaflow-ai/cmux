@@ -34,7 +34,10 @@
     "sidebar.groupHeader.background": "sections",
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.notification": true,
-    "workspaceColors.indicatorStyle": "leftRail"
+    "workspaceColors.indicatorStyle": "leftRail",
+    "window.titlebarButtons": "always",
+    "tabs.plusButton": "always",
+    "agentPane.display.sessionInfo.placement": "overlay"
   },
   "files": {
     "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"Widgets\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Widgets on one screen: the time and the weather, your agents at a glance, the usage left on your Claude and Codex accounts and your pull requests with their checks, in the sidebar, in each chat's Session Info and on every New Tab.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.section/1\": {\n      \"export\": \"renderSidebar\",\n      \"title\": \"Widgets\",\n      \"symbol\": \"square.grid.2x2\",\n      \"options\": { \"defaultRegion\": \"bottom\", \"maxRows\": 24 }\n    },\n    \"cmux.session.info.section/1\": {\n      \"export\": \"renderSessionInfo\",\n      \"title\": \"This chat\",\n      \"symbol\": \"gauge.with.dots.needle.67percent\",\n      \"options\": { \"maxRows\": 12 }\n    },\n    \"cmux.newtab/1\": { \"export\": \"renderPage\", \"title\": \"Widgets\", \"symbol\": \"square.grid.2x2\" }\n  },\n  \"scopes\": {\n    \"agent:read\": \"Count the agents at work in this session.\",\n    \"agent_chat:read\": \"Show which chats wait for you, which work and which finished today.\",\n    \"usage_app:read\": \"Read the usage left on your Claude and Codex accounts from cmux's Usage app.\",\n    \"integration:github:read\": \"Read your pull requests, their checks and reviews with the connected GitHub account.\",\n    \"storage:local\": \"Remember your city for the weather.\",\n    \"net:geocoding-api.open-meteo.com\": \"Find your city's place on the map.\",\n    \"net:api.open-meteo.com\": \"Read the weather for your city.\",\n    \"actions:run\": \"Open a chat or a pull request when you click it.\"\n  }\n}\n",
