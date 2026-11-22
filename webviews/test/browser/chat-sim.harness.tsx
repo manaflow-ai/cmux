@@ -13,7 +13,8 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { watchChurn, type ChurnReport } from "./chatChurnWatch";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../../src/agent-session/acpmux/sim/scenarios";
@@ -31,8 +32,11 @@ import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
 
 const query = new URLSearchParams(location.search);
-document.documentElement.dataset.agentMotion = "off";
-document.documentElement.dataset.cmuxMotion = "off";
+// `?motion=on` (the churn lane, `live`): the pane's own motion plays, as in the app.
+if (query.get("motion") !== "on") {
+  document.documentElement.dataset.agentMotion = "off";
+  document.documentElement.dataset.cmuxMotion = "off";
+}
 
 type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number };
 let show: (next: PaneState) => void = () => {};
@@ -82,6 +86,12 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
+  }
+  // `file:PATH` (the churn lane): a recorded chat the dev server serves from under webviews/.
+  if (name.startsWith("file:")) {
+    const path = name.slice("file:".length);
+    const text = await (await fetch(`/${path}`)).text();
+    return replayScenario(path.replace(/^.*\//, "").replace(/\.ndjson$/, ""), parseRecords(text));
   }
   const long = /^long:(\d+)$/.exec(name);
   if (long) return longRun(Number(long[1]));
@@ -163,4 +173,40 @@ async function at(name: string, until: number) {
   return dump();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump } });
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Plays `name` in real time (each step at its virtual time; a wait over `maxWaitMs` is cut to it) with
+ *  the pane's motion as the page has it, while a per-frame watcher (chatChurnWatch.ts) reads every drawn
+ *  row: the layout shifts above the reader's anchor and the rows drawn under a second. */
+async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } = {}): Promise<ChurnReport> {
+  if (name.startsWith("file:")) maxWaitMs = Math.min(maxWaitMs, 1_500);
+  const scenario = await scenarioNamed(name);
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  // A clean pane first: the last scenario's rows leaving are not this one's.
+  flushSync(() => show({ rows: [], working: false, sends: 0 }));
+  await frame();
+  await frame();
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll") ?? document.body;
+  const watch = watchChurn(scroller);
+  let sends = 0;
+  let turn = 0;
+  let last = scenario.steps[0]?.at ?? 0;
+  for (let index = 0; index < scenario.steps.length; index += 1) {
+    const step = scenario.steps[index]!;
+    await sleep(Math.min(Math.max(0, step.at - last), maxWaitMs));
+    last = step.at;
+    watch.mark(step.label);
+    const rows = sim.advance(index);
+    if (!rows) continue;
+    const state = sim.state();
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    show({ rows, working: state.working, sends });
+  }
+  await sleep(2_000);
+  return watch.stop();
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, live } });
