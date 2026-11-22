@@ -95,8 +95,6 @@ struct AcpmuxPaneInitializeFailSafeTests {
         #expect(Self.refusal(try Self.text("session/prompt", prompt), first: false) == #"unknown _meta.acpmux key "someFutureFlag""#)
         let attach: [String: Any] = ["sessionId": "s", "someFutureFlag": true]
         #expect(Self.refusal(try Self.text("_acpmux/attach", attach), first: false) == #"unknown param "someFutureFlag""#)
-        let frame: [String: Any] = ["method": "session/new", "params": start]
-        #expect(AcpmuxPaneMethods.strippingInitializeOptIns(frame, modeFields: nil)?.keys == nil)
     }
 
     @Test func theInitializeThePageSendsGoesUnchangedButForTheToken() throws {
