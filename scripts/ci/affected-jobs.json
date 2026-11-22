@@ -39,7 +39,8 @@
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
             "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
           ]
         },
         "acpmux-sim": {
