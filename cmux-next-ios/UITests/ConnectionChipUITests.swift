@@ -39,8 +39,10 @@ final class ConnectionChipUITests: XCTestCase {
             XCTAssertLessThan(chip.frame.width, app.frame.width * 0.6, "\"\(sentence)\" spans the page like a sentence line")
             hold(0.8)
         }
-        let offline = app.buttons.matching(NSPredicate(format: "label == %@", "Mac Studio is offline")).firstMatch
-        XCTAssertTrue(offline.exists, "the offline chip is not a Retry button")
+        // The chip is one accessibility element (its sentence), so it is found by label, not as a button.
+        let offline = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Mac Studio is offline")).firstMatch
+        if !offline.isHittable { app.swipeDown() }
+        XCTAssertTrue(offline.isHittable, "the offline chip cannot be tapped")
         let before = offline.frame
         for _ in 0..<3 {
             offline.tap()
