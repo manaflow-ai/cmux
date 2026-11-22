@@ -3,7 +3,7 @@
   "suites": {
     "drill": {
       "workflow": "post-merge-drill.yml",
-      "paths": [".github/post-merge-drill-red"],
+      "paths": [".github/post-merge-drill-red", ".github/post-merge-drill/**"],
       "jobs": {"drill": "drill"}
     },
     "cmux-tui-windows-check": {
