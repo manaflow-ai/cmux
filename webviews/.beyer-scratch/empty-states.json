@@ -1,0 +1,83 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "all-chats-search-empty",
+   "entry": "agent-pane.all-chats-list",
+   "variant": "search-empty",
+   "width": 620,
+   "height": 360,
+   "clip": ".nt-all",
+   "margin": 12,
+   "arms": {
+    "now": "",
+    "contextual": ""
+   },
+   "armQuery": {
+    "now": {
+     "exp": "empty-state-context",
+     "arm": "now"
+    },
+    "contextual": {
+     "exp": "empty-state-context",
+     "arm": "contextual"
+    }
+   }
+  },
+  {
+   "name": "palette-no-results",
+   "entry": "agent-pane.composer-plus-menu",
+   "variant": "no-results",
+   "width": 520,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16,
+   "arms": {
+    "now": "",
+    "contextual": ""
+   },
+   "armQuery": {
+    "now": {
+     "exp": "empty-state-context",
+     "arm": "now"
+    },
+    "contextual": {
+     "exp": "empty-state-context",
+     "arm": "contextual"
+    }
+   }
+  },
+  {
+   "name": "empty-state-contextual-starts",
+   "entry": "agent-pane.empty-state",
+   "variant": "contextual-starts",
+   "width": 640,
+   "height": 420,
+   "clip": ".acpmux-empty",
+   "margin": 24,
+   "arms": {
+    "now": "",
+    "contextual": ""
+   },
+   "armQuery": {
+    "now": {
+     "exp": "empty-state-context",
+     "arm": "now"
+    },
+    "contextual": {
+     "exp": "empty-state-context",
+     "arm": "contextual"
+    }
+   }
+  }
+ ]
+}
