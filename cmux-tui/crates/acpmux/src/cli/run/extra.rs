@@ -323,7 +323,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let Some(icon) = icon else {
                 let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
                 if json_out {
-                    return print_json(&v["icon"]);
+                    print_json(&v["icon"]);
+                    return Ok(());
                 }
                 match serde_json::from_value::<crate::session_icon::SessionIcon>(v["icon"].clone())
                 {
@@ -337,15 +338,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .request(method::MUX_RENAME, json!({"sessionId": id, "newIcon": wire}))
                 .await?;
             if json_out {
-                print_json(&v)
+                print_json(&v);
             } else {
                 match serde_json::from_value::<crate::session_icon::SessionIcon>(v["icon"].clone())
                 {
                     Ok(icon) => println!("{}", icon.describe()),
                     Err(_) => println!("cleared"),
                 }
-                Ok(())
             }
+            Ok(())
         }
         Command::Rename { session, new_name, handle, icon } => {
             let client = connect(true).await?;
