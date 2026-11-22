@@ -2322,7 +2322,7 @@ def main() -> None:
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_official_testflight_workflow_publishes_generated_notes()
         test_production_workflow_release_type_follows_release_when_approved()
-        test_production_workflow_refuses_the_classic_app()
+        test_production_workflow_ships_only_cmux_next()
         test_upload_appstore_refuses_classic_upload_without_override(tmp / "upload-refuse-test", fakebin)
         test_upload_classic_lane_builds_the_classic_identity(tmp / "classic-upload-test", fakebin)
         test_upload_classic_lane_uploads_to_its_own_record(tmp / "classic-live-test", fakebin)
