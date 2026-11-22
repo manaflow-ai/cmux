@@ -20,7 +20,7 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 - nightly-next-one's end asks main's tick at once (wake-nightly-next-tick), since the tick's workflow_run trigger
   fires only when the whole run ends.
 
-Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_next_push_slot_at_build.py.
+Manual lane (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18): python3 tests/test_nightly_next_push_slot_at_build.py.
 """
 from __future__ import annotations
 
