@@ -190,6 +190,8 @@ public final class TabCardSnapshots {
     private var resident: [TabSnapshotKey] = []
     /// Disk reads finished (tests).
     public private(set) var loads = 0
+    /// Pictures written to disk (tests).
+    public private(set) var saves = 0
 
     public init(store: TabSnapshotStore = .standard, limit: Int = 40, memoryPressure: MemoryPressure = .shared) {
         self.store = store
@@ -234,20 +236,34 @@ public final class TabCardSnapshots {
 
     /// A page's picture drawn now: shown by the tab's card from here on, and
     /// written to disk (encoded off the main thread).
-    public func put(_ image: UIImage, for key: TabSnapshotKey, source: TabSnapshotRecord.Source = .phone,
-                    now: Date = Date()) {
+    /// `pixelWidth` (a whole page's snapshot): scaled to that width first,
+    /// off the main thread, and shown once scaled.
+    public func put(_ image: UIImage, for key: TabSnapshotKey, pixelWidth: CGFloat = 0,
+                    source: TabSnapshotRecord.Source = .phone, now: Date = Date()) {
+        if pixelWidth <= 0 { show(image, key) }
+        let store = store
+        let ms = Int64(now.timeIntervalSince1970 * 1000)
+        Task.detached(priority: .utility) { [weak self] in
+            var picture = image
+            if pixelWidth > 0 {
+                picture = TabCardSnapshots.downscaled(image, pixelWidth: pixelWidth)
+                await self?.show(picture, key)
+            }
+            guard let data = picture.jpegData(compressionQuality: 0.8) else { return }
+            store.save(data, pixelWidth: Int(picture.size.width * picture.scale),
+                       pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source, for: key)
+            await self?.saved()
+        }
+    }
+
+    private func show(_ image: UIImage, _ key: TabSnapshotKey) {
         let entry = entry(key)
         entry.image = image
         entry.asked = true
         touch(key)
-        let store = store
-        let ms = Int64(now.timeIntervalSince1970 * 1000)
-        Task.detached(priority: .utility) {
-            guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-            store.save(data, pixelWidth: Int(image.size.width * image.scale), pixelHeight: Int(image.size.height * image.scale),
-                       capturedAtMs: ms, source: source, for: key)
-        }
     }
+
+    private func saved() { saves += 1 }
 
     /// The tab closed: its picture goes from memory and disk.
     public func remove(_ key: TabSnapshotKey) {
@@ -292,16 +308,14 @@ public final class TabCardSnapshots {
 /// A tab's last-known picture as its card shows it: full width, from the top.
 /// Draws nothing while the tab has none.
 struct TabSnapshotPicture: View {
-    let entry: TabSnapshotEntry?
+    let image: UIImage
 
     var body: some View {
-        if let image = entry?.image {
-            GeometryReader { geo in
-                Image(uiImage: image).resizable().interpolation(.medium)
-                    .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
-            }
-            .accessibilityHidden(true)
+        GeometryReader { geo in
+            Image(uiImage: image).resizable().interpolation(.medium)
+                .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
         }
+        .accessibilityHidden(true)
     }
 }
 #endif
