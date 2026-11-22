@@ -35,7 +35,7 @@ enum AgentSessionBindOutcome: Equatable {
 
 extension AgentTabStore {
     func shareScreen(of key: AgentTabKey, session: String?) -> AgentPaneActionRun { guard let registry = actionRegistry, let session, let (record, _) = record(for: key), let daemon = daemon(for: key) else { return .refused(Self.screenShareUnavailable) }; let host = hostKind(record, listedHere: daemon.isLocal); let lanes = AgentLaneStore.shared; let links = lanes.links(session); let kind = host == .local ? "local" : host == .chief ? "unsupported" : daemon.isLocal ? "remote" : MachineRegistry.isCloudMachineID(daemon.machineID) ? "cloud" : "remote"; return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).run(registry: registry, session: session, actualSession: sessions[key] ?? record.session ?? "", machineID: daemon.machineID, kind: kind, host: record.host, hostKind: host == .local ? "local" : host == .chief ? "chief" : "remote", peer: links?.peer, registryHost: Self.registryHost(of: daemon), localSummaryCurrent: lanes.live && links != nil, unavailable: Self.screenShareUnavailable) }
-    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module) }
+    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static let showcaseMachineName = MacName.captureName
 
     static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
@@ -474,10 +474,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
-    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep` (key, listing machine), the first it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (_ key: String, _ machine: String) -> Bool = { _, _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key) }?.key
+        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key, $0.machine) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
