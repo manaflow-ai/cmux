@@ -13,6 +13,7 @@
 //! No socket, thread or clock is used here. Times are passed in by the host.
 
 pub mod hash;
+pub mod mirror;
 pub mod producer;
 pub mod row;
 pub mod session;
@@ -20,6 +21,7 @@ pub mod store;
 pub mod wire;
 
 pub use hash::{BlobHash, Mime};
+pub use mirror::{Applied, Mirror, MirrorError};
 pub use producer::{FaviconInput, ImageInput, Observation, Producer, ScreenInput};
 pub use row::{Kind, Row, RowPatch};
 pub use session::{Session, SessionError, SessionStats};
