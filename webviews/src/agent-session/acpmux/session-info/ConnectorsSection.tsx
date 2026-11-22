@@ -5,6 +5,8 @@
 // is not.
 import { useState } from "react";
 import { useT } from "../i18n";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
+import { pendingConnectors } from "./connectorState";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
@@ -26,6 +28,10 @@ export function ConnectorsSection({
   imessage?: IMessageView;
 }) {
   const t = useT();
+  // A server the harness is still starting says nothing until that has lasted the shared bound
+  // (CONNECTION_QUIET_MS, schemas/notice-timing): the usual one is up within a second, and its row
+  // draws its name meanwhile (Leo, 2026-11-14, asked connectivity to stay quiet).
+  const pendingSaid = useConnectionQuietKeys(pendingConnectors(servers));
   return (
     <ul className="acpmux-session-info-list">
       {imessage && <IMessageConnector view={imessage} />}
@@ -35,7 +41,7 @@ export function ConnectorsSection({
           <span className="acpmux-session-info-row__name">{server.name}</span>
           {server.status === "failed" && onReconnect ? (
             <ReconnectButton name={server.name} reconnect={onReconnect} />
-          ) : (
+          ) : server.status === "pending" && !pendingSaid.has(server.name) ? null : (
             <span className="acpmux-session-info-row__end" data-state={server.status}>
               {t(
                 server.status === "failed"

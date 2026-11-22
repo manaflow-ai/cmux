@@ -25,6 +25,9 @@ export type ConnectorsInput = {
   open: boolean;
   /// A Reconnect under way or failed, by server (ReconnectButton's own state, held by the caller).
   reconnecting?: Readonly<Record<string, "reconnecting" | "failed">>;
+  /// The pending servers whose start has lasted the shared bound (the caller's
+  /// `useConnectionQuietKeys`): only these say Connecting; one starting sooner shows its name alone.
+  pendingSaid?: ReadonlySet<string>;
   imessage?: IMessageView;
 };
 
@@ -35,7 +38,7 @@ export function connectorsSection(
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
   if (servers.length === 0 && !input.imessage) return undefined;
-  const summary = summarizeConnectors(servers);
+  const summary = summarizeConnectors(servers, input.pendingSaid);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -62,6 +65,7 @@ export function connectorsSection(
         ],
       };
     }
+    if (server.status === "pending" && input.pendingSaid && !input.pendingSaid.has(server.name)) return row;
     return {
       ...row,
       trailing: t(

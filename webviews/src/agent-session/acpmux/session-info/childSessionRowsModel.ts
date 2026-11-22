@@ -1,5 +1,5 @@
 import { type StringKey, type Translate } from "../i18n";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { sessionRetry } from "../subagents/retryState";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 
@@ -28,11 +28,14 @@ const retryOf = (child: StartedSession) => {
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
   retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
-/// its row says it, and whether it works (the turning ring) while acpmux retries it.
+/// A started chat's state in words ("Running", "Done"), as its row says it, and whether it works (the
+/// turning ring). One acpmux retries reads Running with the ring, never "Retrying (2/4) …": the
+/// retry is acpmux's own and the person can do nothing about it (Leo, 2026-11-14, asked
+/// connectivity to stay quiet).
 export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
-  const retry = retryOf(child);
-  return retry ? { text: retryLabel(t, retry), working: true } : { text: t(stateOf(child).word), working: false };
+  return retryOf(child)
+    ? { text: t(SESSION_STATE.running.word), working: true }
+    : { text: t(stateOf(child).word), working: false };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,

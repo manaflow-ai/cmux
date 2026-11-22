@@ -1,4 +1,5 @@
 import { peerLinkFailure, peerLinkFailureShows } from "./hostLine";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 
 /// A refused handshake that offers Restart acpmux (`details.restartAcpmux`): another binary's
 /// daemon holds this app's acpmux socket, and the app may replace it with its own on a click.
@@ -198,7 +199,7 @@ export class AcpmuxRestartGate {
 /// startup deadline, its drop grace, the sidebar's "Connecting…" hold), and an update's handoff
 /// answered within it (#27283), so a daemon restart, a handoff or a short drop shows nothing on any
 /// open chat. At 1.5 s every open chat said "Reconnecting…" for each restart.
-export const RECONNECT_LINE_AFTER_MS = 10_000;
+export const RECONNECT_LINE_AFTER_MS = CONNECTION_QUIET_MS;
 
 /// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
 /// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).

@@ -77,7 +77,16 @@ export function HostUnavailableLine({
   const t = useT();
   const [open, setOpen] = useState(false);
   const detailId = useId();
-  if (selfRetrying && !onRestart) return <ReconnectingLine />;
+  // The one quiet line while the pane gets its agent back by itself: "Reconnecting…", the same line
+  // HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen. The
+  // pane mounts this line only once the failure is said (App.tsx `hostErrorSaid`, hostRetry.ts
+  // `hostErrorShows`): a reconnecting failure past HOST_ERROR_DEADLINE_MS, over the shared bound.
+  if (selfRetrying && !onRestart)
+    return (
+      <output className="acpmux-host-line" data-host-recovering="reconnecting">
+        <p className="acpmux-host-line-message">{t("host.reconnecting")}</p>
+      </output>
+    );
   return (
     <div className="acpmux-host-line-group" role="alert">
       <div className="acpmux-host-line">
@@ -118,17 +127,6 @@ export function HostUnavailableLine({
         </p>
       )}
     </div>
-  );
-}
-
-/// The one quiet line while the pane gets its agent back by itself: "Reconnecting…", the same line
-/// HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen.
-function ReconnectingLine() {
-  const t = useT();
-  return (
-    <output className="acpmux-host-line" data-host-recovering="reconnecting">
-      <p className="acpmux-host-line-message">{t("host.reconnecting")}</p>
-    </output>
   );
 }
 
