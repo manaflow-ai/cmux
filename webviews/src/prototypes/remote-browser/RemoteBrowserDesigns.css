@@ -1,0 +1,504 @@
+/* Remote browser designs (RemoteBrowserDesigns.tsx): a browser pane drawn on the native metrics. The tab strip
+ * and toolbar heights follow the app's compact density (tab strip 30; toolbar row per design/browser-chrome.md: bar 28, radius 8, buttons 28); the chip is MachineBadgeView
+ * (18 high, 6 side padding, caption type, hover fill). */
+.rbd-pane {
+  --rbd-ink: var(--cmux-text, CanvasText);
+  --rbd-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--rbd-ink) 62%, transparent));
+  --rbd-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--rbd-ink) 42%, transparent));
+  --rbd-tone: var(--cmux-surface-background, Canvas);
+  --rbd-chrome: color-mix(in srgb, var(--rbd-ink) 5%, var(--rbd-tone));
+  --rbd-fill: var(--ds-color-hover, color-mix(in srgb, var(--rbd-ink) 8%, transparent));
+  --rbd-line: var(--ds-color-separator, color-mix(in srgb, var(--rbd-ink) 12%, transparent));
+  --rbd-good: var(--cmux-app-success, #30a46c);
+  --rbd-fair: var(--cmux-app-warning, #e5a000);
+  --rbd-poor: var(--cmux-app-danger, #e5484d);
+  --rbd-radius: var(--ds-radius-sm, 6px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  font-family: var(--font-ui, system-ui);
+  font-size: var(--text-body, 13px);
+  color: var(--rbd-ink);
+  background: var(--rbd-tone);
+}
+
+.rbd-icon {
+  display: block;
+  flex: none;
+}
+
+/* Tab strip */
+.rbd-tabs {
+  display: flex;
+  gap: 2px;
+  height: 30px;
+  padding: 0 6px;
+  align-items: flex-end;
+  background: var(--rbd-chrome);
+}
+
+.rbd-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 180px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 8px 8px 0 0;
+  color: var(--rbd-ink-2);
+  font-size: var(--text-caption, 12px);
+}
+
+.rbd-tab[data-active] {
+  color: var(--rbd-ink);
+  background: var(--rbd-tone);
+}
+
+.rbd-tab-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rbd-favicon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--rbd-ink) 22%, transparent);
+}
+
+.rbd-favicon[data-dim] {
+  opacity: 0.4;
+}
+
+/* chip: a 3 px leading bar in the machine's tab color. */
+.rbd-tab-lead {
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--rbd-machine);
+}
+
+/* line: the container underline across the tab. */
+.rbd-tab-line {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--rbd-machine);
+}
+
+/* Toolbar and omnibar */
+.rbd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--rbd-line);
+}
+
+.rbd-nav {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--rbd-ink-2);
+}
+
+.rbd-nav[data-off] {
+  color: var(--rbd-ink-3);
+}
+
+.rbd-omnibar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0 6px;
+  padding: 0 5px 0 8px;
+  border-radius: 8px;
+  background: var(--rbd-fill);
+}
+
+.rbd-omnibar[data-design="line"] {
+  padding-left: 4px;
+}
+
+.rbd-lock {
+  color: var(--rbd-ink-3);
+}
+
+.rbd-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rbd-chip,
+.rbd-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 18px;
+  max-width: 160px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: var(--text-caption, 12px);
+  color: var(--rbd-ink-2);
+  background: var(--rbd-fill);
+  white-space: nowrap;
+}
+
+.rbd-chip[data-remote] {
+  color: var(--rbd-ink);
+}
+
+.rbd-chip[data-open],
+.rbd-segment[data-open] {
+  background: color-mix(in srgb, var(--rbd-ink) 16%, transparent);
+}
+
+/* line: the segment wears the machine's color, as a container's name does. */
+.rbd-segment[data-remote] {
+  color: var(--rbd-machine);
+  background: color-mix(in srgb, var(--rbd-machine) 16%, transparent);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.rbd-latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 4px;
+  font-size: var(--text-caption, 12px);
+  font-variant-numeric: tabular-nums;
+  color: var(--rbd-ink-3);
+}
+
+.rbd-latency[data-state="slow"],
+.rbd-latency[data-state="paused"] {
+  color: var(--rbd-ink-2);
+}
+
+.rbd-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rbd-good);
+}
+
+.rbd-dot[data-level="fair"] {
+  background: var(--rbd-fair);
+}
+
+.rbd-dot[data-level="poor"] {
+  background: var(--rbd-poor);
+}
+
+.rbd-dot[data-level="wait"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--rbd-ink-3);
+}
+
+/* bar: the connection bar under the toolbar. */
+.rbd-connbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  padding: 0 12px;
+  font-size: var(--text-caption, 12px);
+  color: var(--rbd-ink-2);
+  background: color-mix(in srgb, var(--rbd-machine) 10%, var(--rbd-tone));
+  border-bottom: 1px solid var(--rbd-line);
+}
+
+.rbd-connbar[data-state="paused"] {
+  background: color-mix(in srgb, var(--rbd-poor) 12%, var(--rbd-tone));
+}
+
+.rbd-connbar-icon {
+  color: var(--rbd-machine);
+}
+
+.rbd-connbar-name {
+  color: var(--rbd-ink);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.rbd-connbar-fact {
+  font-variant-numeric: tabular-nums;
+}
+
+.rbd-connbar-spacer {
+  flex: 1;
+}
+
+.rbd-connbar-button {
+  padding: 1px 8px;
+  border-radius: 5px;
+  background: var(--rbd-fill);
+  color: var(--rbd-ink);
+}
+
+.rbd-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+
+.rbd-bars i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--rbd-ink) 18%, transparent);
+}
+
+.rbd-bars[data-level="good"] i[data-on] {
+  background: var(--rbd-good);
+}
+
+.rbd-bars[data-level="fair"] i[data-on] {
+  background: var(--rbd-fair);
+}
+
+.rbd-bars[data-level="poor"] i[data-on] {
+  background: var(--rbd-poor);
+}
+
+/* The page: a plain sample site. */
+.rbd-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+
+.rbd-page[data-state="paused"] .rbd-site {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.rbd-page[data-state="starting"] .rbd-site {
+  visibility: hidden;
+}
+
+.rbd-site {
+  padding: 18px 40px;
+  color: #1c2024;
+}
+
+.rbd-site-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.rbd-site-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #3e63dd;
+}
+
+.rbd-site-link {
+  width: 54px;
+  height: 8px;
+  border-radius: 4px;
+  background: #d9dde3;
+}
+
+.rbd-site-hero {
+  height: 120px;
+  border-radius: 10px;
+  margin-bottom: 18px;
+  background: linear-gradient(120deg, #e0e7ff, #f3e8ff);
+}
+
+.rbd-site-title {
+  margin-bottom: 14px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.rbd-site-line {
+  height: 9px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  background: #e6e8eb;
+}
+
+.rbd-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--rbd-ink);
+  background: color-mix(in srgb, var(--rbd-tone) 70%, transparent);
+}
+
+.rbd-overlay-title {
+  font-size: var(--text-heading, 15px);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.rbd-overlay-detail {
+  color: var(--rbd-ink-2);
+  font-size: var(--text-caption, 12px);
+}
+
+.rbd-overlay-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.rbd-button {
+  padding: 3px 12px;
+  border-radius: var(--rbd-radius);
+  background: var(--rbd-fill);
+}
+
+.rbd-button[data-default] {
+  color: var(--cmux-app-accent-text, #fff);
+  background: var(--cmux-app-accent, #3b82f6);
+}
+
+.rbd-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--rbd-ink) 18%, transparent);
+  border-top-color: var(--rbd-ink-2);
+}
+
+/* The picker menu, anchored under the chip (chip, bar) or the segment (line). */
+.rbd-menu {
+  position: absolute;
+  top: 62px;
+  right: 12px;
+  width: 300px;
+  padding: 5px;
+  border-radius: 10px;
+  color: var(--rbd-ink);
+  background: var(--rbd-tone);
+  box-shadow:
+    0 0 0 1px var(--rbd-line),
+    var(--elevation-2, 0 8px 24px rgb(0 0 0 / 0.18));
+}
+
+.rbd-menu[data-design="line"] {
+  right: auto;
+  left: 96px;
+}
+
+.rbd-menu-head {
+  padding: 4px 8px 6px;
+  font-size: var(--text-caption, 12px);
+  color: var(--rbd-ink-3);
+}
+
+.rbd-menu-row {
+  display: grid;
+  grid-template-columns: 14px 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 34px;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.rbd-menu-row[data-current] {
+  background: var(--rbd-fill);
+}
+
+.rbd-menu-row[data-disabled] {
+  color: var(--rbd-ink-3);
+}
+
+.rbd-menu-action {
+  min-height: 26px;
+}
+
+.rbd-menu-icon {
+  color: var(--rbd-ink-2);
+}
+
+.rbd-menu-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rbd-menu-kind {
+  font-size: var(--text-caption, 11px);
+  color: var(--rbd-ink-3);
+}
+
+.rbd-menu-ms {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-caption, 12px);
+  font-variant-numeric: tabular-nums;
+  color: var(--rbd-ink-2);
+}
+
+.rbd-menu-note {
+  font-size: var(--text-caption, 12px);
+  color: var(--rbd-ink-3);
+}
+
+.rbd-menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--rbd-line);
+}
+
+.rbd-menu-cost {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.rbd-menu-cost div {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-caption, 12px);
+  color: var(--rbd-ink-3);
+}
+
+.rbd-menu-cost b {
+  font-size: var(--text-body, 13px);
+  color: var(--rbd-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.rbd-menu-cost em {
+  font-style: normal;
+}
