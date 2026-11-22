@@ -18,9 +18,9 @@ final class GlassMenuStepperRowView: PopupRowView {
     init(_ item: GlassMenuStepperItem, leading: NSView?, layout: Layout) {
         self.item = item
         // Locals: no stored property is read before super.init.
-        let minus = GlassMenuStepperButton(symbol: "minus", label: item.decrement.title, toolTip: Self.hint(item.decrement))
-        let plus = GlassMenuStepperButton(symbol: "plus", label: item.increment.title, toolTip: Self.hint(item.increment))
-        let reset = GlassMenuStepperButton(symbol: "arrow.counterclockwise", label: item.reset.title, toolTip: Self.hint(item.reset))
+        let minus = GlassMenuStepperButton(symbol: "minus", label: item.decrement.title, shortcut: GlassMenuRow.shortcut(item.decrement))
+        let plus = GlassMenuStepperButton(symbol: "plus", label: item.increment.title, shortcut: GlassMenuRow.shortcut(item.increment))
+        let reset = GlassMenuStepperButton(symbol: "arrow.counterclockwise", label: item.reset.title, shortcut: GlassMenuRow.shortcut(item.reset))
         self.minus = minus
         self.plus = plus
         resetButton = reset
@@ -91,7 +91,4 @@ final class GlassMenuStepperRowView: PopupRowView {
     /// A row-wide click (not on a button) runs nothing: the menu stays open.
     override func activate() {}
 
-    private static func hint(_ part: NSMenuItem) -> String {
-        GlassMenuRow.shortcut(part).map { "\(part.title) (\($0))" } ?? part.title
-    }
 }
