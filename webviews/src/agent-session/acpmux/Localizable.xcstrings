@@ -322365,6 +322365,30 @@
         }
       }
     },
+    "trust.continueReadOnly": {
+      "comment": "Folder trust: what the read-only continuation in a declined folder does",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or read it here: the agent can read and search this folder, but cannot edit it or run anything that changes it. Project hooks, settings and MCP servers stay off."
+          }
+        }
+      }
+    },
+    "trust.continueReadOnlyLabel": {
+      "comment": "Folder trust: action to continue in the declined folder, read-only",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only here"
+          }
+        }
+      }
+    },
     "trust.continueWithoutFolderLabel": {
       "comment": "Folder trust: action to continue without a project",
       "extractionState": "manual",
