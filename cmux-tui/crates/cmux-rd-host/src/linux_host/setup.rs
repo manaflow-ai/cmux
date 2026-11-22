@@ -163,6 +163,9 @@ pub const HOST_UNIT: &str = "cmux-screen-host.service";
 const HOST_UNIT_TEXT: &str = include_str!("../../systemd/cmux-screen-host.service");
 
 /// `cmux-screen-display.service` for display `:display` run by `xvfb` (an absolute path).
+/// `-noreset`: the host's idle check ([`display_in_use`], every 30 s) is often the display's
+/// only client, and without it Xvfb resets the server each time that check disconnects and
+/// forks xkbcomp again on the next one, a new process in the unit's log every 30 s.
 pub fn display_unit(xvfb: &Path, display: u32) -> String {
     format!(
         "# cmux virtual display: written by `cmux-rd linux-host enable` on a machine with no\n\
@@ -172,7 +175,7 @@ pub fn display_unit(xvfb: &Path, display: u32) -> String {
          \n\
          [Service]\n\
          Type=simple\n\
-         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp\n\
+         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp -noreset\n\
          Restart=on-failure\n\
          RestartSec=2\n\
          \n\

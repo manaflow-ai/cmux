@@ -345,6 +345,12 @@ pub static TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "list_displays",
+        access: Access::Discover,
+        description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
+        schema: || obj(json!({}), &[]),
+    },
+    Tool {
         name: "record",
         access: Access::Observe,
         description: "Record a display to an MP4 (H.264) video file on the machine. With seconds: records that long and returns when the file is complete. With action \"start\": returns at once with a recording_id and keeps recording, with no connection held, until action \"stop\" or max_seconds; action \"stop\" returns the finished file. The result has path, duration_ms, frames, bytes, width, height and why it ended. One recording runs at a time. Denied apps are left out of every frame as in a display screenshot, and a recording ends by itself when the screen locks or Computer Use is turned off. action \"read\" returns a finished file's bytes in pieces (data_base64, next_offset, eof) when the caller is on another machine.",

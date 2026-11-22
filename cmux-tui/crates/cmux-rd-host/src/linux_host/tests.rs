@@ -530,7 +530,7 @@ fn a_refused_host_ticket_ends_its_session() {
     assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
     assert!(matches!(
         on_ticket(&ticket_push("s1"), |_| None),
-        OnTicket::End(id, "failed", _) if id == "s1"
+        OnTicket::End(id, "consent_required", _) if id == "s1"
     ));
     // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
     // approved session would otherwise stay open on the hub.
@@ -547,6 +547,46 @@ fn a_refused_host_ticket_ends_its_session() {
     // With no session id there is nothing to end.
     malformed["sessionId"] = Value::Null;
     assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
+}
+
+/// The person's own device (`ownerKind: "user"`) gets the screen on a desktop enabled
+/// `--view-only`: its control ticket serves view only, watched as a `view` session, where
+/// another device's is ended `consent_required`. Nothing serves what the desktop refuses.
+#[test]
+fn an_own_device_control_ticket_serves_view_only_on_a_view_only_desktop() {
+    let view_only = LocalConsent { view: true, full: false };
+    let admit = |scope: &str| view_only.serve(scope, true);
+    let mut own = ticket_push("s1");
+    own["ownerKind"] = "user".into();
+    match on_ticket(&own, admit) {
+        OnTicket::Serve(ticket, true) => {
+            assert_eq!(ticket.scope, "view");
+            let current: Current = Arc::new(Mutex::new(Some(Served {
+                id: ticket.session_id,
+                scope: ticket.scope,
+                stop: Arc::new(AtomicBool::new(false)),
+            })));
+            // The view-only consent it was served under does not withdraw it a second later.
+            assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+        }
+        other => panic!("own device not served view only: {other:?}"),
+    }
+    for kind in [Value::Null, "team".into(), "shared".into()] {
+        let mut push = ticket_push("s1");
+        push["ownerKind"] = kind;
+        assert!(matches!(
+            on_ticket(&push, admit),
+            OnTicket::End(id, "consent_required", _) if id == "s1"
+        ));
+    }
+    // A desktop that allows control serves it as asked; one whose consent is unreadable
+    // (`admit` None for every scope) serves nothing, own device or not.
+    let both = LocalConsent { view: true, full: true };
+    assert!(matches!(
+        on_ticket(&own, |s| both.serve(s, true)),
+        OnTicket::Serve(t, false) if t.scope == "full"
+    ));
+    assert!(matches!(on_ticket(&own, |_| None), OnTicket::End(_, "consent_required", _)));
 }
 
 #[test]

@@ -235,6 +235,7 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
+    source.set_picture(req.picture);
     let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;

@@ -9,6 +9,13 @@ fn a_frame_budget_is_one_frame_intervals_share_of_the_rate() {
 }
 
 #[test]
+fn the_ladders_budget_is_twice_the_rate_over_one_second() {
+    assert_eq!(loose_budget(8_000), (2_000_000, 1.0));
+    assert!(loose_budget(8_000).0 > frame_budget(8_000, 60).0 * 60, "looser than a frame's");
+    assert!(loose_budget(u32::MAX).0 > 0, "clamped, never negative");
+}
+
+#[test]
 fn ultra_holds_frame_rate_first_within_a_per_pixel_ceiling() {
     const P1080: usize = 1920 * 1080;
     // 150 Mbps at 120 fps: one frame interval's share, as standard.

@@ -93,7 +93,8 @@ fn only_the_session_terminal_reads_as_the_session() {
 #[test]
 fn the_display_unit_round_trips_its_number_and_the_host_drop_in_points_at_it() {
     let unit = display_unit(Path::new("/usr/bin/Xvfb"), 101);
-    assert!(unit.contains("ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp\n"));
+    assert!(unit
+        .contains("ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp -noreset\n"));
     assert!(unit.contains("WantedBy=default.target"));
     assert_eq!(display_of_unit(&unit), Some(101));
     assert_eq!(display_of_unit("[Service]\nExecStart=/usr/bin/Xvfb\n"), None);

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
 
 // Look A's controls (``MacScreenViewerStyle/lookA``): the picture's corner pill and the toolbar's View | Control segments.
@@ -10,6 +11,10 @@ final class MacScreenPictureMark: NSView {
     enum Kind { case controlling, viewOnly, reconnecting }
 
     static let height: CGFloat = 24
+    /// A stall over the picture says Reconnecting only once it has lasted the shared connection bound (Leo,
+    /// 2026-11-21: "stop layout shifting"; the pill is an overlay in the picture's corner, so it never moves the
+    /// picture): ``NoticeTiming/connectionQuiet``, not the 1 s it waited before.
+    static let reconnectingDelay = NoticeTiming.connectionQuiet
     private let surface = MacScreenLookA.glass(cornerRadius: MacScreenPictureMark.height / 2) // radius-allow: the pill is a capsule
     private let rows: [Kind: NSStackView]
     private var kind: Kind?
