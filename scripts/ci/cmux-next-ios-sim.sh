@@ -41,6 +41,16 @@
 #               A suite named *ColdUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
+#             duress=SPEC   run the UI suites under the offline duress simulator
+#               (cmux-next-ios/design/duress-sim.md): cmux-duress (cmux-tui Rust) expands a
+#               recorded Claude Code PTY stream and chat-sim's recorded chat into replay files
+#               on this host, and the simulator's global defaults point the app at them
+#               (CmuxMobileDuress), so every bench runs under that load unchanged. SPEC is
+#               PRESET[,knob=value...] (presets idle, duress, heavy; `cmux-duress presets`),
+#               or off (no duress). Repeat it (duress=off --arg duress=heavy) to run the
+#               same suites once per SPEC on one simulator after one build: the before
+#               and after of the same harness, each run's logs under ui-duress-SLUG*
+#               and its resolved knobs (duress.json) under duress/SLUG/.
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -296,6 +306,7 @@ ui_suites=()
 ui_cold=()
 ui_video=0
 ui_profile=0
+duress_specs=()
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -316,13 +327,20 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
           if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
+      duress=?*)
+        [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
+          { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
+        duress_specs+=("${sel#duress=}") ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
+  fi
+  if [[ ${#duress_specs[@]} -gt 0 && ( ${#ui_suites[@]} -eq 0 || ${#ui_cold[@]} -gt 0 || $ui_profile -eq 1 || $ui_video -eq 1 ) ]]; then
+    echo "cmux-next-ios-sim.sh: duress= runs warm UI suites (ui=SUITE,...), without cold suites, profile or video" >&2; exit 2
   fi
 fi
 run_kit=1
@@ -1273,6 +1291,64 @@ ui_cold_tests() {
   note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
 }
 
+# ui_duress_runs: the warm UI suites once per duress= SPEC (cmux-next-ios/design/duress-sim.md), after
+# one build-for-testing, on the one simulator. cmux-duress writes each SPEC's replay files under
+# $work/duress/SLUG (duress.json copied to $out/duress/SLUG); the simulator's global defaults name that folder (CmuxMobileDuress), which the
+# DEBUG app reads at launch, so the benches need no change. off deletes the key: no duress.
+ui_duress_runs() {
+  local spec slug dir status bundle t1
+  t1=$SECONDS
+  xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
+  ui_status=$?
+  note "- UI test build (build-for-testing, for duress= runs): exit $ui_status, $((SECONDS - t1)) s"
+  if [[ $ui_status -ne 0 ]]; then
+    tail -40 "$work/ui-build.log"; cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true; return
+  fi
+  ui_action=test-without-building
+  if [[ " ${duress_specs[*]} " != " off " ]]; then
+    t1=$SECONDS
+    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress >"$work/duress-build.log" 2>&1; then
+      tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
+      note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
+    fi
+    note "- duress: cmux-duress built in $((SECONDS - t1)) s"
+  fi
+  xcrun simctl boot "$ui_udid" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+  for spec in "${duress_specs[@]}"; do
+    slug="$(printf '%s' "$spec" | tr ',=' '__')"
+    # The replay files stay in the work folder (heavy's history is tens of MB); the artifact keeps
+    # duress.json (the resolved knobs and counts) and gen.log.
+    dir="$work/duress/$slug"
+    if [[ "$spec" == off ]]; then
+      xcrun simctl spawn "$ui_udid" defaults delete -g CmuxMobileDuress >/dev/null 2>&1 || true
+      note "- duress $spec: no duress (CmuxMobileDuress unset)"
+    else
+      mkdir -p "$dir"
+      t1=$SECONDS
+      if ! cmux-tui/target/release/cmux-duress gen --spec "$spec" --out "$dir" --repo "$root" >"$dir/gen.log" 2>&1; then
+        cat "$dir/gen.log"; note "- duress $spec: cmux-duress gen failed (duress/$slug/gen.log)"; ui_status=1; continue
+      fi
+      mkdir -p "$out/duress/$slug"; cp "$dir/duress.json" "$dir/gen.log" "$out/duress/$slug/" 2>/dev/null || true
+      note "- duress $spec: $(tail -1 "$dir/gen.log") ($((SECONDS - t1)) s)"
+      xcrun simctl spawn "$ui_udid" defaults write -g CmuxMobileDuress "$dir"
+      [[ "$(xcrun simctl spawn "$ui_udid" defaults read -g CmuxMobileDuress 2>/dev/null)" == "$dir" ]] ||
+        { note "- duress $spec: the simulator did not keep CmuxMobileDuress"; ui_status=1; continue; }
+    fi
+    bundle="$work/ui-duress-$slug.xcresult"
+    t1=$SECONDS
+    xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
+      "${ui_suites[@]}" >"$work/ui-duress-$slug-test.log" 2>&1
+    status=$?
+    keep_test_logs "$work/ui-duress-$slug-test.log" "$bundle" "ui-duress-$slug"
+    # The run named first is also the plain ui-* set, so the summary's readers keep working.
+    if [[ ! -d "$work/ui.xcresult" ]]; then cp -R "$bundle" "$work/ui.xcresult"; cp "$work/ui-duress-$slug-test.log" "$work/ui-test.log"; fi
+    note "- duress $spec: UI suites exit $status, $(cat "$out/ui-duress-$slug-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t1)) s"
+    (( status == 0 )) || ui_status=$status
+  done
+  xcrun simctl spawn "$ui_udid" defaults delete -g CmuxMobileDuress >/dev/null 2>&1 || true
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
@@ -1346,7 +1422,9 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
   fi
   set +e
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
+  if [[ $ui_status -eq 0 && ${#duress_specs[@]} -gt 0 ]]; then
+    ui_duress_runs
+  elif [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
     xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
       "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
     ui_status=$?
