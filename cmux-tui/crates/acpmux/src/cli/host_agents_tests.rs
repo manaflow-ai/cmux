@@ -1,7 +1,6 @@
 use super::*;
 
-const LINUX: &str =
-    "os\tLinux\nagent\tclaude\t/home/leo/.local/bin/claude\t1\nagent\tcodex\t\t\n";
+const LINUX: &str = "os\tLinux\nagent\tclaude\t/home/leo/.local/bin/claude\t1\nagent\tcodex\t\t\n";
 
 #[test]
 fn the_probe_lines_read_back() {
@@ -79,10 +78,7 @@ fn the_step_warns_with_the_first_offer_and_is_ok_once_one_agent_is_ready() {
 #[test]
 fn codex_login_forwards_its_callback_port_and_claude_does_not() {
     let codex = login_argv("leo@box", "codex").unwrap();
-    assert_eq!(
-        &codex[..5],
-        ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]
-    );
+    assert_eq!(&codex[..5], ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]);
     assert!(codex.last().unwrap().contains("~/.local/bin/acpmux harness login codex"));
     let claude = login_argv("leo@box", "claude").unwrap();
     assert_eq!(claude[0], "-t");

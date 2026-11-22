@@ -144,21 +144,16 @@ async fn a_late_rpc_result_survives_the_delivery_lease() {
         requests.recv().await.unwrap();
         tokio::time::sleep(Duration::from_secs(90)).await;
         replies
-            .send(
-                crate::rpc::Message::ok(json!(2), json!({"sessionId": "stable-id"})).to_line(),
-            )
+            .send(crate::rpc::Message::ok(json!(2), json!({"sessionId": "stable-id"})).to_line())
             .await
             .unwrap();
     });
     let worker_ledger = ledger.clone();
     let worker = tokio::spawn(async move {
-        let result =
-            rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, json!({})).await;
+        let result = rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, json!({})).await;
         if let Ok(result) = result {
-            worker_ledger.finish(
-                &key,
-                Ack::delivered("m", result["sessionId"].as_str().map(str::to_owned)),
-            );
+            worker_ledger
+                .finish(&key, Ack::delivered("m", result["sessionId"].as_str().map(str::to_owned)));
         }
     });
     assert!(wait_control_result(receiver, Duration::from_secs(50)).await.is_none());
@@ -195,8 +190,7 @@ async fn a_lost_rpc_response_is_indeterminate_not_refused() {
 async fn a_read_from_another_users_device_is_refused() {
     let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
     config.store.mode = crate::config::StoreMode::Memory;
-    let store =
-        crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
     let dir = tempfile::tempdir().unwrap();
     let hook = MeshControlHook::new(
@@ -218,8 +212,7 @@ async fn a_read_from_another_users_device_is_refused() {
             user: Some(user.into()),
             ..Sender::default()
         };
-        message.body =
-            json!({"version": 1, "method": "_acpmux/info", "params": {}}).to_string();
+        message.body = json!({"version": 1, "method": "_acpmux/info", "params": {}}).to_string();
         message
     };
     let refused = hook.control(&hub, &read("person-2")).await.unwrap();

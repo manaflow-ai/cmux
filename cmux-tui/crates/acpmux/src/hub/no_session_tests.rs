@@ -19,10 +19,8 @@ fn the_closest_names_come_first_and_at_most_three() {
 #[test]
 fn a_peers_names_keep_their_path_and_count_once_listed() {
     use std::sync::atomic::Ordering::SeqCst;
-    let hub = Hub::new(
-        crate::config::Config::default(),
-        Box::new(crate::store::MemoryStore::default()),
-    );
+    let hub =
+        Hub::new(crate::config::Config::default(), Box::new(crate::store::MemoryStore::default()));
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let peer = crate::peer::Peer::new("b", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("b".into(), peer.clone());
@@ -97,10 +95,8 @@ fn a_chat_named_by_its_id_names_the_register_step() {
     assert_eq!(far.data["state"], "unknown");
 
     // Through the hub, a peer's id-like name says so, and a plain name keeps "did you mean".
-    let hub = Hub::new(
-        crate::config::Config::default(),
-        Box::new(crate::store::MemoryStore::default()),
-    );
+    let hub =
+        Hub::new(crate::config::Config::default(), Box::new(crate::store::MemoryStore::default()));
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let b = crate::peer::Peer::new("b", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("b".into(), b.clone());

@@ -18,10 +18,7 @@ fn a_down_link_names_this_hosts_network_only_for_an_error_that_never_left_it() {
         Some(DownCause::LocalNetwork)
     );
     assert_eq!(
-        cause(
-            down,
-            Some("ssh: Could not resolve hostname box: nodename nor servname provided")
-        ),
+        cause(down, Some("ssh: Could not resolve hostname box: nodename nor servname provided")),
         Some(DownCause::LocalNetwork)
     );
     assert_eq!(cause(down, Some("connect timed out after 5s")), Some(DownCause::PeerDown));
@@ -59,10 +56,7 @@ fn a_down_link_with_a_named_reason_is_offline_with_it() {
         ("relay credential source callback failed", OfflineReason::CredentialUnavailable),
         ("write: No space left on device (os error 28)", OfflineReason::DiskFull),
         ("relay refused: vm.agent_stopping", OfflineReason::MachineStopped),
-        (
-            "daemon: restart-budget-exceeded (5 stops today)",
-            OfflineReason::RestartBudgetExceeded,
-        ),
+        ("daemon: restart-budget-exceeded (5 stops today)", OfflineReason::RestartBudgetExceeded),
     ];
     for (error, want) in cases {
         for state in [PeerState::Reconnecting, PeerState::Offline] {
@@ -73,9 +67,6 @@ fn a_down_link_with_a_named_reason_is_offline_with_it() {
         assert_eq!(reason(PeerState::Connected, false, Some(error)), None);
         assert_eq!(reason(PeerState::Connecting, false, Some(error)), None);
     }
-    assert_eq!(
-        reason(PeerState::Reconnecting, false, Some("connect timed out after 5s")),
-        None
-    );
+    assert_eq!(reason(PeerState::Reconnecting, false, Some("connect timed out after 5s")), None);
     assert_eq!(whole(PeerState::Reconnecting, false, None), MachineLink::Reconnecting);
 }

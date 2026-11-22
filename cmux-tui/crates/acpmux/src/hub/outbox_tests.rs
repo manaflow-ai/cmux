@@ -210,10 +210,8 @@ fn peer_acceptance_is_scoped_to_its_target_session() {
             std::sync::Arc::new(|_| {}),
         );
     }
-    accepts.accepted(
-        "peer",
-        &json!({"sessionId": "a", "promptId": "same-prompt", "turnId": "t-a"}),
-    );
+    accepts
+        .accepted("peer", &json!({"sessionId": "a", "promptId": "same-prompt", "turnId": "t-a"}));
     assert_eq!(*seen.lock().unwrap(), vec!["a"]);
     // An unrelated peer also cannot consume the second target's hook.
     accepts.accepted(
@@ -221,10 +219,8 @@ fn peer_acceptance_is_scoped_to_its_target_session() {
         &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
     );
     assert_eq!(*seen.lock().unwrap(), vec!["a"]);
-    accepts.accepted(
-        "peer",
-        &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
-    );
+    accepts
+        .accepted("peer", &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}));
     assert_eq!(*seen.lock().unwrap(), vec!["a", "b"]);
 }
 
@@ -394,10 +390,7 @@ fn bytes_per_change(sizes: [usize; 2]) -> [u64; 2] {
 #[test]
 fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
     let [small, large] = bytes_per_change([10, 2_500]);
-    assert!(
-        large * 10 <= small * 12,
-        "large {large} B per change is over 1.2x small {small} B"
-    );
+    assert!(large * 10 <= small * 12, "large {large} B per change is over 1.2x small {small} B");
 }
 
 /// The same at 25,000 kept (ten days of a busy machine, 52 MB), the size hang-watch saw. A
@@ -409,10 +402,7 @@ fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
 #[ignore = "own run, one test at a time: 52 MB through a debug build, past the hang guard under load"]
 fn a_change_writes_the_same_bytes_with_25000_deliveries_kept() {
     let [small, large] = bytes_per_change([10, 25_000]);
-    assert!(
-        large * 10 <= small * 12,
-        "large {large} B per change is over 1.2x small {small} B"
-    );
+    assert!(large * 10 <= small * 12, "large {large} B per change is over 1.2x small {small} B");
 }
 
 /// A torn last line (a crash or a full disk mid-append) costs only that line; the rest of the

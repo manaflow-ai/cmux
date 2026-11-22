@@ -19,9 +19,8 @@ fn only_down_ssh_peers_are_read() {
 
 #[test]
 fn a_far_row_is_named_on_its_host_and_replaces_the_stale_ones() {
-    let far =
-        parse(br#"{"sessions": [{"sessionId": "s1", "name": "lane"}, {"name": "no id"}]}"#)
-            .unwrap();
+    let far = parse(br#"{"sessions": [{"sessionId": "s1", "name": "lane"}, {"name": "no id"}]}"#)
+        .unwrap();
     let far: Vec<Value> = far.into_iter().map(|r| tag("box", r)).collect();
     assert_eq!(far.len(), 1);
     assert_eq!(

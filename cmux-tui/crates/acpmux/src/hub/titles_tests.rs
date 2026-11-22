@@ -27,8 +27,7 @@ fn a_rename_after_an_empty_title_request_stops_title_requests() {
 #[test]
 fn a_retried_title_reads_the_latest_prompt() {
     assert!(
-        request("Reply with only: OK", "", true)
-            .contains("first message:\nReply with only: OK")
+        request("Reply with only: OK", "", true).contains("first message:\nReply with only: OK")
     );
     assert!(
         request("Fix the sidebar spinner", "", false)
@@ -93,11 +92,7 @@ fn a_probe_titles_no_chat_and_the_first_real_message_does() {
     fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
     assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
     assert_eq!(source.as_deref(), Some(PROMPT));
-    assert_eq!(
-        prompt.as_deref(),
-        Some("Fix the sidebar spinner"),
-        "the title request reads it"
-    );
+    assert_eq!(prompt.as_deref(), Some("Fix the sidebar spinner"), "the title request reads it");
     fallback_title_fields(&mut title, &mut source, &mut prompt, "Now add a test");
     assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"), "a later message keeps it");
 }
@@ -168,11 +163,7 @@ fn a_standing_rules_preamble_never_titles_a_chat() {
     let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
     let gist = prompt_gist(&text);
     assert_eq!(gist.line, "Task: rename live sessions after their task.");
-    assert!(
-        !gist.body.contains("Restrictions"),
-        "the title model never reads it: {}",
-        gist.body
-    );
+    assert!(!gist.body.contains("Restrictions"), "the title model never reads it: {}", gist.body);
     assert!(gist.body.contains("More."));
 }
 

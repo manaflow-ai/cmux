@@ -100,8 +100,7 @@ fn a_key_is_added_as_a_reference_and_listed_with_its_provider() {
     assert_eq!(inline.unwrap_err().data.unwrap()["reason"], "route.secret_inline");
     assert!(add_key(Some(&d.routes), &d.home, "mistral", "keychain:x", None).is_err());
     let (id, state) =
-        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", Some("Mine"))
-            .unwrap();
+        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", Some("Mine")).unwrap();
     assert_eq!(id, "openrouter-key");
     let key = state["connections"]
         .as_array()
@@ -228,10 +227,7 @@ fn a_claude_token_is_added_as_a_reference_and_delivered_as_the_oauth_token() {
     ));
     let (family, kind, var, secret) =
         credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
-    assert_eq!(
-        (family.as_str(), kind, var),
-        ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
-    );
+    assert_eq!((family.as_str(), kind, var), ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN"));
     assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
 }
 
@@ -246,8 +242,7 @@ fn keys_are_delivered_in_their_providers_variable_and_logins_not_at_all() {
     let (family, kind, var, _) =
         credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
     assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
-    let (family, _, var, secret) =
-        credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
+    let (family, _, var, secret) = credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
     assert_eq!((family.as_str(), var), ("codex", "OPENAI_API_KEY"));
     assert_eq!(resolve("openai-key", &secret.unwrap()).unwrap(), "sk-proj-1");
     for id in ["openrouter-key", "codex-login", "claude-login"] {
@@ -296,8 +291,7 @@ fn a_chatgpt_plan_route_is_listed_from_its_record() {
     assert_eq!(plan.email.as_deref(), Some("alex@example.com"));
     assert_eq!(plan.plan.as_deref(), Some("plus"));
     assert!(plan.serves_cloud);
-    let (family, kind, var, secret) =
-        credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
+    let (family, kind, var, secret) = credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
     assert_eq!(
         (family.as_str(), kind, var),
         ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
@@ -326,13 +320,7 @@ fn auth_file(d: &Dirs, text: &str) -> PathBuf {
 
 fn import(d: &Dirs, origin: Origin, enabled: bool, text: &str) -> Result<String, RpcError> {
     let path = auth_file(d, text);
-    import_chatgpt(
-        origin,
-        enabled,
-        Some(d.routes.clone()),
-        d.home.clone(),
-        path.to_str().unwrap(),
-    )
+    import_chatgpt(origin, enabled, Some(d.routes.clone()), d.home.clone(), path.to_str().unwrap())
 }
 
 fn codex_auth(refresh: Option<&str>) -> String {
@@ -400,8 +388,5 @@ fn an_imported_codex_login_lists_as_a_cloud_serving_chatgpt_plan() {
     // Importing the same account again replaces its record: no second connection.
     let again = import(&d, Origin::Local, true, &codex_auth(Some("rt-2"))).unwrap();
     assert_eq!(again, "chatgpt");
-    assert_eq!(
-        chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token,
-        "rt-2"
-    );
+    assert_eq!(chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token, "rt-2");
 }

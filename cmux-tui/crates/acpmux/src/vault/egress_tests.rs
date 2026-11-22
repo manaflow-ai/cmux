@@ -102,10 +102,8 @@ fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
         ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
     ]);
     assert!(!stale_proxy_env(&corp, ca, None));
-    let other_ca = env(&[
-        ("HTTPS_PROXY", "http://127.0.0.1:43007"),
-        ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
-    ]);
+    let other_ca =
+        env(&[("HTTPS_PROXY", "http://127.0.0.1:43007"), ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem")]);
     assert!(!stale_proxy_env(&other_ca, ca, None));
 }
 
@@ -138,11 +136,10 @@ fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
 
 #[test]
 fn a_spawn_carries_the_start_its_stamp_names() {
-    let env = child_env_with(
-        vec![given("T", "s", Some(&["x.example.com"]))],
-        Some(&running()),
-        &|_| None,
-    );
+    let env =
+        child_env_with(vec![given("T", "s", Some(&["x.example.com"]))], Some(&running()), &|_| {
+            None
+        });
     let node_ca = running().node_ca;
     assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
     assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
@@ -156,8 +153,7 @@ fn no_proxy_entry_means_no_proxy_settings() {
 
 #[test]
 fn a_proxy_that_did_not_start_still_withholds_the_value() {
-    let env =
-        child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
+    let env = child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
     assert_eq!(env, vec![("T".to_owned(), "cmux-secret://T".to_owned())]);
 }
 
@@ -196,8 +192,7 @@ fn policy_holds_only_proxy_entries_with_their_valid_hosts() {
 fn trust_files_extend_what_the_launch_trusted() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("base.pem");
-    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----")
-        .unwrap();
+    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----").unwrap();
     let node = dir.path().join("node.pem");
     std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n")
         .unwrap();
@@ -214,7 +209,6 @@ fn trust_files_extend_what_the_launch_trusted() {
     assert!(node_text.contains("NODE") && node_text.ends_with(ca));
     let bundle_text = std::fs::read_to_string(bundle.unwrap()).unwrap();
     assert!(
-        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
-            && bundle_text.ends_with(ca)
+        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE") && bundle_text.ends_with(ca)
     );
 }

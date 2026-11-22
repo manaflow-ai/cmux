@@ -2,16 +2,9 @@ use super::*;
 
 #[test]
 fn every_pattern_compiles() {
-    for re in [
-        &HEADER,
-        &TRACE_ID,
-        &GENERATED,
-        &CO_AUTHOR,
-        &SESSION_LINE,
-        &RECEIPT,
-        &BATCH_LINE,
-        &HANDOFF,
-    ] {
+    for re in
+        [&HEADER, &TRACE_ID, &GENERATED, &CO_AUTHOR, &SESSION_LINE, &RECEIPT, &BATCH_LINE, &HANDOFF]
+    {
         assert!(re.is_some());
     }
 }
@@ -52,8 +45,7 @@ fn a_persons_words_read_as_theirs() {
 
 #[test]
 fn footers_and_receipts_name_their_signal() {
-    let found =
-        detect("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+    let found = detect("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)");
     assert_eq!(found.from.as_deref(), Some("Claude Code"));
     assert!(detect("Review (gpt-5.5): SHIP at abc123").agent());
     assert!(detect("Co-Authored-By: Claude <noreply@anthropic.com>").agent());

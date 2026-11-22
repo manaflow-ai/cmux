@@ -60,10 +60,7 @@ fn a_turn_end_reads_as_its_state_and_error() {
 #[test]
 fn flags_a_child_start_takes_no_part_of_are_refused() {
     let why = refused_flags(&new_args(&["--parent", "lead", "--host", "box", "go"]));
-    assert_eq!(
-        why.as_deref(),
-        Some("--parent takes no --machine: a family lives on one daemon")
-    );
+    assert_eq!(why.as_deref(), Some("--parent takes no --machine: a family lives on one daemon"));
     assert!(refused_flags(&new_args(&["--parent", "lead", "--policy", "ask"])).is_some());
     assert!(refused_flags(&new_args(&["--parent", "lead", "--ephemeral"])).is_some());
 }
