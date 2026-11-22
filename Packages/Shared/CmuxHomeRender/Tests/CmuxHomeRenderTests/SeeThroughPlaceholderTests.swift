@@ -30,4 +30,23 @@ import Testing
         let palette = base.onBackground(theme.background, over: theme.background, placeholderOverGlass: Self.secondaryToken)
         #expect(palette.placeholder == base.placeholder)
     }
+
+    /// The token alone held 2.7:1 and 2.4:1 on art (be805d96): the clear field shows the picture under
+    /// the text. Over a see-through fill the field takes the host's fill (the web composer's surface);
+    /// an opaque fill keeps the clear glass.
+    static let webSurface = HomeColor.gray255(240, alpha: 0.62)
+
+    @Test(arguments: themes)
+    func seeThroughFillGivesTheFieldTheWebSurface(_ theme: HomePalette.Theme) {
+        let palette = HomePalette.themed(theme).onBackground(theme.background.with(alpha: 0), over: theme.background,
+                                                             placeholderOverGlass: Self.secondaryToken, fieldFillOverGlass: Self.webSurface)
+        #expect(palette.composeFillOverGlass == Self.webSurface)
+    }
+
+    @Test(arguments: themes)
+    func opaqueFillKeepsTheClearField(_ theme: HomePalette.Theme) {
+        let palette = HomePalette.themed(theme).onBackground(theme.background, over: theme.background,
+                                                             placeholderOverGlass: Self.secondaryToken, fieldFillOverGlass: Self.webSurface)
+        #expect(palette.composeFillOverGlass == nil)
+    }
 }

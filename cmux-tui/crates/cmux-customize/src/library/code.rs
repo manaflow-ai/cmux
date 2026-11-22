@@ -209,6 +209,11 @@ pub struct WebBase {
     /// file again instead of leaving `{}`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_file: bool,
+    /// web-dev.json's text as it was, so putting the base back writes the
+    /// same bytes (key order, spacing, comments) when nothing else in it
+    /// changed since. `None`: an older library, or no file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// Where web-dev.json points now, as the stack decides it.
@@ -238,11 +243,16 @@ impl Customize {
     /// `overlay` and `enabled` as web-dev.json has them now.
     pub(crate) fn web_dev_now(&self) -> Result<WebBase, Error> {
         let path = self.web_dev_path();
-        let (object, _) = read_object(&path)?;
+        let (object, unreadable) = read_object(&path)?;
+        let text = match unreadable {
+            Some(_) => None,
+            None => std::fs::read_to_string(&path).ok(),
+        };
         Ok(WebBase {
             overlay: object.get("overlay").cloned(),
             enabled: object.get("enabled").cloned(),
             no_file: !path.exists(),
+            text,
         })
     }
 
@@ -288,6 +298,15 @@ impl Customize {
                 std::fs::remove_file(&path)?;
                 return Ok(());
             }
+            // Back to the base with nothing else changed: the file as it was,
+            // byte for byte, not a re-sorted copy.
+            if matches!(target, WebTarget::Base)
+                && let Some(text) = &base.text
+                && parse_object(text).is_some_and(|was| was == object)
+            {
+                cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
+                return Ok(());
+            }
             let mut text = serde_json::to_string_pretty(&Value::Object(object))
                 .map_err(std::io::Error::other)?;
             text.push('\n');
@@ -308,17 +327,21 @@ pub fn valid_key(key: &str) -> bool {
 /// second, for a write to keep beside.
 pub(crate) fn read_object(path: &Path) -> Result<(Map<String, Value>, Option<String>), Error> {
     match std::fs::read_to_string(path) {
-        Ok(text) => {
-            let parsed = serde_json::from_str::<Value>(&text)
-                .ok()
-                .or_else(|| cmux_config::jsonc::parse(&text).ok());
-            Ok(match parsed {
-                Some(Value::Object(object)) => (object, None),
-                _ if text.trim().is_empty() => (Map::new(), None),
-                _ => (Map::new(), Some(text)),
-            })
-        }
+        Ok(text) => Ok(match parse_object(&text) {
+            Some(object) => (object, None),
+            None if text.trim().is_empty() => (Map::new(), None),
+            None => (Map::new(), Some(text)),
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((Map::new(), None)),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// web-dev.json's text as an object, as JSON or JSONC.
+fn parse_object(text: &str) -> Option<Map<String, Value>> {
+    match serde_json::from_str::<Value>(text).ok().or_else(|| cmux_config::jsonc::parse(text).ok())
+    {
+        Some(Value::Object(object)) => Some(object),
+        _ => None,
     }
 }

@@ -547,6 +547,7 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
                                 f"the job's inputs in {MAP}")
     problems += check_pr_skip(root, load_pr_skip((root / MAP).read_text(encoding="utf-8")),
                               {(job.workflow, job.id) for job in jobs})
+    problems += check_follows(root, (root / MAP).read_text(encoding="utf-8"))
     return sorted(set(problems))
 
 
@@ -616,6 +617,34 @@ def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
         if suite.get("workflow") == Path(workflow).name:
             return list(suite.get("paths") or [])
     return None
+
+
+def check_follows(root: Path, map_text: str) -> list[str]:
+    """Each pull_request_skip.follows gate: the job it follows is in pull_request_skip, and its workflow sets the gate,
+    every time, to that job's skip clause (PR_SKIP_IF) verbatim, so the repair and the check run on the same heads."""
+    data = json.loads(map_text).get("pull_request_skip", {})
+    listed = {(workflow, job_id) for workflow, entry in data.get("workflows", {}).items() for job_id in entry}
+    problems = []
+    for workflow, gates in data.get("follows", {}).items():
+        if workflow == "//":
+            continue
+        path = root / workflow
+        if not path.exists():
+            problems.append(f"{MAP} pull_request_skip.follows names {workflow}, which does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for gate, followed in gates.items():
+            target = tuple(followed.split(" ", 1))
+            if target not in listed:
+                problems.append(f"{workflow}: {gate} follows {followed}, which pull_request_skip does not list")
+            values = re.findall(rf"(?m)^\s+{re.escape(gate)}:\s*(.*?)\s*$", text)
+            if not values:
+                problems.append(f"{workflow} never sets {gate} ({MAP} pull_request_skip.follows)")
+            for value in values:
+                if value != "${{ " + PR_SKIP_IF + " }}":
+                    problems.append(f"{workflow}: {gate} is {value}, not {followed}'s skip clause "
+                                    f"${{{{ {PR_SKIP_IF} }}}}, so the two would run on different heads")
+    return problems
 
 
 def fail_open_reads(if_text: str, job_id: str) -> list[str]:
