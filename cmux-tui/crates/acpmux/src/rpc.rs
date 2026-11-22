@@ -436,6 +436,9 @@ pub mod method {
     /// remote daemon over the hub carrier (`cmux_tui_service.rs`); the reply is the last line.
     pub const MUX_REMOTE_PIPE: &str = "_acpmux/remote.pipe";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
+    /// Every listed chat's `usageStats` by its list id, and nothing else, kept by list position
+    /// (`hub/usage_answer.rs`): Session Info's Usage.
+    pub const MUX_USAGE: &str = "_acpmux/usage";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
@@ -571,6 +574,8 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
+    /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
+    pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
@@ -620,6 +625,12 @@ pub mod method {
     pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
+    /// Bind a surge thread to its resolved recipient session: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_SET: &str = "_acpmux/inbox_subscription_set";
+    /// Remove a surge thread binding: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
+    /// List active surge thread bindings: `{sessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
