@@ -305,6 +305,11 @@ fn is_pending(mark: Option<&Mark>) -> bool {
 }
 
 impl Pending {
+    pub(super) fn synchronized<T>(&self, f: impl FnOnce() -> T) -> T {
+        let _guard = self.lock();
+        f()
+    }
+
     fn lock(&self) -> PendingGuard<'_> {
         let mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let was = is_pending(mark.as_ref());
@@ -461,6 +466,7 @@ impl TurnInfo {
             doing: Default::default(),
             notice: false,
             persons: false,
+            prompted_by_person: false,
             accepted: true,
             device: None,
         }
@@ -1129,6 +1135,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         self.resume_before_turn();
         let mut pending = session.auto_resume.lock();
+        self.check_finished(session)?;
         // Transfer replacement seals the old instance before staging its store. Reject before
         // installing a TurnInfo so a fired retry cannot start against the incoming journal.
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1166,8 +1173,13 @@ impl Hub {
         // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
         // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
-            *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+        if !turn.prompted_by_person {
+            self.check_background_session(session)?;
+        }
+        self.resume_admission.start(turn.prompted_by_person, || {
+            self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
+                *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+            })
         })
     }
 

@@ -798,6 +798,7 @@ mod tests {
             trigger: false,
             notice: false,
             persons: true,
+            prompted_by_person: true,
             accepted: true,
             device: None,
         });

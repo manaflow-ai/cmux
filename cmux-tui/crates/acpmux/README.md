@@ -345,6 +345,42 @@ three operations; an empty list allows none. Claimed names, hosts and session ID
 authority. An allowed sender still follows the target daemon's existing peer and start-policy
 rules, including app-only permission checks.
 
+## Finished sessions and recovery admission
+
+`acpmux finish SESSION --handoff "what completed and what comes next"` records a durable
+completion. Finish lets the current turn end, retires its harness, and prevents later prompts,
+notices, retries and restart adoption from starting it again. Opening a finished chat is a read;
+it does not reopen it. A completed turn alone does not finish the session.
+
+A send to a finished chat returns `session.finished` with its handoff and a next command:
+`acpmux fresh SESSION --name NEW`. This creates a separate chat with the handoff as its unsent
+composer draft, without replaying the old task. To intentionally reopen the original chat, use
+`acpmux wake SESSION --reason "why this task needs more work"`, then send the follow-up.
+Only this explicit operation clears completion, and it records the reason.
+
+Fleet recovery uses one explicitly pinned authority. Run `acpmux fleet-bind local` on the
+chosen authority (it starts paused), then `acpmux fleet-bind AUTHORITY_PEER` on every participating
+daemon using its existing authenticated peer connection. Binding persists in runtime state and
+refuses a different authority. Unenrolled daemons retain local recovery and **are not fleet
+protected**. Keep any existing fleet stopgap until every intended daemon is enrolled and the
+deployed multi-host checks have passed; creating an authority alone does not enroll other hosts.
+
+`acpmux fleet-pause --reason "capacity outage"` and `acpmux fleet-resume --reason "capacity restored"`
+from any enrolled daemon reach that single authority. `acpmux fleet-status` reads its identity,
+pause, waiters and outstanding reservations. The shared queue covers automatic retries, goals,
+notices and incoming agent messages; fresh person prompts remain available. Neither command
+changes finished sessions or paused goals. A grant already issued before pause is in flight;
+pause prevents new grants, rather than cancelling running work.
+
+Across the enrolled fleet, admission grants are at least one second apart and at most four
+retry reservations may be outstanding. The `lane.priority=high` tag precedes `normal`, then
+other work; equal priorities keep arrival order. Messages release their reservation before
+waiting on reciprocal replies. Queued requests have a one-hour deadline. A missing or changed
+authority fails closed, without falling back to four slots per daemon. Reservations persist
+across authority restart and never expire solely because a host or link vanished: an uncertain
+completion retains its slot. `fleet-status` exposes those retained tickets for reconciliation;
+this version does not automatically reclaim uncertain work. A corrupt state file fails paused.
+
 ## Orchestrating agents from scripts
 
 Every command takes `--json` before it for machine output; errors then go to stderr as one

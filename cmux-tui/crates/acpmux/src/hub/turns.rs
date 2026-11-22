@@ -205,6 +205,13 @@ impl Hub {
         // of a turn adoption recovers.
         // Read this log now, ahead of queued background loads, while keeping the prompt
         // behind adoption's recovered turn below.
+        self.check_finished(session)?;
+        let retry = super::resume_admission::automatic(&opts);
+        let background =
+            !super::resume_admission::person(opts.agent.as_deref(), opts.provenance.as_ref());
+        if background || retry {
+            self.check_background_session(session)?;
+        }
         self.session_log(session).await;
         self.wait_adopted(session).await;
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
@@ -418,6 +425,7 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        let permit = self.admit_background(session, &opts).await?;
         // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
@@ -432,6 +440,9 @@ impl Hub {
             self.requeue_joined(session, &joined, true);
         }
         joined.answer.send_replace(Some(result.clone()));
+        if let Some(permit) = permit {
+            permit.complete().await;
+        }
         result
     }
 
@@ -790,6 +801,7 @@ impl Hub {
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
             // Its queue entry's provenance: an edit made it the person's, a restart restored it.
             .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+            .and_then(|()| self.check_finished(session))
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -856,12 +868,15 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
+        let prompted_by_person =
+            super::resume_admission::person(run.agent.as_deref(), run.provenance.as_ref());
         let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
             && self.config.read().await.agent_inbox();
         let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
+        turn.prompted_by_person = prompted_by_person;
         turn.trigger = trigger;
         // Its sender, set with the turn so no steer and no read sees the turn without it.
         turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
@@ -2084,6 +2099,9 @@ impl Hub {
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
+        if self.check_finished(session).is_err() {
+            self.detach_child(session).await;
+        }
         match stopped_early {
             Some(e) => Err(e),
             None => result,

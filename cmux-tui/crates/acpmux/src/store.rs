@@ -276,6 +276,9 @@ pub struct SessionMeta {
     /// authorize historical Claude reads when that id is retired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_family: Option<String>,
+    /// Durable completion intent. Cleared only by an explicit wake with a reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished: Option<Value>,
     pub status: SessionStatus,
     pub created_at: u64,
     pub updated_at: u64,

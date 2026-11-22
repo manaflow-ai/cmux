@@ -333,6 +333,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
         agent_session_family: Some(d.family.to_owned()),
+        finished: None,
         status: SessionStatus::Idle,
         created_at: now,
         updated_at: now,

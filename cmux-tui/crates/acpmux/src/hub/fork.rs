@@ -671,6 +671,7 @@ impl Hub {
                 .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
             agent_session_id: new_sid,
             status: SessionStatus::Idle,
+            finished: None,
             created_at: now,
             updated_at: now,
             // A referencing fork's own records follow the history it shows.
