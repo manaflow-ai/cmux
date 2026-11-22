@@ -11,7 +11,7 @@
  *      call), the Chief placed on that install, cmux-chief.service enabled and started;
  *   5. a third call with the same key: the same machine and Chief (resume never makes a second one);
  *   6. the host: cmux-chief.service active with one main pid and no restart 20 s on, and the Chief listed as
- *      placed on the machine's install;
+ *      placed on the machine's install, and `GET /v1/chief/chiefs` listing it with location kind "machine";
  *   7. finally: archive the Chief, revoke the install, delete the machine.
  *
  * A message and its reply wait on the Chief's model route (the "Claude is not signed in" fix); until then step 6
@@ -172,6 +172,16 @@ async function main(): Promise<number> {
       const row = (listed?.chiefs ?? []).find((c: any) => c?.id === chief);
       if (row?.brain_place?.install !== install) throw new Error(`chief ${chief} is not placed on ${install}: ${JSON.stringify(row?.brain_place ?? null)}`);
       return { value: null, detail: `active, pid ${b.MainPID}, restarts ${b.NRestarts}; ${chief} placed on ${install}` };
+    });
+    await J.step("the Chief lists as running on its machine (GET /v1/chief/chiefs)", async () => {
+      const r = await api.raw("GET", "/v1/chief/chiefs", undefined, 30_000);
+      // The route is cmux-platform#1635's; until it deploys, a 404 says so and the step passes on chief.list above.
+      if (r.status === 404) return { value: null, detail: "GET /v1/chief/chiefs not deployed yet (404)" };
+      if (r.status !== 200) throw new Error(`GET /v1/chief/chiefs: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
+      const row = (r.body?.chiefs ?? []).find((c: any) => c?.chiefId === chief);
+      const at = row?.location;
+      if (at?.kind !== "machine" || at?.install !== install) throw new Error(`chief ${chief} lists as ${JSON.stringify(at ?? null)}, not on machine install ${install}`);
+      return { value: null, detail: `${chief}: location machine, host ${at.host}, install ${at.install}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
