@@ -35,12 +35,6 @@ struct Residue {
     wal: usize,
 }
 
-impl Residue {
-    fn total(self) -> usize {
-        self.file + self.wal
-    }
-}
-
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
     haystack.windows(needle.len()).filter(|window| *window == needle).count()
 }
@@ -111,9 +105,18 @@ fn state_root(name: &str) -> std::path::PathBuf {
         .join(format!("cmux-deleted-bytes-{name}-{}", crate::workspace_registry::new_uuid_v4()))
 }
 
-fn assert_written(path: &str, before: Residue) {
+/// Copies the WAL into the database file (a passive checkpoint, as SQLite's
+/// auto-checkpoint does), so the marker sits in the file's pages too and the
+/// delete has to scrub the file, not only the WAL; then checks the marker is
+/// in both (control).
+fn assert_written(path: &str, database: &Path, marker: &[u8]) {
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).unwrap();
+    drop(connection);
+    let before = residue(database, marker);
     eprintln!("deleted_bytes: path={path} before_delete={before:?}");
-    assert!(before.total() > 0, "{path}: control: the scan must find the marker before the delete");
+    assert!(before.file > 0, "{path}: control: the marker must be in the database file");
+    assert!(before.wal > 0, "{path}: control: the marker must be in the WAL");
 }
 
 fn assert_gone(path: &str, after: Residue) {
@@ -143,7 +146,7 @@ fn a_deleted_terminal_command_leaves_no_bytes() {
         .unwrap()
         .append_terminal_commands(&[("term_a".to_owned(), command)], now_ms)
         .unwrap();
-    assert_written("terminal-command", residue(&database, marker.as_bytes()));
+    assert_written("terminal-command", &database, marker.as_bytes());
 
     mux.delete_terminal_commands(CommandDeletion::All).unwrap();
     // A reader can block the WAL reset; the worker retries it. Run its
@@ -182,7 +185,7 @@ fn a_revoked_agent_token_leaves_no_bytes() {
             )
             .unwrap()
     };
-    assert_written("agent-token", residue(&database, digest.as_bytes()));
+    assert_written("agent-token", &database, digest.as_bytes());
 
     assert!(mux.claim_unbound_participant(&participant).unwrap());
     assert_gone("agent-token", residue(&database, digest.as_bytes()));
@@ -209,7 +212,7 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
             &serde_json::json!({ "key": "kept", "value": "still here" }),
         )
         .unwrap();
-    assert_written("app-storage-delete", residue(&database, deleted.as_bytes()));
+    assert_written("app-storage-delete", &database, deleted.as_bytes());
     storage.call("app.a", "app.storage.delete", &serde_json::json!({ "key": "secret" })).unwrap();
     assert_gone("app-storage-delete", residue(&database, deleted.as_bytes()));
     assert_eq!(
@@ -226,7 +229,7 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
             &serde_json::json!({ "key": "secret", "value": uninstalled }),
         )
         .unwrap();
-    assert_written("app-storage-clear", residue(&database, uninstalled.as_bytes()));
+    assert_written("app-storage-clear", &database, uninstalled.as_bytes());
     storage.clear("app.b").unwrap();
     assert_gone("app-storage-clear", residue(&database, uninstalled.as_bytes()));
 }
