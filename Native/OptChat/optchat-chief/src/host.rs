@@ -647,6 +647,20 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // Where the memory is (memory_place.rs): a mounted hand-out to this machine is taken in
+    // before anything opens the memory; a projected memory that is not here refuses the start.
+    {
+        let capability =
+            crate::memory_place::daemon_capability(Path::new(&daemon_socket)).unwrap_or(false);
+        match crate::memory_place::at_host_start(&paths.root, capability) {
+            Ok(line) => log(line),
+            Err(why) => {
+                log(format!("not starting: {why}"));
+                return crate::migrate::MOVED_EXIT;
+            }
+        }
+    }
+    let paths = Paths::new(&home);
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
@@ -752,13 +766,14 @@ fn start(
     // loops beside the chat. A store that cannot open is kept in memory for
     // this start, so the tools still answer.
     let memory_files = Arc::new(
-        crate::memory_files::MemoryFiles::open_in(&paths.root).unwrap_or_else(|e| {
-            log(format!(
-                "{e}; memory files kept in memory until the next start"
-            ));
-            crate::memory_files::MemoryFiles::open(Path::new(":memory:"))
-                .expect("an in-memory SQLite database")
-        }),
+        crate::memory_files::MemoryFiles::open_in(&crate::memory_place::memory_dir(&paths.root))
+            .unwrap_or_else(|e| {
+                log(format!(
+                    "{e}; memory files kept in memory until the next start"
+                ));
+                crate::memory_files::MemoryFiles::open(Path::new(":memory:"))
+                    .expect("an in-memory SQLite database")
+            }),
     );
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())

@@ -150,7 +150,8 @@ impl Paths {
             host_lock: home.join("state").join("host.lock"),
             settle_status: home.join("state").join("settle.json"),
             chat: root.join("chat"),
-            memory_db: root.join("memory.sqlite3"),
+            // A projected memory (memory_place.rs) lives in `optchat/memory/`.
+            memory_db: crate::memory_place::memory_dir(&root).join("memory.sqlite3"),
             session: root.join("session"),
             state: root.join("host.json"),
             tools_socket: root.join("tools.sock"),
