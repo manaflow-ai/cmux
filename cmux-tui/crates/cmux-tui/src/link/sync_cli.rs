@@ -1410,6 +1410,7 @@ fn push_inner(
         )?),
         None => None,
     };
+    let used_store = store_part.as_ref().is_some_and(|part| part["used"] == true);
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
     // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
@@ -1495,7 +1496,7 @@ fn push_inner(
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
         // The store's GC keeps what this record and its history name ([`roots`]); a head leaves
         // that to the whole copy after it. Never fails the push.
-        roots::register_after_push(&local, remote_root, &next, &cut);
+        roots::register_after_push(&local, remote_root, &next, &cut, used_store);
     }
     stages.mark("finish");
     stages.print();

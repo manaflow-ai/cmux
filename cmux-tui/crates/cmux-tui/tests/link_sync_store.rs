@@ -421,7 +421,7 @@ fn the_store_moves_each_blob_from_the_mac_once_and_the_link_copy_stays_the_fallb
     let edit_direct = push(&direct_a, &repo, None, &unused);
     let edit = push(&a, &repo, Some(&origin), &store);
     assert_eq!(std::fs::read(a.home.join("work/app/src/m3/f3.rs")).unwrap(), bytes);
-    assert!(edit.uploaded < 256 * 1024, "edit uploaded {}", edit.uploaded);
+    assert!(edit.uploaded < 256 * 1024, "edit uploaded {}: {}", edit.uploaded, edit.summary);
     // A write that small goes over the link: a store round trip costs more.
     assert_eq!(edit.summary["store"]["reason"], "small", "{}", edit.summary);
 

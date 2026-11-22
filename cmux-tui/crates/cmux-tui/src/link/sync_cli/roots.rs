@@ -127,10 +127,22 @@ fn save_chunks(path: &Path, chunks: &Chunks) -> anyhow::Result<()> {
 }
 
 /// Registers the root of `local` synced to `remote_root` after a push that
-/// left `next` and cut `sent` into pieces. Nothing without a store; a
-/// failure is named once on stderr and never fails the push.
-pub(super) fn register_after_push(local: &Path, remote_root: &str, next: &Manifest, sent: &Chunks) {
+/// left `next` and cut `sent` into pieces. Nothing without a store, nor for
+/// a pair no push has sent through it (`used`, this push, or the pieces
+/// record an earlier one left): its blobs are not in the store, and a
+/// machine that cannot fetch from it costs the store nothing. A failure is
+/// named once on stderr and never fails the push.
+pub(super) fn register_after_push(
+    local: &Path,
+    remote_root: &str,
+    next: &Manifest,
+    sent: &Chunks,
+    used: bool,
+) {
     if !store::is_configured() {
+        return;
+    }
+    if !used && !chunks_path(local, remote_root).is_ok_and(|path| path.exists()) {
         return;
     }
     if let Err(error) = register(local, remote_root, next, sent) {
