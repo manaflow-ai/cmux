@@ -875,4 +875,16 @@ impl Desktop for FakeDesktop {
         }
         Ok(self.restore_works)
     }
+
+    /// The one display `capture(Display(_))` returns.
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Ok(vec![crate::displays::Display {
+            id: "0".into(),
+            frame: Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 },
+            scale: self.scale,
+            main: true,
+            builtin: Some(false),
+            is_virtual: Some(true),
+        }])
+    }
 }

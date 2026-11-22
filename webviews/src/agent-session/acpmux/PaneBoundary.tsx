@@ -19,6 +19,16 @@ export function paneFailureLine(error: unknown): string {
 type Props = { children?: ReactNode; onRetry?: () => void };
 type State = { failed: boolean };
 
+/// The throw that took the pane down, for `debug.agent_pane readiness` (`pane_failure`): a bench or
+/// capture that finds the pane failed names the error instead of timing out on a debug hook that the
+/// failed pane never installed (hq#15602).
+export type PaneFailure = { message: string; stack?: string; componentStack?: string };
+declare global {
+  interface Window {
+    __cmuxPaneFailure?: PaneFailure;
+  }
+}
+
 export class PaneBoundary extends Component<Props, State> {
   state: State = { failed: false };
 
@@ -27,6 +37,11 @@ export class PaneBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
+    window.__cmuxPaneFailure = {
+      message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    };
     console.error(paneFailureLine(error), error, info.componentStack ?? "");
   }
 
