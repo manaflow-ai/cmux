@@ -96,6 +96,8 @@ impl Gauges {
             "memory": memory(),
             "peerLists": peer_lists().status(),
             "recordWrites": record_writes().status(),
+            "attach": attach_latency().status(),
+            "fanout": fanout_status(),
         })
     }
 }
@@ -130,8 +132,6 @@ impl RecordWrites {
             "records": self.records.load(Ordering::Relaxed),
             "storeNs": self.store_ns.load(Ordering::Relaxed),
             "writeNs": self.write_ns.load(Ordering::Relaxed),
-            "attach": attach_latency().status(),
-            "fanout": fanout_status(),
         })
     }
 }
