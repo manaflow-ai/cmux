@@ -149,13 +149,13 @@ extension AppControl {
     nonisolated static func vmText(_ text: VMText) -> String {
         switch text {
         case .notSignedIn:
-            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)
         case .noTeam:
-            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module.inAppLanguage)
         case .unreachable:
-            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module.inAppLanguage)
         case .cloudUnavailable:
-            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)
         }
     }
 }

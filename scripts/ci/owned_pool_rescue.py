@@ -364,7 +364,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
     ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-checks.yml":
+        "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
+        "Blacksmith (the CI_TRUSTED_RUNNER selector, or 4 vCPU for a fork), never an "
+        "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,

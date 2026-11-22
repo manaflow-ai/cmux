@@ -25,10 +25,9 @@ import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
 import { CHIEF_PET_MASCOT, chiefPetMascot } from "./ChiefPetCard";
 import { SettingRow } from "./SettingRow";
+import { CHIEF_ENGINE, CHIEFS_ROWS } from "../cardRows";
 
-export const CHIEF_ENGINE = "home.chiefEngine";
-/** The rows this card draws in place of their group. */
-export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
+export { CHIEF_ENGINE, CHIEFS_ROWS };
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 

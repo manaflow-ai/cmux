@@ -547,6 +547,7 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
                                 f"the job's inputs in {MAP}")
     problems += check_pr_skip(root, load_pr_skip((root / MAP).read_text(encoding="utf-8")),
                               {(job.workflow, job.id) for job in jobs})
+    problems += check_follows(root, (root / MAP).read_text(encoding="utf-8"))
     return sorted(set(problems))
 
 
@@ -618,6 +619,42 @@ def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
     return None
 
 
+def check_follows(root: Path, map_text: str) -> list[str]:
+    """Each pull_request_skip.follows gate: the job it follows is in pull_request_skip, and its workflow sets the gate,
+    every time, to that job's skip clause (PR_SKIP_IF) verbatim, so the repair and the check run on the same heads."""
+    data = json.loads(map_text).get("pull_request_skip", {})
+    listed = {(workflow, job_id) for workflow, entry in data.get("workflows", {}).items() for job_id in entry}
+    problems = []
+    for workflow, gates in data.get("follows", {}).items():
+        if workflow == "//":
+            continue
+        path = root / workflow
+        if not path.exists():
+            problems.append(f"{MAP} pull_request_skip.follows names {workflow}, which does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for gate, followed in gates.items():
+            target = tuple(followed.split(" ", 1))
+            if target not in listed:
+                problems.append(f"{workflow}: {gate} follows {followed}, which pull_request_skip does not list")
+            values = re.findall(rf"(?m)^\s+{re.escape(gate)}:\s*(.*?)\s*$", text)
+            if not values:
+                problems.append(f"{workflow} never sets {gate} ({MAP} pull_request_skip.follows)")
+            for value in values:
+                if value != "${{ " + PR_SKIP_IF + " }}":
+                    problems.append(f"{workflow}: {gate} is {value}, not {followed}'s skip clause "
+                                    f"${{{{ {PR_SKIP_IF} }}}}, so the two would run on different heads")
+    return problems
+
+
+def fail_open_reads(if_text: str, job_id: str) -> list[str]:
+    """The parts of IF_TEXT that run when JOB_ID was skipped: `needs.JOB_ID.outputs.Y != 'false'` (an empty
+    output is not 'false') and `needs.JOB_ID.result != 'success'`."""
+    j = re.escape(job_id)
+    pattern = rf"needs\.{j}\.(?:outputs\.[\w-]+\s*!=\s*['\"]false['\"]|result\s*!=\s*['\"]success['\"])"
+    return [m.group(0) for m in re.finditer(pattern, if_text)]
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow is a post-merge batch suite (on every
     path its pull_request trigger starts on) or starts on a feat-cmux-next push, on every
@@ -672,6 +709,17 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
             if job_id not in job_needs(other_block) or (workflow, other) in names:
                 continue
             other_if = job_if(other_block)
+            # A skipped job's outputs are empty and its result is `skipped`: a gate that runs unless they say
+            # otherwise (`needs.X.outputs.Y != 'false'`, `needs.X.result != 'success'`) runs on every pull request
+            # the skip reaches. conformance did, behind contract: 148 of 154 runs on 11-21 needed nothing. Read
+            # before the next test: `github.event_name != 'pull_request' || needs.X...` runs on a pull request.
+            if PR_SKIP_IF not in other_if and "github.event_name != 'pull_request' &&" not in other_if \
+                    and fail_open_reads(other_if, job_id):
+                problems.append(f"{workflow}: job {other} runs unless {job_id} says otherwise "
+                                f"({', '.join(fail_open_reads(other_if, job_id))}), and a pull request skips {job_id}, "
+                                f"so {other} runs on every pull request: carry {PR_SKIP_IF} (list it in {MAP} "
+                                f"pull_request_skip) or read the output as == 'true'")
+                continue
             # A job that never runs on a pull request loses nothing when the pull request skips what it needs.
             if "github.event_name != 'pull_request'" in other_if:
                 continue

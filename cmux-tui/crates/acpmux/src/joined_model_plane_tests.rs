@@ -210,3 +210,90 @@ fn the_egress_policy_allows_the_credential_only_for_the_hub_host() {
     }
     assert!(!format!("{:?}", policy.secrets()).contains("cmm_real"));
 }
+
+/// `joined_without_sign_in`'s table over `m` with launch env `var`.
+fn without_sign_in(m: &Machine, var: &[(&str, &str)]) -> bool {
+    let mut env: BTreeMap<String, String> =
+        var.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+    env.insert("HOME".to_owned(), m.home.to_string_lossy().into_owned());
+    let map = env.clone();
+    let var = move |k: &str| map.get(k).cloned();
+    let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+    crate::claude_cloud_auth::joined_without_sign_in(&inputs, &env, None, &m.home)
+}
+
+/// A joined launch with no pin, no choice and no sign-in of its own is the one the launch error
+/// names; any sign-in, pin or choice is not.
+#[test]
+fn a_joined_launch_with_no_sign_in_and_no_choice_is_named() {
+    let m = machine(false);
+    assert!(without_sign_in(&m, &[]));
+    for own in [
+        ("ANTHROPIC_API_KEY", "sk-own"),
+        ("ANTHROPIC_AUTH_TOKEN", "t"),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "t"),
+        ("ANTHROPIC_BASE_URL", "https://x.test"),
+        ("CMUX_CLAUDE_AUTH", "own"),
+        ("CMUX_CLAUDE_AUTH", "team"),
+    ] {
+        assert!(!without_sign_in(&m, &[own]), "{own:?}");
+    }
+    std::fs::write(m.home.join(".claude/.credentials.json"), r#"{"claudeAiOauth":{"a":1}}"#)
+        .unwrap();
+    assert!(!without_sign_in(&m, &[]));
+    std::fs::remove_file(m.home.join(".claude/.credentials.json")).unwrap();
+    let dir = m.home.join(".config/cmux/agent-auth");
+    std::fs::create_dir_all(&dir).unwrap();
+    for choice in ["own\n", "team\n"] {
+        std::fs::write(dir.join("claude"), choice).unwrap();
+        assert!(!without_sign_in(&m, &[]), "{choice:?}");
+    }
+    // The fix it names writes exactly the choice `opted_in` reads.
+    std::fs::write(dir.join("claude"), "team\n").unwrap();
+    let home = m.home.clone();
+    let var = |k: &str| (k == "HOME").then(|| home.to_string_lossy().into_owned());
+    let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+    assert!(opted_in(&inputs, "CMUX_CLAUDE_AUTH", "claude"));
+    let text = no_sign_in();
+    assert!(text.contains(
+        "`mkdir -p ~/.config/cmux/agent-auth && echo team > ~/.config/cmux/agent-auth/claude`"
+    ));
+    assert!(text.starts_with("This machine is joined to your team but has no Claude sign-in"));
+}
+
+/// An opted-in launch that keeps own on purpose (a pair of its own, an `own` pin over the
+/// choice) is no decline; one with neither that got no pair is the hub's host.
+#[test]
+fn an_opted_in_launch_keeps_own_only_on_purpose() {
+    let m = machine(false);
+    let own = |var: &[(&str, &str)]| {
+        let mut env: BTreeMap<String, String> =
+            var.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        env.insert("HOME".to_owned(), m.home.to_string_lossy().into_owned());
+        let map = env.clone();
+        let var = move |k: &str| map.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        crate::claude_cloud_auth::joined_own_reason(&inputs, &env, None, &m.home)
+    };
+    assert_eq!(own(&[("CMUX_CLAUDE_AUTH", "team")]), None);
+    assert_eq!(
+        own(&[
+            ("CMUX_CLAUDE_AUTH", "team"),
+            ("ANTHROPIC_BASE_URL", "https://x.test"),
+            ("ANTHROPIC_AUTH_TOKEN", "t"),
+        ]),
+        Some("the launch sets ANTHROPIC_BASE_URL itself")
+    );
+    assert_eq!(
+        own(&[("CMUX_CLAUDE_AUTH", "team"), ("ANTHROPIC_API_KEY", "sk-own")]),
+        Some("the launch sets ANTHROPIC_API_KEY itself")
+    );
+    assert_eq!(own(&[("CMUX_CLAUDE_AUTH", "own")]), Some("CMUX_CLAUDE_AUTH pins own"));
+    let text = declined_text("claude", "revoked: run machine add again");
+    assert_eq!(
+        text,
+        "This launch chose your team's model route (`team` in CMUX_CLAUDE_AUTH or \
+~/.config/cmux/agent-auth/claude), but this joined machine cannot use it: revoked: run machine \
+add again."
+    );
+}
