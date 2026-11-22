@@ -119,7 +119,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_above_the_size_limit() {
     fs::write(&ports_file, &ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place, recipe);
+    let reply = start(place, recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&root).map(|status| status.state), Some("failed".to_string()));
@@ -621,7 +621,7 @@ fn own_tree_the_log_of_a_setup_that_does_not_start_is_made_new_with_a_second_nam
     fs::write(top.join("git-folder/cmux-worktree-ports.json"), ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     let (text, started) = (text_elsewhere(&top), top.join("root/started").exists());
@@ -718,7 +718,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_a_list() {
     fs::write(&ports_file, ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -759,7 +759,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
     fs::create_dir(git_dir.join("cmux-worktree-ports.json.partial")).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -1145,7 +1145,7 @@ fn own_tree_a_setup_keeps_the_ports_file_of_the_folder_that_it_opened() {
     std::os::unix::fs::symlink(top.join("elsewhere"), top.join("repository")).unwrap();
 
     // A recipe with no file list and no command: the start gives the work tree its ports only.
-    let reply = start(place, Recipe::default());
+    let reply = start(place, Recipe::default(), None);
 
     let elsewhere = names_in(&top.join("elsewhere"));
     fs::remove_dir_all(top).unwrap();
