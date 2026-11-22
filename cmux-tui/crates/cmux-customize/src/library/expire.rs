@@ -7,6 +7,7 @@
 //! a code entry (pr, branch, sha, dir, fork)   on longer than 24 hours: off
 //! a pr entry whose PR merged or closed        off (the CLI asks GitHub)
 //! a hand-installed web-dev.json overlay       installed 24 hours ago, or refused: off
+//! a code entry put on with `customize try`    its minutes are up: off
 //! ```
 //!
 //! An expired entry is turned off with the note `expired: WHY`, the way
@@ -177,6 +178,7 @@ impl Customize {
                     overlay: Some(Value::String(overlay.path.clone())),
                     enabled: Some(Value::Bool(false)),
                     no_file: false,
+                    text: None,
                 };
                 match self.write_web_dev(&WebTarget::Base, &off) {
                     Ok(()) => out.expired.push(Expired {
@@ -202,6 +204,42 @@ impl Customize {
             }
         }
         out
+    }
+
+    /// Waits for each code try (`cmux customize try CODE`) and turns it off
+    /// when its time is up, as [`Customize::run_try_on_timer`] does for a
+    /// profile. Returns once no try is on: ended, kept (`library on`), turned
+    /// off, or never started. It sleeps until each end time and never polls.
+    /// It is not the only guard: every `library status` and `list`, and the
+    /// app's start, expire a try whose time is up.
+    pub fn run_code_try_timer(&self, app_abi: Option<u32>, origin: &str) -> Vec<Expired> {
+        /// Tries at turning off a try past its time (the library may be
+        /// busy), a second apart, before leaving it to the next read.
+        const RETRIES: u32 = 3;
+        let mut expired = Vec::new();
+        let mut retries = 0;
+        loop {
+            let now = crate::try_on::now_ms();
+            let pass =
+                self.expire_stale(&Expiry { now_ms: now, app_abi, ..Expiry::default() }, origin);
+            expired.extend(pass.expired);
+            let next = match self.next_try_end() {
+                Ok(Some(next)) => next,
+                _ => return expired,
+            };
+            let wait = if next > now {
+                retries = 0;
+                next - now
+            } else if retries < RETRIES {
+                retries += 1;
+                1_000
+            } else {
+                // Still on past its time: `library status` says so and turns
+                // it off at the next read; waiting again would spin.
+                return expired;
+            };
+            std::thread::sleep(std::time::Duration::from_millis(wait));
+        }
     }
 
     /// What expired in the last week and is still off, oldest first.
@@ -251,6 +289,7 @@ impl Customize {
             overlay: Some(Value::String(overlay.path.clone())),
             enabled: Some(Value::Bool(true)),
             no_file: false,
+            text: None,
         };
         self.write_web_dev(&WebTarget::Base, &on)?;
         let mut file = self.read_expired();
@@ -286,6 +325,19 @@ fn stale_why(entry: &Entry, expiry: &Expiry) -> Option<String> {
         return Some(format!("PR {ended}"));
     }
     let since = entry.on_ms.or(entry.added_ms)?;
+    if let Some(until) = entry.until_ms
+        && expiry.now_ms >= until
+    {
+        return Some(format!("tried on for {}, time up", minutes(until.saturating_sub(since))));
+    }
     let on_for = expiry.now_ms.saturating_sub(since);
     (on_for > MAX_AGE_MS).then(|| format!("on {}, past {}", age(on_for), age(MAX_AGE_MS)))
+}
+
+/// `5 minutes`, `1 minute`: a try's length (a day at most).
+pub fn minutes(ms: u64) -> String {
+    match ms.div_ceil(60_000) {
+        1 => "1 minute".to_owned(),
+        n => format!("{n} minutes"),
+    }
 }

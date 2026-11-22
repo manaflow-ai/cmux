@@ -15,8 +15,10 @@ extension Strings {
 
     /// A row's status pill (`experiments.agentBadges`, `SidebarAgentPill`), in Leo's words, sentence case. Done is the
     /// Priority view's own word.
-    static var agentPillRunning: String { String(localized: "sidebar.agentPill.running", defaultValue: "Running", bundle: .module) }
+    static var agentPillRunning: String {
+        String(localized: "sidebar.agentPill.running", defaultValue: "Running", bundle: .localizedModule)
+    }
     static var agentPillNeedsApproval: String {
-        String(localized: "sidebar.agentPill.needsApproval", defaultValue: "Needs approval", bundle: .module)
+        String(localized: "sidebar.agentPill.needsApproval", defaultValue: "Needs approval", bundle: .localizedModule)
     }
 }

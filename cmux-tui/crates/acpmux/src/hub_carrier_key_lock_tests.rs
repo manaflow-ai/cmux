@@ -116,6 +116,9 @@ fn a_dial_to_a_carrier_that_is_not_serving_says_so() {
         assert!(said.contains("Update cmux") && said.contains("carrier.not_serving"), "{said}");
     }
     assert_eq!(relay_refusal("ticket expired".to_owned(), wait), "ticket expired");
+    let said = ticket_refusal("KEY=", "the hub answered 404 machine.not_found".to_owned());
+    assert!(said.contains("another of your teams") && said.contains("teamId"), "{said}");
+    assert!(said.ends_with("(machine.not_joined)"), "{said}");
     assert_eq!(ticket_refusal("KEY=", "the hub answered 503".to_owned()), "the hub answered 503");
     assert!(carrier_not_serving(Duration::from_millis(10)).contains("within 1s"));
 }
