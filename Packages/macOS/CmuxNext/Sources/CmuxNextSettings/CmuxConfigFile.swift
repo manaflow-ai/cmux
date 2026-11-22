@@ -261,7 +261,7 @@ public actor CmuxConfigFile {
             return try JSONC.parse(text)
         } catch {
             // Never rewrite a file the user left broken: they would lose it.
-            throw Failure.unreadable(String(describing: error))
+            throw Failure.unreadable(JSONC.problem(error, in: text))
         }
     }
 

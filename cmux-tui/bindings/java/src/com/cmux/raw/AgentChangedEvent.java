@@ -24,6 +24,8 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     private final AgentSource source;
     private final AgentState state;
     private final UInt64 surface;
+    /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+    private final Field<String> terminalId;
     private final UInt64 updatedAtMs;
 
     private AgentChangedEvent(Builder builder) {
@@ -39,6 +41,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         this.state = Wire.nonNull(builder.state, "state");
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.terminalId = builder.terminalId;
         if (!builder.updatedAtMsSet) throw new IllegalArgumentException("updated_at_ms is required");
         this.updatedAtMs = Wire.nonNull(builder.updatedAtMs, "updated_at_ms");
     }
@@ -53,6 +56,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public AgentSource source() { return source; }
     public AgentState state() { return state; }
     public UInt64 surface() { return surface; }
+    public Field<String> terminalId() { return terminalId; }
     public UInt64 updatedAtMs() { return updatedAtMs; }
     @Override public String event() { return "agent-changed"; }
 
@@ -84,6 +88,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         builder.state(AgentState.fromWire(rawState));
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "AgentChangedEvent.surface"));
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(Wire.string(rawTerminalId, "AgentChangedEvent.terminal_id"));
+        }
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
         builder.updatedAtMs(Wire.uint64(rawUpdatedAtMs, "AgentChangedEvent.updated_at_ms"));
         return builder.build();
@@ -101,6 +109,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Wire.put(object, "source", source);
         Wire.put(object, "state", state);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "updated_at_ms", updatedAtMs);
         return Collections.unmodifiableMap(object);
     }
@@ -108,11 +117,11 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentChangedEvent that)) return false;
-        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, surface, terminalId, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentChangedEvent" + toWire(); }
@@ -130,6 +139,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         private boolean stateSet;
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> terminalId = Field.omitted();
         private UInt64 updatedAtMs;
         private boolean updatedAtMsSet;
 
@@ -167,6 +177,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.of(value);
             return this;
         }
         public Builder updatedAtMs(UInt64 value) {
