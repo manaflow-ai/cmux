@@ -151,6 +151,17 @@ class ReleaseProductReuseTests(unittest.TestCase):
         provenance = json.loads((self.consumer / "Build/Products" / reuse.PROVENANCE).read_text())
         self.assertEqual(provenance["artifact_id"], 42)
 
+    def test_multiple_valid_candidates_refuse_ambiguous_reuse(self):
+        second = {**self.api.artifact, "id": 43}
+        with mock.patch.object(reuse, "candidate_artifacts", return_value=[self.api.artifact, second]), \
+                mock.patch.object(self.api, "download") as download:
+            result = self.restore()
+        self.assertFalse(result["hit"])
+        self.assertEqual(result["outcome"], "fallback_rebuild")
+        self.assertEqual(result["reason"], "ambiguous_matching_artifacts")
+        download.assert_not_called()
+        self.assertFalse((self.consumer / Path(reuse.APP_REL)).exists())
+
     def test_reusable_macos_job_name_restores_release_product(self):
         self.api.job["name"] = "macos / release-build"
         result = self.restore()
