@@ -1026,9 +1026,10 @@ impl Store for JournalStore {
     /// fail closed, a later open writes the logs again.
     fn seal(&self) {
         {
-            // With no append under way: an append lands in the log and the journal, or in
-            // neither.
+            // With no append under way (`quiet`) and no delete or meta save (`order`, which they
+            // hold across their record): a write lands in the log and the journal, or in neither.
             let _quiet = self.inner.quiet();
+            let _order = self.inner.order.lock_or_recover();
             Store::seal(&self.inner.local);
         }
         self.inner.last_checkpoint();

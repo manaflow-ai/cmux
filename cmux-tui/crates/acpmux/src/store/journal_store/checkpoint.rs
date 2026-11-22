@@ -152,7 +152,7 @@ impl Inner {
         let (lsn, dirty, metas, read) = {
             // No append half done: every record up to `applied` has its line written and its
             // chat in `dirty` (an append notes both only after its record, off this lock).
-            let _quiet = self.quiet();
+            let quiet = self.quiet();
             let mut order = self.order.lock_or_recover();
             anyhow::ensure!(
                 !order.frozen,
@@ -161,6 +161,7 @@ impl Inner {
             if !order.has_work() {
                 let checkpointed = order.checkpointed;
                 drop(order);
+                drop(quiet);
                 self.retire(checkpointed);
                 return Ok(());
             }
