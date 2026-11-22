@@ -121,7 +121,7 @@ export const MessageRow = memo(function MessageRow({
         ) : (
           <>
             {message.parts.map((part, index) => (
-              <Part key={index} part={part} strings={strings} />
+              <Part key={index} part={part} strings={strings} messageAt={message.createdAt} />
             ))}
             {message.parts.some((part) => part.type === "attachment") && (
               <MessageAttachments
@@ -244,10 +244,14 @@ function Head({
   );
 }
 
-function Part({ part, strings }: { part: HomePart; strings: Strings }) {
+function Part({ part, strings, messageAt }: { part: HomePart; strings: Strings; messageAt: number }) {
   switch (part.type) {
     case "text":
-      return <Markdown className="hc-md">{part.text}</Markdown>;
+      return (
+        <Markdown className="hc-md" messageAt={messageAt}>
+          {part.text}
+        </Markdown>
+      );
     case "work":
       return (
         <div className={`hc-chip work ${part.status}`}>

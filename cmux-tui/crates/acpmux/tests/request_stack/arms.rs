@@ -160,6 +160,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
+        (method::MUX_USAGE, Run(json!({}))),
         (
             method::MUX_WEB_MODES,
             Run(json!({"sessionId": "$S", "configId": "model", "value": "m1"})),
@@ -573,5 +574,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::SESSION_CLOSE, Run(json!({"sessionId": "$T"}))),
         (method::SESSION_DELETE, Run(json!({"sessionId": "$T"}))),
         (method::MUX_KILL, Run(json!({"sessionId": "$T"}))),
+        // Pauses its own new chat, which the next `$T` row replaces.
+        (method::MUX_PAUSE, Run(json!({"sessionId": "$T"}))),
+        // `$S` runs: nothing to wake.
+        (method::MUX_WAKE, Run(json!({"sessionId": "$S"}))),
     ]
 }
