@@ -298,14 +298,23 @@ async function main(): Promise<number> {
       return { value: { pid: facts.MainPID, exe }, detail: `${out.split("\n").at(-1)}; pid ${first.MainPID} -> ${facts.MainPID} (${exe}); ${handoff.stdout.trim().split("\n").at(-1)}` };
     });
 
-    await J.step("acpmux daemon and the probe subagent after the update", async () => {
-      const daemonKept = await alive(exec, before.daemon);
-      const probeKept = await alive(exec, before.probe);
-      const now = await daemonAndProbe(exec);
+    // The handoff ends only the host (KillMode=process); ExecStop's `daemon shutdown` detaches the agents and the new
+    // host's daemon adopts them, so the probe subagent's process is the same one before and after.
+    const probeKept = async (what: string) => {
+      let now = await daemonAndProbe(exec);
+      for (let i = 0; i < 30 && (!now.daemon || now.daemon === before.daemon); i++) {
+        await sleep(2_000);
+        now = await daemonAndProbe(exec);
+      }
+      const kept = await alive(exec, before.probe);
+      const ls = (await exec(asUser(`${ACPMUX} ls 2>&1 | grep -F chief-probe | head -n 1`), 60_000)).stdout.trim();
       const procs = await unitProcs(exec);
-      const detail = `daemon ${before.daemon} ${daemonKept ? "still runs" : "ended"} (now ${now.daemon}); probe subagent ${before.probe} ${before.probe ? (probeKept ? "still runs" : "ended") : "never started"} (now ${now.probe}); unit cgroup: ${procs.join(", ")}`;
+      const detail = `daemon ${before.daemon} -> ${now.daemon}; probe subagent ${before.probe} ${kept ? "still runs" : "ended"} (now ${now.probe}); acpmux ls: ${ls || "no chief-probe"}; unit cgroup: ${procs.join(", ")}`;
+      if (!before.probe) throw new Error(`no probe subagent started before the update, so nothing shows ${what}: ${detail}`);
+      if (!kept || now.probe !== before.probe) throw new Error(`the probe subagent did not survive ${what}: ${detail}\n${await journal(exec)}`);
       return { value: null, detail };
-    });
+    };
+    await J.step("the probe subagent survives the update's handoff (its acpmux daemon is replaced)", () => probeKept("the handoff"));
 
     // Rollback: the build before a broken one comes back. `good` is the build the host runs now.
     const good = updated.exe;
@@ -323,7 +332,7 @@ async function main(): Promise<number> {
         if (steady.ActiveState !== "active" || steady.MainPID !== back.pid) throw new Error(`the previous build did not stay up: ${JSON.stringify(steady)}\n${await journal(exec)}`);
         const again = await must(exec, asRoot(`CMUX_CHIEF_MANIFEST_URL=file://${STAGE}/broken-${code}/manifest.json /usr/local/sbin/cmux-chief-update && readlink -f ${CURRENT}`), 120_000);
         if (!again.includes("this machine rolled back") || again.split("\n").at(-1) !== good) throw new Error(`the updater took the refused build again:\n${again}`);
-        const judged = await exec(asRoot("journalctl -u cmux-chief.service -o cat --no-pager | grep -F 'cmux-chief-update: ' | grep -F -e 'on trial' -e 'rolled back' | tail -n 4"), 30_000);
+        const judged = await exec(asRoot(`journalctl -u cmux-chief.service -o cat --no-pager | grep -F 'cmux-chief-update: ' | grep -F ${bad} | tail -n 4`), 30_000);
         return { value: null, detail: `refused ${bad.slice(0, 12)}: swap ${swapMs} ms, swap to the previous build running again ${back.ms + swapMs} ms (pid ${back.pid}), steady 15 s after (t+${Date.now() - t1 + back.ms + swapMs} ms); the updater skips it on its next run; ${judged.stdout.trim().split("\n").join(" | ")}` };
       });
     }
@@ -337,6 +346,16 @@ async function main(): Promise<number> {
       const back = await must(exec, asRoot("/usr/local/sbin/cmux-chief-update --rollback"), 120_000);
       const up = await waitHostOn(exec, good, on.pid, shaLine(out), 120_000);
       return { value: null, detail: `${back.split("\n")[0]}; host back on the previous build in ${Date.now() - t0} ms (pid ${on.pid} -> ${up.pid})` };
+    });
+    await J.step("the probe subagent survives the broken builds and the rollbacks", () => probeKept("the rollbacks"));
+    await J.step("systemctl stop still ends the host, its acpmux daemon and its agents", async () => {
+      const t0 = Date.now();
+      await must(exec, asRoot("systemctl stop cmux-chief.service"), 120_000);
+      const left = await unitProcs(exec);
+      if (left.length) throw new Error(`processes left in cmux-chief.service's cgroup after a stop: ${left.join(", ")}`);
+      const probe = await alive(exec, before.probe);
+      if (probe) throw new Error(`the probe subagent ${before.probe} still runs after a stop`);
+      return { value: null, detail: `stopped in ${Date.now() - t0} ms; nothing left in the unit's cgroup` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {

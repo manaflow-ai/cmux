@@ -31,6 +31,11 @@ EnvironmentFile=-/etc/cmux/chief.env
 # First start on a machine whose image carries no build yet: fetch the newest one (root, the `+`).
 ExecStartPre=+/usr/local/sbin/cmux-chief-update --if-missing
 ExecStart=/usr/local/lib/cmux-chief/cmux-chief-host
+# The host's acpmux daemon and the Chief's subagents (its agent hosts) live in this unit's cgroup. KillMode=process:
+# a host that ends (an update's handoff, a crash) takes only its own process down; ExecStop stops the daemon
+# (cmux-chief-host --stop: keeping its agents for the next daemon after a handoff or crash, ending them on a stop).
+KillMode=process
+ExecStop=-/usr/local/lib/cmux-chief/cmux-chief-host --stop
 # The rollback judge (root, the `+`): systemd passes SERVICE_RESULT, EXIT_CODE and EXIT_STATUS.
 ExecStopPost=+/usr/local/sbin/cmux-chief-update --after-exit
 Restart=always
