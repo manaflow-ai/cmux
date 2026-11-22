@@ -23,6 +23,8 @@ mod clone_wait;
 mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "fresh_tests.rs"]
+mod fresh;
 #[path = "send_wait_tests.rs"]
 mod send_wait;
 
@@ -63,6 +65,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
             model: None,
+            effort: None,
+            mode: None,
             cwd: None,
             from_folder: None,
             environment: None,
@@ -73,6 +77,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             make_room: false,
             until: None,
             allow_large: false,
+            timings: false,
+            no_focus: false,
         }
     );
     let parsed = request(&[
@@ -247,6 +253,8 @@ struct Fake {
     slow: Vec<(usize, Duration)>,
     /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
     stream: Option<Result<Value, Value>>,
+    /// Per app method, its answer, before `stream`.
+    app_answers: Vec<(&'static str, Result<Value, Value>)>,
     /// The link waits' answers, in order.
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
@@ -255,9 +263,23 @@ struct Fake {
     until: Option<Instant>,
     /// Each copy estimate asked: how many steps had run then, and the folder.
     estimated: Vec<(usize, String)>,
+    /// The progress lines the run said ([`Runner::say`]).
+    said: Vec<String>,
 }
 
 impl Fake {
+    /// How long the next step (`args`, at `ran`'s length) takes: a few seconds, or what `slow` says for it, or
+    /// `costs` for its verb.
+    fn cost(&self, args: &[String]) -> Duration {
+        let index = self.ran.len();
+        let verb = args.get(1).map(String::as_str);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
+        cost.unwrap_or(Duration::from_secs(5))
+    }
+
     fn new(answers: Vec<Ran>) -> Self {
         Self {
             answers: answers.into(),
@@ -267,26 +289,39 @@ impl Fake {
             costs: Vec::new(),
             slow: Vec::new(),
             stream: None,
+            app_answers: Vec::new(),
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
             estimated: Vec::new(),
+            said: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let index = self.ran.len();
+        self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
-        let verb = args.get(1).map(String::as_str);
-        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
-        let cost = cost.or_else(|| {
-            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
-        });
-        self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
+    }
+    /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
+    /// is used up and never seen.
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if self.clock + self.cost(args) <= until {
+            return self.cmux(args);
+        }
+        self.ran.push(args.to_vec());
+        self.answers.pop_front().expect("an answer for every step");
+        self.clock = self.clock.max(until);
+        Ran {
+            code: internal::bounded::PAST_DEADLINE,
+            stdout: String::new(),
+            stderr: internal::bounded::past_deadline().to_string(),
+        }
+    }
+    fn say(&mut self, line: &str) {
+        self.said.push(line.to_owned());
     }
     fn pause(&mut self, duration: Duration) {
         self.paused += duration;
@@ -309,6 +344,9 @@ impl Runner for Fake {
     ) -> Option<Result<Value, Value>> {
         self.called.push((method.to_owned(), params));
         self.clock += Duration::from_millis(5);
+        if let Some((_, answer)) = self.app_answers.iter().find(|(name, _)| *name == method) {
+            return Some(answer.clone());
+        }
         self.stream.clone()
     }
     fn observe(
@@ -598,6 +636,33 @@ fn the_start_sessions_own_stages_are_its_parts() {
     assert_eq!(steps[1]["step"], "cloud start-session");
     assert_eq!(steps[1]["parts"], parts);
     assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
+}
+
+/// Leo, 2026-11-19: "do we have tools for measuring cloud startup at various stages?". The answer's `stages` are
+/// cloud-journey.ts's marks, each the milliseconds from the command's start: start-session's own parts in order
+/// (a dotted sub-step is inside the step after it), then the send this run marked itself.
+#[test]
+fn the_answer_names_the_journeys_start_marks() {
+    let parts = json!([{"step": "machine", "ms": 2_000}, {"step": "connect", "ms": 1_500},
+                       {"step": "login.machine", "ms": 200}, {"step": "login", "ms": 500},
+                       {"step": "tab", "ms": 300}, {"step": "start", "ms": 600}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts;
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // The list 0-5 s, the start from 5 s, the send's exec 10-15 s; no --wait, so no turn was read.
+    assert_eq!(
+        answer["stages"],
+        json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
+               "send": 10_000, "sent": 15_000, "total": 15_000})
+    );
 }
 
 #[test]
@@ -2491,6 +2556,57 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     }
 }
 
+/// Leo's account, 2026-11-21: `cmux chat --on vm:new --harness claude --no-folder --wait` with no Cloud connection
+/// serving claude. The app refuses before any machine (CloudStartSession's Set up Cloud gate), and its retry named
+/// this run's fresh name (`cmux vm start-session --name chat-7626761eda3c4404`), a machine `cmux vm ls` never listed.
+/// The refusal comes at once, nothing is made, and its retry is this run's own command, which names no machine. A
+/// name some machine has, or a list that cannot be read, keeps the app's words.
+#[test]
+fn a_start_refused_before_its_fresh_machine_retries_with_no_machine_named() {
+    let setup = "No Cloud connection serves claude yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), \
+                 then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+    };
+    let asked = request(&["--prompt", "x", "--wait"]);
+    let mut fake = Fake::new(vec![signed_in(), refused(), signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let message = error["message"].as_str().unwrap();
+    assert_eq!(exit, 1, "{error}");
+    assert!(message.starts_with("No Cloud connection serves claude yet."), "{message}");
+    assert!(
+        message.contains("then run `cmux cloud start-chat --prompt TEXT --wait --json` again."),
+        "{message}"
+    );
+    assert!(!message.contains("chat-fresh"), "{message}");
+    // At once: one start-session and the list reads, no wait, no new-machine and no second start.
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs, ["list-machines", "start-session", "list-machines"], "{:?}", fake.ran);
+    assert_eq!(fake.paused, Duration::ZERO);
+
+    // A machine has the name now: the app's command is the one that reaches it.
+    let has = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![signed_in(), refused(), has]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // The list is not read: never refused on an unknown, the app's words stay.
+    let unread = Ran { code: 1, stdout: String::new(), stderr: "boom".into() };
+    let mut fake = Fake::new(vec![signed_in(), refused(), unread]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // A start on a named machine is the person's own retry: no list is read for it.
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["message"], setup);
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
 /// The real runner's fresh name: the run's prefix and 16 hex characters from the OS's random source, so two runs
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
@@ -2522,6 +2638,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -2532,6 +2650,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2560,6 +2680,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         prompt: Some(prompt),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -2570,6 +2692,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -3380,4 +3504,127 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
+}
+
+/// Leo: "you guys kept fighting focus". `--no-focus` is an agent's or a probe's start that leaves the
+/// person's app as it is: every app step it runs (`new-machine`, `start-session`) says `--no-focus`, and
+/// so does the command to ask again. Without it every step is today's, word for word.
+#[test]
+fn no_focus_reaches_every_app_step_and_the_command_again() {
+    let app_steps = |asked: &Request| {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            made(),
+            started(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        ]);
+        let Outcome::Done(_) = run(&mut fake, asked) else { panic!("{:?}", fake.ran) };
+        let steps: Vec<Vec<String>> = fake
+            .ran
+            .into_iter()
+            .filter(|step| matches!(step[1].as_str(), "new-machine" | "start-session"))
+            .collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        steps
+    };
+    let quiet = request(&["--prompt", "x", "--environment", "python-dev", "--no-focus"]);
+    for step in app_steps(&quiet) {
+        assert!(step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(again_command(&quiet, &Machine::Target("vm-1".into())).contains(" --no-focus"));
+
+    let plain = request(&["--prompt", "x", "--environment", "python-dev"]);
+    for step in app_steps(&plain) {
+        assert!(!step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(!again_command(&plain, &Machine::Target("vm-1".into())).contains("--no-focus"));
+    // `cmux cloud start-chat --help` lists it: an install that keys on it finds it there.
+    assert!(super::super::cloud_help::START_CHAT_USAGE.contains("[--no-focus]"));
+}
+
+/// cmux#46701: the composer's Cloud start picks the harness, model, effort and mode, and a folder
+/// or No folder; `cloud start-chat` (and `cmux chat --on cloud`) takes each of them.
+#[test]
+fn effort_mode_and_no_folder_are_parsed_checked_and_asked_again() {
+    let asked = request(&[
+        "--agent",
+        "codex",
+        "--model",
+        "gpt-x",
+        "--effort",
+        "high",
+        "--mode",
+        "plan",
+        "--no-folder",
+        "-p",
+        "go",
+    ]);
+    assert_eq!(asked.agent, "codex");
+    assert_eq!(asked.effort.as_deref(), Some("high"));
+    assert_eq!(asked.mode.as_deref(), Some("plan"));
+    assert_eq!((asked.cwd.as_deref(), asked.from_folder.as_deref()), (None, None));
+    let again = again_command(&asked, &Machine::Target("vm-1".into()));
+    assert!(again.contains("--effort high") && again.contains("--mode plan"), "{again}");
+    assert_eq!(request(&["-p", "go"]).effort, None);
+    let long = "e".repeat(65);
+    for bad in ["", "-x", "a b", "$(id)", "a'b", long.as_str()] {
+        assert!(parse(&strings(&["--effort", bad, "-p", "go"]), || Ok(String::new())).is_err());
+        assert!(parse(&strings(&["--mode", bad, "-p", "go"]), || Ok(String::new())).is_err());
+    }
+    let refused =
+        parse(&strings(&["--no-folder", "--cwd", "/w", "-p", "go"]), || Ok(String::new()));
+    assert_eq!(refused.unwrap_err().0, NO_FOLDER_WITH_FOLDER);
+    assert!(TAKES_VALUE.contains(&"--effort") && TAKES_VALUE.contains(&"--mode"));
+    assert!(!TAKES_VALUE.contains(&"--no-folder"));
+}
+
+#[test]
+fn the_settings_script_sets_mode_then_effort_quoted() {
+    assert_eq!(settings_script(&request(&["-p", "go"]), "sess-1"), None);
+    let script =
+        settings_script(&request(&["--effort", "xhigh", "--mode", "plan", "-p", "go"]), "s 1")
+            .unwrap();
+    assert!(script.starts_with(GUEST_PRELUDE));
+    let mode = script.find("acp session set 's 1' mode=plan").expect(&script);
+    let effort = script.find("acp session set 's 1' effort=xhigh").expect(&script);
+    assert!(mode < effort, "{script}");
+    assert!(script.contains("&&"), "the first refusal stops it: {script}");
+}
+
+/// A Cloud start with an effort: the session is set before the prompt is sent, in its own exec,
+/// and the answer names the effort and the fresh folder.
+#[test]
+fn a_cloud_start_sets_effort_and_mode_before_the_first_prompt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nok\nok\n@@exit 0\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--effort", "low", "--mode", "plan", "--no-folder", "-p", "1+1?"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((answer["effort"].as_str(), answer["mode"].as_str()), (Some("low"), Some("plan")));
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["sent"], true);
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "exec", "--target", "machine:vm-1"]));
+    assert!(fake.ran[2][5].contains("acp session set sess-1 effort=low"), "{:?}", fake.ran[2]);
+    assert!(!fake.ran[2][5].contains("acp send"), "set before, never with, the send");
+    assert!(fake.ran[3][5].contains("acp send --no-wait sess-1 -"));
+}
+
+/// A refused effort: the chat started, nothing is sent, and the answer says how to go on.
+#[test]
+fn a_refused_effort_sends_nothing_and_names_the_chat() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nError: unknown value turbo for effort\n@@exit 1\n"),
+    ]);
+    let asked = request(&["--effort", "turbo", "-p", "1+1?"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.settings_refused"), 1));
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("unknown value turbo") && message.contains("sess-1"), "{message}");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 3, "no send after the refusal: {:?}", fake.ran);
 }

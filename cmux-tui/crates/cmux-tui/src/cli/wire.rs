@@ -980,10 +980,18 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     ) {
         return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
-    let personal = matches!(
+    let workspaces = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    );
+    if workspaces
+        && plan.filter.tree
+        && let Some(rows) = result.as_array()
+    {
+        return std::borrow::Cow::Owned(list_filter::tree_human_rows(rows));
+    }
+    let personal =
+        workspaces && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
@@ -1313,6 +1321,12 @@ pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_create
 /// CLI shows a daemon's own words).
 pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
     sanitize_human_block(value)
+}
+
+/// A remote-supplied string for one line or table cell of human output: controls become inert and
+/// line breaks a visible `\n`.
+pub(in crate::cli) fn sanitize_remote_cell(value: &str) -> String {
+    sanitize_human_cell(value)
 }
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;

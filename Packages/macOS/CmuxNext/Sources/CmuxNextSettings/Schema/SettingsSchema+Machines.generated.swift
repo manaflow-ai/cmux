@@ -2,15 +2,36 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension ComputerUseSettings {
-    /// `computerUse.enabled`.
-    public nonisolated static let enabledPath = ["computerUse", "enabled"]
-    public nonisolated static let enabledDefault = false
-    /// `computerUse.driver`: Which Computer Use driver the helper runs.
-    public nonisolated static let driverPath = ["computerUse", "driver"]
-    public nonisolated static let driverDefault: ComputerUseDriver = .upstream
+    /// `computerUse.mode`: How much agents may do with the apps on this Mac; the raw values are the engine's (cmux_computer_use::policy::Mode).
+    public nonisolated static let modePath = ["computerUse", "mode"]
+    public nonisolated static let modeDefault: ComputerUseMode = .fullAccess
+    /// `computerUse.deniedApps`: The engine's default deny list, entry for entry (cmux-tui/crates/cmux-computer-use/src/policy.rs, default_denied_apps; ComputerUseSettingsTests compares the two).
+    public nonisolated static let deniedAppsPath = ["computerUse", "deniedApps"]
+    public nonisolated static let deniedAppsDefault: [String] = ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole", "com.cmuxterm.app", "com.cmuxterm.app.*"]
+    /// `computerUse.allowOwnMachines`.
+    public nonisolated static let allowOwnMachinesPath = ["computerUse", "allowOwnMachines"]
+    public nonisolated static let allowOwnMachinesDefault = true
+    /// `computerUse.pauseOnTakeover`.
+    public nonisolated static let pauseOnTakeoverPath = ["computerUse", "pauseOnTakeover"]
+    public nonisolated static let pauseOnTakeoverDefault = true
+    /// `computerUse.showCursor`.
+    public nonisolated static let showCursorPath = ["computerUse", "showCursor"]
+    public nonisolated static let showCursorDefault = true
+    /// `computerUse.cursorTag`: When an agent cursor shows its tag (the agent's workspace name, or the tag the agent set).
+    public nonisolated static let cursorTagPath = ["computerUse", "cursorTag"]
+    public nonisolated static let cursorTagDefault: ComputerUseCursorTag = .hover
+    /// `computerUse.settle`: What the engine waits for after an action before its screenshot (PolicyConfig settle).
+    public nonisolated static let settlePath = ["computerUse", "settle"]
+    public nonisolated static let settleDefault: ComputerUseSettle = .adaptive
     /// `computerUse.livePreview`.
     public nonisolated static let livePreviewPath = ["computerUse", "livePreview"]
     public nonisolated static let livePreviewDefault = true
+    /// `computerUse.menus`: Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).
+    public nonisolated static let menusPath = ["computerUse", "menus"]
+    public nonisolated static let menusDefault: ComputerUseMenus = .open
+    /// `computerUse.allowForeground`.
+    public nonisolated static let allowForegroundPath = ["computerUse", "allowForeground"]
+    public nonisolated static let allowForegroundDefault = false
 }
 
 extension FreeModelSettings {
@@ -59,6 +80,9 @@ extension MacScreenSettings {
     /// `macScreen.systemShortcuts`.
     public nonisolated static let systemShortcutsPath = ["macScreen", "systemShortcuts"]
     public nonisolated static let systemShortcutsDefault = false
+    /// `macScreen.shareWithoutAsking`.
+    public nonisolated static let shareWithoutAskingPath = ["macScreen", "shareWithoutAsking"]
+    public nonisolated static let shareWithoutAskingDefault = false
 }
 
 extension MacScreenDebugSettings {
@@ -74,6 +98,9 @@ extension RemoteSettings {
     /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
     public nonisolated static let ultraPath = ["remote", "ultra"]
     public nonisolated static let ultraDefault: UltraConnectionMode = .auto
+    /// `remote.screenSharingProfile`: Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets "encode_profile": "ultra"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.
+    public nonisolated static let screenSharingProfilePath = ["remote", "screenSharingProfile"]
+    public nonisolated static let screenSharingProfileDefault: ScreenSharingProfile = .balanced
 }
 
 extension DeviceHubSettings {
@@ -97,29 +124,95 @@ nonisolated enum MachineSettingsSchema {
         let group = SettingsText.keyed("settings.group.computerUse", "Computer Use")
         return [
             SettingDescriptor(
-                ComputerUseSettings.enabledPath,
+                ComputerUseSettings.modePath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.computerUse.enabled", "Computer Use"),
-                help: SettingsText.keyed("settings.computerUse.enabled.help", "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."),
-                summary: SettingsText.keyed("settings.computerUse.enabled.summary", "Lets agents see and use your apps"),
-                kind: .toggle,
-                default: .bool(ComputerUseSettings.enabledDefault),
-                keywords: ["computer use", "agents", "automation", "screen recording", "accessibility", "helper"]
+                title: SettingsText.keyed("settings.computerUse.mode", "Computer Use"),
+                help: SettingsText.keyed("settings.computerUse.mode.help", "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."),
+                summary: SettingsText.keyed("settings.computerUse.mode.summary", "What agents may do with your apps"),
+                kind: .choice([
+                    SettingChoice(ComputerUseMode.fullAccess.rawValue, SettingsText.keyed("settings.computerUse.mode.fullAccess", "Full Access")),
+                    SettingChoice(ComputerUseMode.approvedApps.rawValue, SettingsText.keyed("settings.computerUse.mode.approvedApps", "Approved Apps")),
+                    SettingChoice(ComputerUseMode.askEveryTime.rawValue, SettingsText.keyed("settings.computerUse.mode.askEveryTime", "Ask Every Time")),
+                    SettingChoice(ComputerUseMode.lookOnly.rawValue, SettingsText.keyed("settings.computerUse.mode.lookOnly", "Look Only")),
+                    SettingChoice(ComputerUseMode.off.rawValue, SettingsText.keyed("settings.computerUse.mode.off", "Off")),
+                ]),
+                default: .string(ComputerUseSettings.modeDefault.rawValue),
+                keywords: ["computer use", "agents", "automation", "apps", "access", "permission", "look only", "approve"]
             ),
             SettingDescriptor(
-                ComputerUseSettings.driverPath,
+                ComputerUseSettings.deniedAppsPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.computerUse.driver", "Computer Use Driver"),
-                help: SettingsText.keyed("settings.computerUse.driver.help", "Upstream is the new helper; macOS asks for its permissions again."),
-                summary: SettingsText.keyed("settings.computerUse.driver.summary", "Which helper runs Computer Use"),
+                title: SettingsText.keyed("settings.computerUse.deniedApps", "Denied Apps"),
+                help: SettingsText.keyed("settings.computerUse.deniedApps.help", "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."),
+                summary: SettingsText.keyed("settings.computerUse.deniedApps.summary", "Apps agents may never use"),
+                kind: .stringList,
+                default: .array(ComputerUseSettings.deniedAppsDefault.map { .string($0) }),
+                keywords: ["computer use", "deny", "block", "apps", "password", "terminal", "exclude"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.allowOwnMachinesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.allowOwnMachines", "Allow My Other Machines"),
+                help: SettingsText.keyed("settings.computerUse.allowOwnMachines.help", "Agents on your other machines, signed in to the same account, may use this Mac's apps."),
+                summary: SettingsText.keyed("settings.computerUse.allowOwnMachines.summary", "Agents on your other machines may use this Mac"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.allowOwnMachinesDefault),
+                keywords: ["computer use", "remote", "machines", "devices", "same account"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.pauseOnTakeoverPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.pauseOnTakeover", "Pause When I Use the Mouse or Keyboard"),
+                help: SettingsText.keyed("settings.computerUse.pauseOnTakeover.help", "While you use the mouse or keyboard, agents wait before their next click or key press."),
+                summary: SettingsText.keyed("settings.computerUse.pauseOnTakeover.summary", "Agents wait while you use this Mac"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.pauseOnTakeoverDefault),
+                keywords: ["computer use", "pause", "takeover", "mouse", "keyboard", "interrupt"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.showCursorPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.showCursor", "Show Agent Cursor"),
+                help: SettingsText.keyed("settings.computerUse.showCursor.help", "A blue cursor shows wherever an agent clicks or types."),
+                summary: SettingsText.keyed("settings.computerUse.showCursor.summary", "A blue cursor shows where agents act"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.showCursorDefault),
+                keywords: ["computer use", "cursor", "pointer", "blue", "overlay"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.cursorTagPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.cursorTag", "Agent Cursor Tag"),
+                help: SettingsText.keyed("settings.computerUse.cursorTag.help", "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."),
+                summary: SettingsText.keyed("settings.computerUse.cursorTag.summary", "When the agent cursor shows its tag"),
                 kind: .choice([
-                    SettingChoice(ComputerUseDriver.legacy.rawValue, SettingsText.keyed("settings.computerUse.driver.legacy", "Legacy")),
-                    SettingChoice(ComputerUseDriver.upstream.rawValue, SettingsText.keyed("settings.computerUse.driver.upstream", "Upstream")),
+                    SettingChoice(ComputerUseCursorTag.hover.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.hover", "When I Point at It")),
+                    SettingChoice(ComputerUseCursorTag.always.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.always", "Always")),
+                    SettingChoice(ComputerUseCursorTag.never.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.never", "Never")),
                 ]),
-                default: .string(ComputerUseSettings.driverDefault.rawValue),
-                keywords: ["computer use", "driver", "cua", "upstream", "legacy", "helper"]
+                default: .string(ComputerUseSettings.cursorTagDefault.rawValue),
+                keywords: ["computer use", "cursor", "tag", "label", "workspace", "name", "hover"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.settlePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.settle", "After Each Action"),
+                help: SettingsText.keyed("settings.computerUse.settle.help", "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."),
+                summary: SettingsText.keyed("settings.computerUse.settle.summary", "What agents wait for after each action"),
+                kind: .choice([
+                    SettingChoice(ComputerUseSettle.adaptive.rawValue, SettingsText.keyed("settings.computerUse.settle.adaptive", "Wait for the change (adaptive)")),
+                    SettingChoice(ComputerUseSettle.anthropic.rawValue, SettingsText.keyed("settings.computerUse.settle.anthropic", "Fixed 2 s, then screenshot (Anthropic)")),
+                    SettingChoice(ComputerUseSettle.openai.rawValue, SettingsText.keyed("settings.computerUse.settle.openai", "Screenshot at once (OpenAI)")),
+                ]),
+                default: .string(ComputerUseSettings.settleDefault.rawValue),
+                keywords: ["computer use", "settle", "wait", "delay", "screenshot", "action", "anthropic", "openai"]
             ),
             SettingDescriptor(
                 ComputerUseSettings.livePreviewPath,
@@ -132,9 +225,36 @@ nonisolated enum MachineSettingsSchema {
                 default: .bool(ComputerUseSettings.livePreviewDefault),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
             ),
+            SettingDescriptor(
+                ComputerUseSettings.menusPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.menus", "Menus in Background Apps"),
+                help: SettingsText.keyed("settings.computerUse.menus.help", "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."),
+                summary: SettingsText.keyed("settings.computerUse.menus.summary", "Agents may open menus in background apps"),
+                kind: .choice([
+                    SettingChoice(ComputerUseMenus.open.rawValue, SettingsText.keyed("settings.computerUse.menus.open", "Open Menus")),
+                    SettingChoice(ComputerUseMenus.refuse.rawValue, SettingsText.keyed("settings.computerUse.menus.refuse", "Never Open Menus")),
+                ]),
+                default: .string(ComputerUseSettings.menusDefault.rawValue),
+                keywords: ["computer use", "menu", "pop-up", "popup", "context menu", "right click", "background"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.allowForegroundPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.allowForeground", "Allow Foreground Input"),
+                help: SettingsText.keyed("settings.computerUse.allowForeground.help", "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."),
+                summary: SettingsText.keyed("settings.computerUse.allowForeground.summary", "Advanced: agents may take focus and move the pointer"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.allowForegroundDefault),
+                keywords: ["computer use", "foreground", "focus", "pointer", "advanced", "background"]
+            ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var freeModel: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.freeModel", "AI Models")
         return [
@@ -151,7 +271,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var sshLinks: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
         return [
@@ -168,7 +290,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -217,7 +341,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var mobile: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.mobile", "iPhone")
         return [
@@ -257,115 +383,6 @@ nonisolated enum MachineSettingsSchema {
                 default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
                 keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
             ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
-        ]
-    }
-
-    static var macScreen: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenSettings.systemShortcutsPath,
-                section: .keyboard,
-                group: group,
-                title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."),
-                summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
-                kind: .toggle,
-                default: .bool(MacScreenSettings.systemShortcutsDefault),
-                keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
-            ),
-        ]
-    }
-
-    static var macScreenDebug: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenDebugSettings.relayOnlyPath,
-                section: .development,
-                group: group,
-                title: SettingsText.keyed("settings.macScreen.debug.relayOnly", "Relay Only"),
-                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect only through the relay, to test it."),
-                summary: SettingsText.keyed("settings.macScreen.debug.relayOnly.summary", "Mac Screen streams use the relay only"),
-                kind: .toggle,
-                default: .bool(MacScreenDebugSettings.relayOnlyDefault),
-                keywords: ["mac screen", "relay", "turn", "webrtc", "ice", "development", "debug"]
-            ),
-        ]
-    }
-
-    static var remote: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off: this Mac stays available to your devices while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.endSharingOnQuitDefault),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-            SettingDescriptor(
-                RemoteSettings.ultraPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."),
-                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .choice([
-                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
-                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
-                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
-                ]),
-                default: .string(RemoteSettings.ultraDefault.rawValue),
-                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
-            ),
-        ]
-    }
-
-    static var deviceHub: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
-        return [
-            SettingDescriptor(
-                DeviceHubSettings.urlPath,
-                section: .development,
-                group: group,
-                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help", "The device hub for Mac Screen sharing. Empty uses the built-in one."),
-                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
-                kind: .url,
-                default: .string(DeviceHubSettings.urlDefault),
-                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
-            ),
-        ]
-    }
-
-    static var imessage: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.section.accounts", "Accounts")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageEnabledPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
-                help: SettingsText.keyed("settings.imessage.enabled.help", "Lets cmux read Messages conversations on this Mac. Sending needs your click."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
-                keywords: ["imessage", "messages", "connector", "privacy"]
-            ).hiddenFromSettingsPage("connect and disconnect from Session Info's iMessage connector"),
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageAutomationSkippedPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
-                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remembers that you skipped the Messages Automation step."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
-                keywords: ["imessage", "messages", "automation", "connector"]
-            ).hiddenFromSettingsPage("permission walkthrough state, set only by the iMessage connector"),
         ]
     }
 }

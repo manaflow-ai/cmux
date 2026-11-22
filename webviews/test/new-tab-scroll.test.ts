@@ -1,4 +1,5 @@
-// New Tab uses one page scroll, including the virtualized All chats rows.
+// New Tab uses one page scroll. The All chats list that once scrolled with it was the Threads
+// template's, which cmux no longer ships (Leo 2026-11-18); its own gallery is agent-pane.all-chats-list.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -54,7 +55,6 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
     await page.goto(url(variant));
     await ready(page);
     await page.locator(".nt-screen").first().waitFor();
-    if (variant === "many-chats") await page.locator(".nt-all-item:not(.is-loader)").first().waitFor();
     const state = await page.evaluate(() => {
       const scrollers = [...document.querySelectorAll<HTMLElement>(".nt-screen, .nt-screen *")].filter((node) => {
         const overflow = getComputedStyle(node).overflowY;
@@ -72,7 +72,6 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
         scrollers: scrollers.map((node) => node.classList[node.classList.length - 1] ?? node.tagName),
         fades: scrollers.map(fades),
         pageFades: fades(screen),
-        listHeight: document.querySelector<HTMLElement>(".nt-all-list")?.clientHeight ?? 0,
         reachable: screen.scrollHeight <= screen.clientHeight + 1 || overflowY === "auto" || overflowY === "scroll",
       };
     });
@@ -80,32 +79,8 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
     return state;
   }
 
-  test("with All chats, the page is the only scroller", async () => {
-    // 400 px: Claude Code's split adds the quiet row (28 px and its 4 px gap) under the box, so at
-    // 360 the list is already down to its two-row floor, where the page scrolls by design (below).
-    expect(await look("many-chats", 400)).toMatchObject({
-      documentScrolls: false,
-      scrollers: ["nt-screen"],
-      fades: [false],
-      pageFades: false,
-    });
-  });
-
-  test("in a pane too short for the list, two rows stay and the page scrolls to the rest", async () => {
-    const short = await look("many-chats", 260);
-    expect({
-      rows: short.listHeight >= 58,
-      reachable: short.reachable,
-      documentScrolls: short.documentScrolls,
-    }).toEqual({
-      rows: true,
-      reachable: true,
-      documentScrolls: false,
-    });
-  });
-
-  test("the calm default scrolls in one place at most, and never fades the page", async () => {
-    const calm = await look("calm-default");
+  test("the default page scrolls in one place at most, and never fades the page", async () => {
+    const calm = await look("minimal-default");
     expect({
       documentScrolls: calm.documentScrolls,
       one: calm.scrollers.length <= 1,
