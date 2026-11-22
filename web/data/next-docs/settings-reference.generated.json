@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 659,
+  "count": 656,
   "sections": [
     {
       "id": "general",
@@ -247,21 +247,6 @@
             "max": 95,
             "unit": "count"
           }
-        },
-        {
-          "key": "agents.chats.archiveInactive",
-          "title": "Archive Inactive Chats",
-          "help": "Archives chats after a period of no activity. Chats that are running or have background work never are.",
-          "kind": "choice",
-          "default": "never",
-          "group": "Chats",
-          "values": [
-            "never",
-            "1d",
-            "3d",
-            "7d",
-            "30d"
-          ]
         },
         {
           "key": "agents.chats.coldArchive",
@@ -534,6 +519,38 @@
           "kind": "toggle",
           "default": false,
           "group": "Window"
+        },
+        {
+          "key": "app.language",
+          "title": "Language",
+          "help": "The language of cmux's menus, pages and messages.",
+          "kind": "choice",
+          "default": "system",
+          "group": "Language",
+          "values": [
+            "system",
+            "en",
+            "ar",
+            "bs",
+            "da",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "nb",
+            "pl",
+            "pt-BR",
+            "tr",
+            "vi",
+            "ru",
+            "uk",
+            "th",
+            "km",
+            "ja",
+            "ko",
+            "zh-Hans",
+            "zh-Hant"
+          ]
         },
         {
           "key": "app.quitBehavior",
@@ -7070,22 +7087,6 @@
           "group": "Developer Tools"
         },
         {
-          "key": "experiments.agentBadges",
-          "title": "Agent Badges",
-          "help": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Experiments"
-        },
-        {
-          "key": "experiments.agentBadgesBeam",
-          "title": "Agent Badges: Running Beam",
-          "help": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Experiments"
-        },
-        {
           "key": "experiments.composerV2",
           "title": "Composer Refresh",
           "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
@@ -7129,14 +7130,6 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
-        {
-          "key": "labs.mobileDeviceRevoke",
-          "title": "Revoke iPhone Access",
-          "help": "Show locally approved iPhones and revoke their access from Mobile Pairing.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
