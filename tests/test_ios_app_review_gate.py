@@ -1145,5 +1145,108 @@ class DevicePlanTests(unittest.TestCase):
         self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
 
 
+class InternalSubmissionTests(unittest.TestCase):
+    """cmux INTERNAL (dev.cmux.app.internal) to App Review: the builder's
+    `submittable` input (off for nightlies), the gate's internal-submission
+    lane, the receipt it writes on a YES, and the dispatch-only submit."""
+
+    @staticmethod
+    def workflow(name: str) -> dict:
+        import yaml  # noqa: PLC0415
+        return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+
+    @staticmethod
+    def triggers(doc: dict) -> dict:
+        # PyYAML reads the bare key `on` as True.
+        return doc.get("on", doc.get(True))
+
+    def test_nightlies_stay_internal_only(self) -> None:
+        doc = self.workflow("ios-internal-nightly.yml")
+        submittable = self.triggers(doc)["workflow_dispatch"]["inputs"]["submittable"]
+        self.assertEqual((submittable["type"], submittable["default"]), ("boolean", False))
+        self.assertNotIn("submittable", (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text())
+        upload = next(s["run"] for s in doc["jobs"]["upload"]["steps"] if s.get("id") == "upload")
+        self.assertIn("reach=(--internal-only)", upload)
+        self.assertIn('[ "$SUBMITTABLE" != true ] || reach=(--submittable)', upload)
+
+    def test_the_builder_gates_the_exact_ipa_and_writes_a_receipt_only_on_yes(self) -> None:
+        jobs = self.workflow("ios-internal-nightly.yml")["jobs"]
+        gate_job = jobs["review-gate"]
+        self.assertEqual(gate_job["uses"], "./.github/workflows/ios-review-gate.yml")
+        self.assertEqual(gate_job["with"]["lane"], "internal-submission")
+        self.assertEqual(gate_job["with"]["ipa_artifact_name"], "cmux-internal-submission-ipa-${{ github.run_id }}")
+        self.assertIn("inputs.submittable", gate_job["if"])
+        receipt_if = jobs["submission-receipt"]["if"]
+        for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
+                     "needs.review-gate.outputs.sha == inputs.sha"):
+            self.assertIn(need, receipt_if)
+
+    def test_the_gate_runs_asc_validate_for_internal_submissions_on_the_builder_branch(self) -> None:
+        job = self.workflow("ios-review-gate.yml")["jobs"]["asc-validate"]
+        self.assertIn("needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'", job["if"])
+        self.assertIn("vars.IOS_INTERNAL_APP_ID", job["env"]["ASC_APP_ID"])
+        self.assertIn("options: [appstore, internal, internal-submission]",
+                      (ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+
+    def test_the_submit_workflow_runs_only_by_hand_with_a_confirm(self) -> None:
+        doc = self.workflow("ios-internal-submit.yml")
+        on = self.triggers(doc)
+        self.assertEqual(set(on), {"push", "workflow_dispatch"}, "no schedule, no workflow_call")
+        self.assertEqual(on["push"], {"branches": ["rc/cnx-ios-builder"]})
+        for name, job in doc["jobs"].items():
+            self.assertIn("github.event_name == 'workflow_dispatch'", job["if"], name)
+            self.assertIn("github.ref == 'refs/heads/rc/cnx-ios-builder'", job["if"], name)
+        submit = doc["jobs"]["submit"]["steps"][-1]["run"]
+        self.assertIn('[ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit', submit)
+        self.assertIn("mode=--dry-run", submit)
+
+    def test_the_receipt_round_trips_and_refuses_another_run_or_a_blocker(self) -> None:
+        nightly = self.workflow("ios-internal-nightly.yml")["jobs"]["submission-receipt"]["steps"][0]["run"]
+        check = next(s["run"] for s in self.workflow("ios-internal-submit.yml")["jobs"]["check"]["steps"]
+                     if s.get("id") == "receipt")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "ipa").mkdir()
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"ipa")
+            import hashlib  # noqa: PLC0415
+            ipa_sum = hashlib.sha256(b"ipa").hexdigest()
+            env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_STEP_SUMMARY=str(tmp_path / "summary"), SHA="a" * 40,
+                       MARKETING="1.2.0", BUILD_NUMBER="20261122120000", IPA_SHA256=ipa_sum, BLOCKING="0",
+                       GITHUB_RUN_ID="123")
+            self.assertEqual(subprocess.run(["bash", "-e", "-c", nightly], env=env).returncode, 0)
+            receipt = tmp_path / "receipt/submission.json"
+
+            def checked(run: str) -> tuple[int, str]:
+                out = tmp_path / "out"
+                out.write_text("")
+                proc = subprocess.run(["bash", "-e", "-c", check], capture_output=True, text=True,
+                                      env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(out), BUILD_RUN=run))
+                return proc.returncode, out.read_text()
+
+            self.assertEqual(checked("123"), (0, f"marketing=1.2.0\nbuild_number=20261122120000\nsha={'a' * 40}\n"))
+            self.assertEqual(checked("124")[0], 1, "another run's receipt")
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"other")
+            self.assertEqual(checked("123")[0], 1, "an IPA that is not the gated one")
+            (tmp_path / "ipa/CmuxMobileApp.ipa").write_bytes(b"ipa")
+            receipt.write_text(json.dumps(dict(json.loads(receipt.read_text()), blocking="2")))
+            self.assertEqual(checked("123")[0], 1, "a gate with blockers")
+
+    def test_scripts_refuse_an_internal_only_submission_and_a_submit_without_a_mode(self) -> None:
+        proc = subprocess.run(["bash", str(ROOT / "cmux-next-ios/scripts/testflight-build.sh"), "--submittable", "--internal-only"],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--internal-only would keep an App Store build out of App Review", proc.stderr)
+        submit = ROOT / "cmux-next-ios/scripts/asc_submit_review.sh"
+        for args, message in ((["submit", "--app", "6791408425", "--version", "1.2.0", "--build-number", "1"],
+                               "exactly one of --dry-run or --confirm-submit"),
+                              (["submit", "--app", "6791408425", "--version", "1.2.0", "--build-number", "1",
+                                "--dry-run", "--confirm-submit"], "exactly one of --dry-run or --confirm-submit"),
+                              (["attach", "--app", "x", "--version", "1.2.0", "--build-number", "1"], "--app must be"),
+                              (["release"], "attach or submit")):
+            proc = subprocess.run(["bash", str(submit), *args], capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0, args)
+            self.assertIn(message, proc.stderr, args)
+
+
 if __name__ == "__main__":
     unittest.main()
