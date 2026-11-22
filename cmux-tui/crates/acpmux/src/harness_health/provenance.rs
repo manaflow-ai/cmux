@@ -159,7 +159,7 @@ pub fn sanitized_name(path: &str) -> Option<String> {
     (!name.is_empty() && name != "." && name != "..").then_some(name)
 }
 
-static NOT_ENTITLED: LazyLock<regex::Regex> = LazyLock::new(|| {
+static NOT_ENTITLED: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
     regex::Regex::new(concat!(
         r"(?i)\b(not entitled|not eligible|no access to (this |the )?(workspace|feature|model|organization)",
         r"|(workspace|organization) (is |has been )?(disabled|deactivated|suspended)",
@@ -168,13 +168,13 @@ static NOT_ENTITLED: LazyLock<regex::Regex> = LazyLock::new(|| {
         r"|upgrade (your|to a) (plan|subscription)",
         r"|requires a (chatgpt|paid|pro|plus|team|business|enterprise|max) (plan|account|subscription))",
     ))
-    .expect("entitlement pattern") // crash-allow: constant pattern
+    .ok()
 });
 
 /// Whether `text` says the account lacks a workspace, plan or feature, as opposed to a sign-in
 /// that is missing or expired.
 pub fn says_not_entitled(text: &str) -> bool {
-    NOT_ENTITLED.is_match(text)
+    NOT_ENTITLED.as_ref().is_some_and(|re| re.is_match(text))
 }
 
 fn eligibility(row: Option<&HarnessHealth>, probe_error: Option<&str>) -> Eligibility {
