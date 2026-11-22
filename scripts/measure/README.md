@@ -36,6 +36,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
+| app-stream-bytes | `app-stream-bytes.sh` (`cmux-tui/crates/acpmux/tests/app_stream_bytes.rs`) | Bytes a second acpmux sends the app's chat panes while chats stream, by kind, shown and hidden panes apart, and its CPU. |
 
 
 ## Dev loop
@@ -100,6 +101,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `settings-section-switch.sh` | Settings section switch latency in headless WebKit and Chromium. | - | 2026-11-11 | active |
 | `perf-10x-lifecycle.sh` | Tab, pane, split and workspace create and close latency. | perf-10x | 2026-11-07 | active |
 | `perf-10x-daemon.sh` | Request latency of a headless cmux-tui (raw, 10 clients, CLI). | perf-10x | 2026-10-18 | active |
+| `app-stream-bytes.sh` | Bytes a second acpmux sends the app's chat panes by kind, and its CPU (bench app-stream-bytes). | CMUX-571 | 2026-11-16 | active |
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |
