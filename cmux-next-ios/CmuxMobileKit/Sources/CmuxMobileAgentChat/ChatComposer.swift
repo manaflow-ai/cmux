@@ -232,6 +232,7 @@ struct ChatComposer: View {
             }
             HStack(spacing: 8) {
                 plusMenu
+                if voice.placement == .leading { voiceButton }
                 if collapsed {
                     // One placeholder: the collapsed capsule reads the same as the field it opens.
                     Text(placeholder)
@@ -251,8 +252,11 @@ struct ChatComposer: View {
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
-                if primaryState != .empty || !voice.isAvailable { primaryButton }
+                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
+                // hiding this by default"); "Left of Field" puts it after +.
+                let voiceInSend = voice.placement == .sendButton
+                if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                if primaryState != .empty || !voiceInSend { primaryButton }
             }
             .padding(.horizontal, 8)
             // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
