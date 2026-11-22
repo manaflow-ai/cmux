@@ -239,9 +239,9 @@ extension PaneController {
                        notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
                        split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         drawIfOnScreen("new browser tab")
-        PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
-                                                    split: split, then: then)
+        return PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+                                                           profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
+                                                           split: split, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
