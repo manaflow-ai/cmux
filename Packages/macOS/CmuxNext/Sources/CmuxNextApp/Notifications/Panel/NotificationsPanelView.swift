@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxVisibleRows
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -68,6 +69,8 @@ final class NotificationsPanelView: NSView {
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
+    /// The rows the panel configured, measured and walked (the visible-rows contract).
+    let listWork = ListWorkMeter()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -181,6 +184,8 @@ final class NotificationsPanelView: NSView {
     /// rather than the empty state.
     func show(_ rows: [NotificationRowView], loaded: Bool) -> CGFloat {
         rowViews = rows
+        // Every view here is new (`NotificationsPanelController.render`), and the list's fitting size measures each.
+        listWork.rebuilt(rows.count)
         list.setViews(rows, in: .top)
         for row in rows { row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
         empty.isHidden = !rows.isEmpty || !loaded
@@ -194,6 +199,7 @@ final class NotificationsPanelView: NSView {
     }
 
     func select(_ index: Int?) {
+        listWork.walked(rowViews.count)
         for (offset, row) in rowViews.enumerated() { row.isSelected = offset == index }
         if let index, rowViews.indices.contains(index) { rowViews[index].scrollToVisible(rowViews[index].bounds) }
     }
@@ -219,6 +225,10 @@ final class NotificationsPanelView: NSView {
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }
+}
+
+extension NotificationsPanelView: VisibleRowsList {
+    var rowViewsAlive: Int { rowViews.count }
 }
 
 private final class FlippedView: NSView {
