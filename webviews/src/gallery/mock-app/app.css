@@ -35,7 +35,7 @@ body {
   border-radius: 12px;
   background: var(--app-window);
   box-shadow:
-    0 0 0 0.5px var(--app-separator),
+    0 0 0 var(--cmux-hairline, 0.5px) var(--app-separator),
     var(--elevation-2);
   contain: strict;
 }
@@ -63,7 +63,7 @@ body {
   width: var(--app-light-size);
   height: var(--app-light-size);
   border-radius: 50%;
-  box-shadow: inset 0 0 0 0.5px var(--app-light-rim);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--app-light-rim);
 }
 .app-light-close {
   background: var(--app-light-close);
@@ -164,7 +164,7 @@ body {
   overflow: hidden;
   border-radius: var(--app-radius, 8px);
   background: var(--app-content);
-  box-shadow: 0 0 0 0.5px var(--app-pane-border);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--app-pane-border);
 }
 [data-glass] .app-pane {
   background: transparent;
