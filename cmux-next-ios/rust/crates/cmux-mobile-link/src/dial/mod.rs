@@ -15,6 +15,8 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+/// Measurement support (cmux-mobile-path-probe).
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 
