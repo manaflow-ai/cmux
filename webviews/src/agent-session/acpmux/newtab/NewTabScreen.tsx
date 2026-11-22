@@ -1116,7 +1116,8 @@ export function NewTabScreen(props: Props) {
   };
   // The prompt for the chip's own agent leads: not drawn (screenModel promptLeads), the list starts
   // at the next row.
-  const firstDrawn = promptLeads(rows, harness) ? 1 : 0;
+  const promptFirst = promptLeads(rows, harness);
+  const firstDrawn = promptFirst ? 1 : 0;
   const drawnRows = rows.length - firstDrawn;
   // The arrows' next row. With the prompt's row hidden, it and "no row" are one stop, the prompt
   // (-1, which keeps ↑ and ↓ for a multi-line prompt's caret): ↓ from it reaches the first drawn row
@@ -2664,6 +2665,7 @@ export function NewTabScreen(props: Props) {
             ref={attachList}
             className="nt-rows ui-scroll-edge-fade"
             id="nt-rows"
+            data-prompt-first={promptFirst || undefined}
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={nt("suggestions")}
@@ -2680,9 +2682,10 @@ export function NewTabScreen(props: Props) {
                   aria-selected={index === current}
                   data-type={row.type}
                   className={index === current ? "nt-row is-selected" : "nt-row"}
-                  // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
-                  // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
+                  // When the prompt leads, a suggestion needs a click or a keyboard pick. A pointer
+                  // passing over web search must not redirect Return or the composer's Send button.
                   onMouseMove={(event) => {
+                    if (promptFirst) return;
                     const at = `${event.screenX},${event.screenY}`;
                     if (at === pointerAt.current) return;
                     const known = pointerAt.current !== "";
