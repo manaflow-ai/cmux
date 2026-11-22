@@ -56,6 +56,28 @@ test("the card names the first looks and counts the rest", () => {
   expect(none).not.toContain("apps-customize-looks");
 });
 
+test("closed, Show All opens the card in place; open, it lists every look and switch group and links to Settings", () => {
+  const looks = Array.from({ length: NAMED_LOOKS + 3 }, (_, index) => look(index));
+  const closed = renderToStaticMarkup(
+    <CustomizeFeature store={{ openCustomize: async () => {} }} strings={strings} looks={looks} />,
+  );
+  expect(closed).toContain(`aria-expanded="false"`);
+  expect(closed).toContain(`>${en["store.customize.show"]}</button>`);
+  expect(closed).not.toContain("apps-customize-panel");
+  const open = renderToStaticMarkup(
+    <CustomizeFeature store={{ openCustomize: async () => {} }} strings={strings} looks={looks} open />,
+  );
+  expect(open).toContain(`aria-expanded="true"`);
+  expect(open).toContain(`>${en["store.customize.hide"]}</button>`);
+  for (const each of looks) expect(open).toContain(`>${each.name}</button>`);
+  expect(open).not.toContain(strings.format("store.customize.more", "3"));
+  for (const key of ["experiments", "labs", "library", "all"])
+    expect(open).toContain(`>${en[`store.customize.${key}`]}</button>`);
+  expect(open).toContain(
+    `class="apps-customize-link">${en["store.customize.settingsLink"]!.replace(">", "&gt;")}</button>`,
+  );
+});
+
 test("Open runs openSettings on Settings > Customize's card through the app's action", async () => {
   expect(CUSTOMIZE_ACTION).toEqual({
     op: "cmux.app.action.run",

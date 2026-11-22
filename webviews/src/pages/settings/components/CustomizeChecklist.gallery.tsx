@@ -69,7 +69,12 @@ async function load() {
     if (layout === "app-store") {
       return (
         <section className="apps-page" style={{ padding: 16 }}>
-          <CustomizeFeature store={{ openCustomize: async () => {} }} strings={strings} looks={looks} />
+          <CustomizeFeature
+            store={{ openCustomize: async () => {} }}
+            strings={strings}
+            looks={looks}
+            open={state === "all-open"}
+          />
         </section>
       );
     }
@@ -119,8 +124,12 @@ for (const layout of Object.keys(LAYOUTS) as ChecklistLayout[]) {
   }
 }
 variants["app-store-card"] = {
-  note: "The App Store's Customize cmux… card at the top of Discover: names the looks, opens Settings > Customize.",
+  note: "The App Store's Customize cmux… card at the top of Discover, closed: names the first looks; Show All opens it.",
   props: { layout: "app-store", state: "default" },
+};
+variants["app-store-card-open"] = {
+  note: "The card after one click on Show All: every verified look and switch group, each opening Settings > Customize, and a link to it.",
+  props: { layout: "app-store", state: "all-open" },
 };
 
 export default componentEntry<Props>({

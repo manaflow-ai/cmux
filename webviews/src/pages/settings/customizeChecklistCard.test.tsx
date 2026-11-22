@@ -39,7 +39,9 @@ test("Settings > Customize lists the schema's experiments and Labs, each with a 
   expect(ids("labs")).toContain("labs.liveTree");
   expect(ids("labs")).toContain("customize.fromTheApp");
   expect(ids("experiments")!.every((id) => id!.startsWith("experiments."))).toBe(true);
-  expect(ids("experiments")!.length).toBeGreaterThan(0);
+  // Leo named Agent Badges first: the exported schema's experiments are all here.
+  expect(ids("experiments")).toContain("experiments.agentBadges");
+  expect(ids("experiments")).toContain("experiments.agentBadgesBeam");
   expect(count("labs")).toBe(`0 of ${ids("labs").length} on`);
 });
 

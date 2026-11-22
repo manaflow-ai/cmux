@@ -134,7 +134,8 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
     id: row.key,
     group,
     title: text(row.title),
-    help: text(row.summary),
+    // The row's summary, else its help's first sentence (one line, cut with an ellipsis; all of it on hover).
+    help: text(row.summary) || firstSentence(text(row.help)),
     detail: text(row.help),
     terms: row.key,
     on: input.value(row.key) === true,

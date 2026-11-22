@@ -124,8 +124,8 @@ test("groups draw in order, each with its own count; a look's library entry is t
     ["look:manaflow-ai/focus", false, true],
   ]);
   expect(by.all!.items[0]!.locked).toBe("Set by your team");
-  // A row with no summary shows no line; its long help is only the detail.
-  expect(by.labs!.items[0]!.help).toBe("");
+  // A row with no summary shows its help when that fits one line; the whole help is the detail.
+  expect(by.labs!.items[0]!.help).toBe("Long help for labs.b.");
   expect(by.labs!.items[0]!.detail).toBe("Long help for labs.b.");
   expect(totals(groups)).toEqual({ on: 3, total: 6 });
 });
