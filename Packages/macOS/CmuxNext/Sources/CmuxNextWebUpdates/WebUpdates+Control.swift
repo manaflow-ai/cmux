@@ -70,6 +70,7 @@ extension WebUpdates {
         case .some(nil): .string("bundled")
         case .some(.some(let tree)): .string(tree.lastPathComponent)
         }
+        let pieces: JSONValue = web.pieces?.json ?? .null
         return .object([
             "available": .bool(true),
             "channel": .string(updater.channel.rawValue),
@@ -85,7 +86,7 @@ extension WebUpdates {
             "pages_behind": JSONValue(web.pending.map { WebBundleServedViews.shared.behind(web.target($0)).count } ?? 0),
             // What the channel's signed switch file switched out of the active update (each piece:
             // `bundled` or `last-good`, and why), its serial, and why the newest file was refused.
-            "pieces": web.pieces?.json ?? .null,
+            "pieces": pieces,
             "pieces_drill": .bool(web.piecesDrill),
             "app_abi": JSONValue(updater.app.abi),
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),

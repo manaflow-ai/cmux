@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
 
@@ -58,14 +59,14 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
 
     /// For `updates.web.status`.
     var json: JSONValue {
-        .object([
-            "serial": serial.map { JSONValue($0) } ?? .null,
-            "refusal": refusal.map { .string($0.code) } ?? .null,
-            "switched": .object(switched.mapValues { piece in
-                .object(["serve": .string(piece.serve), "update": piece.update.map { .string($0) } ?? .null,
-                         "reason": .string(piece.reason ?? "")])
-            }),
-        ])
+        var out: [String: JSONValue] = [:]
+        for (name, piece) in switched {
+            let update: JSONValue = piece.update.map { .string($0) } ?? .null
+            out[name] = .object(["serve": .string(piece.serve), "update": update, "reason": .string(piece.reason ?? "")])
+        }
+        let taken: JSONValue = serial.map { JSONValue($0) } ?? .null
+        let refused: JSONValue = refusal.map { .string($0.code) } ?? .null
+        return .object(["serial": taken, "refusal": refused, "switched": .object(out)])
     }
 }
 
