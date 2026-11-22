@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095" as const;
+export const SDK_IR_SHA256 = "b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -881,7 +881,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
       "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
       "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
     ]
@@ -893,7 +893,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
       "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
       "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
     ]
@@ -905,7 +905,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
       "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
       "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
     ]
@@ -1581,6 +1581,28 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "helper-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "helper-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Helper (docs/cmux-helper.md): the build's one helper app, holding Screen Recording and Accessibility for Screen Sharing and Computer Use; the Computer Use worker runs in it.",
+      "The verified app connection only (origin.forbidden otherwise); kept in memory and shown by helper-status; never saves, starts or stops anything."
+    ]
+  },
+  "helper-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "helper-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Helper (docs/cmux-helper.md): the build's one helper app, holding Screen Recording and Accessibility for Screen Sharing and Computer Use; the Computer Use worker runs in it.",
+      "permissions and name are cmux Helper's grants and System Settings name as the verified app last reported them (absent before a report); the verified app also gets computer_use, the worker's status."
+    ]
   },
   "history-search": {
     "authority": "local-admin",
@@ -2581,51 +2603,6 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
-  },
-  "remote-host-app": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "remote-host-v1",
-    "fields": {},
-    "stream": null,
-    "constraints": [
-      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-      "The verified app connection only; the secret admits only that app process and is never logged or journaled."
-    ]
-  },
-  "remote-host-call": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "remote-host-v1",
-    "fields": {},
-    "stream": null,
-    "constraints": [
-      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-      "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
-    ]
-  },
-  "remote-host-config": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "remote-host-v1",
-    "fields": {},
-    "stream": null,
-    "constraints": [
-      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-      "The verified app connection only; the daemon saves the switches and starts or stops the host.",
-      "app_permissions is the app's own Screen Recording and Accessibility: kept in memory only and shown as remote-host-status app.permissions; a call with no switch set never saves, starts or stops anything."
-    ]
-  },
-  "remote-host-status": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "remote-host-v1",
-    "fields": {},
-    "stream": null,
-    "constraints": [
-      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-      "Never starts the host. The device list under host.screen.devices is the verified app's only."
-    ]
   },
   "remote-terminal-snapshot": {
     "authority": "control",
@@ -7677,6 +7654,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "HelperPermissions": {
+    "additional_properties": false,
+    "fields": {
+      "accessibility": {
+        "constraints": [
+          "Accessibility granted to cmux Helper, as the helper reports it."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "screen_recording": {
+        "constraints": [
+          "Screen Recording granted to cmux Helper, as the helper reports it."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "HistorySearchHit": {
     "additional_properties": false,
     "fields": {
@@ -8258,7 +8265,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "screen_device_id": {
         "capability": "machine-identity-v1",
         "constraints": [
-          "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+          "Reserved for the worker's screen UUID; no worker reports one, so identify leaves it out."
         ],
         "nullable": true,
         "presence": "optional",
@@ -9824,66 +9831,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
-        }
-      }
-    },
-    "kind": "object"
-  },
-  "RemoteHostAppPermissions": {
-    "additional_properties": false,
-    "fields": {
-      "accessibility": {
-        "constraints": [
-          "AXIsProcessTrusted() in the cmux app."
-        ],
-        "default": null,
-        "nullable": true,
-        "presence": "optional",
-        "type": {
-          "kind": "scalar",
-          "name": "boolean"
-        }
-      },
-      "screen_recording": {
-        "constraints": [
-          "CGPreflightScreenCaptureAccess() in the cmux app."
-        ],
-        "default": null,
-        "nullable": true,
-        "presence": "optional",
-        "type": {
-          "kind": "scalar",
-          "name": "boolean"
-        }
-      }
-    },
-    "kind": "object"
-  },
-  "RemoteHostAppResult": {
-    "additional_properties": false,
-    "fields": {
-      "host_pid": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "uint32"
-        }
-      },
-      "secret": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "string"
-        }
-      },
-      "socket": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "string"
         }
       }
     },
@@ -22835,6 +22782,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "GetSizeStateResult"
     }
   },
+  "helper-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "name": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "permissions": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "HelperPermissions"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "helper-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "history-search": {
     "request": {
       "additional_properties": false,
@@ -26853,100 +26839,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
-    }
-  },
-  "remote-host-app": {
-    "request": {
-      "additional_properties": false,
-      "fields": {},
-      "kind": "object"
-    },
-    "result": {
-      "kind": "ref",
-      "name": "RemoteHostAppResult"
-    }
-  },
-  "remote-host-call": {
-    "request": {
-      "additional_properties": false,
-      "fields": {
-        "method": {
-          "nullable": false,
-          "presence": "required",
-          "type": {
-            "kind": "scalar",
-            "name": "string"
-          }
-        },
-        "params": {
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        }
-      },
-      "kind": "object"
-    },
-    "result": {
-      "kind": "ref",
-      "name": "JsonValue"
-    }
-  },
-  "remote-host-config": {
-    "request": {
-      "additional_properties": false,
-      "fields": {
-        "app_permissions": {
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "ref",
-            "name": "RemoteHostAppPermissions"
-          }
-        },
-        "computer_use": {
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
-          }
-        },
-        "headless": {
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
-          }
-        },
-        "screen_sharing": {
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
-          }
-        }
-      },
-      "kind": "object"
-    },
-    "result": {
-      "kind": "ref",
-      "name": "JsonValue"
-    }
-  },
-  "remote-host-status": {
-    "request": {
-      "additional_properties": false,
-      "fields": {},
-      "kind": "object"
-    },
-    "result": {
-      "kind": "ref",
-      "name": "JsonValue"
     }
   },
   "remote-terminal-snapshot": {
@@ -34667,7 +34559,7 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_device_id": {
-        "description": "The authenticated worker screen UUID, or null when the worker is unavailable.",
+        "description": "The worker screen UUID; null, since no worker reports one.",
         "nullable": true,
         "presence": "required",
         "type": {

@@ -120,7 +120,7 @@ final class AgentActivityPageService {
             return AgentActivityMockSource()
         }
         // The activity feed was the cmux Computer Use helper's socket; the cmux Computer Use engine in
-        // cmux Remote does not serve one to the app yet, so the page shows Computer Use as not started.
+        // cmux Helper does not serve one to the app yet, so the page shows Computer Use as not started.
         return AgentActivitySocketSource(configuration: { nil })
     }
 }

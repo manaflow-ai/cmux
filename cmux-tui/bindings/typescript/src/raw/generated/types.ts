@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -543,6 +543,11 @@ export type GuestUrlSubscribeResult = {
   "url_open_ready": boolean;
 };
 
+export type HelperPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
+};
+
 export type HistorySearchHit = {
   "at_ms": bigint;
   "highlights": Array<HistorySearchRange>;
@@ -885,17 +890,6 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
-};
-
-export type RemoteHostAppPermissions = {
-  "accessibility"?: (boolean) | null;
-  "screen_recording"?: (boolean) | null;
-};
-
-export type RemoteHostAppResult = {
-  "host_pid": number;
-  "secret": string;
-  "socket": string;
 };
 
 export type RenderCursor = {

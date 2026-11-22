@@ -1967,12 +1967,6 @@
       "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "remote.status.error": {
-    "source": "Error",
-    "identityLocales": {
-      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
   "remotePTYAttach.error.allocationDiagnostic": {
     "class": "format",
     "source": "%@"
@@ -7273,54 +7267,9 @@
     "class": "brand",
     "source": "GitHub"
   },
-  "remote.status.title": {
+  "settings.group.cmuxHelper": {
     "class": "brand",
-    "source": "cmux Remote"
-  },
-  "settings.group.cmuxRemote": {
-    "class": "brand",
-    "source": "cmux Remote"
-  },
-  "remote.status.computerUse": {
-    "source": "Computer Use: %@",
-    "identityLocales": {
-      "de": {
-        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
-        "values": [
-          "Computer Use: %@"
-        ]
-      },
-      "ar": {
-        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
-        "values": [
-          "Computer Use: %@"
-        ]
-      },
-      "es": {
-        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
-        "values": [
-          "Computer Use: %@"
-        ]
-      },
-      "ko": {
-        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
-        "values": [
-          "Computer Use: %@"
-        ]
-      },
-      "ja": {
-        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
-        "values": [
-          "Computer Use: %@"
-        ]
-      }
-    }
-  },
-  "remote.status.host": {
-    "source": "Host: %@",
-    "identityLocales": {
-      "de": "Host is the usual German term for the computer that shares its screen."
-    }
+    "source": "cmux Helper"
   },
   "settingsWindow.harnesses.accounts.name": {
     "source": "Name",

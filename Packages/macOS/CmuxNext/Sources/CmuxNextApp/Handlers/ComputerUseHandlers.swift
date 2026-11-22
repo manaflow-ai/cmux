@@ -39,7 +39,7 @@ enum ComputerUseHandlers {
             })
         }
         work("computerUseFocus") { session in
-            // The window the agent works in first (within its app, by cmux Remote), then its app in
+            // The window the agent works in first (within its app, by cmux Helper), then its app in
             // front: the person asked to see it. A window the worker cannot raise still brings the app,
             // and the reason is logged rather than dropped.
             do {
@@ -58,7 +58,7 @@ enum ComputerUseHandlers {
         // indicator's `terminals` started, else every session (`stop(terminals:)`).
         _ = registry.bindEffect("computerUseStop", effect: { invocation in
             let named = invocation.arguments["session"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, terminals = invocation.arguments["terminals"]?.stringValue
-            // action-wait-allow: the stop runs in cmux Remote's Computer Use worker, another process, through the daemon.
+            // action-wait-allow: the stop runs in cmux Helper's Computer Use worker, another process, through the daemon.
             return .waiting(.externalProcess) {
                 do {
                     if let named { try await sessions.stop(named) } else { try await sessions.stop(terminals: terminals) }

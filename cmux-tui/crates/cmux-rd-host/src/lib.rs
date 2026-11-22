@@ -249,7 +249,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 2;
     };
-    // The Computer Use worker the cmux-tui daemon starts on a Mac with no cmux Remote: its stdin
+    // The Computer Use worker the cmux-tui daemon starts on a Mac (cmux Helper): its stdin
     // and stdout are the daemon's control channel, so nothing else may print there.
     #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {

@@ -18,9 +18,9 @@ public protocol MenuBarExtraHost: AnyObject {
     var menuBarUpdateReady: Bool { get }
     /// `app.globalHotKey` is on.
     var menuBarShowsGlobalKey: Bool { get }
-    /// Computer Use is on and cmux Remote's worker runs: the menu shows its row.
+    /// Computer Use is on and cmux Helper's worker runs: the menu shows its row.
     var menuBarComputerUseAvailable: Bool { get }
-    /// The agent sessions cmux Remote's worker reports (who acts, on which app), newest action
+    /// The agent sessions cmux Helper's worker reports (who acts, on which app), newest action
     /// first: what the app already holds from the daemon's `computer-use-activity`, no request.
     var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] { get }
     /// The agent chats with a result nobody has read, newest first, from the unread index.

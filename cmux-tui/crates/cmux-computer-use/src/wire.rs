@@ -1,6 +1,6 @@
 //! The worker's agent socket (`cmux-computer-use-v1`): UTF-8 JSON, one
-//! object per line. The macOS worker (Swift, in cmux Remote) and the
-//! Windows/Linux worker (Rust, `cmux computer-use worker`) both serve it;
+//! object per line. The macOS worker (in cmux Helper) and the
+//! Windows/Linux worker (`cmux computer-use worker`) both serve it;
 //! acpmux's bridge is the only client agents reach it through.
 //!
 //! ```text

@@ -5,9 +5,8 @@
 //!   `{"state":"starting"|"off"|"unavailable","reason"}`. Starts the worker
 //!   when needed and waits up to 10 s for it. Local same-user connections
 //!   only (never a page, a WebSocket or a `cmux link` peer): the answer holds
-//!   the worker's secret. On a Mac whose cmux build embeds cmux Remote it is
-//!   that host's `computer_use.endpoint`; otherwise the daemon's own worker
-//!   runs in the Screen Sharing helper (`computer_use_host/macos.rs`).
+//!   the worker's secret. On a Mac the worker runs in cmux Helper, the
+//!   build's Screen Sharing helper (`computer_use_host/macos.rs`).
 //! - `computer-use-config {config}`: a `PolicyConfig` from the verified app.
 //!   The machine owner's file (`/etc/cmux/computer-use.json`,
 //!   `%ProgramData%\cmux\computer-use.json`) still wins.
@@ -81,36 +80,8 @@ fn app_connected(mux: &Mux) -> bool {
     })
 }
 
-/// Whether the daemon's own worker serves Computer Use on this Mac: the build
-/// embeds no cmux Remote, so the Screen Sharing helper runs the worker
-/// (`configure_remote_host` configured it). Linux and Windows always do.
-#[cfg(target_os = "macos")]
-fn own_worker(mux: &Mux) -> bool {
-    mux.control_clients.computer_use.configured()
-}
-
 pub(super) fn endpoint(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     caller(mux, client)?;
-    #[cfg(target_os = "macos")]
-    if !own_worker(mux) {
-        let wait = crate::computer_use_host::ENDPOINT_WAIT.as_millis() as u64;
-        return Ok(
-            match mux
-                .control_clients
-                .remote_host
-                .call("computer_use.endpoint", json!({"wait_ms": wait}))
-            {
-                Ok(answer) if answer.get("state").and_then(Value::as_str).is_some() => answer,
-                Ok(answer) => {
-                    json!({"state": "unavailable", "reason": format!("cmux Remote answered {answer}")})
-                }
-                Err(reason) if reason.contains("is off") => {
-                    json!({"state": "off", "reason": reason})
-                }
-                Err(reason) => json!({"state": "unavailable", "reason": reason}),
-            },
-        );
-    }
     Ok(mux.control_clients.computer_use.endpoint(crate::computer_use_host::ENDPOINT_WAIT))
 }
 
@@ -121,14 +92,6 @@ pub(super) fn config(mux: &Mux, client: u64, config: Value) -> anyhow::Result<Va
     let policy = PolicyConfig::deserialize(&config).map_err(|error| {
         refused(BAD_REQUEST, format!("config is not a Computer Use policy: {error}"))
     })?;
-    #[cfg(target_os = "macos")]
-    if !own_worker(mux) {
-        return mux
-            .control_clients
-            .remote_host
-            .call("computer_use.config", json!({"config": config}))
-            .map_err(|reason| refused(UNAVAILABLE, reason));
-    }
     let host = &mux.control_clients.computer_use;
     if let Some((_, crate::computer_use_host::config::Source::Owner(path))) = host.config() {
         return Ok(json!({
@@ -191,18 +154,6 @@ pub(super) fn approvals(mux: &Mux, client: u64, params: Value) -> anyhow::Result
             ORIGIN_FORBIDDEN,
             "allowing an app or forgetting an answer needs the cmux app (Settings > Computer Use)",
         ));
-    }
-    #[cfg(target_os = "macos")]
-    if !own_worker(mux) {
-        let mut answer = mux
-            .control_clients
-            .remote_host
-            .call("computer_use.approvals", params)
-            .map_err(|reason| refused(UNAVAILABLE, reason))?;
-        if !verified_app && let Some(fields) = answer.as_object_mut() {
-            fields.remove("pending");
-        }
-        return Ok(answer);
     }
     let host = &mux.control_clients.computer_use;
     let unavailable = |reason: String| refused(UNAVAILABLE, reason);

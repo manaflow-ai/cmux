@@ -30,7 +30,6 @@ mod cloud;
 mod cloud_port;
 mod cloud_session;
 mod cloud_team;
-mod cmux_remote;
 mod computer_use_approval;
 mod density;
 mod divider;
@@ -68,6 +67,7 @@ mod remote;
 mod resource;
 mod screen;
 mod screen_group;
+mod screen_sharing;
 mod server;
 mod settings;
 mod share;
@@ -105,7 +105,7 @@ pub static GROUPS: &[&[Action]] = &[
     tab::ACTIONS,
     vertical_tabs::ACTIONS,
     agent_chat_rail::ACTIONS,
-    cmux_remote::ACTIONS,
+    screen_sharing::ACTIONS,
     tab_icon::ACTIONS,
     resource::ACTIONS,
     home::ACTIONS,

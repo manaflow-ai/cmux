@@ -235,7 +235,7 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
 }
 
 /// The approval prompt's words for one request, plain: who asks, what it can do, and what Allow
-/// keeps (the app's card and cmux Remote's banner say the same).
+/// keeps (the app's card and cmux Helper's banner say the same).
 nonisolated struct MacScreenApprovalWords: Equatable {
     let title: String
     let body: String

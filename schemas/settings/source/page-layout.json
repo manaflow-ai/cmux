@@ -328,7 +328,7 @@
             {"group": "settings.group.agentChat", "title": {"key": "settings.pageGroup.agentDefaults", "text": "Defaults"}, "keys": [
               "app.warnBeforeClosingAgentSession"
             ]},
-            {"group": "settings.group.cmuxRemote"},
+            {"group": "settings.group.cmuxHelper"},
             {"group": "settings.group.freeModel", "note": "The free AI model while signed out (cx-ds09i)."},
             {"group": "settings.group.sessions", "note": "What this Mac does while agents work (keep awake)."},
             {"group": "settings.group.subsessions", "note": "Whether agent sessions may start sub-sessions, how many and how deep."},

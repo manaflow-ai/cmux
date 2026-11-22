@@ -2,7 +2,7 @@
 //! ([`mcp`], `acpmux computer-use-mcp`) and the one worker client the bridge,
 //! the `cmux computer-use` CLI and the remote relay share ([`client`]).
 //! The tool catalog, policy and engine live in `cmux-computer-use`; the
-//! worker runs under the cmux Remote host, never in this process.
+//! worker runs under the cmux-tui daemon (on a Mac in cmux Helper), never in this process.
 
 pub mod awake;
 pub mod client;

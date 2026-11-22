@@ -7,6 +7,7 @@ import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
@@ -127,9 +128,9 @@ final class AppOnboardingServices: OnboardingServices {
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            // This build's cmux Remote, so the window and panel show its icon and name when it is embedded.
-            let remote = ComputerUseRemoteBundle.embedded()?.appURL
-            return MockComputerUsePermissionSource(helperAppURL: remote ?? URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Remote.app"))
+            // This build's cmux Helper, so the window and panel show its icon and name.
+            let helper = MacScreenHelper.bundled()?.app
+            return MockComputerUsePermissionSource(helperAppURL: helper ?? URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Screen Sharing.app"))
         }
         #endif
         return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)

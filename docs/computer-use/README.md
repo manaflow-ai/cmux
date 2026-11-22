@@ -16,7 +16,7 @@ agent (Claude Code, Codex, ...)
   | MCP stdio: tools/list, tools/call
 acpmux bridge  -- serves the tool catalog itself; asks the daemon for the endpoint
   | cmux-computer-use-v1 over a local socket (same uid, then the per-launch secret)
-Computer Use worker  (one per machine, child of the cmux Remote host)
+Computer Use worker  (one per machine; on macOS inside cmux Helper)
   engine: call_id dedup -> policy -> takeover pause -> cursor -> desktop -> frames
   desktop: macOS (AX + window-scoped events) | Windows (UIA + window messages) | Linux (X11, Wayland, headless)
 ```
@@ -42,19 +42,18 @@ host, which routes it to an attached cmux client and answers `allow_once`,
 
 On macOS the worker also sends `activity` lines: which agent session acted
 (its label and the app it acted on, with the time), at most every half second
-per session, and one with `ended` when the session's cursor hides. cmux Remote
-keeps the latest per session as `workers["computer-use"].activity`; the cmux-tui
-daemon sends each change to the app as `computer-use-activity`
-(cmux-tui/spec/events.md), and the app shows a dot on its menu bar icon while
-an agent acted within the last 2 seconds, and the sessions in the menu's
-Computer Use row.
+per session, and one with `ended` when the session's cursor hides. Nothing
+reads them yet in cmux Helper: the daemon's `computer-use-activity` event
+(cmux-tui/spec/events.md) is not published, so the menu bar shows no Computer
+Use sessions until the worker's activity is wired to it.
 
 ### Stop, Resume, Show Cursor and Show Window
 
 The cmux menu bar's Computer Use row lists each agent session with Stop (or
-Resume), Show Cursor and Show Window. They reach the worker as the daemon's
-`remote-host-call computer_use.session` and the host's `session`,
-`cursor/spotlight` and `window/raise` control lines.
+Resume), Show Cursor and Show Window. The worker's `session`,
+`cursor/spotlight` and `window/raise` control lines implement them; the app
+reaches none of them yet in cmux Helper (its Stop All ends every session with
+`computer-use-approvals revoke_sessions`).
 
 - Stop: the engine marks the session stopped (`crate::stop`). Its running call
   ends at its next checkpoint (between batch steps, between paced keys, between
@@ -140,7 +139,7 @@ the agent's words.
   during the capture, the denied window is painted out whole.
 - Protected targets are never usable and not on the list: OS sign-in and
   authentication prompts (SecurityAgent, loginwindow, UAC consent, the polkit
-  agents) and cmux Remote itself.
+  agents) and cmux Helper itself.
 - `computerUse.allowOwnMachines` (default on): the person's other machines, on the
   same account, use this one without prompts when it is in Full access. Another
   account's machine is always refused.
@@ -285,14 +284,14 @@ audit log: `{"kept": true}`, `{"kept": true, "restored_from": "<id>"}`,
 `{"kept": false, "moved_by": "person", ...}` or `{"kept": false, "not_restored": ...}`.
 The takeover tap's count of the person's own inputs decides who moved it; any
 input of theirs during the call leaves focus alone. Without the tap, only a
-change to the target app or to cmux Remote is put back. Foreground delivery is
+change to the target app or to cmux Helper is put back. Foreground delivery is
 not guarded: it raises the window because it was asked to.
 
 ## Platforms and display servers
 
 | Platform | Display server | Tree | Input | Capture | Notes |
 | --- | --- | --- | --- | --- | --- |
-| macOS 14+ | Quartz | Accessibility (AX) | AX actions, then events posted to the target process | ScreenCaptureKit, per window (covered windows too) | Needs Accessibility and Screen Recording for cmux Remote. |
+| macOS 14+ | Quartz | Accessibility (AX) | AX actions, then events posted to the target process | ScreenCaptureKit, per window (covered windows too) | Needs Accessibility and Screen Recording for cmux Helper. |
 | Windows 10/11 | Win32 | UI Automation | UIA patterns, then window messages to the target window | per window, per-monitor DPI aware | Elevated (UAC) windows are out of reach of a non-elevated worker and are refused. |
 | Linux | X11 | AT-SPI | AT-SPI actions, then XTEST scoped to the window | Composite, per window | The reference Linux path. |
 | Linux | Xvfb / headless X | AT-SPI | as X11 | as X11 | Cloud VMs and CI. |

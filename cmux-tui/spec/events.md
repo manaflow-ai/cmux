@@ -47,7 +47,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
-| `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
+| `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `helper-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
@@ -505,11 +505,11 @@ again. Only a page relay whose page lists it (the Tasks page) hears it.
 | --- | --- |
 | event | `computer-use-activity` |
 | status | implemented |
-| since | capability `remote-host-v1` (macOS) |
+| since | capability `helper-v1` (macOS) |
 
-Published when what cmux Remote's Computer Use worker reports about its agent
-sessions changes (the host's `workers["computer-use"].activity`, which the
-worker updates at most every half second per session while it acts, and when
+Nothing publishes it now: the Computer Use worker in cmux Helper reports no
+activity yet. It was published when the worker's report about its agent
+sessions changed (the worker updated it at most every half second per session while it acts, and when
 a session's cursor goes away). The payload is
 `{event:"computer-use-activity", sessions:[{session:string, label:string,
 app?:{id:string, name:string}, last_action_ms:uint64, stopped?:bool}]}`, newest action first;
@@ -520,7 +520,7 @@ agent's name, `app` the app it acted on last when the worker knows it, and
 the menu bar (its calls are refused and do not count as actions). Only
 the person's own local Unix connections hear it (never a page relay or a
 remote device); the cmux app shows its menu bar badge and Computer Use row
-from it. `remote-host-status` carries the same list in `host.workers`.
+from it.
 
 ### history-changed
 
@@ -1038,8 +1038,8 @@ Payload:
 object{event:"screen-device-changed",screen_device_id:string|null}
 ```
 
-This is the authenticated cmux Remote worker's independently generated screen
-UUID. It is delivered only to the local owner app (Unix or authenticated owner
+This is a worker's independently generated screen UUID; no worker reports one
+now, so the replay and live events carry `null`. It is delivered only to the local owner app (Unix or authenticated owner
 WebSocket); page relays, paired clients, and other remote clients do not hear
 it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.
 An opted-in subscription receives one current-value replay before live events.

@@ -21,7 +21,7 @@ pub enum GraphicsStatus {
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
-    /// The authenticated cmux Remote worker's screen device identity changed.
+    /// The worker's screen device identity changed (no process reports one now).
     /// Delivered only to trusted local app subscribers.
     ScreenDeviceChanged(Option<String>),
     /// New output arrived in a surface (coalesced; cleared when rendered).
@@ -242,15 +242,15 @@ pub enum MuxEvent {
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
-    /// What cmux Remote's Computer Use worker says its agent sessions do now
-    /// (`computer-use-activity`, remote_host/unix.rs): the host's
-    /// `workers["computer-use"].activity` each time it changes, as
-    /// `{event, sessions: [{session, label, app?, last_action_ms}]}`. macOS only;
+    /// What the Computer Use worker says its agent sessions do now
+    /// (`computer-use-activity`), as
+    /// `{event, sessions: [{session, label, app?, last_action_ms}]}`. Nothing
+    /// emits it now; the app still reads it. macOS only;
     /// `subscribe` sends it to the person's own local connections, never a page
     /// relay or a remote device.
     ComputerUseActivity(Arc<Value>),
-    /// One change of Computer Use's live preview (`computer-use-preview`,
-    /// computer_use_lifecycle.rs): `{event, session, surface: {terminal} |
+    /// One change of Computer Use's live preview (`computer-use-preview`; nothing
+    /// emits it now): `{event, session, surface: {terminal} |
     /// {chat}, card: {...} | null}`, the card of the window an agent drives
     /// for the surface the agent runs in. Delivered like
     /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections

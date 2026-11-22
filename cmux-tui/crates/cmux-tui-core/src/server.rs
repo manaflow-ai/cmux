@@ -203,7 +203,7 @@ mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
 mod device_setup_command;
-mod remote_host_command;
+mod helper_command;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -884,25 +884,16 @@ enum Command {
         revisions: bool,
     },
     BrowserHostProvider,
-    /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
-    RemoteHostStatus,
-    RemoteHostCall {
-        method: String,
+    /// cmux Helper (`helper-v1`, server/helper_command.rs).
+    HelperStatus,
+    HelperConfig {
+        /// cmux Helper's Screen Recording and Accessibility, as the app read them (memory only).
         #[serde(default)]
-        params: Value,
+        permissions: Option<crate::helper::HelperPermissions>,
+        /// The name System Settings lists the helper under.
+        #[serde(default)]
+        name: Option<String>,
     },
-    RemoteHostConfig {
-        #[serde(default)]
-        computer_use: Option<bool>,
-        #[serde(default)]
-        screen_sharing: Option<bool>,
-        #[serde(default)]
-        headless: Option<bool>,
-        /// The app's own Screen Recording and Accessibility (memory only).
-        #[serde(default)]
-        app_permissions: Option<crate::remote_host::AppPermissions>,
-    },
-    RemoteHostApp,
     /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
     ComputerUseEndpoint,
     ComputerUseConfig {

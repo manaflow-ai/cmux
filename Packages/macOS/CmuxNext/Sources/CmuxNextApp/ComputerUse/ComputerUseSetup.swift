@@ -11,11 +11,11 @@ import os
 nonisolated private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Computer Use Setup reads the signed host's state and its Accessibility and Screen Recording
-/// grants for Settings, onboarding and the CLI. The host is cmux Remote in builds that embed it,
-/// otherwise the bundled Screen Sharing helper. A status read never starts the on-demand worker.
+/// grants for Settings, onboarding and the CLI. The host is cmux Helper, the bundled Screen
+/// Sharing helper. A status read never starts the on-demand worker.
 ///
-/// Nothing polls. A read runs when an input changes (the setting, policy, cmux Remote starting
-/// or stopping), when the app becomes active (the person comes back from System Settings), and
+/// Nothing polls. A read runs when an input changes (the setting, policy, the daemon
+/// connecting), when the app becomes active (the person comes back from System Settings), and
 /// when macOS posts its Accessibility trust change. A host that started but does not answer yet
 /// gets a few reads spaced by `Backoff` (a retry after a failure, never a period).
 @MainActor
@@ -77,8 +77,6 @@ final class ComputerUseSetup {
     /// Nil when this build has none.
     private(set) var helperAppURL: URL?
 
-    /// cmux Remote's Computer Use worker (the App's setup only): the card's engine, worker and saved approvals.
-    @ObservationIgnored var remote: CmuxRemoteComputerUseState?
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let read: @Sendable () async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
@@ -237,7 +235,7 @@ final class ComputerUseSetup {
         switch inputs.helper {
         case .unavailable: settle(.unavailable, running: nil)
         case .failed: settle(.failed, running: nil)
-        // On, and the daemon is starting cmux Remote.
+        // On, and the daemon is starting the helper.
         case .off: settle(.starting, running: nil)
         case .running, .screenSharing:
             // Until this host answers, the grants are being read, not off.
@@ -304,24 +302,9 @@ final class ComputerUseSetup {
 
     // MARK: The App's reads
 
-    /// The two grants out of cmux Remote's host status (`permissions`), with the app bundle of
-    /// the host that answered; nil when the status has no probe answer yet.
-    nonisolated static func grants(fromStatus status: [String: Any]) -> Read? {
-        guard let fields = status["permissions"] as? [String: Any] else { return nil }
-        guard let accessibility = fields["accessibility"] as? Bool, let screen = fields["screen_recording"] as? Bool else {
-            return .versionMismatch
-        }
-        var helper: URL?
-        if let pid = status["pid"] as? Int, let app = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleURL,
-           app.pathExtension == "app" {
-            helper = app
-        }
-        return .answered(ComputerUsePermissions(accessibility: accessibility, screenRecording: screen), helper: helper)
-    }
-
     /// The running host, else this build's signed Computer Use host.
     @concurrent nonisolated static func embeddedHelper(_ running: URL?) async -> URL? {
-        running ?? ComputerUseRemoteBundle.embedded()?.appURL ?? MacScreenHelper.bundled()?.app
+        running ?? MacScreenHelper.bundled()?.app
     }
 
     @concurrent nonisolated private static func screenSharingRead(_ status: CmuxNextDaemon.JSONValue?) async -> Read {
@@ -342,33 +325,22 @@ final class ComputerUseSetup {
 }
 
 extension ComputerUseSetup {
-    /// The App's setup: `computerUse.mode`, `DisabledFeatures` and cmux Remote
-    /// (``CmuxRemoteService``, its host status through the daemon).
+    /// The App's setup: `computerUse.mode`, `DisabledFeatures` and cmux Helper
+    /// (``CmuxHelperService``, the daemon's `helper-status`).
     static func app(services: AppServices) -> ComputerUseSetup {
-        let remote = services.cmuxRemote
-        let remoteState = remote.computerUse
+        let helper = services.cmuxHelper
         let setup = ComputerUseSetup(
             inputs: { [weak services] in
                 let mode = services?.settings?.snapshot.computerUse.mode ?? .off
-                let helper: HostState
-                if remoteState.embedded {
-                    helper = remoteState.computerUseFailed ? .failed : remoteState.hostPID.map { .running($0) } ?? .off
-                } else {
-                    helper = services?.daemon.connection.map { .screenSharing(ObjectIdentifier($0)) } ?? .unavailable
-                }
+                let host: HostState = services?.daemon.connection.map { .screenSharing(ObjectIdentifier($0)) } ?? .unavailable
                 return Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
-                              enabled: mode != .off, helper: helper)
+                              enabled: mode != .off, helper: host)
             },
-            read: { @MainActor [weak remote] in
-                guard let remote else { return .noAnswer }
-                if !remote.computerUse.embedded {
-                    return await ComputerUseSetup.screenSharingRead(try? await remote.status())
-                }
-                guard let status = await remote.computerUseStatus() else { return .noAnswer }
-                return ComputerUseSetup.grants(fromStatus: status) ?? .noAnswer
+            read: { @MainActor [weak helper] in
+                guard let helper else { return .noAnswer }
+                return await ComputerUseSetup.screenSharingRead(try? await helper.status())
             },
-            restartHelper: { [weak remote] in await remote?.restartComputerUse() },
-            requestPermission: { [weak services, weak remote] pane in
+            requestPermission: { [weak services, weak helper] pane in
                 guard let services, let settings = services.settings,
                       !services.registry.disabledFeatures.contains(.computerUse) else { return }
                 // task-owner: one setup click; turning Computer Use on finishes before its grant request.
@@ -378,7 +350,7 @@ extension ComputerUseSetup {
                             try await settings.setSetting(at: ComputerUseSettings.modePath, to: .string(ComputerUseMode.fullAccess.rawValue),
                                                           by: SettingWriter.currentRun())
                         }
-                        await remote?.requestGrant(pane == .screenRecording ? "screen-recording" : "accessibility")
+                        await helper?.requestGrant(pane == .screenRecording ? "screen-recording" : "accessibility")
                     } catch {
                         setupLogger.error("Computer Use could not request permission: \(String(describing: error), privacy: .public)")
                     }
@@ -387,7 +359,7 @@ extension ComputerUseSetup {
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
-                // task-owner: one settings write; cmux Remote's start follows the setting.
+                // task-owner: one settings write; the worker's start follows the setting.
                 Task {
                     do {
                         try await settings.setSetting(at: ComputerUseSettings.modePath, to: .string(ComputerUseMode.fullAccess.rawValue), by: writer)
@@ -396,7 +368,6 @@ extension ComputerUseSetup {
                     }
                 }
             })
-        setup.remote = remoteState
         setup.start()
         return setup
     }
@@ -416,7 +387,6 @@ extension ComputerUseSetup {
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
         ]
-        remote?.addSettingsFields(to: &fields)
         return .object(fields)
     }
 }

@@ -1,13 +1,11 @@
 //! The Computer Use worker: on Linux and Windows the daemon starts the
 //! same `cmux-tui` binary in its hidden `__computer-use-worker` mode; on
-//! macOS, in a build that embeds no cmux Remote (Release and NIGHTLY), the
-//! Screen Sharing helper `cmux-screen-sharing __computer-use-worker`, which
-//! holds the grants (`computer_use_host/macos.rs`). It keeps the worker
-//! running while Computer Use is on, and hands agents (acpmux's bridge) its
-//! endpoint through the `computer-use-endpoint` command
-//! (`server/computer_use_command.rs`). A macOS build that embeds cmux Remote
-//! (a DEV build) runs the worker in cmux Remote (`remote_host.rs`) instead,
-//! and this supervisor stays unconfigured there.
+//! macOS, the build's helper app (cmux Helper, the Screen Sharing helper
+//! `cmux-screen-sharing __computer-use-worker`), which holds the grants
+//! (`computer_use_host/macos.rs`). It keeps the worker running while
+//! Computer Use is on, and hands agents (acpmux's bridge) its endpoint
+//! through the `computer-use-endpoint` command
+//! (`server/computer_use_command.rs`).
 //!
 //! - Start: on the first endpoint request (never at daemon start, so a
 //!   machine nobody automates runs no worker). The worker gets a fresh 32-byte
@@ -612,11 +610,11 @@ fn current_policy(mux: &Arc<crate::mux::Mux>) -> (PolicyConfig, config::Source, 
 }
 
 impl crate::mux::Mux {
-    /// Lets this daemon (Linux, Windows, and macOS without cmux Remote) run
-    /// the Computer Use worker for the daemon on `daemon_socket`, with durable
-    /// state beside the daemon's own.
+    /// Lets this daemon run the Computer Use worker for the daemon on
+    /// `daemon_socket` (macOS: in the build's helper app, cmux Helper), with
+    /// durable state beside the daemon's own.
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
-    pub(crate) fn configure_computer_use(self: &Arc<Self>, daemon_socket: &Path) {
+    pub fn configure_computer_use(self: &Arc<Self>, daemon_socket: &Path) {
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {

@@ -9872,6 +9872,25 @@
         "required": true
       }
     },
+    "request:helper-config": {
+      "/name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/permissions": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/permissions/accessibility": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/permissions/screen_recording": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:helper-status": {},
     "request:history-search": {
       "/kinds": {
         "ty": "array"
@@ -11605,44 +11624,6 @@
       }
     },
     "request:reload-config": {},
-    "request:remote-host-app": {},
-    "request:remote-host-call": {
-      "/method": {
-        "ty": "string",
-        "required": true
-      },
-      "/params": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:remote-host-config": {
-      "/app_permissions": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/app_permissions/accessibility": {
-        "ty": "boolean",
-        "nullable": true
-      },
-      "/app_permissions/screen_recording": {
-        "ty": "boolean",
-        "nullable": true
-      },
-      "/computer_use": {
-        "ty": "boolean",
-        "nullable": true
-      },
-      "/headless": {
-        "ty": "boolean",
-        "nullable": true
-      },
-      "/screen_sharing": {
-        "ty": "boolean",
-        "nullable": true
-      }
-    },
-    "request:remote-host-status": {},
     "request:remote-terminal-snapshot": {
       "/surface": {
         "ty": "uint64",
@@ -17726,6 +17707,18 @@
         "required": true
       }
     },
+    "response:helper-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:helper-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:history-search": {
       "/data/hits": {
         "ty": "array",
@@ -20152,38 +20145,6 @@
         "values": [
           "true"
         ]
-      }
-    },
-    "response:remote-host-app": {
-      "/data/host_pid": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/secret": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/socket": {
-        "ty": "string",
-        "required": true
-      }
-    },
-    "response:remote-host-call": {
-      "/data": {
-        "ty": "json",
-        "required": true
-      }
-    },
-    "response:remote-host-config": {
-      "/data": {
-        "ty": "json",
-        "required": true
-      }
-    },
-    "response:remote-host-status": {
-      "/data": {
-        "ty": "json",
-        "required": true
       }
     },
     "response:remote-terminal-snapshot": {

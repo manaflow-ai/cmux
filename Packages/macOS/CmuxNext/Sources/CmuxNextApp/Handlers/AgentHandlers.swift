@@ -89,8 +89,8 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
-        context.services.cmuxRemoteActions.bind(into: registry)
+                         }, refusal: { registry.refuse(thrown: $0) }).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
+        context.services.cmuxHelperActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
@@ -135,10 +135,10 @@ enum AgentHandlers {
                 if id == "computerUse.approval.set", decision != "always", decision != "never" {
                     return .refused(ComputerUseSessionStrings.noDecision)
                 }
-                let remote = context.services.cmuxRemote
-                // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
+                let helper = context.services.cmuxHelper
+                // action-wait-allow: the saved approvals live in the Computer Use worker (cmux Helper), another process.
                 return .waiting(.externalProcess) {
-                    do { try await remote.editComputerUseApproval(appID: app, decision: id == "computerUse.approval.set" ? decision : nil) } catch {
+                    do { try await helper.editComputerUseApproval(appID: app, decision: id == "computerUse.approval.set" ? decision : nil) } catch {
                         return ActionWorkFailure(String(describing: error))
                     }
                     return nil
@@ -299,7 +299,7 @@ enum AgentHandlers {
         let services = context.services
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CmuxRemoteComputerUseSessions(remote: services.cmuxRemote, ready: { [weak services] in
+            sessions: CmuxHelperComputerUseSessions(helper: services.cmuxHelper, ready: { [weak services] in
                 let now = services?.onboarding.computerUseSetup.phase ?? .off
                 guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
             }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),

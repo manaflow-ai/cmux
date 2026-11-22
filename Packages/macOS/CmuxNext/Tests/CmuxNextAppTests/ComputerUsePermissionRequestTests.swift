@@ -32,7 +32,7 @@ import Testing
         #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
     }
 
-    /// The card hides after Continue because the Computer Use window takes over cmux Remote's grants.
+    /// The card hides after Continue because the Computer Use window takes over cmux Helper's grants.
     @Test func theCardStepsAsideForComputerUseKinds() {
         for kind in [PermissionKind.accessibility, .screenRecording, .computerUse] {
             #expect(SystemPermissionOpener.guidesInWindow(kind))

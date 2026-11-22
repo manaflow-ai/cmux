@@ -62,7 +62,7 @@ import Testing
         #expect(DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: nil).id == nil)
     }
 
-    /// The secret is made once, only this user can read it, and every later load (another build, cmux Remote) reads the same one.
+    /// The secret is made once, only this user can read it, and every later load (another build, cmux Helper) reads the same one.
     @Test func theMachineSecretIsMadeOnceAndKeptPrivate() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("device-machine-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308. */
 
 
 import type * as T from "./types.js";
@@ -1384,6 +1384,20 @@ export interface GetSizeStateRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface HelperConfigRequest extends CmuxRequestBase {
+  cmd: "helper-config";
+  "name"?: (string) | null;
+  "permissions"?: (T.HelperPermissions) | null;
+}
+export type HelperConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface HelperStatusRequest extends CmuxRequestBase {
+  cmd: "helper-status";
+}
+export type HelperStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface HistorySearchRequest extends CmuxRequestBase {
   cmd: "history-search";
   "kinds"?: Array<string>;
@@ -2161,35 +2175,6 @@ export type ReloadConfigResult = {
   "path": (string) | null;
   "reloaded": true;
 };
-
-/** Protocol v12; authority: local-admin. */
-export interface RemoteHostAppRequest extends CmuxRequestBase {
-  cmd: "remote-host-app";
-}
-
-/** Protocol v12; authority: local-admin. */
-export interface RemoteHostCallRequest extends CmuxRequestBase {
-  cmd: "remote-host-call";
-  "method": string;
-  "params"?: (T.JsonValue) | null;
-}
-export type RemoteHostCallResult = T.JsonValue;
-
-/** Protocol v12; authority: local-admin. */
-export interface RemoteHostConfigRequest extends CmuxRequestBase {
-  cmd: "remote-host-config";
-  "app_permissions"?: (T.RemoteHostAppPermissions) | null;
-  "computer_use"?: (boolean) | null;
-  "headless"?: (boolean) | null;
-  "screen_sharing"?: (boolean) | null;
-}
-export type RemoteHostConfigResult = T.JsonValue;
-
-/** Protocol v12; authority: local-admin. */
-export interface RemoteHostStatusRequest extends CmuxRequestBase {
-  cmd: "remote-host-status";
-}
-export type RemoteHostStatusResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface RemoteTerminalSnapshotRequest extends CmuxRequestBase {
@@ -3249,6 +3234,8 @@ export type CmuxRequest =
   | GetFrontendProjectionRequest
   | GetHostSizePolicyRequest
   | GetSizeStateRequest
+  | HelperConfigRequest
+  | HelperStatusRequest
   | HistorySearchRequest
   | HomeInboxRequest
   | IdentifyRequest
@@ -3324,10 +3311,6 @@ export type CmuxRequest =
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
-  | RemoteHostAppRequest
-  | RemoteHostCallRequest
-  | RemoteHostConfigRequest
-  | RemoteHostStatusRequest
   | RemoteTerminalSnapshotRequest
   | RemoveScreensFromScreenGroupRequest
   | RemoveTabsFromTabGroupRequest
@@ -4470,6 +4453,22 @@ export interface CmuxCommandDefinitionMap {
     capability: "shared-sizing-v1";
     stream: null;
   };
+  "helper-config": {
+    request: HelperConfigRequest;
+    result: HelperConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "helper-v1";
+    stream: null;
+  };
+  "helper-status": {
+    request: HelperStatusRequest;
+    result: HelperStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "helper-v1";
+    stream: null;
+  };
   "history-search": {
     request: HistorySearchRequest;
     result: HistorySearchResult;
@@ -5068,38 +5067,6 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
-    stream: null;
-  };
-  "remote-host-app": {
-    request: RemoteHostAppRequest;
-    result: T.RemoteHostAppResult;
-    authority: "local-admin";
-    since: 12;
-    capability: "remote-host-v1";
-    stream: null;
-  };
-  "remote-host-call": {
-    request: RemoteHostCallRequest;
-    result: RemoteHostCallResult;
-    authority: "local-admin";
-    since: 12;
-    capability: "remote-host-v1";
-    stream: null;
-  };
-  "remote-host-config": {
-    request: RemoteHostConfigRequest;
-    result: RemoteHostConfigResult;
-    authority: "local-admin";
-    since: 12;
-    capability: "remote-host-v1";
-    stream: null;
-  };
-  "remote-host-status": {
-    request: RemoteHostStatusRequest;
-    result: RemoteHostStatusResult;
-    authority: "local-admin";
-    since: 12;
-    capability: "remote-host-v1";
     stream: null;
   };
   "remote-terminal-snapshot": {

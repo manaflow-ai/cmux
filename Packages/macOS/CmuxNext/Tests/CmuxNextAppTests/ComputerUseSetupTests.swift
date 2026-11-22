@@ -152,10 +152,10 @@ struct ComputerUseSetupTests {
         #expect(box.restarts == 1)
     }
 
-    /// Allow asks cmux Remote for the grant (macOS names cmux Remote in its prompt; on macOS 26
+    /// Allow asks cmux Helper for the grant (macOS names cmux Helper in its prompt; on macOS 26
     /// the Screen Recording toggle alone is not enough until the holder asks once), then opens
     /// System Settings: one request per click, for that grant alone.
-    @Test func allowAsksCmuxRemoteForTheGrantThenOpensSettings() {
+    @Test func allowAsksCmuxHelperForTheGrantThenOpensSettings() {
         var requested: [ComputerUsePermissionPane] = []
         var opened: [URL] = []
         let setup = ComputerUseSetup(inputs: { .init(disabledByPolicy: false, enabled: true, helper: .running(42)) },
@@ -170,16 +170,8 @@ struct ComputerUseSetupTests {
         #expect(opened == [ComputerUseSetup.settingsURL(.accessibility), ComputerUseSetup.settingsURL(.screenRecording)].compactMap { $0 })
     }
 
-    /// cmux Remote's host status gives the grants; a status before its first probe gives none.
-    @Test func theGrantsComeFromCmuxRemotesStatus() {
-        let ready = ComputerUseSetup.grants(fromStatus: ["pid": 1, "permissions": ["accessibility": true, "screen_recording": false]])
-        #expect(ready == .answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
-        #expect(ComputerUseSetup.grants(fromStatus: ["pid": 1]) == nil)
-        #expect(ComputerUseSetup.grants(fromStatus: ["permissions": ["accessibility": "yes"]]) == .versionMismatch)
-    }
-
-    /// With no cmux Remote in this build there is nothing to restart.
-    @Test func noRestartWithoutCmuxRemote() {
+    /// With no Computer Use host there is nothing to restart.
+    @Test func noRestartWithoutAHost() {
         let box = InputBox()
         box.value.helper = .unavailable
         let setup = make(box, Reader())

@@ -211,7 +211,7 @@ pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
     let connected = row.get("state").and_then(Value::as_str) == Some("connected");
     (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
         format!(
-            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
+            "note   route     {name} is connected through the hub, so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
         )
     })
 }

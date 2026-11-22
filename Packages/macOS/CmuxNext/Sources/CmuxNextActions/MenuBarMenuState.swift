@@ -63,7 +63,7 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         }
     }
 
-    /// Computer Use on this Mac: the agent sessions cmux Remote's worker reports (who acts, on which
+    /// Computer Use on this Mac: the agent sessions cmux Helper's worker reports (who acts, on which
     /// app), or the feature ready with none.
     public struct ComputerUse: Sendable, Hashable {
         /// The sessions that acted, newest action first; empty when no agent used an app.

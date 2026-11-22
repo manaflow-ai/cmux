@@ -2464,7 +2464,7 @@
      "since": 12,
      "capability": "machine-identity-v1",
      "constraints": [
-      "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+      "Reserved for the worker's screen UUID; no worker reports one, so identify leaves it out."
      ]
     }
    },
@@ -10324,7 +10324,7 @@
    },
    "additional_properties": false
   },
-  "RemoteHostAppPermissions": {
+  "HelperPermissions": {
    "kind": "object",
    "fields": {
     "screen_recording": {
@@ -10336,7 +10336,7 @@
      "nullable": true,
      "default": null,
      "constraints": [
-      "CGPreflightScreenCaptureAccess() in the cmux app."
+      "Screen Recording granted to cmux Helper, as the helper reports it."
      ]
     },
     "accessibility": {
@@ -10348,38 +10348,8 @@
      "nullable": true,
      "default": null,
      "constraints": [
-      "AXIsProcessTrusted() in the cmux app."
+      "Accessibility granted to cmux Helper, as the helper reports it."
      ]
-    }
-   },
-   "additional_properties": false
-  },
-  "RemoteHostAppResult": {
-   "kind": "object",
-   "fields": {
-    "socket": {
-     "type": {
-      "kind": "scalar",
-      "name": "string"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "secret": {
-     "type": {
-      "kind": "scalar",
-      "name": "string"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "host_pid": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint32"
-     },
-     "presence": "required",
-     "nullable": false
     }
    },
    "additional_properties": false
@@ -26667,10 +26637,10 @@
     "The secret is never journaled, logged or put in an event."
    ]
   },
-  "remote-host-status": {
+  "helper-status": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-v1",
    "request": {
     "kind": "object",
     "fields": {},
@@ -26682,30 +26652,30 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "Never starts the host. The device list under host.screen.devices is the verified app's only."
+    "cmux Helper (docs/cmux-helper.md): the build's one helper app, holding Screen Recording and Accessibility for Screen Sharing and Computer Use; the Computer Use worker runs in it.",
+    "permissions and name are cmux Helper's grants and System Settings name as the verified app last reported them (absent before a report); the verified app also gets computer_use, the worker's status."
    ]
   },
-  "remote-host-call": {
+  "helper-config": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "remote-host-v1",
+   "capability": "helper-v1",
    "request": {
     "kind": "object",
     "fields": {
-     "method": {
+     "permissions": {
+      "type": {
+       "kind": "ref",
+       "name": "HelperPermissions"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "name": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
-     },
-     "params": {
-      "type": {
-       "kind": "ref",
-       "name": "JsonValue"
-      },
       "presence": "optional",
       "nullable": true
      }
@@ -26718,80 +26688,8 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
-   ]
-  },
-  "remote-host-config": {
-   "authority": "local-admin",
-   "since": 12,
-   "capability": "remote-host-v1",
-   "request": {
-    "kind": "object",
-    "fields": {
-     "computer_use": {
-      "type": {
-       "kind": "scalar",
-       "name": "boolean"
-      },
-      "presence": "optional",
-      "nullable": true
-     },
-     "screen_sharing": {
-      "type": {
-       "kind": "scalar",
-       "name": "boolean"
-      },
-      "presence": "optional",
-      "nullable": true
-     },
-     "headless": {
-      "type": {
-       "kind": "scalar",
-       "name": "boolean"
-      },
-      "presence": "optional",
-      "nullable": true
-     },
-     "app_permissions": {
-      "type": {
-       "kind": "ref",
-       "name": "RemoteHostAppPermissions"
-      },
-      "presence": "optional",
-      "nullable": true
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "JsonValue"
-   },
-   "stream": null,
-   "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "The verified app connection only; the daemon saves the switches and starts or stops the host.",
-    "app_permissions is the app's own Screen Recording and Accessibility: kept in memory only and shown as remote-host-status app.permissions; a call with no switch set never saves, starts or stops anything."
-   ]
-  },
-  "remote-host-app": {
-   "authority": "local-admin",
-   "since": 12,
-   "capability": "remote-host-v1",
-   "request": {
-    "kind": "object",
-    "fields": {},
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "RemoteHostAppResult"
-   },
-   "stream": null,
-   "constraints": [
-    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+    "cmux Helper (docs/cmux-helper.md): the build's one helper app, holding Screen Recording and Accessibility for Screen Sharing and Computer Use; the Computer Use worker runs in it.",
+    "The verified app connection only (origin.forbidden otherwise); kept in memory and shown by helper-status; never saves, starts or stops anything."
    ]
   },
   "computer-use-endpoint": {
@@ -26809,7 +26707,7 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
     "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
     "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
    ]
@@ -26838,7 +26736,7 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
     "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
     "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
    ]
@@ -26891,7 +26789,7 @@
    },
    "stream": null,
    "constraints": [
-    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: cmux Helper).",
     "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
     "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
    ]
@@ -31317,7 +31215,7 @@
       },
       "presence": "required",
       "nullable": true,
-      "description": "The authenticated worker screen UUID, or null when the worker is unavailable."
+      "description": "The worker screen UUID; null, since no worker reports one."
      }
     },
     "additional_properties": false,

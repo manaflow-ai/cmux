@@ -1,5 +1,4 @@
 public import CmuxNextCloud
-public import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 
@@ -8,7 +7,6 @@ public struct CaptureAuthControl: Sendable {
     public init() {}
 
     public func register(on router: ControlRouter?,
-                         remote: @escaping @MainActor @Sendable (String, String, String, String) async -> CmuxNextDaemon.JSONValue,
                          auth: @escaping @MainActor @Sendable () -> CloudAuth?) {
         #if DEBUG || CMUX_BENCH_HOOKS
         router?.register([
@@ -19,21 +17,6 @@ public struct CaptureAuthControl: Sendable {
                 await run(call, phase: .cleanup, auth: auth)
             },
         ])
-        router?.register(["prepare", "resume", "cleanup"].map { phase in
-            .async("debug.remote.capture_" + phase) { call in
-                guard call.params.count == 3,
-                      let lease = call.params["lease_id"]?.stringValue,
-                      let bundle = call.params["bundle_id"]?.stringValue,
-                      let root = call.params["private_root"]?.stringValue else {
-                    return .object(["ok": .bool(false), "code": .string("invalid_request"),
-                                    "lease_bound": .bool(false), "worker_started": .bool(false),
-                                    "identity_removed": .number(0), "relays_removed": .number(0),
-                                    "verified_absent": .bool(false), "worker_quiescent": .bool(false),
-                                    "worker_pid_exited": .bool(false), "descendants_exited": .bool(false)])
-                }
-                return remoteJSON(await remote(phase, lease, bundle, root))
-            }.withDeadline(.fixed(.seconds(80)))
-        })
         #endif
     }
 
@@ -47,12 +30,6 @@ public struct CaptureAuthControl: Sendable {
         }
         return json(await auth.captureAuthCleanup(phase: phase, leaseID: leaseID,
                                                   requestedBundleIdentifier: bundleID))
-    }
-
-    private func remoteJSON(_ result: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
-        guard let data = try? JSONEncoder().encode(result),
-              let value = try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: data) else { return .null }
-        return value
     }
 
     private func json(_ result: CaptureAuthCleanupResult) -> CmuxNextSettings.JSONValue {

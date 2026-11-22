@@ -13,12 +13,13 @@ extension AppServices: MenuBarExtraHost {
     var menuBarShowsGlobalKey: Bool { settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyDefault }
 
     var menuBarComputerUseAvailable: Bool { onboarding.computerUseSetup.phase == .ready }
-    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] { cmuxRemote.computerUse.menuBarSessions() }
+    // No per-agent rows: the Computer Use worker in cmux Helper reports no session activity to the app yet.
+    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] { [] }
     var menuBarUnread: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: false) }
     var menuBarRunning: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: true) }
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }
-    func menuBarResumeComputerUse(_ session: String) { cmuxRemote.sendComputerUseSession(.resume, session: session) }
-    func menuBarShowComputerUseCursor(_ session: String) { cmuxRemote.sendComputerUseSession(.spotlight, session: session) }
+    func menuBarResumeComputerUse(_ session: String) {}
+    func menuBarShowComputerUseCursor(_ session: String) {}
     func menuBarExtensionRows() -> [NSView] { apps.client.statusItems.menuBarRows() }
     func menuBarOpenChat(_ id: String) { if let lane = AgentPriorityChats.app.lane(id) { SidebarPriorityFeed.open(lane, services: self) } }
 }

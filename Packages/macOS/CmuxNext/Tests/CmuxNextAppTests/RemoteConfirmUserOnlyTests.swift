@@ -9,10 +9,10 @@ import Testing
 @MainActor
 struct RemoteConfirmUserOnlyTests {
     @Test func theDebugSocketCannotAnswerTheRemoteConfirmDialog() {
-        #expect(CmuxRemoteActionEnvironment.confirmIdentifier == "cmux.dialog.remote.confirm")
-        #expect(DebugDialog.userOnly.contains(CmuxRemoteActionEnvironment.confirmIdentifier))
-        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.count == 5)
-        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.contains("cmux.dialog.screenSharing.setup.overview"))
-        #expect(CmuxRemoteActionEnvironment.setupIdentifiers.isSubset(of: DebugDialog.userOnly))
+        #expect(CmuxHelperActionEnvironment.confirmIdentifier == "cmux.dialog.remote.confirm")
+        #expect(DebugDialog.userOnly.contains(CmuxHelperActionEnvironment.confirmIdentifier))
+        #expect(CmuxHelperActionEnvironment.setupIdentifiers.count == 5)
+        #expect(CmuxHelperActionEnvironment.setupIdentifiers.contains("cmux.dialog.screenSharing.setup.overview"))
+        #expect(CmuxHelperActionEnvironment.setupIdentifiers.isSubset(of: DebugDialog.userOnly))
     }
 }

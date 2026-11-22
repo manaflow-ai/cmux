@@ -1,5 +1,5 @@
-//! cmux Computer Use: the engine agents reach through the cmux Remote
-//! Computer Use worker, and the desktops it drives on macOS, Windows and
+//! cmux Computer Use: the engine agents reach through the Computer Use
+//! worker (on a Mac in cmux Helper), and the desktops it drives on macOS, Windows and
 //! Linux (docs/computer-use/README.md).
 //!
 //! The split:

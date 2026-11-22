@@ -137,9 +137,9 @@ impl Remote for FakeMac {
                 _ => ok("rc=1\nthe code expired\n"),
             }
         } else if script == SHARE_STATUS {
-            ok(json!({"state": "running", "host": {
+            ok(json!({"name": "cmux NIGHTLY Screen Sharing",
                 "permissions": {"accessibility": mac.grants.0, "screen_recording": mac.grants.1},
-                "screen": {"shared": mac.shared}}})
+                "screen": {"shared": mac.shared}})
             .to_string())
         } else if script == OPEN_SETTINGS {
             ok("")
@@ -162,7 +162,7 @@ struct Asker {
     feed: String,
     mint: Result<String, AskError>,
     team: Option<String>,
-    /// The agents permission; `None`: this cmux has no `remote-host agents` verb.
+    /// The agents permission; `None`: this cmux has no `helper agents` verb.
     agents: RefCell<Option<bool>>,
     /// The app's answer to `remote.confirm {"action":"allow_agents","on":true}`.
     allow: Result<Value, Value>,

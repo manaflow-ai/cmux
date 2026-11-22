@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095";
+pub const ir_sha256 = "b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1051,6 +1051,11 @@ pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
 };
 
+pub const HelperPermissions = struct {
+    accessibility: wire.Field(bool) = .absent,
+    screen_recording: wire.Field(bool) = .absent,
+};
+
 pub const HistorySearchHit = struct {
     at_ms: i64,
     highlights: []const HistorySearchRange,
@@ -1751,17 +1756,6 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
-};
-
-pub const RemoteHostAppPermissions = struct {
-    accessibility: wire.Field(bool) = .absent,
-    screen_recording: wire.Field(bool) = .absent,
-};
-
-pub const RemoteHostAppResult = struct {
-    host_pid: u32,
-    secret: []const u8,
-    socket: []const u8,
 };
 
 pub const RenderCursor = struct {
@@ -6848,6 +6842,43 @@ pub fn getSizeState(client: anytype, request: GetSizeStateRequest) !wire.Decoded
     );
 }
 
+pub const HelperConfigRequest = struct {
+    name: wire.Field([]const u8) = .absent,
+    permissions: wire.Field(HelperPermissions) = .absent,
+};
+
+pub const HelperConfigResult = JsonValue;
+
+pub fn helperConfig(client: anytype, request: HelperConfigRequest) !wire.Decoded(HelperConfigResult) {
+    return client.callTyped(
+        HelperConfigResult,
+        .{
+            .name = "helper-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-v1",
+        },
+        request,
+    );
+}
+
+pub const HelperStatusRequest = struct {};
+
+pub const HelperStatusResult = JsonValue;
+
+pub fn helperStatus(client: anytype, request: HelperStatusRequest) !wire.Decoded(HelperStatusResult) {
+    return client.callTyped(
+        HelperStatusResult,
+        .{
+            .name = "helper-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "helper-v1",
+        },
+        request,
+    );
+}
+
 pub const HistorySearchRequest = struct {
     kinds: ?[]const []const u8 = null,
     limit: wire.Field(u32) = .absent,
@@ -8678,80 +8709,6 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const RemoteHostAppRequest = struct {};
-
-pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
-    return client.callTyped(
-        RemoteHostAppResult,
-        .{
-            .name = "remote-host-app",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostCallRequest = struct {
-    method: []const u8,
-    params: wire.Field(JsonValue) = .absent,
-};
-
-pub const RemoteHostCallResult = JsonValue;
-
-pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
-    return client.callTyped(
-        RemoteHostCallResult,
-        .{
-            .name = "remote-host-call",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostConfigRequest = struct {
-    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
-    computer_use: wire.Field(bool) = .absent,
-    headless: wire.Field(bool) = .absent,
-    screen_sharing: wire.Field(bool) = .absent,
-};
-
-pub const RemoteHostConfigResult = JsonValue;
-
-pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
-    return client.callTyped(
-        RemoteHostConfigResult,
-        .{
-            .name = "remote-host-config",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostStatusRequest = struct {};
-
-pub const RemoteHostStatusResult = JsonValue;
-
-pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
-    return client.callTyped(
-        RemoteHostStatusResult,
-        .{
-            .name = "remote-host-status",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
         },
         request,
     );
@@ -11807,7 +11764,7 @@ pub const ScreenClosedEvent = struct {
 
 pub const ScreenDeviceChangedEvent = struct {
     event: []const u8,
-    /// The authenticated worker screen UUID, or null when the worker is unavailable.
+    /// The worker screen UUID; null, since no worker reports one.
     screen_device_id: wire.Nullable([]const u8),
 };
 
@@ -12781,7 +12738,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 308;
+pub const command_count: usize = 306;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12913,6 +12870,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
+    .{ .name = "helper-config", .authority = "local-admin", .since = 12, .capability = "helper-v1", .stream = null },
+    .{ .name = "helper-status", .authority = "local-admin", .since = 12, .capability = "helper-v1", .stream = null },
     .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
     .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -12988,10 +12947,6 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

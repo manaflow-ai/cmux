@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -737,7 +737,7 @@ pub struct ScreenClosedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScreenDeviceChangedEvent {
-    /// The authenticated worker screen UUID, or null when the worker is unavailable.
+    /// The worker screen UUID; null, since no worker reports one.
     pub screen_device_id: Nullable<String>,
 }
 
