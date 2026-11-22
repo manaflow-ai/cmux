@@ -112,8 +112,8 @@ import Testing
         #expect(step.shownTextSize == 14, "unset, Text Size is the density's")
         #expect(step.setDensity("spacious"))
         #expect(step.shownTextSize == 16, "and follows the density picked")
-        #expect(step.setTextSize(17.2))
-        #expect(source.current.textSize == 17, "a half point at most")
+        #expect(step.setTextSize(16.6))
+        #expect(source.current.textSize == 17, "whole points, Settings' step")
         #expect(!step.setTextSize(9) && !step.setTextSize(21) && !step.setTextSize(.infinity))
         #expect(step.setTextSize(nil))
         #expect(source.current.textSize == nil, "nil puts back the density's")
@@ -307,6 +307,45 @@ import Testing
                      ["appearance", "metrics", "chromeFontSize"], ["appearance", "theme"], ["appearance", "accent"], ["appearance", "chromeStyle"]] {
             #expect(back.value(at: path) == nil, "\(path.joined(separator: ".")) is removed")
         }
+    }
+
+    /// Skip over a real settings owner puts the person's own file back as it was: a pick's linked
+    /// writes (a built-in density ends a custom one; a see-through Opacity turns Plain Backgrounds off)
+    /// are undone too, and a key the file did not hold stays absent rather than pinned to what showed.
+    @Test func skipPutsThePersonsOwnFileBackWithWhatPicksChangedBesideThem() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-make-yours-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        let original = #"{"appearance": {"density": "compact", "customDensity": "mine", "accent": "red"}, "ui": {"reducedBackgrounds": true}}"#
+        try Data(original.utf8).write(to: url)
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        // The density action's own write: a built-in density removes the custom one.
+        let source = FirstRunChoicesSettingsSource(settings: { settings }, setDensity: { preset in
+            Task { try? await settings.setSetting(at: DensitySetting.configPath, to: .string(preset), by: .user) }
+        })
+        let step = MakeItYoursStepModel(source: source)
+        step.start()
+        await Self.until { step.loaded }
+        #expect(step.setDensity("spacious"))
+        #expect(step.setOpacity(0.5))
+        #expect(step.setAccent("blue"))
+        #expect(step.setWindowStyle("card"))
+        await Self.until { settings.fileRoot.value(at: FirstRunChoicesSettingsSource.windowStylePath)?.stringValue == "card" }
+        await Self.until { settings.fileRoot.value(at: DensitySetting.configPath)?.stringValue == "spacious" }
+        #expect(settings.fileRoot.value(at: CustomDensitySelectionSetting.configPath) == nil, "the density pick ended the custom density")
+        #expect(settings.fileRoot.value(at: ReducedBackgroundsSetting.configPath)?.boolValue != true, "the Opacity pick turned Plain Backgrounds off")
+
+        step.revert()
+        await Self.until { settings.fileRoot.value(at: FirstRunChoicesSettingsSource.windowStylePath) == nil }
+        let back = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        let was = try JSONC.parse(original)
+        for path in FirstRunChoicesSettingsSource.keptPaths {
+            #expect(back.value(at: path) == was.value(at: path), "\(path.joined(separator: ".")) is what the file held")
+        }
+        #expect(step.choices == step.opened)
     }
 
     /// The offered backgrounds are built-in works this app has thumbnails for, Shuffle Paintings first.

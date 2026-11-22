@@ -129,6 +129,10 @@ public protocol FirstRunChoicesSource: AnyObject {
     func accentSwatch(_ accent: String) -> String?
     /// Writes what changed from `old` to `new` now, so the app behind the window shows it at once.
     func apply(_ new: FirstRunChoices, from old: FirstRunChoices)
+    /// Keeps what the person's own settings hold at every key the step writes, when the step opens.
+    func keepForSkip()
+    /// Skip: writes the kept settings back as they were, after any write in flight; false when none were kept.
+    func putBack() -> Bool
 }
 
 public extension FirstRunChoicesSource {
@@ -136,6 +140,8 @@ public extension FirstRunChoicesSource {
     func themes() -> [FirstRunTheme] { [] }
     func textSize(density: String) -> Double? { nil }
     func accentSwatch(_ accent: String) -> String? { nil }
+    func keepForSkip() {}
+    func putBack() -> Bool { false }
 }
 
 /// The first run's one setup screen (cmux#48416, cmux#49636): how the person wants to work, then the
@@ -171,6 +177,7 @@ public final class MakeItYoursStepModel {
         if opened == nil {
             choices = source.currentChoices()
             opened = choices
+            source.keepForSkip()
         }
         densities = source.densities()
         read?.cancel()
@@ -192,7 +199,7 @@ public final class MakeItYoursStepModel {
     public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
 
     /// The Text Size slider's value: the one set, else the density's.
-    public var shownTextSize: Double? { (choices.textSize ?? source?.textSize(density: choices.density)).map { ($0 * 2).rounded() / 2 } }
+    public var shownTextSize: Double? { (choices.textSize ?? source?.textSize(density: choices.density)).map { $0.rounded() } }
 
     /// The terminal themes offered (their swatches as read now).
     public var themes: [FirstRunTheme] { source?.themes() ?? [] }
@@ -233,13 +240,13 @@ public final class MakeItYoursStepModel {
 
     public func setMaterial(_ value: FirstRunMaterial) { update { $0.material = value } }
 
-    /// Text Size in points, within ``FirstRunChoices/textSizes`` (rounded to a half point); nil puts
+    /// Text Size in points, within ``FirstRunChoices/textSizes`` (whole points, Settings' step); nil puts
     /// back the density's. Outside the range is refused.
     @discardableResult
     public func setTextSize(_ value: Double?) -> Bool {
         if let value {
             guard value.isFinite, FirstRunChoices.textSizes.contains(value) else { return false }
-            update { $0.textSize = (value * 2).rounded() / 2 }
+            update { $0.textSize = value.rounded() }
         } else {
             update { $0.textSize = nil }
         }
@@ -271,7 +278,9 @@ public final class MakeItYoursStepModel {
     /// Skip: writes back what was set when the step opened, so the person keeps their settings.
     public func revert() {
         guard let opened else { return }
-        update { $0 = opened }
+        // The source puts back the person's own file (a team's or theme file's value stays theirs);
+        // a source that kept nothing gets the opening choices written back.
+        if source?.putBack() == true { choices = opened } else { update { $0 = opened } }
     }
 
     private func update(_ change: (inout FirstRunChoices) -> Void) {

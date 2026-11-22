@@ -65,6 +65,20 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The writes not yet sent, oldest first, one per setting: a slider's steps coalesce into its last.
     private var pending: [(path: [String], value: JSONValue?)] = []
     private var writer: Task<Void, Never>?
+    /// The person's own file at every key the step writes, read when it opened (nil: absent).
+    private var kept: [(path: [String], value: JSONValue?)]?
+    /// The kept file values to write back after the writes in flight, for Skip.
+    private var putBackPending: [(path: [String], value: JSONValue?)]?
+
+    /// Every key a pick writes, or a pick's write changes beside it: a built-in density ends a custom
+    /// one, a see-through Opacity or Material turns Plain Backgrounds off, and a key the theme file sets
+    /// records an exception.
+    nonisolated static let keptPaths: [[String]] = [
+        ["tabs", "newTabTemplate"], DensitySetting.configPath, CustomDensitySelectionSetting.configPath,
+        ["appearance", "background"], WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath,
+        ReducedBackgroundsSetting.configPath, textSizePath, themePath, accentPath, windowStylePath,
+        ThemeFileExceptionsSetting.configPath,
+    ]
 
     /// `settings` is the app's settings owner (nil before it started); `setDensity` runs the density
     /// action with a preset id (`compact`, `cozy`, `comfortable`); `windowOpacity` reads the opacity
@@ -143,6 +157,25 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         return zip(rows, previews).map { FirstRunBackground(id: $0.id, name: $0.name, preview: $1) }
     }
 
+    /// Keeps the person's own file at the step's keys, once: Skip writes these back as they were, so a
+    /// value a team, theme file or default gave stays unset (it keeps following that layer).
+    public func keepForSkip() {
+        guard kept == nil, let settings = settings() else { return }
+        // A managed key is the organization's (its write is refused, and would refuse the whole publish).
+        kept = Self.keptPaths.filter { settings.managedKeys[$0.joined(separator: ".")] == nil }.map { ($0, settings.fileRoot.value(at: $0)) }
+    }
+
+    /// Skip: drops the picks not yet written and writes the kept file values back in one publish, after
+    /// the write in flight. False when nothing was kept (the step then writes its opening choices back).
+    public func putBack() -> Bool {
+        guard let kept else { return false }
+        pickedWorkStyle = nil
+        pending = []
+        putBackPending = kept
+        drain()
+        return true
+    }
+
     public func apply(_ new: FirstRunChoices, from old: FirstRunChoices) {
         if new.workStyle != old.workStyle { pickedWorkStyle = new.workStyle }
         if new.density != old.density { setDensity(new.density) }
@@ -165,10 +198,15 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// Sends the pending writes one at a time, in the order they were picked: two picks in a row
     /// (or a dragged slider) never land out of order.
     private func drain() {
-        guard writer == nil, !pending.isEmpty else { return }
+        guard writer == nil, !pending.isEmpty || putBackPending != nil else { return }
         // task-owner: the one writer of the step's picks; it ends when nothing is pending.
         writer = Task { [weak self] in
-            while let self, !pending.isEmpty {
+            while let self, !pending.isEmpty || putBackPending != nil {
+                if pending.isEmpty, let edits = putBackPending {
+                    putBackPending = nil
+                    await write(back: edits)
+                    continue
+                }
                 let (path, value) = pending.removeFirst()
                 guard let settings = settings() else {
                     log.error("first-run choice \(path.joined(separator: "."), privacy: .public) not saved: settings are not started")
@@ -181,6 +219,16 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
                 }
             }
             self?.writer = nil
+        }
+    }
+
+    private func write(back edits: [(path: [String], value: JSONValue?)]) async {
+        guard let settings = settings() else { return }
+        do {
+            try await settings.file.apply(edits)
+            await settings.reload()
+        } catch {
+            log.error("first-run choices not put back: \(String(describing: error), privacy: .public)")
         }
     }
 
