@@ -164,6 +164,7 @@ import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
+import { setHintsRevealed, useHintsRevealed, useOutcomeHints } from "./composerOutcomeHintsModel";
 import { agentName } from "./agents";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
 import { composerShellLook } from "./composer/shellLook.experiment";
@@ -534,6 +535,18 @@ export function Composer(props: Props) {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
+/// The quiet row's end: the outcome hints' "?" (its `hint` arm only) before the context ring.
+function withHintToggle(hint: React.ReactNode, ring: React.ReactNode): React.ReactNode {
+  return hint ? (
+    <>
+      {hint}
+      {ring}
+    </>
+  ) : (
+    ring
+  );
+}
+
 function ComposerFrame({
   snapshot,
   guestHarnesses,
@@ -2039,16 +2052,34 @@ function ComposerFrame({
             ? COMPOSER_LABELS.placeholderSteerQuick
             : COMPOSER_LABELS.placeholder;
   const outcomeArm = experimentArm(composerOutcomeHints);
+  const outcomeHints = useOutcomeHints();
+  const hintsShown = useHintsRevealed();
   const harness = snapshot.summary?.harness ?? snapshot.summary?.family;
   const responder = harness
     ? agentName(harness, snapshot.catalog.find((entry) => entry.id === harness || entry.family === harness)?.name)
     : undefined;
   const outcomePlaceholder =
-    responder && outcomeArm !== "now"
-      ? t(outcomeArm === "agent" ? "composer.placeholderAgent" : "composer.placeholderAgentModes", {
+    responder && outcomeHints.placeholder
+      ? t(outcomeHints.placeholder === "agent" ? "composer.placeholderAgent" : "composer.placeholderAgentModes", {
           agent: responder,
         })
       : undefined;
+  // The `hint` arm's quiet "?" at the end of the quiet row: a press shows the long placeholder, every
+  // / row's description and Return's keycap, and a second press hides them (composerOutcomeHintsModel.ts).
+  const hintToggle = outcomeArm === "hint" && !shell && (
+    <button
+      type="button"
+      className="acpmux-composer-hints-toggle"
+      aria-pressed={hintsShown}
+      aria-label={t(hintsShown ? "composer.hintsHide" : "composer.hintsShow")}
+      title={t(hintsShown ? "composer.hintsHide" : "composer.hintsShow")}
+      data-composer-hints={hintsShown ? "shown" : "hidden"}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => setHintsRevealed(!hintsShown)}
+    >
+      ?
+    </button>
+  );
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
@@ -3160,9 +3191,9 @@ function ComposerFrame({
         // composer holds still while a turn runs); the context-usage setting hides it
         // (showContextUsage), from its own right-click too, which also picks what it shows: the
         // context or the plan usage limits (composerRing; UsageRingMenu).
-        ring={
-          showContextUsage &&
-          chatHasFirstSend(snapshot) && (
+        ring={withHintToggle(
+          hintToggle,
+          showContextUsage && chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
               <ContextRing
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
@@ -3184,8 +3215,8 @@ function ComposerFrame({
                   : {})}
               />
             </UsageRingMenu>
-          )
-        }
+          ),
+        )}
         actionsLead={
           <>
             {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}

@@ -7,8 +7,7 @@ import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
-import { experimentArm } from "../../experiments/experiment";
-import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
+import { useOutcomeHints } from "./composerOutcomeHintsModel";
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
@@ -28,7 +27,7 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  const showOutcomeHints = experimentArm(composerOutcomeHints) === "outcomes";
+  const showOutcomeHints = useOutcomeHints().rows;
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();

@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 
 /// True while Option is down. It reads a keydown or keyup of Option, and the `altKey` of a pointer
 /// move (Option held before the menu opened, so no key event came), at capture on the window so a
-/// menu that handles its own keys never hides them; leaving the window lets go of it.
-export function useOptionHeld(): boolean {
+/// menu that handles its own keys never hides them; leaving the window lets go of it. `enabled` false
+/// adds no listeners and reads false (a caller whose experiment arm does not use Option).
+export function useOptionHeld(enabled = true): boolean {
   const [held, setHeld] = useState(false);
   useEffect(() => {
     const view = globalThis.window;
-    if (!view) return;
+    if (!view || !enabled) {
+      setHeld(false);
+      return;
+    }
     const key = (event: KeyboardEvent) => setHeld(event.key === "Alt" ? event.type === "keydown" : event.altKey);
     const pointer = (event: MouseEvent) => setHeld(event.altKey);
     const release = () => setHeld(false);
@@ -23,6 +27,6 @@ export function useOptionHeld(): boolean {
       view.removeEventListener("pointermove", pointer, true);
       view.removeEventListener("blur", release);
     };
-  }, []);
+  }, [enabled]);
   return held;
 }

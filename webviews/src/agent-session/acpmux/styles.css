@@ -250,6 +250,10 @@
 /* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
 .acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 .acpmux-slash-keycap{flex:none;order:2;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--text-detail);line-height:1;text-align:center}
+/* The outcome hints' `hint` arm (composerOutcomeHintsModel.ts): a quiet "?" before the context ring, the ring's size and ink; pressed, it keeps the keycap's inset. */
+.acpmux-composer-hints-toggle{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:1}
+.acpmux-composer-hints-toggle:hover{background:var(--acpmux-menu-hover)}
+.acpmux-composer-hints-toggle[aria-pressed="true"]{background:var(--ds-surface-inset);color:var(--agent-soft)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}

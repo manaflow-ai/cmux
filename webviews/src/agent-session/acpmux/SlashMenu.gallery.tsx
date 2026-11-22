@@ -1,6 +1,7 @@
 // l10n-allow-file: synthetic command names and descriptions for the gallery.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
+import { setHintsRevealed } from "./composerOutcomeHintsModel";
 import { SlashMenu } from "./SlashMenu";
 import type { SlashMatch } from "./slashCommands";
 
@@ -31,8 +32,10 @@ const claudeMatches: SlashMatch[] = [
   { name: "cost", description: "Show the total cost and duration of the current session" },
 ].map((command) => ({ command: command as SlashMatch["command"], ranges: [] }));
 
-function OutcomeSlashMenuGallery({ arm }: { arm: string }) {
+function OutcomeSlashMenuGallery({ arm, reveal }: { arm: string; reveal?: boolean }) {
   globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "composer-outcome-hints": arm };
+  // The `hint` arm with its "?" pressed (composerOutcomeHintsModel.ts).
+  if (reveal) setHintsRevealed(true);
   const [active, setActive] = useState(0);
   return (
     <div className="acpmux-shell" style={{ height: "100%", position: "relative" }}>
@@ -49,8 +52,8 @@ function OutcomeSlashMenuGallery({ arm }: { arm: string }) {
   );
 }
 
-function Gallery(props: { arm?: string }) {
-  return props.arm ? <OutcomeSlashMenuGallery arm={props.arm} /> : <SlashMenuGallery />;
+function Gallery(props: { arm?: string; reveal?: boolean }) {
+  return props.arm ? <OutcomeSlashMenuGallery arm={props.arm} reveal={props.reveal} /> : <SlashMenuGallery />;
 }
 
 export default componentEntry({
@@ -72,6 +75,20 @@ export default componentEntry({
     "outcome-hints-rows": {
       note: "Outcome hints (c): every row its one-line description, the highlighted row Return's keycap.",
       props: { arm: "outcomes" },
+    },
+    // Leo 2026-11-22 09:50Z: "this is good as tips": the same rows, on demand only.
+    "outcome-hints-hint-shown": {
+      note: "Tip (b): the composer's ? pressed: every row its description, the highlighted row Return's keycap.",
+      props: { arm: "hint", reveal: true },
+    },
+    "outcome-hints-option-held": {
+      note: "Tip (c): Option held, as the harness updates list shows its versions: the same rows until it is let go.",
+      props: { arm: "option" },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        view.dispatchEvent(new view.KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-slash-keycap") !== null);
+      },
     },
   },
 });

@@ -771,6 +771,14 @@ async function pasteParagraph(ctx: PlayContext, card: string) {
     throw new Error("a one-paragraph paste must say its size, never 1 line");
 }
 
+/** The composer outcome hints' / list (composerOutcomeHints.experiment.ts): a Claude Code chat's commands. */
+const OUTCOME_HINT_COMMANDS = [
+  { name: "compact", description: "Clear conversation history but keep a summary in context" },
+  { name: "review", description: "Review a pull request" },
+  { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+  { name: "skill-review", description: "Insert a review workflow", source: "skill" as const },
+];
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -2787,6 +2795,49 @@ export default agentPaneEntry({
           { name: "skill-review", description: "Insert a review workflow", source: "skill" },
         ],
       }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    // Leo 2026-11-22 09:50Z: "50020 prob dont do as default bc we can err on the side of being more
+    // minimal/assuming people more or less know what to do. but this is good as tips". The tip arms
+    // keep today's placeholder and rows; the tip itself (arm `tip`) is ui.feature-tip's composer-hints.
+    "composer-outcome-hints-hint": {
+      note: "Tip (b) at rest: today's placeholder and rows, a quiet ? before the context ring.",
+      experiments: { "composer-outcome-hints": "hint" },
+      snapshot: chat(finished, { commands: OUTCOME_HINT_COMMANDS }),
+    },
+    "composer-outcome-hints-hint-shown": {
+      note: "Tip (b) pressed: the long placeholder, then / shows every description and Return's keycap.",
+      experiments: { "composer-outcome-hints": "hint" },
+      snapshot: chat(finished, { commands: OUTCOME_HINT_COMMANDS }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-hints-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-composer-hints='shown']"));
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu .acpmux-slash-keycap"));
+      },
+    },
+    "composer-outcome-hints-option": {
+      note: "Tip (c): today's / list; holding Option adds every description and Return's keycap, as the harness updates list shows its versions.",
+      experiments: { "composer-outcome-hints": "option" },
+      snapshot: chat(finished, { commands: OUTCOME_HINT_COMMANDS }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        const view = ctx.document.defaultView!;
+        view.dispatchEvent(new view.KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu .acpmux-slash-keycap"));
+      },
+    },
+    "composer-outcome-hints-now-slash": {
+      note: "Today's / list in the composer, for the tip arms' comparison.",
+      experiments: { "composer-outcome-hints": "now" },
+      snapshot: chat(finished, { commands: OUTCOME_HINT_COMMANDS }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");

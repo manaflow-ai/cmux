@@ -6,8 +6,7 @@ import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
 import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { experimentArm } from "../../experiments/experiment";
-import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
+import { useOutcomeHints } from "./composerOutcomeHintsModel";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -43,7 +42,7 @@ export function SlashMenu({
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
-  const showOutcomeHints = experimentArm(composerOutcomeHints) === "outcomes";
+  const showOutcomeHints = useOutcomeHints().rows;
   const list = useRef<HTMLDivElement>(null);
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.

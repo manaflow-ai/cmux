@@ -5,6 +5,7 @@ import { componentEntry } from "../../gallery/format";
 import { FileSearch } from "./FileSearch";
 import type { FileSearchSource } from "./fileSearchModel";
 import { MentionMenu } from "./MentionMenu";
+import { setHintsRevealed } from "./composerOutcomeHintsModel";
 import type { MentionState } from "./mentionMenuModel";
 import { mentionItems } from "./mentionItems";
 
@@ -14,6 +15,8 @@ type Props = {
   many?: boolean;
   /** composerOutcomeHints.experiment.ts's arm, pinned for the Beyer composer comparison. */
   arm?: string;
+  /** The `hint` arm with its "?" pressed (composerOutcomeHintsModel.ts). */
+  reveal?: boolean;
 };
 const results = [
   { path: "src/example.ts", matches: [] },
@@ -28,8 +31,9 @@ const searches: Record<Props["state"], FileSearchSource> = {
     throw new Error("unavailable");
   },
 };
-function FilePickerLoadingFixture({ surface, state, many, arm }: Props) {
+function FilePickerLoadingFixture({ surface, state, many, arm, reveal }: Props) {
   if (arm) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "composer-outcome-hints": arm };
+  if (reveal) setHintsRevealed(true);
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (surface !== "files") return;
@@ -101,6 +105,19 @@ export default componentEntry<Props>({
     "mentions-outcome-rows": {
       note: "Outcome hints (c): the highlighted @ row shows Return's keycap, as New Tab's list does.",
       props: { surface: "mentions", state: "loaded", arm: "outcomes" },
+    },
+    "mentions-outcome-hint-shown": {
+      note: "Tip (b): the composer's ? pressed: the highlighted @ row shows Return's keycap.",
+      props: { surface: "mentions", state: "loaded", arm: "hint", reveal: true },
+    },
+    "mentions-outcome-option-held": {
+      note: "Tip (c): Option held: the highlighted @ row shows Return's keycap until it is let go.",
+      props: { surface: "mentions", state: "loaded", arm: "option" },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        view.dispatchEvent(new view.KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-slash-keycap") !== null);
+      },
     },
   },
 });
