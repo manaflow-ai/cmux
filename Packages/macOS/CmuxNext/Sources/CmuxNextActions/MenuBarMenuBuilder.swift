@@ -28,13 +28,25 @@ public import AppKit
     ///   - avatar: The signed-in account's picture, nil for none.
     ///   - commands: Runs the chat and Computer Use rows; nil leaves them disabled.
     ///   - chatImage: A chat row's harness mark (the sidebar's), nil for none.
+    ///   - extensionRows: Installed extensions' status items placed in the menu bar (`cmux.status/1`,
+    ///     `placement: menuBar`), each a drawn scene: first, above a separator. None adds nothing.
     public func fill(_ menu: NSMenu, state: MenuBarMenuState, avatar: NSImage? = nil, commands: MenuBarCommandTarget? = nil,
-                     chatImage: (MenuBarMenuState.Chat) -> NSImage? = { _ in nil }) {
+                     chatImage: (MenuBarMenuState.Chat) -> NSImage? = { _ in nil }, extensionRows: [NSView] = []) {
         menu.removeAllItems()
         menu.autoenablesItems = true
+        for view in extensionRows {
+            let row = NSMenuItem()
+            row.view = view
+            row.identifier = Self.extensionRow
+            menu.addItem(row)
+        }
+        if !extensionRows.isEmpty { menu.addItem(.separator()) }
         add(spec.items(for: state, isBound: { registry.action(for: $0) != nil }), to: menu, state: state, avatar: avatar,
             commands: commands, chatImage: chatImage)
     }
+
+    /// An extension status item's row (``fill(_:state:avatar:commands:chatImage:extensionRows:)``).
+    public static let extensionRow = NSUserInterfaceItemIdentifier("cmux.menuBar.extensionStatus")
 
     private func add(_ items: [MenuBarMenuSpec.Item], to menu: NSMenu, state: MenuBarMenuState, avatar: NSImage?,
                      commands: MenuBarCommandTarget?, chatImage: (MenuBarMenuState.Chat) -> NSImage?) {

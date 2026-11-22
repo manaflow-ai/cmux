@@ -90,8 +90,8 @@ permissions:
 # freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
@@ -157,7 +157,9 @@ jobs:
   pinned-asset-store:
     needs: coalesce
     name: pinned assets exist in store
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
@@ -306,8 +308,10 @@ jobs:
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
   signing-runner-variables:
     needs: coalesce
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: signing runner variables are ephemeral
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     permissions: {}
@@ -508,12 +512,23 @@ jobs:
     # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
     # so portable-placement does not place it.
     needs: [coalesce, fast-check-route]
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' }}
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 25
+    # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
+    # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
+      # The guard step's bounds count from here, the job's own clock, not from the step: the checkouts and setup before it
+      # took 1.5 to 3 minutes, so a bound counted from the step let the job pass its 25 minutes in the post steps and end
+      # "cancelled" (139 of 452 cancels in 24 h ended at 25 minutes, each masking the step's own verdict).
+      - name: Note when the job started
+        shell: bash
+        run: echo "GUARD_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
@@ -671,12 +686,14 @@ jobs:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
-          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
+          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 22 minutes of the job, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
           # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
           # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
           # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
           step_started=$(date +%s)
+          # Both passes and the verdict end by minute 22 of the job (3 minutes left for the post steps and the runner's clean-up).
+          job_deadline=$(( ${GUARD_JOB_STARTED:-$step_started} + 22 * 60 ))
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
@@ -687,7 +704,9 @@ jobs:
           if [ -f "$RUNNER_TEMP/changed-files.txt" ] && [ -n "$CMUX_GUARDS_BASE_SHA" ]; then
             affected=(--affected "$CMUX_GUARDS_BASE_SHA")
           fi
-          head_budget=$(( 15 * 60 ))
+          head_budget=$(( job_deadline - $(date +%s) ))
+          if [ "$head_budget" -gt $(( 15 * 60 )) ]; then head_budget=$(( 15 * 60 )); fi
+          if [ "$head_budget" -lt 60 ]; then head_budget=60; fi
           head_status=0
           timeout --kill-after=10 "$head_budget" \
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${affected[@]}" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
@@ -709,7 +728,7 @@ jobs:
           done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
           if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
             echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
-            budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
+            budget=$(( job_deadline - $(date +%s) ))
             if [ "$budget" -lt 60 ]; then budget=60; fi
             timeout --kill-after=10 "$budget" \
               scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
@@ -752,8 +771,10 @@ jobs:
   # strings into the checkout.
   static-checks:
     needs: coalesce
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
@@ -867,8 +888,10 @@ jobs:
   # so such a change is red at its own landing.
   rust-notices-tree:
     needs: coalesce
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next Rust notices generate
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
     steps:
@@ -961,7 +984,9 @@ jobs:
     # A pull request that touches none of these checks' trees, adds no file and touches no generated path or
     # generator (fast-check-route) skips it.
     needs: [coalesce, fast-check-route]
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' }}
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3+8), so
@@ -1144,7 +1169,9 @@ jobs:
     # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
     # (portable-placement's hot-only route) skips the mini: fleet Linux, else Blacksmith.
     needs: [coalesce, portable-placement]
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
