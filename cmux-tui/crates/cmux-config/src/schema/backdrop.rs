@@ -29,20 +29,40 @@ pub(crate) const PATH_PATTERN: &str = "^(system|file):/";
 pub(crate) const LOCATION_PATTERN: &str =
     "^[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*,[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*$";
 
+/// The living wallpapers, drawn live by a shader (Swift `BackdropShader`'s
+/// raw values; `shader:` plus one is a background id). The test
+/// `shader_names_match_swift` holds this list to the Swift enum, so a new
+/// shader the app draws is one a theme file, a recipe or an agent may pick.
+pub(crate) const SHADERS: [&str; 5] = ["currents", "ripples", "aurora", "field", "aero"];
+
+/// The prefix of a living wallpaper's id (Swift `BackdropShader.idPrefix`).
+pub(crate) const SHADER_PREFIX: &str = "shader:";
+
+/// `shader:NAME` for a shader in [`SHADERS`].
+pub(crate) fn is_shader(text: &str) -> bool {
+    text.strip_prefix(SHADER_PREFIX).is_some_and(|name| SHADERS.contains(&name))
+}
+
+/// Every living wallpaper's id (`shader:aurora`, ...), in the Swift picker's order.
+pub(crate) fn shader_ids() -> Vec<String> {
+    SHADERS.iter().map(|name| format!("{SHADER_PREFIX}{name}")).collect()
+}
+
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
-/// absolute path, a canonical `youtube:` video (crate::youtube), or a listed
-/// fixed background.
+/// absolute path, a canonical `youtube:` video (crate::youtube), a living
+/// wallpaper (`shader:NAME`), or a listed fixed background.
 pub(crate) fn is_picture(text: &str) -> bool {
     is_path_or_video(text) || picture_choices().iter().any(|choice| choice == text)
 }
 
-/// `system:` or `file:` with an absolute path, or a canonical `youtube:` id:
-/// the one-picture ids every background row takes beside its listed choices.
+/// `system:` or `file:` with an absolute path, a canonical `youtube:` id or a
+/// living wallpaper: the one-picture ids every background row takes beside
+/// its listed choices (Swift `BackdropSelection(id:)`).
 pub(crate) fn is_path_or_video(text: &str) -> bool {
     let path = ["system:", "file:"]
         .iter()
         .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
-    path || crate::youtube::is_canonical_id(text)
+    path || crate::youtube::is_canonical_id(text) || is_shader(text)
 }
 
 /// The fixed backgrounds the schema lists.

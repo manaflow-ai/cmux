@@ -79,6 +79,32 @@ fn a_damaged_ledger_is_moved_aside() {
     assert!(names.iter().any(|name| name.starts_with("ledger.unreadable-")), "{names:?}");
 }
 
+/// The copy moved aside keeps every later load unreadable, so no launch
+/// takes the damaged ledger for a first run, until a new ledger is
+/// written (a manual import) or the copy is removed.
+#[test]
+fn a_damaged_ledger_stays_unreadable_until_a_new_one_is_written() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = Folder::new(root.path().join("m"));
+    std::fs::create_dir_all(&folder.directory).unwrap();
+    std::fs::write(folder.ledger_path(), "{not json").unwrap();
+    assert_eq!(folder.load(), Load::Unreadable);
+    assert_eq!(folder.load(), Load::Unreadable);
+    assert_eq!(folder.load(), Load::Unreadable);
+    assert_eq!(folder.unreadable_copies().len(), 1);
+
+    let recovered = Ledger::new(State::Completed);
+    folder.save(&recovered).unwrap();
+    assert_eq!(folder.load(), Load::Ledger(recovered));
+
+    std::fs::remove_file(folder.ledger_path()).unwrap();
+    assert_eq!(folder.load(), Load::Unreadable);
+    for copy in folder.unreadable_copies() {
+        std::fs::remove_file(copy).unwrap();
+    }
+    assert_eq!(folder.load(), Load::None);
+}
+
 /// Backups copy classic's files; the originals keep their bytes and dates.
 #[test]
 fn backups_copy_and_never_touch_classic_files() {
