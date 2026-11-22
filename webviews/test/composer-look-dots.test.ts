@@ -117,7 +117,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     try {
       await open(page, "agent-pane.composer", "idle");
       const composer = page.locator(".acpmux-composer");
-      const footer = composer.locator(":scope > .acpmux-composer-foot");
+      // Claude's quiet row sits under the box, in its own right-click area (ComposerBox.tsx quietRow,
+      // a ChromeArea since #24103); Codex's in-box row would be under .acpmux-composer-box instead.
+      const footer = composer.locator(":scope > .acpmux-chrome-area > .acpmux-composer-foot");
       await footer.hover();
       expect(await composer.getAttribute("data-composer-look")).toBeNull();
       expect(await composer.locator(".acpmux-look-dots").count()).toBe(0);
