@@ -850,7 +850,9 @@ fn apply_with_helper(
     let t = Instant::now();
     let swap = helper.swap();
     if let Some(swap) = swap {
-        swap.swap().map_err(|error| format!("the Screen Sharing helper: {error}"))?;
+        swap.keep(store)
+            .and_then(|()| swap.swap())
+            .map_err(|error| format!("the Screen Sharing helper: {error}"))?;
     }
     phases.add("helper_swap", t);
     let mut applied = match live::apply(app, changes, store, daemon, phases) {
