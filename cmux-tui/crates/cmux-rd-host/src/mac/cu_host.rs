@@ -128,14 +128,119 @@ impl HostServices for ScreenCaptureKitHost {
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("the engine asks macOS directly".into()))
     }
+
+    /// `computer-use status` reads the grant the person sees in System Settings, not this
+    /// process's old answer.
+    fn screen_capture_granted(&self) -> Option<bool> {
+        Some(screen_capture() != ScreenCapture::Missing)
+    }
+}
+
+/// Screen Recording for this worker process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScreenCapture {
+    Granted,
+    /// Granted in System Settings after this process first read no: macOS keeps a running
+    /// process's denial, so only a fresh worker can capture. This one is about to exit.
+    GrantedAfterStart,
+    Missing,
+}
+
+/// How long a worker that found a new grant keeps serving, so the answer it is writing reaches
+/// the daemon, before it exits. The daemon starts the next worker 200 ms after the exit
+/// (cmux-tui-core `computer_use_host`, a worker that ran 30 s or more).
+const RESTART_AFTER: Duration = Duration::from_millis(300);
+/// How long the fresh `permissions` read may take.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn screen_capture() -> ScreenCapture {
+    // SAFETY: no arguments; the framework loaded (computer_use_host_services checked it).
+    if unsafe { cgi::CGPreflightScreenCaptureAccess() } {
+        return ScreenCapture::Granted;
+    }
+    // Only on a no: one short-lived child of this same helper (`permissions`, the read the app
+    // already uses), so macOS checks the same identity and answers afresh.
+    if fresh_screen_recording() != Some(true) {
+        return ScreenCapture::Missing;
+    }
+    restart_for_new_grant();
+    ScreenCapture::GrantedAfterStart
 }
 
 fn require_grant() -> DResult<()> {
-    // SAFETY: no arguments; the framework loaded (computer_use_host_services checked it).
-    if unsafe { cgi::CGPreflightScreenCaptureAccess() } {
-        Ok(())
-    } else {
-        Err(DesktopError::PermissionMissing("screen_capture".into()))
+    match screen_capture() {
+        ScreenCapture::Granted => Ok(()),
+        ScreenCapture::GrantedAfterStart => Err(DesktopError::Failed(
+            "Screen Recording was just turned on; Computer Use is restarting to use it. Try again in a second."
+                .into(),
+        )),
+        ScreenCapture::Missing => Err(DesktopError::PermissionMissing("screen_capture".into())),
+    }
+}
+
+/// `screen_recording` from a fresh `<this executable> permissions`, or None when it could not
+/// be read in time.
+fn fresh_screen_recording() -> Option<bool> {
+    let exe = std::env::current_exe().ok()?;
+    let child = std::process::Command::new(exe)
+        .arg("permissions")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let (send, recv) = sync_channel(1);
+    let _ = std::thread::Builder::new().name("cmux-cu-grant-probe".into()).spawn(move || {
+        let _ = send.send(child.wait_with_output());
+    });
+    let output = recv.recv_timeout(PROBE_TIMEOUT).ok()?.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_screen_recording(&output.stdout)
+}
+
+fn parse_screen_recording(stdout: &[u8]) -> Option<bool> {
+    let line = std::str::from_utf8(stdout).ok()?.lines().next()?;
+    serde_json::from_str::<serde_json::Value>(line).ok()?.get("screen_recording")?.as_bool()
+}
+
+/// Exits this worker once, [`RESTART_AFTER`] from now; the daemon starts a fresh one, which
+/// sees the grant. Nothing else restarts: not cmux, not the daemon.
+fn restart_for_new_grant() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        eprintln!(
+            "cmux Computer Use: Screen Recording was granted; restarting the worker to use it"
+        );
+        let _ = std::thread::Builder::new().name("cmux-cu-grant-restart".into()).spawn(|| {
+            std::thread::sleep(RESTART_AFTER);
+            std::process::exit(0);
+        });
+    });
+}
+
+#[cfg(test)]
+mod grant_tests {
+    use super::parse_screen_recording;
+
+    #[test]
+    fn reads_the_permissions_snapshot() {
+        assert_eq!(
+            parse_screen_recording(b"{\"screen_recording\":true,\"accessibility\":false}\n"),
+            Some(true)
+        );
+        assert_eq!(
+            parse_screen_recording(b"{\"screen_recording\":false,\"accessibility\":true}\n"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn anything_else_is_no_answer() {
+        assert_eq!(parse_screen_recording(b""), None);
+        assert_eq!(parse_screen_recording(b"not json\n"), None);
+        assert_eq!(parse_screen_recording(b"{\"accessibility\":true}\n"), None);
     }
 }
 
