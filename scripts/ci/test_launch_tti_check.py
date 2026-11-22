@@ -66,5 +66,19 @@ class FreshCopy(unittest.TestCase):
                 M.fresh_copy(self.app, self.pristine, 1)
 
 
+class UpdaterOff(unittest.TestCase):
+    """Every copy the check starts (the cold_install round's fresh copy of an older build included) has the app's
+    updater off: on 2026-11-22 a cold_install copy saw a newer build, downloaded it, and Sparkle's installer asked
+    the fleet Mac for an administrator password. The run's environment is the smoke's fresh_env."""
+
+    def test_the_measured_launch_environment_turns_the_updater_off(self):
+        import fresh_home_launch_smoke as smoke
+        root = Path(tempfile.mkdtemp(prefix="tti-updater-off-test-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        env = smoke.fresh_env(root, root / "s.sock", 3)
+        for path in ("in_app", "posted"):
+            self.assertEqual(M.launch_env(env, root / "probe.csv", path)["CMUX_DISABLE_AUTO_UPDATE"], "1")
+
+
 if __name__ == "__main__":
     unittest.main()
