@@ -282,3 +282,58 @@ fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
     let row = RemoteSession { peer: peer.into(), summary: summary.into(), receipt };
     hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
 }
+
+/// Every first cell `acpmux ls` prints names its session (`shown_candidates`): `HANDLE · NAME`,
+/// `ALIAS · NAME` with a broker's `+` alias, and a name or alias cut short with `…`.
+#[tokio::test]
+async fn every_name_acpmux_ls_prints_routes_to_its_session() {
+    let hub = test_hub();
+    let id = "0199aaaa-1111-7000-8000-321a9795275b";
+    list(&hub, "lanevm-1", id, "app-version-rollback", "idle");
+    list(&hub, "lanevm-12", "0199bbbb-2222-7000-8000-000000000002", "other", "idle");
+    list_with_alias(
+        &hub,
+        "lanevm-10",
+        "0199cccc-3333-7000-8000-000000000003",
+        "chat-recovery-version-rollback",
+        "idle",
+        Some("Ellis+dot+chat-recovery-version-rollback"),
+    );
+    list_with_alias(&hub, "lanevm-7", "0199dddd", "td2-A", "idle", Some("Ruby+dot+speedups"));
+    let route = format!("lanevm-1/{id}");
+    let handle = crate::session_handle::default_handle(id);
+    for key in [
+        format!("{handle} · app-version-rollback"),
+        format!("{} · App-Version-Rollback", handle.to_uppercase()),
+        format!("{handle} · app-version-r…"),
+        handle.clone(),
+    ] {
+        assert_eq!(hub.key_route(&key).unwrap().as_deref(), Some(route.as_str()), "{key}");
+    }
+    // Both halves name the one session: a handle with another session's name is no row.
+    assert_eq!(hub.key_route(&format!("{handle} · other")).unwrap(), None);
+    let ellis = "lanevm-10/0199cccc-3333-7000-8000-000000000003";
+    for key in [
+        "Ellis dot chat-recovery-version-rollback",
+        "ellis dot chat-recovery-version-roll…",
+        "Ellis+dot+chat-recovery-version-rollback",
+    ] {
+        assert_eq!(hub.key_route(key).unwrap().as_deref(), Some(ellis), "{key}");
+    }
+    assert_eq!(
+        hub.key_route("Ruby dot speedups · td2-A").unwrap().as_deref(),
+        Some("lanevm-7/0199dddd")
+    );
+}
+
+/// `lanevm-1/NAME` never reaches `lanevm-12` by a prefix of its machine name.
+#[tokio::test]
+async fn a_numbered_machine_is_never_reached_by_its_smaller_siblings_name() {
+    let hub = test_hub();
+    list(&hub, "lanevm-12", "0199bbbb-2222", "app-version-rollback", "idle");
+    assert_ne!(
+        hub.key_route("lanevm-1/app-version-rollback").unwrap().as_deref(),
+        Some("lanevm-12/0199bbbb-2222")
+    );
+    assert_eq!(hub.host_route("lanevm-1").unwrap(), None);
+}
