@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive },
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
-        AppProcessRoot.shared.adopt(services)
+        DebugTimings.markLaunch("dfl.services.graph"); AppProcessRoot.shared.adopt(services)
         self.services = services
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
@@ -174,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
-        services.quit.watchdog = control.watchdog
+        services.quit.watchdog = control.watchdog; DebugTimings.markLaunch("dfl.services.watchdog")
         DebugTimings.markReveal(services.launchReveal)
         // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
@@ -184,26 +184,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
-        services.palette.bindRegistryActions()
+        AppActions.bind(services); DebugTimings.markLaunch("dfl.bind.actions")
+        services.palette.bindRegistryActions(); DebugTimings.markLaunch("dfl.bind.palette")
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        ghosttyKeybinds.start(); DebugTimings.markLaunch("dfl.bind.ghostty_keybinds") // before the first window: its first key meets the user's Ghostty keybinds
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        // The handler coverage check and the unbound count only log, and the Ghostty file watch only sees later edits (the loaded files are applied): after the first frame.
+        firstFrame.whenOpen { [weak services, weak ghosttyConfigLiveReload, logger] in ghosttyConfigLiveReload?.start(); if let registry = services?.registry { HandlerCoverage.verify(registry); logger.info("unbound catalog actions: \(registry.unboundActionIDs().count)") } }
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
+        startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare); DebugTimings.markLaunch("dfl.settings.control")
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
         NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(settings: { [weak services] in services?.settings },
             openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
         DebugTimings.markLaunch("dfl.menu")
-        logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)

@@ -614,8 +614,8 @@ final class AppServices {
         // Before the updater's What's New tracker writes its record: an install that ran before
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
-        updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork, symbolOverride: NSImage.packOverride)
+        updater = UpdaterService(work: work); DebugTimings.markLaunch("dfl.services.updater") // dfl.*: launch-ready keeps them in every relaunch row
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork, symbolOverride: NSImage.packOverride); DebugTimings.markLaunch("dfl.services.registry")
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: true, mainWork: mainWork)
@@ -627,7 +627,7 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun); DebugTimings.markLaunch("dfl.services.crash_recovery")
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
@@ -635,12 +635,12 @@ final class AppServices {
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
-        _ = ssh  // built here, as before
+        _ = ssh; DebugTimings.markLaunch("dfl.services.cloud_feed_ssh")  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
-        DebugTimings.markLaunch("services.cache")
+        DebugTimings.markLaunch("services.cache"); DebugTimings.markLaunch("dfl.services.cache")
         _ = themes  // built here, as before
         _ = terminalColors
         let runtime = GhosttyRuntime.shared
@@ -765,7 +765,7 @@ final class AppServices {
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
-        DebugTimings.markLaunch("services.windows")
+        DebugTimings.markLaunch("services.windows"); DebugTimings.markLaunch("dfl.services.windows")
         ssh.actingWindow = { [weak self] in self?.windows.active?.state.id } // a connect's "Connecting to…" row lists there (#31490)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
@@ -795,7 +795,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         input.start(services: self)
-        DebugTimings.markLaunch("services.palette_updater")
+        DebugTimings.markLaunch("services.palette_updater"); DebugTimings.markLaunch("dfl.services.palette_updater")
         _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
