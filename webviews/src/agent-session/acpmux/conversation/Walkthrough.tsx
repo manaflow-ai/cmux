@@ -12,6 +12,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { AlertCircle, Check, ChevronRight, Close } from "./icons";
 import type { Walkthrough as WalkthroughModel, WalkthroughStep } from "./walkthroughModel";
 import "./Walkthrough.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// Where the flow ran, short: `localhost:5173/settings`.
 function place(url: string): string {
@@ -52,13 +53,17 @@ function Step({ step }: { step: WalkthroughStep }) {
           <span className="cv-walk__blank" />
         )}
       </span>
-      <span className="cv-walk__caption" aria-description={step.error ? `${step.line}\n${step.error}` : step.line}>
-        <Mark step={step} />
-        <span className="cv-walk__line">
-          <span className="cv-walk__visually-hidden">{verdict}: </span>
-          {step.n}. {step.line}
-        </span>
-      </span>
+      <WithFacts facts={[{ value: step.error ? `${step.line}\n${step.error}` : step.line }]}>
+        {(facts) => (
+          <span {...facts} className="cv-walk__caption">
+            <Mark step={step} />
+            <span className="cv-walk__line">
+              <span className="cv-walk__visually-hidden">{verdict}: </span>
+              {step.n}. {step.line}
+            </span>
+          </span>
+        )}
+      </WithFacts>
       {step.error && <span className="cv-walk__error">{step.error}</span>}
     </li>
   );

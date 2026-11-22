@@ -492,6 +492,7 @@ acpmux chats search flaky test --harness codex --folder ~/wt/cmux
 acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
 acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
 acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux board                                   # this machine's branches, read-only (`--json` for scripts)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
 acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line

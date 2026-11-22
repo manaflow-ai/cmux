@@ -35,6 +35,7 @@ import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import step_run  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 import deadline_http  # noqa: E402
 
@@ -1133,6 +1134,8 @@ class RouteStep(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
+            # The step's commands, moved to scripts/ci/cmux-next-steps/ for cmux-next.yml's size budget.
+            shutil.copytree(ROOT / "scripts/ci/cmux-next-steps", root / "scripts/ci/cmux-next-steps")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
@@ -1190,7 +1193,7 @@ class Workflows(unittest.TestCase):
         route = yaml.safe_load(WORKFLOW.read_text())["jobs"]["path_route"]
         marker = next(step for step in route["steps"] if step.get("id") == "marker")
         self.assertEqual(marker["env"]["BASE_TIER"], "${{ inputs.base_tier || false }}")
-        self.assertIn('marker.update(tip_suite="base")', marker["run"])
+        self.assertIn('marker.update(tip_suite="base")', step_run(marker))
 
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
@@ -1263,7 +1266,7 @@ class Workflows(unittest.TestCase):
         # Only the three base tier outputs are rewritten; nightly-next's Release compile (native), the DEV
         # landing compile (its own job) and the fast tier keep their push routing.
         self.assertEqual(tier.TIERS, ("daemon", "scheme", "generated"))
-        text = route_step()["run"]
+        text = step_run(route_step())
         self.assertTrue(re.search(r'"\$EVENT_NAME" == push && "\$GITHUB_REF" == refs/heads/feat-cmux-next && '
                                   r'"\$BASE_TIER_COALESCE" == true', text))
 
