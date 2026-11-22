@@ -622,6 +622,48 @@ export class MockAcpmuxSocket {
     return { ticks, sidebar };
   }
 
+  /// The turn `addLoadTools` left running, by session: its number and how many calls it has.
+  private openToolTurns = new Map<string, { turn: number; calls: number }>();
+
+  /// Adds `count` short tool calls to `target`'s running turn (starting one if none is), each as a busy
+  /// agent's: the call, then `gapMs` later its result, then `gapMs` before the next. No text streams, so
+  /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
+  async addLoadTools(
+    target: string,
+    options: { count: number; gapMs: number; keepOpen: boolean },
+  ): Promise<{ tools: number; events: number }> {
+    let open = this.openToolTurns.get(target);
+    if (!open) {
+      const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+      this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+      this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: check every file` } });
+      this.emit(target, { mux: "turn_started" });
+      open = { turn, calls: 0 };
+      this.openToolTurns.set(target, open);
+    }
+    let events = 0;
+    for (let index = 0; index < options.count && !this.closed; index += 1) {
+      const call = `load-tools-${open.turn}-${open.calls}`;
+      const command = `rg -n check src/file${open.calls}.ts`;
+      open.calls += 1;
+      this.emit(target, { update: tool(call, "execute", command, "in_progress", { rawInput: { command } }) });
+      await this.delay(options.gapMs);
+      this.emit(target, {
+        update: done(call, {
+          content: [{ type: "content", content: { type: "text", text: `src/file${index}.ts:1: check\n` } }],
+        }),
+      });
+      events += 2;
+      await this.delay(options.gapMs);
+    }
+    if (!options.keepOpen) {
+      this.openToolTurns.delete(target);
+      this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+      this.touch(target, { status: "idle", indicator: "done" });
+    }
+    return { tools: options.count, events };
+  }
+
   send(raw: string): void {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, any> };
     if (request.method === "session/cancel") {
