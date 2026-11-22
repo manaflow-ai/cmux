@@ -686,6 +686,11 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
+thread_local! { static TRACE: std::cell::Cell<&'static str> = const { std::cell::Cell::new("?") }; }
+fn tr(t: &'static str) {
+    TRACE.with(|c| c.set(t));
+}
+
 struct HybridUnderlay {
     socket: UdpSocket,
     options: DialOptions,
@@ -1211,6 +1216,7 @@ impl HybridUnderlay {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
         for (datagram, class) in recent {
+            tr("replay");
             self.transmit(&datagram, class);
         }
     }
@@ -1346,6 +1352,16 @@ impl HybridUnderlay {
         }
         if let Some(on_sent) = self.options.on_udp_sent {
             on_sent(&target, datagram.len());
+            if std::env::var_os("COST_TRACE").is_some() {
+                eprintln!(
+                    "UDPTRACE {:?} {} {} b0={} {}",
+                    std::time::Instant::now(),
+                    target,
+                    datagram.len(),
+                    datagram[0],
+                    TRACE.with(|t| t.get())
+                );
+            }
         }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
@@ -1399,6 +1415,7 @@ impl HybridUnderlay {
     /// Plain UDP to every usable candidate and learned peer address but
     /// `except`.
     fn spray(&mut self, datagram: &[u8], except: Option<SocketAddr>) {
+        tr("spray");
         let mut refused = Vec::new();
         let learned = self.learned.iter().copied().filter(|addr| !self.candidates.contains(addr));
         let targets: Vec<SocketAddr> = self.candidates.iter().copied().chain(learned).collect();
@@ -1565,6 +1582,7 @@ impl HybridUnderlay {
                 self.replay_on_relays();
             }
             self.paths.sent_everywhere(now);
+            tr("suspect");
             self.spray(datagram, None);
             self.send_turn_targets(datagram, class);
             return true;
@@ -1626,6 +1644,7 @@ impl HybridUnderlay {
 
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
+        tr("send");
         self.drain_control();
         let class = send_class(datagram);
         self.record(datagram, class);
@@ -1634,6 +1653,11 @@ impl Underlay for HybridUnderlay {
     }
 
     fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
+        tr(match priority {
+            cmux_wg::Priority::Interactive => "cls-int",
+            cmux_wg::Priority::Bulk => "cls-bulk",
+            cmux_wg::Priority::Media => "cls-media",
+        });
         self.drain_control();
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
@@ -1647,6 +1671,7 @@ impl Underlay for HybridUnderlay {
     /// proves both directions of one route, so a route that works only one
     /// way (macOS Local Network privacy, a firewall) never becomes alive.
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
+        tr("send_on");
         self.drain_control();
         let class = send_class(datagram);
         if let Some(route) = self.paths.route_of(path) {
