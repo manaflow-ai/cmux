@@ -121,12 +121,29 @@ extension AgentPaneTransport {
         return .sent(error)
     }
 
+    /// Each method and key the relay dropped (P0), logged once per app run: a page newer than the
+    /// app shows in the log without a line per frame.
+    nonisolated private static let droppedLogged = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    nonisolated private static func logDropped(method: String?, _ dropped: [String]) {
+        let method = method ?? "-"
+        let fresh = droppedLogged.withLock { seen in dropped.filter { seen.insert(method + " " + $0).inserted } }
+        guard !fresh.isEmpty else { return }
+        logger.notice("agent pane dropped params this app does not know method=\(method, privacy: .public) keys=\(fresh.joined(separator: ","), privacy: .public)")
+    }
+
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
-        let object: [String: Any]
+        var object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
+        }
+        // P0: a key this app's lists do not name is dropped, not refused, so a page newer than the
+        // app keeps its chats (``AcpmuxPaneMethods/strippingUnknownParams(_:modeFields:)``).
+        if let strip = AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: snapshot.modeFields) {
+            object = strip.object
+            logDropped(method: object["method"] as? String, strip.dropped)
         }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
