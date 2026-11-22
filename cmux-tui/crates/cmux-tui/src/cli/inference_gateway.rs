@@ -77,12 +77,15 @@ const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// An access token this close to its expiry is refreshed before a call.
 const REFRESH_SKEW_S: u64 = 300;
-/// Request headers a call carries upstream; the backend already dropped the guest's.
+/// Request headers a call carries upstream; the backend already dropped the guest's. Each harness's own session
+/// header (Codex's `session_id`, Claude Code's `x-claude-code-session-id`) lets the proxy keep one chat on one
+/// account, so its prompt cache keeps hitting.
 const PASS_HEADERS: &[&str] = &[
     "accept",
     "content-type",
     "openai-beta",
     "session_id",
+    "x-claude-code-session-id",
     "user-agent",
     "anthropic-version",
     "anthropic-beta",
