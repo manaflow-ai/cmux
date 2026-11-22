@@ -18,6 +18,7 @@ export async function tokenOwner(token: string | null | undefined, store: AppleI
 export async function applyEntitlements(write: AppleSubscriptionWrite, deps: AppleIapDependencies): Promise<void> {
   await deps.applyEntitlement(write.current.userId);
   if (write.transferredFrom) await deps.applyEntitlement(write.transferredFrom);
+  await deps.guardDoubleBilling?.(write.current.userId);
 }
 
 /**

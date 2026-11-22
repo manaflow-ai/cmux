@@ -11,6 +11,7 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
+import { guardApplePurchaseAfterResponse } from "../doubleBilling";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
@@ -58,6 +59,12 @@ export type AppleIapDependencies = {
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
   readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /**
+   * Double billing guard (services/billing/doubleBilling.ts): expires the
+   * owner's open personal Stripe Checkout sessions and records an incident
+   * if they already pay Stripe. Never throws; omitted, nothing runs.
+   */
+  readonly guardDoubleBilling?: (userId: string) => Promise<void>;
   readonly now: () => Date;
   /** Configuration source; defaults to `process.env`. */
   readonly env?: Record<string, string | undefined>;
@@ -96,6 +103,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    guardDoubleBilling: (userId) => guardApplePurchaseAfterResponse(userId),
     now: () => new Date(),
   };
   return defaultDependencies;

@@ -221,6 +221,67 @@ describe("explicit team checkout", () => {
   });
 });
 
+describe("team checkout for a buyer with a personal App Store plan", () => {
+  const team = fixtureTeam("team-b", { displayName: "Team B", members: 1 });
+  const appleRow = {
+    originalTransactionId: "2000000000000888",
+    planId: "pro",
+    status: "active",
+    environment: "Production",
+    bundleId: "com.cmux.app",
+    expiresAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+    gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+
+  beforeEach(() => {
+    dbRows = emptyBillingDbRows();
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [team], adminTeamIds: ["team-b"], selectedTeam: team });
+    createSession.mockClear();
+    createCustomer.mockClear();
+  });
+
+  test("is allowed (a Team plan is billed to the team) and warns on the payment page", async () => {
+    dbRows.appleSubscriptions = [appleRow];
+    const response = await checkoutGet("plan=team&teamId=team-b");
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    expect(response.headers.get("x-cmux-checkout-warning")).toBeNull();
+    const message = (sessionParams().custom_text as { submit: { message: string } }).submit.message;
+    expect(message).toContain("App Store");
+    expect(message).not.toMatch(/stripe/i);
+  });
+
+  test("POST adds a stable warning code and the App Store management URL", async () => {
+    dbRows.appleSubscriptions = [appleRow];
+    const response = await checkoutPost({ plan: "team", teamId: "team-b" });
+    expect(await response.json()).toMatchObject({
+      flow: "checkout",
+      warning: "app_store_subscription_active",
+      warningAction: "https://apps.apple.com/account/subscriptions",
+    });
+  });
+
+  test("a buyer without an App Store plan gets no warning", async () => {
+    const response = await checkoutPost({ plan: "team", teamId: "team-b" });
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.warning).toBeUndefined();
+    expect(sessionParams().custom_text).toBeUndefined();
+  });
+
+  test("a failed App Store read drops the warning but never blocks the team purchase", async () => {
+    Object.defineProperty(dbRows, "appleSubscriptions", { get: () => { throw new Error("db down"); } });
+    const response = await checkoutGet("plan=team&teamId=team-b");
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    expect(sessionParams().custom_text).toBeUndefined();
+  });
+
+  test("a Sandbox App Store plan gets no warning", async () => {
+    dbRows.appleSubscriptions = [{ ...appleRow, environment: "Sandbox" }];
+    await checkoutGet("plan=team&teamId=team-b");
+    expect(sessionParams().custom_text).toBeUndefined();
+  });
+});
+
 describe("legacy implicit team checkout", () => {
   beforeEach(() => {
     dbRows = emptyBillingDbRows();

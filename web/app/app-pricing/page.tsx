@@ -12,6 +12,7 @@ import {
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../services/billing/goPlanFlag";
 import { PricingView } from "../components/pricing-checkout";
 import { isAppStoreDistributionMode } from "../lib/billing";
+import { hasAppStoreSubscriptionThatMayBill } from "../../services/billing/doubleBilling";
 import {
   AppPricingContent,
   appPricingRequestSignInHref,
@@ -201,6 +202,7 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
+    appStoreSubscription: user.isAnonymous ? false : await hasAppStoreSubscriptionThatMayBill(user.id),
     cancelScheduled: status.cancelScheduled ?? false,
     paymentPastDue: status.paymentPastDue ?? false,
     email: user.primaryEmail,
