@@ -349,7 +349,6 @@ jobs:
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
-          bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
@@ -1085,7 +1084,6 @@ jobs:
       - name: Init ghostty submodule
         shell: bash
         run: |
-          bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Resolve Ghostty Zig version
