@@ -350,7 +350,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # A self-hosted Linux host reuses its workspace: drop the submodule checkouts a previous job
       # left there (a no-op on Blacksmith, which starts with none).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
@@ -1100,7 +1100,7 @@ jobs:
           # HEAD^1: a pull request's base for the registry check.
           fetch-depth: 2
 
-      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # A self-hosted Linux host reuses its workspace: drop the submodule checkouts a previous job
       # left there (a no-op on Blacksmith, which starts with none).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         id: setup-submodules
@@ -1443,6 +1443,18 @@ jobs:
         id: tt-measure-tests
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-measure-tests ')) }}
         run: bash scripts/measure/tests/run-all.sh
+
+      # scripts/checkup (ask-f70cfb2563): the session timing and configuration checkups read the daemon's and the
+      # settings owner's answers right, and never call an unreadable answer clean.
+      - name: session-timing checkup reads acpmux history as the Timing tab does
+        id: tt-checkup-session-timing
+        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-checkup-session-timing ')) }}
+        run: python3 -I scripts/checkup/tests/session-timing.test.py
+
+      - name: configuration checkup sorts settings validate into clean, problems and unreadable
+        id: tt-checkup-configuration
+        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-checkup-configuration ')) }}
+        run: python3 -I scripts/checkup/tests/configuration.test.py
 
 
       # A Mac whose sudoers grants purge but not launchctl ran every launch-ready step into "a password is required".
