@@ -83,7 +83,7 @@ public final class CloudSetup {
         case connection(id: String, family: String)
         /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
         case organization(family: String)
-        /// The active team's inference gateway, in gateway mode and online, serves `family` (``gateway``): the machine's
+        /// The inference gateway of the team the machine is made in, in gateway mode and online, serves `family` (``gateway``): the machine's
         /// agent reaches it through the edge, so nothing is sent (hq#15762).
         case gateway(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
@@ -141,7 +141,7 @@ public final class CloudSetup {
 
     /// Reads what serves Cloud now; nil leaves every start as it was.
     public var read: (@MainActor () async -> Snapshot)?
-    /// The families the active team's inference gateway serves now (`cmux inference gateway status`'s `serves`), nil
+    /// The families the inference gateway of the team the start's machines are made in (the install's own) serves now (`cmux inference gateway status`'s `serves`), nil
     /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
     public var gateway: (@MainActor () async -> Set<String>?)?
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
@@ -189,7 +189,7 @@ public final class CloudSetup {
         return .gateway(family: family)
     }
 
-    /// Whether the active team's gateway serves `family` now (``gateway``); false when it is unread, or when a start on it
+    /// Whether the gateway of the team the machine is made in serves `family` now (``gateway``); false when it is unread, or when a start on it
     /// this run found no model route (``unrouted(harness:model:account:)``).
     private func gatewayServes(_ family: String) async -> Bool {
         guard !unroutedGateway.contains(family) else { return false }
