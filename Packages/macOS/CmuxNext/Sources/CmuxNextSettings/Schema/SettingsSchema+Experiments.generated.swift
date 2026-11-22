@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.appsTier`: RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.
+    public nonisolated static let appsTierPath = ["experiments", "appsTier"]
+    public nonisolated static let appsTierDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.appsTierPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.appsTier", "Publish Previews as Apps"),
+                help: SettingsText.keyed("settings.experiments.appsTier.help", "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.appsTierDefault),
+                keywords: ["experiments", "experimental", "prototype", "apps", "publish", "preview", "cloud", "version"]
             ),
         ]
     }

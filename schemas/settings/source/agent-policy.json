@@ -490,7 +490,8 @@
         "experiments.composerV2",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.appsTier"
       ]
     },
     {
