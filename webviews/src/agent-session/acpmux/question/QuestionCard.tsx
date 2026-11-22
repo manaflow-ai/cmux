@@ -45,6 +45,8 @@ import {
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
 import { shownPreview, previewText } from "./questionCardModel";
+import { focusRoute } from "../../../ui/focusRoute";
+import { intl } from "../../../ui/intl";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -116,7 +118,11 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
     const reopened = open && !wasOpen.current;
     wasOpen.current = open;
     if (!reopened || !promptCard) return;
-    ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]")?.focus();
+    focusRoute(
+      ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]"),
+      "system",
+      "an agent's question",
+    );
   }, [open, promptCard]);
   return (
     <div
@@ -210,7 +216,7 @@ function PendingQuestion({
   const previewId = useId();
   const hintId = useId();
   const language = usePaneLanguage();
-  const listFormat = new Intl.ListFormat(language, { type: "conjunction" });
+  const listFormat = intl.ListFormat(language, { type: "conjunction" });
   const group = useRef<HTMLFieldSetElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
@@ -441,7 +447,7 @@ function PendingQuestion({
     arrived.current = question.id;
     if (hidden || !keyboardIsIdle(card.ownerDocument)) return;
     const target = consent ? ".acpmux-question-submit" : `[data-row="${highlightedRow(state)}"]`;
-    card.querySelector<HTMLElement>(target)?.focus();
+    focusRoute(card.querySelector<HTMLElement>(target), "system", "an agent's question");
   });
   const goToItem = (index: number) => {
     if (sent || keyPendingFor === question.id) return;
@@ -496,7 +502,7 @@ function PendingQuestion({
             type="button"
             className="acpmux-question-skip"
             aria-keyshortcuts="Escape"
-            title={reject.detail}
+            aria-description={reject.detail}
             disabled={sent}
             onClick={skip}
           >

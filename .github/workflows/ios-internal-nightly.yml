@@ -39,6 +39,10 @@ concurrency:
   group: cmux-mobile-internal-next
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # The archive prefers the dedicated mini (vars.CI_IOS_INTERNAL_RUNNER, its own
   # glaeda-runner-<runner name> label, warm caches) but never waits on it: this
@@ -187,7 +191,7 @@ jobs:
   previous-build:
     name: Last build in App Store Connect (read only)
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && inputs.base == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 10
     # Never fails the run: the trigger reads run conclusions as "uploaded or not".
     continue-on-error: true
@@ -349,15 +353,20 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain"
 
-      - name: Use the cmux INTERNAL profile that lists CI's certificate
+      # The app's and both extensions' App Store profiles, fetched from App Store
+      # Connect for CI's own certificate, and regenerated there when none lists it
+      # (a portal regeneration with other certificates, a capability change, an
+      # expiry). Before 2026-11-17 the app's profile was a hand-set secret
+      # (IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64) that drifted from the
+      # certificate and stopped every upload. Fails here, before anything is
+      # signed, when a profile does not list CI's certificate.
+      # Regeneration deletes and creates profiles in App Store Connect; the
+      # repository variable CMUX_IOS_CI_PROFILE_REGENERATE=0 turns it off (fetch
+      # only, fail with the portal step). On by default.
+      - name: App Store profiles for CI's certificate (fetch or regenerate)
         env:
-          IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
-        run: |
-          set -euo pipefail
-          [ -n "${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64:-}" ] || { echo "no internal profile secret; testflight-build.sh downloads the current one"; exit 0; }
-          profile="$RUNNER_TEMP/asc/internal.mobileprovision"
-          printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64" | base64 --decode > "$profile"
-          echo "CMUX_MOBILE_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
+          CMUX_IOS_CI_PROFILE_REGENERATE: ${{ vars.CMUX_IOS_CI_PROFILE_REGENERATE || '1' }}
+        run: python3 -I scripts/ci/ios_ci_profiles.py --keychain cmux-mobile-internal.keychain --out-dir "$RUNNER_TEMP/asc"
 
       # The note comes from the `notes` job; this job only reads it. Without
       # one, the first line still records the commit for the next build.
@@ -383,8 +392,9 @@ jobs:
         id: upload
         env:
           CMUX_MOBILE_CI_ASC: "1"
-          # The notification content extension's App Store profile that lists
-          # CI's certificate (downloaded with the release key; verify/rich-push.md).
+          # The profiles that list CI's certificate (paths from the step above;
+          # the names are for the script's messages; verify/rich-push.md).
+          CMUX_MOBILE_PROFILE_NAME: cmux Internal Distribution CI
           CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Content
           # The same for the notification service extension (verify/notifications-trust.md).
           CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Service

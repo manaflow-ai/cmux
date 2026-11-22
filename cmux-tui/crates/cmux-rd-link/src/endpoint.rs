@@ -131,6 +131,9 @@ pub struct Endpoint {
     sent_us: u64,
     /// When session traffic (datagrams, control) last went either way.
     traffic_us: u64,
+    /// A responder still in the handshake punches every path at this time
+    /// ([`crate::TAG_PUNCH`]); a new path makes it due at once.
+    next_punch_us: u64,
 }
 
 impl Endpoint {
@@ -156,7 +159,13 @@ impl Endpoint {
             clock_us: now_us,
             sent_us: now_us,
             traffic_us: now_us,
+            next_punch_us: now_us,
         })
+    }
+
+    /// A responder whose handshake has not finished: it punches its paths.
+    fn punching(&self) -> bool {
+        self.link.role() == Role::Responder && !self.link.is_established()
     }
 
     /// Sends a keep-awake packet on the current path whenever this side has
@@ -164,6 +173,12 @@ impl Endpoint {
     /// traffic; `None` (the default) sends none.
     pub fn set_keep_awake(&mut self, every_us: Option<u64>) {
         self.keep_awake_us = every_us.filter(|us| *us > 0);
+    }
+
+    /// Ends the established link once nothing from the peer arrived on any
+    /// path for `after_us` ([`Link::set_peer_lost`]).
+    pub fn set_peer_lost(&mut self, after_us: Option<u64>) {
+        self.link.set_peer_lost(after_us);
     }
 
     /// When the next keep-awake packet is due: established, a path is
@@ -216,6 +231,12 @@ impl Endpoint {
             PathEntry { route, kind, next_probe_us: now_us, heard_us: now_us, unanswered_sends: 0 };
         self.paths.insert(id, entry);
         self.by_route.insert(route, id);
+        // A route to the peer means the peer has the answer and is dialing:
+        // a responder's handshake clock starts now, not at its own start.
+        self.link.peer_contact(now_us);
+        if self.punching() {
+            self.next_punch_us = self.next_punch_us.min(now_us);
+        }
     }
 
     /// The current path's medium, when one is current.
@@ -379,6 +400,15 @@ impl Endpoint {
         }
         self.watch_silence(now_us);
         let mut out = Vec::new();
+        // A responder that only listens never hears the initiator through its
+        // own address-dependent NAT or a stateful firewall: punch every path,
+        // as an ICE agent sends its own checks, until the handshake finishes.
+        if self.punching() && self.next_punch_us <= now_us {
+            self.next_punch_us = now_us + crate::HANDSHAKE_RETRY_US;
+            for path in self.paths.values() {
+                out.push(Transmit { route: path.route, packet: vec![crate::TAG_PUNCH] });
+            }
+        }
         let packets = self.link.poll_transmit(now_us)?;
         // Only a poll that sends counts against silence: an idle link
         // waiting for nothing is not a quiet path.
@@ -478,7 +508,8 @@ impl Endpoint {
                 None => None,
             }
         });
-        [self.link.next_deadline_us(), probe, timeout, silence, self.keep_awake_at()]
+        let punch = (self.punching() && !self.paths.is_empty()).then_some(self.next_punch_us);
+        [self.link.next_deadline_us(), probe, timeout, silence, self.keep_awake_at(), punch]
             .into_iter()
             .flatten()
             .min()

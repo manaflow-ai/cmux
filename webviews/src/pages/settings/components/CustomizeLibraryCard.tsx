@@ -1,4 +1,4 @@
-// Personalization > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
+// Appearance > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
 // customization i wonder if there's good ways to have like an accumulated collection of those
 // things". Everything the person applies (an ask, a profile, a kept try-on, an import) is saved as
 // one entry; entries stack top first, each turns on and off, and where two that are on set the same
@@ -6,7 +6,7 @@
 // lists `cmux customize library` and runs its verbs (on, off, order, remove) through the host's
 // bundled CLI, so the card and the CLI never differ. The list is read with the section
 // (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
-// `#/settings/personalization?focus=card.customizeLibrary`.
+// `#/settings/appearance?focus=card.customizeLibrary`.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
@@ -17,6 +17,7 @@ import { Icon } from "../icons";
 import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -125,7 +126,11 @@ export function CustomizeLibraryView({
   useLayoutEffect(() => {
     if (!removing) return;
     confirm.current?.scrollIntoView?.({ block: "nearest" });
-    confirm.current?.querySelector<HTMLButtonElement>('[data-library-action="cancel"]')?.focus();
+    focusRoute(
+      confirm.current?.querySelector<HTMLButtonElement>('[data-library-action="cancel"]'),
+      "person",
+      "the person's Remove opened the confirmation: Cancel",
+    );
   }, [removing]);
   return (
     <section
@@ -298,7 +303,7 @@ export function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
+      <div className="row library-line" {...shared} aria-description={entryDetail(entry)}>
         <div className="row-main">
           <span className="library-position row-help">{entry.position}</span>
           <LibrarySwatches entry={entry} />

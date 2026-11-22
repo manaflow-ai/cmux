@@ -36,6 +36,8 @@ extension ScreenContentView {
     private func makeScrollbar() -> StripScrollbarView {
         let bar = StripScrollbarView(hideClock: context.scrollbarClock)
         addSubview(bar)
+        // A new view is in front of each other view: the bar goes to its place, under the floating panes (`rank`).
+        ensureStacking()
         scrollbar = bar
         bar.onDragBegan = { [weak self] in
             guard let self else { return }

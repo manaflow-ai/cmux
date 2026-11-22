@@ -330,7 +330,7 @@ export function BookmarksPage({
         snap.loading ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
-            <span className="bm-empty-hint">{t(searching ? "page.emptySearchHint" : "page.emptyHint")}</span>
+            {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
           </div>
         )
       ) : (
@@ -500,7 +500,7 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
       data-bookmark={node.id}
       className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
       style={style}
-      title={layout === "compact" && node.url ? node.url : undefined}
+      aria-description={layout === "compact" && node.url ? node.url : undefined}
       draggable
       onClick={on.onClick}
       onDoubleClick={on.onOpen}

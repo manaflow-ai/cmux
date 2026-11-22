@@ -136,12 +136,16 @@ extension AgentPaneTransport {
             return .refuse(refusal, spend: carried)
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
-        if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.paramsRuleViolation(object, modeFields: snapshot.modeFields) {
+            // The rule it broke and the chat it was for, so a refusal that fails every chat's start
+            // or open (cmux#42185, #42460) names its cause in the app's log (cmux#44964).
+            return .refuse(intentInvalid(.paramsRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation, detail: violation), spend: carried)
         }
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
-        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.answersRuleViolation(object, options: snapshot.options) {
+            return .refuse(intentInvalid(.answersRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation), spend: carried)
         }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
@@ -151,6 +155,10 @@ extension AgentPaneTransport {
             frame = stripped
             facts.ticket = ticket
             facts.otherMeta = otherMeta
+            if otherMeta {
+                // Read from the page's own `_meta`, before any strip (the gesture_meta log line).
+                facts.otherMetaKeys = AcpmuxPaneMethods.otherMetaKeys(object)
+            }
             if ticket != nil {
                 facts.pick = AgentPaneGesturePick(method: method, params: params)
                 facts.sessionId = params["sessionId"] as? String
@@ -214,7 +222,7 @@ extension AgentPaneTransport {
     /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
     nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
                                    reason: String? = nil) -> Step {
-        guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
+        guard case .refuse(let error, let method, let requestID, let rule) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
         if error == .firstFrameNotInitialize {
@@ -222,7 +230,8 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method,
+                                                    detail: detail ?? rule, reason: reason))
         }
         return .refused(error)
     }

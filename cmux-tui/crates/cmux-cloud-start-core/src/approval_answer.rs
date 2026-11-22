@@ -109,8 +109,8 @@ fn key(request: &str) -> String {
 
 fn list(state: &str) -> Next {
     let mut params = json!({"state": state, "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100});
-    if state != "open" {
-        params["order"] = json!("recent");
+    if let (true, Some(map)) = (state != "open", params.as_object_mut()) {
+        map.insert("order".into(), json!("recent"));
     }
     call("v1/read", json!({"op": "feed.list", "params": params}))
 }
@@ -179,7 +179,7 @@ pub fn next(r: &Request) -> Next {
             _ => Outcome::Approved { reply },
         });
     }
-    legacy(r, &steps[1..])
+    legacy(r, steps.get(1..).unwrap_or_default())
 }
 
 /// The three calls the app made before the one call: approval.get, feed.list (open, then closed), feed.answer.

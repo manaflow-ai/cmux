@@ -1,5 +1,9 @@
 import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextDesign
+import Foundation
 
 extension CloudHandlers {
     /// Move to Cloud and Bring Back Local: the palette, the tab and chat right-click
@@ -47,13 +51,98 @@ extension CloudHandlers {
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudBringBack(services: services).start(invocation, context: context)
         }
+        bind(CloudTransferLocal.action, registry, reason: reason) { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+            try CloudTransferLocal(services: services).start(invocation, context: context)
+        }
         bind(CloudBringBack.toMachine, registry, reason: reason) { invocation in
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudBringBack(services: services).start(invocation, context: context, toMachine: true)
         }
+        bindSSHMove(into: registry, context: context)
         // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
         let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }
         context.setTargetReason(CloudMove.action, refusal)
         ActionTargetTitles.setPaletteReason(CloudMove.action, in: registry) { [weak registry] in registry?.withoutRefusals { refusal(ActionInvocation()) } }
+    }
+
+    /// Move to SSH Machine (`agent.moveToMachine`): a started chat to a machine added over SSH, between
+    /// two, or back to this Mac, through acpmux's own transfer (``SSHChatMoveRun``; Rust decides the
+    /// targets and the call). This reads the chat, runs the move, opens the chat where it went (as a
+    /// moved-in chat opens) and closes the old tab, whose chat moved away.
+    static func bindSSHMove(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        var moveChoices: [ActionEnumCase] = []
+        let previousSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            source == "chatMoveTargets" ? moveChoices : (previousSuggestions?(source) ?? [])
+        }
+        registry.bindEffect("agent.moveToMachine") { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { return .refused(SSHChatMoveStrings.personOnly) }
+            guard let (tab, _) = context.daemonTab(invocation) else { return .done }
+            let key = services.agentTabs.tabKey(of: tab)
+            guard let acpmux = QuitAgents.environment(services), var record = services.agentTabs.record(for: key)?.record else { return .refused(SSHChatMoveStrings.failed) }
+            record.session = record.session ?? services.agentTabs.sessions[key]
+            guard let chat = CloudMoveTargets.chat(record: record, machine: key.machine, services: services) else { return .refused(SSHChatMoveStrings.failed) }
+            let target = invocation["machine"]?.stringValue
+            let interactive = !registry.isCapturingRefusal && !invocation.viaControlSocket && invocation.origin == .user
+            if target == nil && !interactive { return .refused(SSHChatMoveStrings.failed) }
+            var pinned = invocation.onMachine(key.machine)
+            pinned.target = ActionTargetRef(kind: .tab, id: key.key)
+            let options = CloudMoveTargetRules.MoveOptions(
+                afterTurn: invocation["afterTurn"]?.boolValue == true,
+                interrupt: invocation["interrupt"]?.boolValue == true,
+                carryChanges: invocation["carryChanges"]?.boolValue == true,
+                leaveDirty: invocation["leaveDirty"]?.boolValue == true,
+                dryRun: invocation["dryRun"]?.boolValue == true
+            )
+            // action-wait-allow: acpmux moves the chat over ssh (another process); where it went is known only once the move answers
+            return .waiting(.externalProcess) {
+                let peers = ((try? await AcpmuxPeerList(socketPath: acpmux.socketPath).peers()) ?? []).map { CloudMoveTargetRules.Peer(name: $0.name, url: $0.url ?? "") }
+                if target == nil {
+                    var params: [String: any Sendable] = [:]
+                    if case .success(let call) = CloudMoveTargetRules().sshMove(chat, to: "auto", peers: peers),
+                       let source = call.source { params["source"] = source }
+                    if chat.running != nil { params["sourceKind"] = "cloud" }
+                    guard let data = try? await acpmux.catalogCall("_acpmux/move_targets", params: params),
+                          let reply = await CloudMoveTargetRules().paletteReply(data) else {
+                        return ActionWorkFailure(SSHChatMoveStrings.failed)
+                    }
+                    moveChoices = reply.targets.filter { $0.reason == nil }.map {
+                        ActionEnumCase(value: $0.id, title: $0.label, subtitle: $0.status)
+                    }
+                    guard registry.ask("agent.moveToMachine", pinned, ActionArgumentAsk(argument: "machine")) else {
+                        return ActionWorkFailure(SSHChatMoveStrings.failed)
+                    }
+                    return nil
+                }
+                let run = SSHChatMoveRun(executable: acpmux.executable, environment: await SSHService.environment().merging(acpmux.childEnvironment) { $1 })
+                var outcome = await run.run(chat, to: target, peers: peers, options: options)
+                if case .needsConfirmation(let code, let dirty) = outcome {
+                    guard interactive else { return ActionWorkFailure(SSHChatMoveStrings.message(outcome)) }
+                    let running = code == "running_turn"
+                    let buttons: [CmuxDialogButton] = running
+                        ? [.cancel(), .init(id: "now", title: SSHChatMoveStrings.moveNow, key: "m"),
+                           .init(id: "after", title: SSHChatMoveStrings.afterTurn, role: .default)]
+                        : [.cancel(), .init(id: "carry", title: SSHChatMoveStrings.carryChanges, role: .default)]
+                    let spec = CmuxDialogSpec(title: SSHChatMoveStrings.moveTitle,
+                        lines: [dirty == true ? SSHChatMoveStrings.dirty : SSHChatMoveStrings.running],
+                        buttons: buttons, identifier: "chat.move.confirm")
+                    let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
+                    let answer = await CmuxDialogCenter.shared.present(spec, in: scope)
+                    guard !answer.isCancel, !answer.isDismissal else { return nil }
+                    var confirmed = options
+                    confirmed.afterTurn = answer.button == "after"
+                    confirmed.interrupt = answer.button == "now"
+                    confirmed.carryChanges = dirty == true && !confirmed.leaveDirty
+                    outcome = await run.run(chat, to: target, peers: peers, options: confirmed)
+                }
+                guard case .moved(let moved) = outcome else { return ActionWorkFailure(SSHChatMoveStrings.message(outcome)) }
+                if options.dryRun { return nil }
+                guard (try? await services.sessionTransfer.openChat(moved, title: tab.titleText)) != nil else { return ActionWorkFailure(SSHChatMoveStrings.tabFailed) }
+                try? await services.machines.daemon(forTab: tab).connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
+                return nil
+            }
+        }
     }
 }

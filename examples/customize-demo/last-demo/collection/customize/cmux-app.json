@@ -1,0 +1,25 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "The collection",
+  "version": "2.0.0",
+  "description": "The time and the weather, the usage left on your Claude and Codex accounts, and a chief gacha with an animated reel: a sidebar section and a New Tab page.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderPage", "title": "The collection", "symbol": "sparkles" },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": "Collection",
+      "symbol": "sparkles",
+      "options": { "defaultRegion": "bottom", "maxRows": 16 }
+    }
+  },
+  "scopes": {
+    "usage_app:read": "Read the usage left on your Claude and Codex accounts from cmux's Usage app.",
+    "storage:local": "Remember your city and the chiefs you pulled.",
+    "net:geocoding-api.open-meteo.com": "Find your city's place on the map.",
+    "net:api.open-meteo.com": "Read the weather for your city."
+  }
+}
