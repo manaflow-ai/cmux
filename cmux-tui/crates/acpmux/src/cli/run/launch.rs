@@ -236,7 +236,7 @@ fn absolute(path: &str) -> Result<PathBuf> {
 const MAX_PROMPT_FILE: u64 = 1 << 20;
 
 /// The prompt file's text, read at call time; a missing or empty file fails.
-fn read_prompt_file(path: &Path) -> Result<String> {
+pub(crate) fn read_prompt_file(path: &Path) -> Result<String> {
     read_prompt_file_with(path, std::io::stdin().lock())
 }
 

@@ -698,6 +698,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Send {
             session,
             prompt,
+            file,
             steer,
             no_steer,
             no_wait,
@@ -810,7 +811,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 // No SESSION with --tag: clap read the prompt's first word as one.
                 let words: Vec<String> = session.into_iter().chain(prompt).collect();
-                let text = arg_or_stdin(&words)?;
+                let text = prompt_text(file.as_deref(), &words)?;
                 let text = crate::cli::send_notice::text(notice.as_ref(), &text);
                 let steer = send_steers(false, no_steer, true, agent);
                 return super::fanout::send_to_tag(
@@ -819,7 +820,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await;
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
-            let text = arg_or_stdin(&prompt)?;
+            let text = prompt_text(file.as_deref(), &prompt)?;
             let text = crate::cli::send_notice::text(notice.as_ref(), &text);
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
@@ -1499,6 +1500,15 @@ fn send_queues(w: SendWait) -> bool {
 /// steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
     !no_steer && (steer || no_wait || agent)
+}
+
+/// A send's prompt: `--file`'s contents (`-` is stdin), else the words or stdin. The reader is
+/// `new --prompt-file`'s own, so a missing, empty or oversized file fails the same way for both.
+fn prompt_text(file: Option<&std::path::Path>, words: &[String]) -> Result<String> {
+    match file {
+        Some(path) => super::launch::read_prompt_file(path),
+        None => arg_or_stdin(words),
+    }
 }
 
 /// Whether the session `target` names is the parent of the acpmux session this send runs in
