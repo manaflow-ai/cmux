@@ -343,6 +343,40 @@ import Testing
         #expect(try JSONC.parse(String(contentsOf: blankURL, encoding: .utf8)) == .object([:]))
     }
 
+    /// The walk replayed (the palette's Make cmux Yours) opens on the person's current settings, not
+    /// the defaults, and its Skip leaves everything as it was when it opened: the picks a first walk
+    /// kept stay.
+    @Test func aReplayedWalkOpensOnTheCurrentSettingsAndSkipKeepsThem() async throws {
+        let (settings, writer, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let first = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let page = OnboardingPageProvider(model: first)
+        first.stepDidAppear()
+        await Self.until { first.makeItYours.loaded }
+        _ = try await page.call("cmux.onboarding.makeItYours.workStyle", params: ["value": "terminal"], context: clicked(800))
+        _ = try await page.call("cmux.onboarding.makeItYours.density", params: ["value": "spacious"], context: clicked(801))
+        _ = try await page.call("cmux.onboarding.next", params: [:], context: clicked(802))
+        await source.settled()
+        #expect(first.ended)
+        let kept = try String(contentsOf: url, encoding: .utf8)
+
+        let replay = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let again = OnboardingPageProvider(model: replay)
+        replay.stepDidAppear()
+        await Self.until { replay.makeItYours.loaded }
+        #expect(replay.makeItYours.choices.workStyle == .terminal, "the replay opens on what is set now")
+        #expect(replay.makeItYours.choices.density == "spacious")
+        _ = try await again.call("cmux.onboarding.makeItYours.background", params: ["id": "daily"], context: clicked(810))
+        _ = try await again.call("cmux.onboarding.makeItYours.opacity", params: ["value": 0.3], context: clicked(811))
+        await source.settled()
+        let beforeSkip = writer.publishes
+        _ = try await again.call("cmux.onboarding.skip", params: [:], context: clicked(812))
+        await source.settled()
+        #expect(writer.publishes == beforeSkip + 1)
+        #expect(try String(contentsOf: url, encoding: .utf8) == kept, "Skip puts back the replay's opening, not the defaults")
+    }
+
     /// A write the settings refuse reaches the step, not only the log: the step records why and
     /// reads the settings again, so the page shows what the file holds.
     @Test func aRefusedWriteReadsTheSettingsAgain() async throws {
