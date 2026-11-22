@@ -598,6 +598,21 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(len(waits), 1)
         self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
 
+    def test_rate_limit_wait_is_capped_when_the_deadline_round_trip_rounds_up(self):
+        # The budget is held as a deadline, `monotonic() + budget`, and the remaining wait is read
+        # back as `deadline - monotonic()`. In floating point that round trip can return a hair
+        # more than the budget: at monotonic 15855.009572078305 it is 600.0000000000018, so the
+        # wait handed to _sleep exceeded the cap it was granted on a runner whose clock landed
+        # there. The cap must hold for every clock value, not most of them.
+        self.assertGreater((15855.009572078305 + 600) - 15855.009572078305, 600)
+        reset = int(publisher.time.time()) + 3600
+        with patch.object(publisher.time, "monotonic", return_value=15855.009572078305):
+            waits = self.rate_limited_publish(
+                (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)},
+                 {"message": "API rate limit exceeded"}))
+        self.assertEqual(len(waits), 1)
+        self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
+
     def test_rate_limit_that_outlasts_the_budget_fails(self):
         publisher._rate_limit_deadline = publisher.time.monotonic() - 1
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
