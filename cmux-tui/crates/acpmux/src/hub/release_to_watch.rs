@@ -290,7 +290,7 @@ impl Hub {
             std::thread::Builder::new().name("acpmux-terminal-exit".into()).spawn(move || {
                 // A later process under the same pid is not the terminal: its start time says so.
                 let ours = || crate::adopt_live::pid_start_ms(pid) == driver.started;
-                match crate::daemon::owner_exit::wait_process_exit(pid, ours) {
+                match crate::owner_exit::wait_process_exit(pid, ours) {
                     Ok(()) => {
                         runtime.spawn(async move { hub.terminal_ended(&session, &driver).await });
                     }
