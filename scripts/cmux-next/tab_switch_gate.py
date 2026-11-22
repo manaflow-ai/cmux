@@ -14,6 +14,14 @@ Every switch in every scenario must meet every budget (BUDGETS):
   reloads == 0                        the switched-to tab did not load again (null or absent: not counted)
   downloads_restarted == 0            no download started again (per switch, and a row's own count since a relaunch)
   omnibar_frames == 0                 the omnibar never showed another URL or its empty "Search or type URL"
+  load_stages <= 2                    a load shows the ground, then the page: no opaque frame, flash or return to the
+                                      ground between them (load_stages.py; null or absent: not counted)
+
+A cold load (cold_load: true; chromium-cold, chromium-reload, chromium-navigate in tab_switch_cold.py) is judged on
+load_stages alone: a page this session never loaded cannot show within one display frame, and its glass ground is
+neither the old tab nor the page. Leo, 2026-11-22 12:41Z: "loading chrome tabs. it has the transparent background.
+then it draws some asinine bullshit idk opaque layer for a nasty-ass flicker. THEN loads the web page. in our app.
+nah. we can't have that. dont have stupid multi stage loading."
 
 The default scenarios (REQUIRED_SCENARIOS) must each have run under every load the run asked for: chromium-warm (ten
 live Chromium tabs, 20 switches) and chromium-restored (the same tabs after a relaunch restored them). Leo,
@@ -51,6 +59,7 @@ SCHEMA = "tab-switch/v1"
 DEFAULT_LOADS = ("idle", "cpu", "agents")
 # Scenarios a run must have measured under each of its loads (evaluate --scenarios; none for judge() by default).
 REQUIRED_SCENARIOS = ("chromium-warm", "chromium-restored")
+MAX_LOAD_STAGES = 2  # the ground, then the page
 
 # What the check measures: the tab strip and tabs, the pane that hosts a tab's content, the agent (chat) pane, its
 # conversation and composer, and the daemon's tab and pane store ops; plus the gate and the harness themselves.
@@ -65,6 +74,8 @@ SCOPE: tuple[str, ...] = (
     "scripts/cmux-next/bench-tab-switch.sh",
     "scripts/cmux-next/tab-switch-stages.py",
     "scripts/cmux-next/tab_switch_restored.py",
+    "scripts/cmux-next/tab_switch_cold.py",
+    "scripts/cmux-next/load_stages.py",
     # Swift: the tab strip and tabs.
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/**",
@@ -166,6 +177,8 @@ class Scenario:
     reloads: int = 0
     downloads_restarted: int = 0
     omnibar_frames: int = 0
+    worst_load_stages: int | None = None
+    over_stages: int = 0
     harness_fail: list[str] = dataclasses.field(default_factory=list)
     misses: list[str] = dataclasses.field(default_factory=list)
 
@@ -238,6 +251,18 @@ def judge_scenario(raw: Mapping[str, Any], index: int, display_hz: float | None)
         where = f"scenario {name} switch {k}"
         if not isinstance(switch, Mapping):
             raise ReportError(f"{where} is not an object")
+        stages = switch.get("load_stages")
+        if stages is not None:
+            stages = _count(stages, f"{where} load_stages")
+            scenario.worst_load_stages = max(scenario.worst_load_stages or 0, stages)
+            if stages > MAX_LOAD_STAGES:
+                scenario.over_stages += 1
+        if switch.get("cold_load") is True:
+            # A cold load: its stages are its budget (the module doc).
+            if stages is None:
+                raise ReportError(f"{where} is a cold load without load_stages")
+            scenario.switches += 1
+            continue
         to_content = _number(switch.get("to_content_ms"), f"{where} to_content_ms")
         if switch.get("display_frame_ms") is not None:
             frame = _number(switch.get("display_frame_ms"), f"{where} display_frame_ms")
@@ -281,6 +306,9 @@ def judge_scenario(raw: Mapping[str, Any], index: int, display_hz: float | None)
         scenario.misses.append(f"{scenario.reloads} reloads of a switched-to tab")
     if scenario.omnibar_frames:
         scenario.misses.append(f"{scenario.omnibar_frames} frames of a wrong or empty omnibar")
+    if scenario.over_stages:
+        scenario.misses.append(f"{scenario.over_stages} of {scenario.switches} loads showed more than {MAX_LOAD_STAGES} "
+                               f"visual stages (worst {scenario.worst_load_stages})")
     scenario.downloads_restarted = max(scenario.downloads_restarted, row_downloads)
     if scenario.downloads_restarted:
         scenario.misses.append(f"{scenario.downloads_restarted} downloads restarted")
@@ -349,16 +377,17 @@ def summary_markdown(verdict: Verdict | None, error: str | None = None, sheet: s
     lines = [title + ("pass" if verdict.ok else "fail"), "",
              f"Build `{verdict.build}`, display {_fmt(verdict.display_hz) + ' Hz' if verdict.display_hz else 'Hz unknown'}. "
              "Budgets: content within one display frame, 0 blank frames, 0 wrong frames, 0 px shift, 0 reloads, "
-             "0 downloads restarted, 0 omnibar frames.", "",
+             f"0 downloads restarted, 0 omnibar frames, at most {MAX_LOAD_STAGES} visual stages a load.", "",
              "| scenario | load | switches | worst to content (ms) | frame (ms) | blank | wrong | shift (px) "
-             "| wrong insert | wrong anim end | reloads | downloads restarted | omnibar | verdict |",
-             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+             "| wrong insert | wrong anim end | reloads | downloads restarted | omnibar | worst stages | verdict |",
+             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for s in verdict.scenarios:
         worst = "-" if s.worst_to_content_ms is None else _fmt(s.worst_to_content_ms)
         frame = "-" if s.frame_ms is None else _fmt(s.frame_ms)
         lines.append(f"| {s.name} | {s.load} | {s.switches} | {worst} | {frame} | {s.blank_frames} | {s.wrong_frames} "
                      f"| {_fmt(s.worst_shift_px)} | {s.insert_misses} | {s.anim_misses} | {s.reloads} | {s.downloads_restarted} "
-                     f"| {s.omnibar_frames} | {'ok' if s.ok else 'miss'} |")
+                     f"| {s.omnibar_frames} | {'-' if s.worst_load_stages is None else s.worst_load_stages} "
+                     f"| {'ok' if s.ok else 'miss'} |")
     if verdict.failures:
         lines += ["", "Missed:", *[f"- {failure}" for failure in verdict.failures]]
     if sheet:

@@ -26,6 +26,8 @@ relaunch, blank_frames, wrong_frames, ...):
   omnibar_frames       frames after the switch whose omnibar band (the top OMNIBAR_POINTS of the content rect)
                        differs from the tab's own: an empty "Search or type URL" omnibar, a wrong URL
   first_since_launch   the tab had not been shown since the app started (the restored block's cold switches)
+  load_stages          the visual stages from the switch's commit to the tab's settled picture (load_stages.py), and
+                       first_paint_ms: a restored tab may show its last frame, then the live page (2), never more
 Blank frames also count a frame of the content area that shows the desktop: the bare wallpaper is not flat, so the
 judge's flatness test alone calls it a wrong frame. The desktop's picture is recorded with the app quit, at the relaunch.
 The row also carries downloads_restarted (the mp4's bodies served from the relaunch to the block's end, the switches'
@@ -43,6 +45,7 @@ import threading
 import time
 import urllib.request
 
+import load_stages
 import tab_switch_foreign as foreign
 import tab_switch_judge as judge
 import tab_switch_matrix as matrix
@@ -490,6 +493,9 @@ class Restored:
         x0, y0, x1, _y1 = h.content
         band = (x0, y0, x1, min(h.content[3], y0 + int(OMNIBAR_POINTS * h.rec.scale)))
         switch["omnibar_frames"] = omnibar_frames(window, mark, h.rec.w, band, reference, before, h.args.tolerance)
+        # Its visual stages from the switch's commit to the tab's settled picture (load_stages.py): at most 2.
+        switch.update(load_stages.measure(window, h.rec.w, rect=h.content, mark=mark, before=before,
+                                          frame_ms=h.rec.frame_ms, end=end))
         # Reloads: the fixture server's GETs in the window, and the page's own clock.
         origin, was = item["origin"], origins.get(item["target"])
         by_clock = None

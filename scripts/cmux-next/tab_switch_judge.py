@@ -27,7 +27,8 @@ Comparisons quantize gray to 32 levels and count the share of pixels that differ
 most TOLERANCE of the area differs (a blinking terminal cursor is under it).
 
 Budgets (BUDGETS): the returning tab shows its last frame within one display frame, 0 blank frames, 0 wrong frames,
-0 px shift, the insert and the animation end right. Report schema: report() ("tab-switch/v1").
+0 px shift, the insert and the animation end right; a switch that reports load_stages (load_stages.py) at most
+MAX_LOAD_STAGES of them, and a cold load (cold_load: tab_switch_cold.py) that alone. Report schema: report() ("tab-switch/v1").
 """
 from __future__ import annotations
 
@@ -46,12 +47,14 @@ QUANT = bytes(v >> 3 for v in range(256))
 SCHEMA = "tab-switch/v1"
 # chromium-warm and chromium-restored (tab_switch_restored.py): ten Chromium tabs switched 20 times, live and after a
 # relaunch restored them, each switch's reloads and restarted downloads counted (Leo, 2026-11-22).
+# chromium-cold (tab_switch_cold.py): new Chromium tabs loading pages never loaded this session, their visual stages
+# counted (Leo, 2026-11-22: "dont have stupid multi stage loading").
 SCENARIOS = ("chat-long-return", "terminal-return", "chromium-return", "new-tab", "close-tab", "chromium-warm",
-             "chromium-restored")
+             "chromium-restored", "chromium-cold")
 # Beside the defaults (scenarios=all): a WebKit page's return, workspaces opened, switched and closed, and rapid
 # sequences whose animations retarget mid-flight (tab_switch_frames.py's docstring says what each drives).
 MORE_SCENARIOS = ("webkit-return", "new-workspace", "switch-workspace", "close-workspace", "rapid-open-5",
-                  "rapid-close-3", "open-while-close")
+                  "rapid-close-3", "open-while-close", "chromium-reload", "chromium-navigate")
 ALL_SCENARIOS = SCENARIOS + MORE_SCENARIOS
 LOADS = ("idle", "cpu", "agents")
 
@@ -249,7 +252,9 @@ BUDGETS = {
     "reloads": "0 reloads of the switched-to tab",
     "downloads_restarted": "0 downloads restarted",
     "omnibar_frames": "0 frames of a wrong or empty omnibar",
+    "load_stages": "at most 2 visual stages from the commit to the settled page (the ground, then the page)",
 }
+MAX_LOAD_STAGES = 2
 
 
 def budget_fails(switch, label):
@@ -257,6 +262,12 @@ def budget_fails(switch, label):
     fails = []
     if switch.get("error"):
         fails.append(f"{label}: {switch['error']}")
+        return fails
+    stages = switch.get("load_stages")
+    if stages is not None and stages > MAX_LOAD_STAGES:
+        fails.append(f"{label}: {stages} visual stages, budget {MAX_LOAD_STAGES} ({switch.get('stages_summary') or '?'})")
+    if switch.get("cold_load"):
+        # A load (tab_switch_cold.py) is not a switch to a picture that exists: its budget is its stages alone.
         return fails
     to, frame = switch.get("to_content_ms"), switch.get("display_frame_ms") or 0
     if to is None:

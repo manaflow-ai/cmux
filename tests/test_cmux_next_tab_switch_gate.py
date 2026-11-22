@@ -152,6 +152,45 @@ class BudgetTests(unittest.TestCase):
         restored_row(report)["switches"][5] = restored_switch(reloads=None)
         self.assertTrue(gate.judge(report).ok)
 
+    def cold_report(self, *stages, name="chromium-cold"):
+        report = clean_report()
+        report["scenarios"].append({"name": name, "load": "idle", "budget_fail": [], "switches": [
+            {"cold_load": True, "load_stages": n, "first_paint_ms": 180.0, "to_content_ms": None,
+             "display_frame_ms": 8.33, "blank_frames": 1, "wrong_frames": 12} for n in stages]})
+        return report
+
+    def test_cold_load_in_two_stages_passes_on_stages_alone(self):
+        # A cold load's glass frames are "wrong" and it reaches the page in 180 ms: neither is its budget.
+        verdict = gate.judge(self.cold_report(2, 2, 1))
+        self.assertTrue(verdict.ok, verdict.failures)
+        cold = next(s for s in verdict.scenarios if s.name == "chromium-cold")
+        self.assertEqual((cold.switches, cold.worst_load_stages), (3, 2))
+        self.assertIn("| 2 | ok |", gate.summary_markdown(verdict))
+
+    def test_cold_load_with_an_opaque_frame_fails(self):
+        # Leo's NIGHTLY: glass, one flat #1d1d2d frame, glass, the page.
+        self.assert_fails(self.cold_report(2, 4, 3), "chromium-cold (idle): 2 of 3 loads showed more than 2 visual "
+                                                     "stages (worst 4)")
+
+    def test_stages_on_a_switch_are_gated_too(self):
+        report = clean_report()
+        restored_row(report)["switches"][3] = restored_switch(load_stages=3)
+        self.assert_fails(report, "chromium-restored (cpu): 1 of 20 loads showed more than 2 visual stages")
+        report = clean_report()
+        restored_row(report)["switches"][3] = restored_switch(load_stages=2, first_paint_ms=0.0)
+        self.assertTrue(gate.judge(report).ok)
+
+    def test_missing_or_null_stages_are_not_counted(self):
+        report = clean_report()
+        restored_row(report)["switches"][3] = restored_switch(load_stages=None)
+        self.assertTrue(gate.judge(report).ok)
+        self.assertIsNone(next(s for s in gate.judge(clean_report()).scenarios).worst_load_stages)
+
+    def test_cold_load_without_stages_or_with_a_bad_count_raises(self):
+        for bad in (None, -1, 2.5, "4"):
+            with self.subTest(bad=bad), self.assertRaises(gate.ReportError):
+                gate.judge(self.cold_report(bad))
+
     def test_bad_reload_count_raises(self):
         report = clean_report()
         restored_row(report)["switches"][5] = restored_switch(reloads=-1)
@@ -253,6 +292,8 @@ class ScopeTests(unittest.TestCase):
                      "webviews/src/agent-session/acpmux/composer/deep/Box.tsx",
                      "webviews/src/agent-session/acpmux/ComposerBox.tsx",
                      "cmux-tui/crates/cmux-tui-core/src/state/tabs.rs",
+                     "scripts/cmux-next/load_stages.py",
+                     "scripts/cmux-next/tab_switch_cold.py",
                      ".github/workflows/cmux-next-tab-switch.yml"):
             with self.subTest(path=path):
                 self.assertEqual(gate.scoped_paths([path]), [path])

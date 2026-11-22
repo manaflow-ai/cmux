@@ -27,6 +27,9 @@ Scenarios (--scenarios), each --rounds times under each load (--loads):
   chromium-restored  the same pane after a relaunch restored it: 20 switches, each tab's first since the launch
                      included (tab_switch_restored.py; Leo, 2026-11-22: restored tabs showed the wallpaper and an
                      empty omnibar for 4 to 7 s, then loaded cold)
+  chromium-cold      a NEW Chromium tab opened from the terminal straight to a page never loaded this session, two
+                     a round, light and dark fixtures alternating: its visual stages counted (tab_switch_cold.py; Leo,
+                     2026-11-22: "dont have stupid multi stage loading")
 With --scenarios all, also (Leo, 2026-11-16: "opening closing tabs and workspaces idk why we didn't measure settled
 states before but like / testing it under actual extreme load is the point and seeing what oddities arise is
 meaningful"):
@@ -37,17 +40,21 @@ meaningful"):
   rapid-open-5       five new tabs as fast as the socket takes them (animations retarget mid-flight)
   rapid-close-3      three of them closed as fast
   open-while-close   a close, then a new tab while the close still animates
+  chromium-reload    the cold tab reloaded; chromium-navigate: navigated to the other theme's fixture (tab_switch_cold)
 Loads (--loads; parse_load, LOAD_PRESETS): idle and cpu and agents as before, and the instant-at-any-load modes:
   L0 idle; L1 the focused chat streams 60 chunks/s and a 2,000 lines/s tool output; L2 10 other chats streaming at
   30 chunks/s (3 as tabs of a pane split beside the measured one, the rest in background workspaces); L3 the focused
   chat is a 100k-row chat, streaming; L4 every core pinned; L5 all of them plus STRESS (perf-stress-session.py: 60
   workspaces, 20 printing terminals). Also cpu-max, agents-N, chat-100k, tabs-N, joined with + to combine.
-Per switch (tab_switch_judge.py): to_content_ms, blank_frames, wrong_frames, shift_px, insert_ok, anim_end_ok; and
+Per switch (tab_switch_judge.py): to_content_ms, blank_frames, wrong_frames, shift_px, insert_ok, anim_end_ok;
+load_stages and first_paint_ms (load_stages.py: the visual stages from the commit to the settled page) on the
+chromium-cold, -reload and -navigate loads, new-tab and chromium-restored; and
 (tab_switch_settle.py) first_change_ms, settled_ms (the window still for 300 ms), changed_after_first and the
 oddity log (placement, retarget, flicker, blank, layout-after-content, shift, late-change, never-settled), each oddity
 with its frame and a contact-sheet crop, printed as TSW-ODD lines; the summary table as TSW-TABLE lines and table.md.
-Budgets: content within one display frame, 0 blank, 0 wrong, 0 px shift, insert and animation end right. Settled
-time and oddities are reported, never gated.
+Budgets: content within one display frame, 0 blank, 0 wrong, 0 px shift, insert and animation end right; a load
+(cold_load: chromium-cold, -reload, -navigate) instead at most 2 stages, as is every switch that reports load_stages.
+Settled time and oddities are reported, never gated.
 
 Writes OUT/report.json (schema tab-switch/v1) and, for every failing switch, a contact sheet OUT/sheets/*.png (the
 frame before the switch, the frames after it, the expected end frame last). Exit 0 when every budget holds, 1 when
@@ -76,7 +83,9 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import load_stages  # noqa: E402
 import tab_switch_capture as capture  # noqa: E402
+import tab_switch_cold as cold  # noqa: E402
 import tab_switch_foreign as foreign  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
 import tab_switch_matrix as matrix  # noqa: E402
@@ -997,6 +1006,9 @@ class Harness:
             switch = self.judge(window, mark, reference=reference, strip=strip)
             if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
+            if kind == "new" and label.startswith("new-tab/"):
+                # A new tab's visual stages from its commit to its settled frame (load_stages.py): at most 2.
+                switch.update(cold.stage_fields(self, window, mark, self.at(frames, leave), end))
             if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
                 side = judge.judge_strip(window, mark, self.rec.w, self.sidebar, self.rec.frame_ms, self.rec.scale,
                                          self.args.tolerance, tab_points=40, axis="y")
@@ -1047,7 +1059,7 @@ class Harness:
         self.load_seconds = rounds * 90 + 180
         cpu = None
         # The restored scenarios run after this loop, in a workspace of their own; alone, they need no loop.
-        looped = [s for s in scenarios if s not in restored.SCENARIOS and s != "launch-restore"]
+        looped = [s for s in scenarios if s not in restored.SCENARIOS and s not in cold.ALL and s != "launch-restore"]
         for load in [x for x in loads if x not in load_notes and looped]:
             say(f"load {load}")
             spec = parse_load(load)
@@ -1121,24 +1133,44 @@ class Harness:
         if "switch-workspace-cold" in scenarios and getattr(self, "cold_note", None):
             for load in loads:
                 notes.setdefault(("switch-workspace-cold", load), self.cold_note)
+        cpu_holder = {"cpu": cpu}
+
+        def enter(load):
+            spec = parse_load(load)
+            if spec.get("cpu") and cpu_holder["cpu"] is None:
+                cpu_holder["cpu"] = CpuLoad(self.root)
+            return self.enter_load(spec, agents, cpu_holder["cpu"]) if load not in load_notes else []
+
+        def leave(load):
+            if load not in load_notes:
+                self.exit_load(parse_load(load), agents, cpu_holder["cpu"])
+
+        if any(s in scenarios for s in cold.ALL):
+            # After the looped loads, in the measured workspace: new Chromium tabs loading cold, their stages counted.
+            fixture = None
+            try:
+                fixture = cold.Cold(self, say, scenarios)
+                got, got_notes = fixture.run([x for x in loads if x not in load_notes], enter, leave)
+                for key, switches in got.items():
+                    if key[0] in scenarios:
+                        rows[key] = switches
+                for key, note in got_notes.items():
+                    if key[0] in scenarios:
+                        notes.setdefault(key, note)
+            except Exception as error:  # noqa: BLE001 - the rows say why
+                for load in loads:
+                    for name in cold.ALL:
+                        if name in scenarios:
+                            notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
+            finally:
+                if fixture is not None:
+                    fixture.close()
         restored_rows = {}
         if any(s in scenarios for s in restored.SCENARIOS):
             # After the loads, before launch-restore: a pane of Chromium tabs, switched live, then after a relaunch.
             fixture = None
             try:
                 fixture = restored.Restored(self, say)
-                cpu_holder = {"cpu": cpu}
-
-                def enter(load):
-                    spec = parse_load(load)
-                    if spec.get("cpu") and cpu_holder["cpu"] is None:
-                        cpu_holder["cpu"] = CpuLoad(self.root)
-                    return self.enter_load(spec, agents, cpu_holder["cpu"]) if load not in load_notes else []
-
-                def leave(load):
-                    if load not in load_notes:
-                        self.exit_load(parse_load(load), agents, cpu_holder["cpu"])
-
                 got, got_notes, restored_rows = fixture.run([x for x in loads if x not in load_notes], enter, leave)
                 for key, switches in got.items():
                     if key[0] in scenarios:
