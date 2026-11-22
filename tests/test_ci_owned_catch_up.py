@@ -75,8 +75,8 @@ class OwnedCatchUpTest(unittest.TestCase):
         # must be named in the result line.
         text = SCRIPT.read_text()
         step = text.index("bash scripts/ci/ensure-web-bundles.sh")
-        self.assertLess(step, text.index("canonical-resolve"))
-        self.assertLess(step, text.index("canonical-build"))
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-resolve"))
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-build"))
         self.assertIn('ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"', text)
 
 
