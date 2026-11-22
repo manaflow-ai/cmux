@@ -1,0 +1,20 @@
+{
+  "family": "chat",
+  "ops": {
+    "chat.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "0f536779a0b5637f"
+    },
+    "chat.mark_read": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a9f1bb04bce902d7"
+    },
+    "chat.pin": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "3f883220f10bd3af"
+    }
+  }
+}

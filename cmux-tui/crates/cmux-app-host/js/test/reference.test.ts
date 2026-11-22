@@ -23,3 +23,21 @@ describe("generated docs reference", () => {
     for (const name of Object.keys(scopes)) expect(md).toContain(`| \`${name}\` |`)
   })
 })
+
+describe("merged schema directory", () => {
+  test("small per-family files cover all three source kinds, with digests", () => {
+    const files = generate()
+    const rows = Object.entries(files).filter(([n]) => n.startsWith("../schema/merged/ops/"))
+    expect(rows.length).toBeGreaterThan(20)
+    const sources = new Set<string>()
+    for (const [, body] of rows) {
+      expect(body.length).toBeLessThan(200_000)
+      for (const op of Object.values(JSON.parse(body).ops as Record<string, { source: string; digest: string }>)) {
+        sources.add(op.source)
+        expect(op.digest).toMatch(/^[0-9a-f]{16}$/)
+      }
+    }
+    expect([...sources].sort()).toEqual(["app", "cloud", "local"])
+    expect(JSON.parse(files["../schema/merged/index.json"]!).offeredActions.length).toBeGreaterThan(0)
+  })
+})
