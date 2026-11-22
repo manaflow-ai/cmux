@@ -68,6 +68,7 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
         {look === "compact" ? null : (
           <span
             className={cx("onb-agent-detail", failed && "is-error")}
+            // tooltip-allow: a failed install's reason shows nowhere else.
             title={failed ? (install?.message ?? undefined) : undefined}
           >
             {detail}
@@ -78,6 +79,7 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
         <span
           className="onb-agent-pill"
           data-state={failed ? "error" : signedIn ? "done" : "idle"}
+          // tooltip-allow: a failed install's reason shows nowhere else.
           title={failed ? (install?.message ?? undefined) : undefined}
         >
           {(failed || signedIn) && <StatusGlyph name={failed ? "error" : "done"} size={12} />}

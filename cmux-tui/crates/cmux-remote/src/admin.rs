@@ -874,7 +874,18 @@ pub enum AdminError {
 impl fmt::Display for AdminError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(formatter, "admin socket failed: {error}"),
+            Self::Io(error) => {
+                write!(formatter, "admin socket failed: {error}")?;
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) {
+                    formatter.write_str(
+                        "; no remote daemon answers there. Start one with `cmux daemon start --remote-ws 127.0.0.1:PORT`, or name the one that runs with `--session NAME` or `--state-dir PATH`",
+                    )?;
+                }
+                Ok(())
+            }
             Self::Json(error) => write!(formatter, "admin JSON failed: {error}"),
             Self::Protocol(message) => write!(formatter, "admin protocol failed: {message}"),
             Self::MessageTooLarge(size) => write!(formatter, "admin message is too large: {size}"),
@@ -908,6 +919,16 @@ impl From<UnixPeerAuthError> for AdminError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_missing_admin_socket_names_the_next_command() {
+        let gone = AdminError::Io(io::Error::from(io::ErrorKind::NotFound)).to_string();
+        assert!(gone.starts_with("admin socket failed: "), "{gone}");
+        assert!(gone.contains("cmux daemon start --remote-ws"), "{gone}");
+        assert!(gone.contains("--session NAME"), "{gone}");
+        let denied = AdminError::Io(io::Error::from(io::ErrorKind::PermissionDenied)).to_string();
+        assert!(!denied.contains("cmux daemon start"), "{denied}");
+    }
+
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::net::UnixListener;

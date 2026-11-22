@@ -464,7 +464,7 @@ fn print(size: &str, c: &Costs) {
 }
 
 /// In a process of its own: bytes read and memory are counted for the whole process. Manual,
-/// as `update_cost_bench` is: CI runs no new perf test (root CLAUDE.md).
+/// as `update_cost_bench` is (kept out of CI under the 2026-10-23 no-new-CI rule, since lifted).
 #[test]
 #[ignore = "manual god-chat stress: cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture"]
 fn a_god_chat_restarts_opens_and_streams_as_a_small_one_does() {

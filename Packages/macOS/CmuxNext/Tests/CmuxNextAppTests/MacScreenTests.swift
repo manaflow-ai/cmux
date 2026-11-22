@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
@@ -33,7 +34,7 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences())
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(), viewerLook: .current)
 }
 
 /// Mac Screen tabs: the record, scrolling.
@@ -349,6 +350,19 @@ struct MacScreenPageTabTests {
     /// Without a device hub (or signed out) the home page says how to set Mac Screen up.
     @Test func theHomePageExplainsTheSetup() {
         #expect(MacScreenHomeSnapshot.setupDevices(configured: false).note != MacScreenHomeSnapshot.setupDevices(configured: true).note)
+    }
+
+    /// Leo, 2026-11-19 (ask-6a79af928f): Your Devices said "None of your other devices share Mac Screen" with a
+    /// list never read. "None" is said only after a read; before it, loading; a failure says why.
+    @Test func yourDevicesSaysNoneOnlyAfterTheListWasRead() {
+        let none = L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+        #expect(MacScreenHomeSnapshot.emptyNote(.noDevices) == none)
+        #expect(MacScreenHomeSnapshot.emptyNote(.finding) == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        let failed = MacScreenHomeSnapshot.emptyNote(.failed(.list, detail: "HTTP 503"))
+        #expect(failed != none && failed.contains("HTTP 503"))
+        #expect(MacScreenHomeSnapshot.emptyNote(.failed(.connection, detail: nil)) != none)
+        #expect(DeviceDiscovery.make(status: "ready", listed: false, connection: "connected", shown: 0) == .finding)
+        #expect(DeviceDiscovery.make(status: "ready", listed: true, connection: "connected", shown: 0) == .noDevices)
     }
 }
 

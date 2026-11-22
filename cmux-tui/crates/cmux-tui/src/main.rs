@@ -53,6 +53,8 @@ mod codex_wrapper;
 mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
@@ -65,6 +67,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -585,6 +589,51 @@ fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: b
 
 fn usage() -> String {
     usage_for(localization::catalog())
+}
+
+/// The startup options that run or configure the authenticated remote daemon,
+/// the ones `cmux remote --help` calls "explicit remote flags". A test checks
+/// this list against `parse_args_result`'s match arms, so it cannot drift.
+pub(crate) const REMOTE_START_OPTIONS: &[&str] = &[
+    "--remote",
+    "--remote-ws",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--remote-http",
+    "--remote-state-dir",
+    "--remote-link-socket",
+    "--remote-admin-socket",
+    "--remote-resume-lease-seconds",
+    "--relay",
+    "--relay-slot",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--carrier-grant-config",
+    "--iroh",
+    "--advertise",
+    "--remote-local-socket",
+];
+
+/// The START OPTIONS entries of usage.txt for [`REMOTE_START_OPTIONS`], each
+/// with its description lines, so `cmux daemon start --help` and the startup
+/// usage say the same thing.
+pub(crate) fn remote_start_options_help() -> String {
+    let mut out = String::new();
+    let mut keep = false;
+    for line in USAGE.lines() {
+        if let Some(entry) = line.strip_prefix("  -") {
+            let flag = format!("-{}", entry.split_whitespace().next().unwrap_or_default());
+            keep = REMOTE_START_OPTIONS.contains(&flag.as_str());
+        } else if !line.starts_with("   ") {
+            keep = false;
+        }
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

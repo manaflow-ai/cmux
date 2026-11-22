@@ -111,8 +111,9 @@ impl Hub {
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && !self.continuation_pending(session)
             // A Claude chat with turns but none stored would wake as a fresh conversation with
-            // its transcript restored into the prompt (`claude_resume_refusal`): kept awake.
-            && !(session.meta().claude_unstored && session.meta().turn_count > 0)
+            // its transcript restored into the prompt (`claude_resume_refusal`): kept awake when
+            // its agent did work there; one that only got agent errors loses nothing (cmux#48917).
+            && !session.meta().keeps_unstored_awake()
     }
 
     /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
@@ -442,6 +443,8 @@ impl Hub {
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
+        // A person's: the agent it starts suggests next prompts (`host_level.rs`).
+        session.start_for.store(super::host_level::FOR_A_PERSON, Ordering::SeqCst);
         // The person asked for it: what a daemon start held in its protected folder goes on.
         self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);

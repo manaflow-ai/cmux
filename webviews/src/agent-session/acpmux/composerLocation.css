@@ -1620,14 +1620,25 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset);
+  align-self: var(--acpmux-lead-align, start);
+  margin: var(--acpmux-lead-margin, var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset));
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
   align-items: center;
   height: var(--acpmux-composer-control);
 }
+.acpmux-composer-extension-tools,
+.acpmux-composer-extension-buttons {
+  display: inline-flex;
+  align-items: center;
+}
+.acpmux-composer-extension-buttons {
+  max-inline-size: 25vw;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.acpmux-composer-extension-buttons > * { flex-shrink: 0; }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
@@ -1635,11 +1646,17 @@
   margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
 }
 /* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls. */
+   overflow while a short draft grows, so wrapping a line never moves the controls.
+   The capped state lands on the bar and its leading controls read it (the rule above), never
+   `:has(...) .acpmux-composer-inner > :not(...)`: a universal right side joins the one set Chromium
+   uses for every non-subject `:has`, and then any fade mark anywhere (the transcript's scroller on
+   each scroll, the prompt rail on hover) restyled every element in the pane
+   (docs: pane-level-has-restyles-every-row in the team handbook). */
 .acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > :not(.acpmux-composer-actions) {
-  align-self: end;
-  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
+  .acpmux-composer-inner {
+  --acpmux-lead-align: end;
+  --acpmux-lead-margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
+  --acpmux-lead-bottom: var(--acpmux-prompt-control-top);
 }
 .acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
   .acpmux-composer-inner > .acpmux-composer-actions {
@@ -1783,7 +1800,7 @@
    its composer. The default is the icon and the short name. */
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: var(--ds-radius-control);
   padding-inline: 8px;
 }
@@ -1830,7 +1847,7 @@
   position: absolute;
   inset-inline: 0;
   top: -5px;
-  border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  border-top: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
 /* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */

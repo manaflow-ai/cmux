@@ -5,7 +5,7 @@ A Keychain call guarded by withoutUI or kSecUseAuthenticationUIFail passes, a
 call marked `// keychain-prompt: consent` passes, an unguarded call is counted,
 and the baseline ratchet fails both above and below its row.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a
+Not a CI job (Lawrence 2026-10-23: no new CI gates, since lifted): run it yourself after a
 change to the check:
   python3 -I scripts/cmux-next/tests/test_check_keychain_no_prompt.py
 """

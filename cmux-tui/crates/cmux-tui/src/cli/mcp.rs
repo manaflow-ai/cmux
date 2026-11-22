@@ -23,7 +23,7 @@ mod agent_tools;
 mod agent_wait_tool;
 mod automation_tools;
 mod browser_tools;
-mod caller_scope;
+use super::caller_scope;
 mod chat_tools;
 mod cloud_connect_tools;
 mod cloud_repo_tools;
@@ -374,7 +374,7 @@ impl Backend for LiveBackend {
 
     #[cfg(unix)]
     fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
-        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+        super::customize::run_json(&self.global, words, "mcp").map_err(|error| CallFailure {
             kind: FailureKind::Rejected,
             error,
             idempotency_key: None,

@@ -202,12 +202,20 @@ read_pin() {
 # a published manifest, then lost the fourth download to one timed-out TLS read
 # and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
 # error (exit 22: the object is not there, which callers poll for) is retried
-# here, with a short backoff.
+# here, with a short backoff. The HTTP status decides what is an HTTP error, not
+# the exit code: macOS curl 8.7.1 over HTTP/2 exits 56, not 22, on a --fail 404,
+# so every unpublished key cost 4 attempts and 12 s of backoff, and the nightly's
+# fallback search (resolve-tree-pending.sh) spent 6 to 12 min of each build
+# walking 24 to 48 of them (nightly-next runs 44990363506, 44992267457,
+# 44993740115). A 4xx returns 22 at once (curl's --retry already retried 408
+# and 429); a transfer that failed with no status (000) or a 2xx is retried.
 download() {
-  local attempt=1 rc=0
+  local attempt=1 rc=0 code=""
   while :; do
     rc=0
-    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    code="$(curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 \
+      -w '%{http_code}' -o "$2" "$1")" || rc=$?
+    if (( rc != 0 )) && [[ "$code" =~ ^4[0-9][0-9]$ ]]; then return 22; fi
     (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
     echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
     sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
@@ -601,6 +609,34 @@ tree_publisher() {
   elif [[ "$ended" == true ]]; then echo ended
   else echo none
   fi
+}
+
+# Succeeds when every cmux-tui artifacts run of <sha> ended success because it was coalesced:
+# its coalesce job (base-coalesce.yml, "coalesce / coalesce") succeeded and its tree preflight was
+# skipped, so it built and published nothing by design (cmux-tui-artifacts.yml builds one
+# feat-cmux-next tree per window). Fails on any other run, or when a runs or jobs list is unreadable.
+artifacts_runs_coalesced() {
+  local sha="$1" api runs ids id jobs
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || return 1
+  ids="$(python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+if not runs or any(r.get("status") != "completed" or r.get("conclusion") != "success" for r in runs):
+    sys.exit(1)
+for r in runs:
+    print(int(r["id"]))
+' <<<"$runs" 2>/dev/null)" || return 1
+  while read -r id; do
+    jobs="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || return 1
+    python3 -c '
+import json, sys
+jobs = json.loads(sys.stdin.read())["jobs"]
+coalesce = [j.get("conclusion") for j in jobs if j.get("name") == "coalesce" or str(j.get("name")).startswith("coalesce /")]
+preflight = [j.get("conclusion") for j in jobs if j.get("name") == "cmux-tui tree preflight"]
+sys.exit(0 if "success" in coalesce and preflight and all(c == "skipped" for c in preflight) else 1)
+' <<<"$jobs" 2>/dev/null || return 1
+  done <<<"$ids"
 }
 
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
@@ -1439,6 +1475,15 @@ probe_checkout_tree() {
       if [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
+      elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then
+        # A coalesced push (cmux-tui-artifacts.yml's coalesce job: one feat-cmux-next build per
+        # window, #48943) builds nothing by design, so its success is no failed publish. Until
+        # 2026-11-22 the tip read it as one, and every coalesced tip's same-tree cmux-tui was red
+        # (run 44988509777 at 80e3d5099479: "ended without publishing tree 3c101a06 (success)").
+        # The wait marker stays: the tree's next publish (the next window's push with this key, a
+        # re-run of this run, or cmux-tui-tree-request.yml) starts the tree jobs.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was coalesced (one feat-cmux-next build per window, base-coalesce.yml), so it builds no tree; tree $key's next publish starts the tree jobs"
       else
         reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
