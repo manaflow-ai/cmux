@@ -6,11 +6,14 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_host;
 pub(crate) mod cursor;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
@@ -178,5 +181,9 @@ impl FrameSource for MacFrames {
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }

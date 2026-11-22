@@ -36247,7 +36247,7 @@
         "workspace",
         "tab"
       ],
-      "title" : "Send Message…",
+      "title" : "Ask Chief About This…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -51014,6 +51014,231 @@
         "pane"
       ],
       "title" : "Diff: Previous File",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-in",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomIn",
+        "cli" : false,
+        "default_aliases" : [
+          {
+            "keys" : [
+              {
+                "key" : "=",
+                "modifiers" : [
+                  "shift",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "diffViewerFocused"
+          }
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomIn",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "plus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom In",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-out",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomOut",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomOut",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "minus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom Out",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-actual-size",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomReset",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomReset",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom",
+        "reset"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "1.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Actual Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -110206,289 +110431,6 @@
       "arguments" : [
 
       ],
-      "category" : "agents",
-      "cliName" : "chief toggle-screen-share",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.toggle",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.toggle",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : true,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "toggle"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "display",
-      "targets" : [
-
-      ],
-      "title" : "Chief: Toggle Screen Sharing",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief share-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.start",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.start",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : true,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "start"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "display",
-      "targets" : [
-
-      ],
-      "title" : "Share Screen with Chief",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief stop-sharing-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.stop",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.stop",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "stop",
-        "end"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "stop.circle",
-      "targets" : [
-
-      ],
-      "title" : "Stop Sharing Screen with Chief",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "agents",
-      "cliName" : "chief look-at-screen",
-      "computed" : {
-        "canonical_action_id" : "chief.screenShare.look",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "ChiefScreenShareActionCatalog",
-      "hint" : null,
-      "id" : "chief.screenShare.look",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "chief",
-        "screen",
-        "share",
-        "sharing",
-        "capture",
-        "see",
-        "memory",
-        "record",
-        "look",
-        "now",
-        "screenshot"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "paletteTarget" : null,
-      "paletteTargetSource" : null,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "eye",
-      "targets" : [
-
-      ],
-      "title" : "Chief: Look at Screen Now",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
       "category" : "window",
       "cliName" : "media play-pause",
       "computed" : {
@@ -115429,11 +115371,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarSection",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 100,
+            "rank" : 320,
             "style" : "item"
           }
         ],
@@ -115586,11 +115528,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarBackground",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 110,
+            "rank" : 142,
             "style" : "item"
           }
         ],
@@ -126752,6 +126694,27 @@
         "source" : "default",
         "when" : null,
         "when_text" : null
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "diffViewerZoomIn",
+        "keys" : [
+          {
+            "key" : "=",
+            "modifiers" : [
+              "shift",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "has" : "diffViewerFocused"
+        },
+        "when_text" : "diffViewerFocused"
       }
     ]
   },

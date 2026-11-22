@@ -90,16 +90,16 @@ struct AgentPaneDisplaySettingTests {
     }
 
     /// The transcript look (docs/cmux-next/transcript-customization.md): a theme file's look and
-    /// tokens reach the page (the effective root), and the tokens row takes an object of strings and
+    /// tokens reach the page (the file root with the theme file over it,
+    /// ``SettingsController/chatDisplayInputs``), and the tokens row takes an object of strings and
     /// numbers only.
-    @Test func theTranscriptLookComesFromTheEffectiveRootAndTheTokensAreAnObject() {
+    @Test func theTranscriptLookComesFromTheThemedRootAndTheTokensAreAnObject() {
         let look = "agentPane.display.transcriptLook", tokens = "agentPane.display.transcriptTokens"
         let file: JSONValue = ["agentPane": ["display": ["width": .number(900)]]]
-        let themed: JSONValue = ["agentPane": ["display": [
-            "width": .number(1200), "transcriptLook": .string("studio"),
-            "transcriptTokens": .object(["userMessage.radius": .number(20), "timestamps": .string("always")]),
-        ]]]
-        let display = AgentPaneDisplaySetting(fileRoot: file, lookRoot: themed)
+        let text = #"{ "agentPane.display.transcriptLook": "studio", "#
+            + #""agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#
+        let themed = ThemeFileOverlay(name: "look", source: .success(text), base: file).applied(to: file)
+        let display = AgentPaneDisplaySetting(fileRoot: themed)
         #expect(display.values[look] == .string("studio"))
         #expect(display.values[tokens] == .object(["userMessage.radius": .number(20), "timestamps": .string("always")]))
         #expect(display.values["agentPane.display.width"] == .number(900))
