@@ -62,5 +62,45 @@ struct TunableReadCadenceTests {
         #expect(row["value"]?.boolValue == true)
         #expect(Self.launchRead.value(in: store) == true)
     }
+
+    /// Nothing has read the key this launch: the row says so, rather than claiming the value is in
+    /// use, and carries no `launch_value` to measure against.
+    @Test func anUnreadLaunchKeySaysNothingHasReadIt() {
+        let services = Self.services(), store = TunableStore()
+        let catalog = [Self.launchRead.descriptor]
+        _ = Self.call(["action": "activate"], store, services, catalog)
+        let row = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
+        #expect(row["applies"]?.boolValue == false)
+        #expect(row["applies_why"]?.stringValue?.contains("nothing has read it") == true)
+        #expect(row["launch_value"] == nil)
+    }
+
+    /// The arm the harness launched with: a launch-time key whose stored value is the one this
+    /// process read at launch applies, and the row carries that read as `launch_value`. Reporting
+    /// the cadence alone would call this correct arm unapplied.
+    @Test func aLaunchKeyMatchingWhatThisProcessReadApplies() {
+        let services = Self.services(), store = TunableStore()
+        let catalog = [Self.launchRead.descriptor]
+        _ = Self.call(["action": "activate"], store, services, catalog)
+        // The launch step reads it, as CEFSwitches does for its frame-pacing switch (#48152 gives
+        // that read a typed `Tunable.settledValue`; the store call under it is the same one).
+        #expect(store.settledOverride("test.launchRead") == nil)
+
+        let launchArm = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
+        #expect(launchArm["applies"]?.boolValue == true)
+        #expect(launchArm["applies_why"] == nil)
+        #expect(launchArm["launch_value"]?.boolValue == false)
+
+        // A `set` away from it does not apply to this launch, and names the value in use.
+        let changed = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
+        #expect(changed["applies"]?.boolValue == false)
+        #expect(changed["launch_value"]?.boolValue == false)
+        #expect(changed["applies_why"]?.stringValue?.contains("launch_value") == true)
+
+        // Set back to the launch value: this launch is using it again.
+        let restored = Self.call(["action": "set", "key": "test.launchRead", "value": false], store, services, catalog)
+        #expect(restored["applies"]?.boolValue == true)
+        #expect(restored["applies_why"] == nil)
+    }
 }
 #endif
