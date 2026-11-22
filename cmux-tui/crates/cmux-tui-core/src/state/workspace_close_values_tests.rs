@@ -129,10 +129,10 @@ fn close_and_compare(mux: &Arc<Mux>, id: &str, what: &str) -> BTreeMap<String, V
                 "{what}: the journal's value of {public_id}, then the rows'"
             );
         }
-        assert_eq!(
-            fold.get(public_id),
-            Some(&rows),
-            "{what}: the fold's value of {public_id}, then the rows'"
+        // The fold keeps digests of its values.
+        assert!(
+            fold.get(public_id).is_some_and(|held| held.is(&rows)),
+            "{what}: the fold does not hold the rows' value of {public_id}: {rows}"
         );
     }
     stated
