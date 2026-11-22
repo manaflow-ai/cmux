@@ -2552,6 +2552,12 @@ struct WorkspaceTabCard: View {
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
+                // Gallery variant (off by default): where the tab sits among its screen's splits.
+                .overlay(alignment: .topTrailing) {
+                    if TabSplitMapBadge.isEnabled, let map = workspace.layout?.splitMap(ofTab: tab.id) {
+                        TabSplitMapBadge(map: map).padding(.trailing, 16).padding(.top, 14)
+                    }
+                }
                 // The page size the kit lays the grid's cards out at (the full page, scaled down):
                 // a grid shown before any page, or rotated with the grid up, gives it. Never the
                 // card's own size, which its long-press and drag previews lay it out at (nil there).
