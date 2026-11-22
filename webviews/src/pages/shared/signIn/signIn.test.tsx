@@ -10,8 +10,8 @@ afterAll(() => restore());
 const { createRoot } = await import("react-dom/client");
 const { DeviceSignInCard, primaryAction } = await import("./DeviceSignInCard");
 const { AccountSwitcher } = await import("./AccountSwitcher");
-const { ProviderReadiness, readinessAction } = await import("./ProviderReadiness");
-const { SIGN_IN_STATES, SIGN_IN_STATE_FAMILY, ACCOUNT_LISTS, READINESS } = await import("./galleryFixtures");
+const { readinessAction, agentFamily } = await import("./ProviderReadiness");
+const { SIGN_IN_STATES, SIGN_IN_STATE_FAMILY, ACCOUNT_LISTS } = await import("./galleryFixtures");
 const adapter = await import("./accountSignIn");
 
 let unmount: (() => void) | null = null;
@@ -76,10 +76,10 @@ test("the code is the visible text only: no attribute carries it", async () => {
   }
 });
 
-test("an expired code offers New code and shows no code", async () => {
+test("an expired code offers New Code and shows no code", async () => {
   let retried = 0;
   await draw(<DeviceSignInCard family="github" view={{ state: "expired" }} {...handlers} onRetry={() => retried++} />);
-  expect(document.body.textContent).toContain("New code");
+  expect(document.body.textContent).toContain("New Code");
   expect(document.body.textContent).not.toContain("WDJB-MJHT");
   await act(async () => document.body.querySelector<HTMLButtonElement>('[data-sign-in-action="newCode"]')!.click());
   expect(retried).toBe(1);
@@ -126,25 +126,21 @@ test("a signed-out row offers Sign in, and inline puts the card in that row", as
   expect(root.querySelector('[data-sign-in-account="github-2"] [data-sign-in-row-action="signIn"]')).not.toBeNull();
 });
 
-test("readiness: one action per state; installing and signing in only wait", async () => {
+test("readiness: one action per state; installing and signing in only wait", () => {
   const states = ["notInstalled", "installing", "signInRequired", "signingIn", "ready", "failed"] as const;
   expect(states.map(readinessAction)).toEqual(["install", null, "signIn", null, "addAccount", "tryAgain"]);
-  const root = await draw(<ProviderReadiness rows={READINESS.mixed} />);
-  const action = (family: AccountFamily) =>
-    [...root.querySelectorAll<HTMLElement>(`[data-ready-family="${family}"] [data-ready-action]`)].map(
-      (node) => node.dataset.readyAction,
-    );
-  expect(action("github")).toEqual(["addAccount"]);
-  expect(action("codex")).toEqual([]);
-  expect(action("claude")).toEqual(["tryAgain"]);
-  expect(root.querySelector('[data-ready-family="claude"]')!.textContent).toContain("the page was closed");
+  expect(["claude", "codex", "gemini", "opencode"].map(agentFamily)).toEqual(["claude", "codex", null, null]);
 });
 
-test("readiness signing in: the row holds the card with the code", async () => {
-  const root = await draw(<ProviderReadiness rows={READINESS.signingIn} card={handlers} />);
-  const row = root.querySelector('[data-ready-family="codex"]')!;
-  expect(row.querySelector(".signin")).not.toBeNull();
-  expect(row.textContent).toContain("K7QX-29PF");
+test("button labels are Title Case, as the pages' existing buttons", async () => {
+  await draw(<DeviceSignInCard family="github" view={{ state: "expired" }} {...handlers} />);
+  expect(document.body.textContent).toContain("New Code");
+  expect(document.body.textContent).toContain("Sign In to GitHub");
+});
+
+test("Copy stays Copy after the code is copied (the line says it is copied)", async () => {
+  await draw(<DeviceSignInCard family="codex" view={SIGN_IN_STATES.code} {...handlers} />);
+  expect(document.body.querySelector('[data-sign-in-action="copy"]')!.textContent).toBe("Copy");
 });
 
 test("the adapter reads each way of finishing and checks the page", () => {

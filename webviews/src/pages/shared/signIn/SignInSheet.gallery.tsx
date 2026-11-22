@@ -42,7 +42,7 @@ const NOTES: Record<SignInStateName, string> = {
   approve: "Claude's page signs in by itself: approve there. Cancel only.",
   paste: "Claude's page shows a code to paste back here. Continue once pasted.",
   "signed-in": "Turned into the account by itself. Done (it also closes after a few seconds).",
-  expired: "The code ran out unused. New code.",
+  expired: "The code ran out unused. New Code.",
   cancelled: "Cancelled on the provider's page. Try again.",
   "shared-machine": "A shared team machine refuses a personal sign-in. Done.",
   failed: "Anything else. Try again.",

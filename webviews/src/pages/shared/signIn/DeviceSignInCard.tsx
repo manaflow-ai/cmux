@@ -128,12 +128,9 @@ function ActionButtons({
   switch (primary) {
     case "copy":
       out.push(
-        button(
-          "copy",
-          strings.t(view.state === "waiting" && view.copied ? "signIn.copied" : "signIn.copy"),
-          props.onCopy,
-          true,
-        ),
+        // Always "Copy": the line above says it is already copied, and a primary button reading
+        // "Copied" looks like a state, not an action.
+        button("copy", strings.t("signIn.copy"), props.onCopy, true),
       );
       break;
     case "continue":

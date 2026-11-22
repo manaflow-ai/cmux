@@ -8,7 +8,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add account"
+            "value": "Add Account"
           }
         },
         "ar": {
@@ -668,7 +668,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in"
+            "value": "Sign In"
           }
         },
         "ar": {
@@ -800,7 +800,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign out"
+            "value": "Sign Out"
           }
         },
         "ar": {
@@ -3308,7 +3308,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New code"
+            "value": "New Code"
           }
         },
         "ar": {
@@ -5552,7 +5552,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to Claude"
+            "value": "Sign In to Claude"
           }
         },
         "ar": {
@@ -5684,7 +5684,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to ChatGPT"
+            "value": "Sign In to ChatGPT"
           }
         },
         "ar": {
@@ -5816,7 +5816,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to GitHub"
+            "value": "Sign In to GitHub"
           }
         },
         "ar": {
@@ -5948,7 +5948,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Try again"
+            "value": "Try Again"
           }
         },
         "ar": {
