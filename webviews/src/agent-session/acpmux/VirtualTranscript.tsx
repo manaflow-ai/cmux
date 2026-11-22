@@ -241,6 +241,7 @@ import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversat
 import { DOCK_NOTICE } from "./noticeSlotModel";
 import { JumpDots } from "./conversation/JumpDots";
 import { useThinkingLook } from "./conversation/thinkingLook";
+import { showsChatSnapshot } from "./chatSnapshot/live";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -4796,8 +4797,17 @@ function TranscriptView({
   // its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
-  const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+  // Under the last launch's copy (chatSnapshot/paint.ts) the live page lays out unseen until it takes
+  // over, so the transcript's first commit there mounts the rows in view and the history comes in the
+  // deferred render right after it: four viewports of rows nobody can see were most of the first
+  // render a restart waited on (about 65 of 77 rows), and that render held the socket's handshake
+  // replies, so the take-over waited on rows above the view (bench/first-load-after-restart.bench.ts,
+  // Leo, 2026-11-22: "get that gui agent chat sped up to be nearly as fast as the terminal coming
+  // back"). Without a copy the first painted frame is the live page's, and it mounts its history now.
+  const historyReady = useDeferredValue(true, false);
+  const history =
+    renderFollowing && (historyReady || !showsChatSnapshot())
+      ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
     : undefined;
   const scrolledRanges = mergeRowRanges([
     ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),

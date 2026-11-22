@@ -777,7 +777,7 @@ try {
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE || process.env.NO_MINIFY ? { minify: false } : {}) },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
@@ -1236,11 +1236,15 @@ try {
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
       wireT0 = Date.now();
+      const traceFile = process.env.CHROME_TRACE_DIR ? path.join(process.env.CHROME_TRACE_DIR, `${mode}-${Date.now()}.json`) : "";
+      if (traceFile) await browser.startTracing(page, { path: traceFile, screenshots: false, categories: ["devtools.timeline", "v8.execute", "disabled-by-default-devtools.timeline", "disabled-by-default-v8.cpu_profiler", "blink.user_timing", "loading"] });
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
+      if (traceFile) await browser.stopTracing();
+      if (process.env.DOM_COUNT) console.log("DOM_COUNT", JSON.stringify(await page.evaluate(() => ({ rows: document.querySelectorAll(".acpmux-row[data-row-id]").length, all: document.querySelectorAll("*").length, transcript: document.querySelector(".acpmux-scroll")?.querySelectorAll("*").length, composer: document.querySelector(".acpmux-dock")?.querySelectorAll("*").length, header: document.querySelector(".acpmux-header")?.querySelectorAll("*").length, rowH: [...document.querySelectorAll(".acpmux-row[data-row-id]")].map((r) => Math.round(r.getBoundingClientRect().top)).join(","), vh: innerHeight }))));
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
         // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
