@@ -198,6 +198,49 @@ import Testing
         tar.waitUntilExit()
         #expect(tar.terminationStatus == 0)
     }
+
+    /// Leo 2026-11-22 ("i have this layout. so. the preview should be able to depict that."): the shaped split
+    /// preview in each stats style, the first sample beside a later one, and the card before it (the tab list).
+    /// Written under `hover-card-variants/split-preview/`.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
+    func renderSplitPreviewGallery() throws {
+        let root = AANestedGroupsGalleryTests.packageRoot
+        let out = root.appending(path: "hover-card-variants/split-preview")
+        try? FileManager.default.removeItem(at: out)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        typealias Make = () -> WorkspaceHoverCardView
+        let before: Make = {
+            let card = WorkspaceHoverCardView()
+            card.configureTabs(title: "todo-app", tabs: WorkspaceHoverCardGallery.splitTabs, now: WorkspaceHoverCardFixture.now)
+            card.setResources(WorkspaceHoverCardGallery.splitReport(sampled: true))
+            return card
+        }
+        let variants: [(String, String, Make)] = [
+            ("before", "Before: tab list", before),
+            ("a-numbers", "A numbers", { WorkspaceHoverCardGallery.splitPreviewCard(.numbers) }),
+            ("b-symbols", "B symbols", { WorkspaceHoverCardGallery.splitPreviewCard(.symbols) }),
+            ("c-memory-first", "C memory first", { WorkspaceHoverCardGallery.splitPreviewCard(.memoryFirst) }),
+            ("a-first-sample", "A first sample", { WorkspaceHoverCardGallery.splitPreviewCard(.numbers, sampled: false) }),
+            ("a-stacked", "A stacked", { WorkspaceHoverCardGallery.splitPreviewCard(.numbers, stacked: true) }),
+        ]
+        var shots: [Bool: [CGImage]] = [true: [], false: []]
+        for dark in [true, false] {
+            for (id, label, make) in variants {
+                let image = try Self.labeled(try Self.render(dark: dark, make: make), label, dark: dark)
+                shots[dark]?.append(image)
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(id)-\(dark ? "dark" : "light").png"))
+            }
+        }
+        try AAGroupHeaderDensityGalleryTests.write(try Self.sheet(shots[true] ?? [], shots[false] ?? [], columns: 3),
+                                                   to: out.appending(path: "all.png"))
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.currentDirectoryURL = root
+        tar.arguments = ["cf", "hover-card-variants.tar", "hover-card-variants"]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
+    }
 }
 
 /// A terminal's worth of text behind the card: what a hover card covers while the person works.

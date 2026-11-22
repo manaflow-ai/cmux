@@ -1,0 +1,10 @@
+{
+  "caption": "A split workspace's hover card draws its panes as you arranged them, each tab with its CPU and memory.",
+  "frameInterval": 0.25,
+  "crop": [0, 0, 0.45, 0.7],
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "The sidebar's hover cards, split previews first", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "sidebar"}}, "wait": 2, "clip": true},
+    {"title": "End", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "none"}}, "wait": 0.3}
+  ]
+}

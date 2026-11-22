@@ -27,8 +27,11 @@ public nonisolated enum WorkspaceHoverCardTitle: String, Sendable, CaseIterable,
         case .always: return true
         case .withDetails: return false
         case .unlessRepeated:
-            guard tabTitles.count == 1, let only = tabTitles.first else { return true }
-            return Self.normalized(only) != Self.normalized(title)
+            // A one-tab workspace named after its tab plus a word ("<machine> Desktop" over its Cloud desktop tab
+            // "<machine>") repeats it too: one row, not two (Leo 2026-11-22).
+            guard tabTitles.count == 1, let only = tabTitles.first.map(Self.normalized), !only.isEmpty else { return true }
+            let name = Self.normalized(title)
+            return name != only && !name.hasPrefix(only + " ")
         }
     }
 
