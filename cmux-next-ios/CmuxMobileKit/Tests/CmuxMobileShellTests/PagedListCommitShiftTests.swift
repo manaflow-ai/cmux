@@ -154,6 +154,21 @@ import UIKit
         #expect(abs(hosted.seen.worst - 22) < 0.5, "a 22 pt move of everything read measured \(hosted.seen.shifts)")
     }
 
+    /// A row inserted next to the row being read in the very frame everything moves: the move counts
+    /// in full (the measure follows the row by its id; a change around it does not drop the frame).
+    @Test func aMoveInTheFrameARowArrivesNextToTheReaderCountsInFull() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - list.adjustedContentInset.top), animated: false)
+        settle()
+        hosted.seen.shifts = []
+        hosted.rows.items.insert(Row(id: 1000), at: 11)
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
+        settle()
+        #expect(abs(hosted.seen.worst - 10) < 0.5, "a 10 pt move with a row arriving next to the reader measured \(hosted.seen.shifts)")
+    }
+
     /// The row cut by the list's top edge grows at rest (an edit, a Chief that starts typing): the rows
     /// below it, all the reader sees, stay where they were (step d20b5519, video frames 351-352).
     @Test func aRowCutByTheTopEdgeGrowingKeepsTheRowsBelowStill() throws {
