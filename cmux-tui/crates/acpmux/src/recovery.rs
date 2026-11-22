@@ -48,6 +48,11 @@ pub mod kind {
     /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
     /// (`inference.gateway_login`).
     pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// The agent does not know the model it was asked to run (Claude Code's
+    /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
+    /// retries such a turn once under the model's catalog id when it has one
+    /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
+    pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
 }
 
 /// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
@@ -261,6 +266,16 @@ fn classify(
              the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    if crate::model_catalog::is_model_error(message) {
+        return Some((
+            kind::MODEL_UNRECOGNIZED,
+            "The agent does not know this chat's model. Pick one it lists in the chat's model \
+             picker, or set it with `acpmux session set <session> model=<id>`, then send the \
+             message again."
+                .into(),
+            Map::new(),
+        ));
     }
     if dead {
         return Some((
