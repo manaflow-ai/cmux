@@ -24,6 +24,36 @@ import Testing
         #expect(defaults.bool(forKey: "cmuxMobile.setupComplete"))
     }
 
+    /// A launch argument starts setup and setup can still finish it: before
+    /// seeding, the argument domain hides the app's own write (the App Review
+    /// gate's onboarding walk stayed on "Choose a space").
+    @Test func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
+        let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let key = "cmuxMobile.setupComplete"
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer {
+            defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain)
+            defaults.removePersistentDomain(forName: suite)
+        }
+        var arguments = original
+        arguments[key] = "NO"
+        arguments["cmuxMobile.tests.other"] = "YES"
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        // The bug: the argument hides setup's write.
+        defaults.set(true, forKey: key)
+        #expect(!defaults.bool(forKey: key))
+
+        DeveloperOptions.seedLaunchArguments(into: defaults)
+
+        #expect(!defaults.bool(forKey: key), "the launch value is the starting value")
+        defaults.set(true, forKey: key)
+        #expect(defaults.bool(forKey: key), "setup's write takes effect")
+        let after = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        #expect(after[key] == nil)
+        #expect(after["cmuxMobile.tests.other"] as? String == "YES", "other launch arguments stay")
+    }
+
     @Test func storedKeysCoverTheDeveloperPage() {
         let keys = Set(DeveloperOptions.storedKeys)
         #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey]))

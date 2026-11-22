@@ -57,6 +57,9 @@ final class MacScreenChromeActions {
     var fullScreen: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
     var focusScreen: () -> Void = {}
+    /// Record: start or stop copying the stream into an MP4.
+    var toggleRecording: () -> Void = {}
+    var showRecording: () -> Void = {}
     /// A device hub tab: ask the host for a session of this scope.
     var requestScope: (SessionScope) -> Void = { _ in }
     /// A device hub tab: stop waiting for the host.
