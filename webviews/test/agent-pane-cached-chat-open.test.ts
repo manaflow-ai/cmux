@@ -344,7 +344,7 @@ test("the attach reply of a switch back renders after the kept tail's frame pain
     expect(text(last())).toContain("Turn one done.");
     expect(client.sessionEvents().map((event) => event.seq)).toEqual([1, 2, 3, 4]);
     // The kept tail's frame paints; then the reply's page renders.
-    for (const run of [...frames.values()]) run();
+    for (const run of Array.from(frames.values())) run();
     frames.clear();
     await back;
     expect(client.sessionEvents().map((event) => event.seq)).toEqual([900, 901, 902, 903]);
