@@ -1155,13 +1155,16 @@ class GoldenCopyTest(unittest.TestCase):
             os.utime(root / name, (1000 - age, 1000 - age))
         oldest = names[-1]
         held = contextlib.ExitStack()
-        build = {"kind": "nightly", "commit": oldest}
+        build = {"kind": "nightly", "commit": oldest.split("-", 1)[1]}
         with unittest.mock.patch.object(hv, "golden_root", return_value=root), \
                 unittest.mock.patch.object(hv, "golden_app", side_effect=lambda p: p):
             self.assertEqual(hv.fetch_golden(build, held), root / oldest)
-            # The held app is now the newest; age it so it is the one past GOLDEN_KEEP.
+            # The held app is now the newest, and that fetch's cleanup left GOLDEN_KEEP apps. Add one and age the held
+            # app, so it is the one past GOLDEN_KEEP.
+            (root / "nightly-extra").mkdir()
+            (root / "nightly-extra" / hv.GOLDEN_READY).write_text("{}\n")
             os.utime(root / oldest, (1, 1))
-            other = {"kind": "nightly", "commit": names[0]}
+            other = {"kind": "nightly", "commit": names[0].split("-", 1)[1]}
             hv.fetch_golden(other)
             self.assertTrue((root / oldest).is_dir(), "an app a try holds is never removed")
             held.close()
