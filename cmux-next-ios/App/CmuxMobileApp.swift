@@ -67,6 +67,8 @@ struct CmuxMobileApp: App {
         let liveCode = LiveCodeRedraw()
         liveCode.startFromEnvironment()
         _liveCode = State(initialValue: liveCode)
+        // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
+        TerminalFeedFixture.shared.startIfRequested()
         #endif
     }
 
