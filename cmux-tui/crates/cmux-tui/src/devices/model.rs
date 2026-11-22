@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
 use cmux_device_kind::DeviceKind;
-use cmux_device_kind::screen::{self, Screen};
+use cmux_device_kind::screen::{self, NoScreen, Screen};
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -305,7 +305,15 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         } else {
             State::Offline
         };
-        let device = peer_device(peer, &url, node);
+        let hub = hub_screen(peer);
+        let device = peer_device(peer, &url, node, hub.as_ref());
+        let os = node
+            .map(|n| n.os.clone())
+            .filter(|os| !os.is_empty())
+            .or_else(|| hub.as_ref().and_then(HubScreen::platform).map(str::to_owned));
+        let screen = hub_refusal(hub.as_ref(), device).map(|reason| Screen::None {
+            reason: if connected { reason } else { NoScreen::Offline },
+        });
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
@@ -314,7 +322,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
-            os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
+            os,
             reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
@@ -326,7 +334,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 None
             },
             full_access: None,
-            screen: None,
+            screen,
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -442,7 +450,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             ));
         }
     }
-    for d in &mut devices {
+    for d in devices.iter_mut().filter(|d| d.screen.is_none()) {
         d.screen = screen_of(d);
     }
     devices.sort_by(|a, b| {
@@ -581,14 +589,80 @@ fn reported(record: &Value) -> Option<DeviceKind> {
 }
 
 /// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
-/// tells them apart) by its source; else what the peer reported in its health; else its OS.
-fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+/// tells them apart) by its source; else what the peer reported in its health; else, for a
+/// machine only the mesh hub reaches (no health), what the device hub says of it (a Linux one
+/// sharing its screen is a Linux desktop); else its OS.
+fn peer_device(
+    peer: &Value,
+    url: &str,
+    node: Option<&NetworkNode>,
+    hub: Option<&HubScreen>,
+) -> DeviceKind {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         return DeviceKind::Cloud;
     }
     reported(&peer["health"])
         .or_else(|| reported(peer))
+        .or_else(|| match hub {
+            Some(HubScreen::Listed { platform, shared: true })
+                if platform.eq_ignore_ascii_case("linux") =>
+            {
+                Some(DeviceKind::LinuxDesktop)
+            }
+            _ => None,
+        })
         .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// What the device hub says of the screen of a machine only the mesh hub reaches: acpmux's
+/// `deviceHub` on its `peers` row, read from the hub's device list (`GET /v1/devices`) by the
+/// share host. Absent when nothing read that list (no share host runs here).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HubScreen {
+    /// No device hub record has its name: no screen host signed in for it.
+    Absent,
+    /// Its record: the platform it registered as, and whether it shares its screen.
+    Listed { platform: String, shared: bool },
+}
+
+impl HubScreen {
+    fn platform(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { platform, .. } if !platform.is_empty() => Some(platform),
+            _ => None,
+        }
+    }
+}
+
+/// A `via: "hub"` peer row's [`HubScreen`]; None for any other row or one with no `deviceHub`.
+fn hub_screen(peer: &Value) -> Option<HubScreen> {
+    if peer["via"].as_str() != Some("hub") {
+        return None;
+    }
+    let hub = &peer["deviceHub"];
+    match hub["listed"].as_bool()? {
+        false => Some(HubScreen::Absent),
+        true => Some(HubScreen::Listed {
+            platform: text(hub, "platform").unwrap_or_default(),
+            shared: hub["screenShared"].as_bool() == Some(true),
+        }),
+    }
+}
+
+/// Why a hub-only machine whose kind says nothing has no screen to view, when the device hub
+/// tells: no screen host signed in, or a Linux one with sharing off. None leaves it to its kind
+/// and OS (`screen::offer`).
+fn hub_refusal(hub: Option<&HubScreen>, device: DeviceKind) -> Option<NoScreen> {
+    if device != DeviceKind::Generic {
+        return None;
+    }
+    match hub? {
+        HubScreen::Absent => Some(NoScreen::NoScreenHost),
+        HubScreen::Listed { platform, shared: false } if platform.eq_ignore_ascii_case("linux") => {
+            Some(NoScreen::SharingOff)
+        }
+        HubScreen::Listed { .. } => None,
+    }
 }
 
 /// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.
