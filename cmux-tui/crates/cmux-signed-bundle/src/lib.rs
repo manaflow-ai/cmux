@@ -26,6 +26,52 @@ impl Staged {
     }
 }
 
+/// Every channel's Screen Sharing helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
+pub const HELPER_BUNDLE_SUFFIX: &str = " Screen Sharing.app";
+/// The installed apps whose helper a daemon outside any app may run, in order.
+pub const INSTALLED_APPS: [&str; 2] = ["/Applications/cmux NIGHTLY.app", "/Applications/cmux.app"];
+
+/// The app bundle holding `executable` (`X.app/Contents/Resources/bin/acpmux` -> `X.app`).
+pub fn app_of(executable: &Path) -> Option<PathBuf> {
+    executable
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(Path::to_path_buf)
+}
+
+/// The helper bundles `app` carries in `Contents/Library` (names ending in
+/// [`HELPER_BUNDLE_SUFFIX`] with `Contents/MacOS/<executable>` inside), sorted.
+pub fn helpers_in(app: &Path, executable: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(app.join("Contents/Library")) else { return Vec::new() };
+    let mut found: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().is_some_and(|n| n.to_string_lossy().ends_with(HELPER_BUNDLE_SUFFIX))
+                && p.join("Contents/MacOS").join(executable).is_file()
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// The apps to look in for a helper, in order: the app holding `exe`, then `installed`
+/// (without repeating one).
+pub fn search_apps(exe: &Path, installed: &[&str]) -> Vec<PathBuf> {
+    let mut apps: Vec<PathBuf> = app_of(exe).into_iter().collect();
+    for app in installed.iter().map(PathBuf::from) {
+        if !apps.contains(&app) {
+            apps.push(app);
+        }
+    }
+    apps
+}
+
+/// The first helper bundle found in `apps`, in order.
+pub fn first_helper(apps: &[PathBuf], executable: &str) -> Option<PathBuf> {
+    apps.iter().find_map(|app| helpers_in(app, executable).into_iter().next())
+}
+
 /// The parts of a bundle whose bytes make its digest, for an executable named `executable`:
 /// the executable, the seal (`_CodeSignature/CodeResources`) and the Info.plist.
 pub fn digest_parts(executable: &str) -> [String; 3] {
@@ -225,6 +271,50 @@ pub fn prune(root: &Path, current: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_search_goes_from_the_enclosing_app_to_the_installed_ones() {
+        let dir = std::env::temp_dir().join(format!("cmux-sb-search-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let make = |app: &Path, name: &str| {
+            let h = app.join("Contents/Library").join(name);
+            std::fs::create_dir_all(h.join("Contents/MacOS")).unwrap();
+            std::fs::write(h.join("Contents/MacOS/helper"), "x").unwrap();
+            h
+        };
+        let own = dir.join("own.app");
+        let nightly = dir.join("nightly.app");
+        let stable = dir.join("stable.app");
+        let (n, s) = (nightly.to_str().unwrap(), stable.to_str().unwrap());
+        let exe = own.join("Contents/Resources/bin/cmux-tui");
+        assert_eq!(search_apps(&exe, &[n, s]), vec![own.clone(), nightly.clone(), stable.clone()]);
+        assert_eq!(
+            search_apps(&dir.join("bin/cmux-tui"), &[n, s]),
+            vec![nightly.clone(), stable.clone()]
+        );
+        assert_eq!(search_apps(&nightly.join("Contents/MacOS/x"), &[n]), vec![nightly.clone()]);
+        // Nothing installed anywhere: none.
+        assert_eq!(first_helper(&search_apps(&exe, &[n, s]), "helper"), None);
+        // Only the stable app has one: a daemon outside any app runs it.
+        let in_stable = make(&stable, "cmux Screen Sharing.app");
+        assert_eq!(
+            first_helper(&search_apps(&dir.join("bin/x"), &[n, s]), "helper"),
+            Some(in_stable)
+        );
+        // NIGHTLY beats stable; the enclosing app beats both.
+        let in_nightly = make(&nightly, "cmux NIGHTLY Screen Sharing.app");
+        assert_eq!(
+            first_helper(&search_apps(&dir.join("bin/x"), &[n, s]), "helper"),
+            Some(in_nightly.clone())
+        );
+        let in_own = make(&own, "cmux DEV Screen Sharing.app");
+        assert_eq!(first_helper(&search_apps(&exe, &[n, s]), "helper"), Some(in_own));
+        // A bundle without the executable, or not named as a helper, is none.
+        std::fs::remove_file(in_nightly.join("Contents/MacOS/helper")).unwrap();
+        make(&nightly, "Other.app");
+        assert_eq!(helpers_in(&nightly, "helper"), Vec::<PathBuf>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A fake bundle `<dir>/<name>` whose executable holds `body`.
     fn bundle(dir: &Path, name: &str, body: &str) -> PathBuf {
