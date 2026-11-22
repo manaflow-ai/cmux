@@ -92,6 +92,11 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
 
 /// A look-alike carries its theme file and its chat stylesheet, kept as real
 /// files beside the recipe so they read and diff like any theme or stylesheet.
+const CODEX_APP: &[(&str, &str)] = &[
+    ("themes/codex-app.json", include_str!("../recipes/apps/codex-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
+];
+
 const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
@@ -180,12 +185,30 @@ pub const RECIPES: &[Recipe] = &[
         includes: &[],
     },
     Recipe {
+        name: "codex-app",
+        title: "Like the Codex app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Codex app",
+        profile: include_str!("../recipes/codex-app.json"),
+        includes: CODEX_APP,
+    },
+    Recipe {
         name: "claude-code-app",
         title: "Like the Claude desktop app",
         group: Group::Apps,
         ask: "make cmux look and work like the Claude desktop app's Code tab",
         profile: include_str!("../recipes/claude-code-app.json"),
         includes: CLAUDE_CODE_APP,
+    },
+    Recipe {
+        name: "claude-code-notification-levels",
+        title: "Claude Code notification levels",
+        group: Group::Apps,
+        ask: "show permission banners and question badges, with task-complete alerts off",
+        profile: include_str!(
+            "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
+        ),
+        includes: &[],
     },
 ];
 
