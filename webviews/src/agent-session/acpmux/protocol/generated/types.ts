@@ -13,6 +13,7 @@ export interface AcpmuxRequestMeta {
   callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
+  chunkDeltas?: unknown;
   class?: unknown;
   cliHost?: unknown;
   compression?: unknown;
@@ -316,6 +317,22 @@ export interface ChatRouteSetParams {
   sessionId?: unknown;
   when?: unknown;
 }
+
+/**
+ * `_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`
+ * record, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the
+ * last `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's
+ * params with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same
+ * `ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the
+ * client does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).
+ */
+export type ChunkDelta = {
+  /** Unix ms since the frame before it of this `ref`. */
+  dt: number;
+  ref: number;
+  seq: number;
+  text: string;
+} & Record<string, unknown>;
 
 export type CoverageLabel = "acp_requests_only";
 
