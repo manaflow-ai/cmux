@@ -6804,9 +6804,14 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
+      # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared host root.
       CMUX_NIGHTLY_KEEP_STATE: "1"
-      CMUX_CI_FLEET_CACHE_OFF: "1"
+      # A trusted nightly (a push to, or a dispatch on, main or nightly-next) compiles through cmux15's signing
+      # fleet-cas node, so its compiles fill the fleet store that PR builds read; any other run keeps the local
+      # cache and signs nothing. fleet-compilation-cache.sh checks the same rule again on the writer host and gives
+      # the job its own local CAS under $HOME, never the catch-up fill's. NIGHTLY_FLEET_CAS_WRITE=off turns it off.
+      CMUX_CI_FLEET_CACHE_OFF: ${{ (vars.NIGHTLY_FLEET_CAS_WRITE != 'off' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next')) && '' || '1' }}
+      CMUX_FLEET_CAS_TRUSTED_WRITER: ${{ (vars.NIGHTLY_FLEET_CAS_WRITE != 'off' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next')) && '1' || '' }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
