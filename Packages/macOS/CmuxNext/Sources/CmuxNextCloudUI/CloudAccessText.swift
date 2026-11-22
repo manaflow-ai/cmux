@@ -1,5 +1,6 @@
 /// How a moved chat's file or secret ask card (the App's `CloudAccessCard`) shortens a path or reason it shows.
-public enum CloudAccessText {
+public struct CloudAccessText {
+    public init() {}
     /// The longest path or reason a card shows, in Unicode scalars.
     public static let longest = 200
 
