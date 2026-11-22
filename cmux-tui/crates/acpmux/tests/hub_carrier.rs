@@ -118,6 +118,12 @@ struct Proxy {
 
 impl Proxy {
     async fn start(target: SocketAddr) -> Self {
+        Self::start_delayed(target, Duration::ZERO).await
+    }
+
+    /// [`Self::start`] holding every read `delay` before it goes on: a network's latency, one
+    /// way, on each hop through the relay.
+    async fn start_delayed(target: SocketAddr, delay: Duration) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (cut, _) = watch::channel(0u64);
@@ -144,8 +150,8 @@ impl Proxy {
                 tokio::spawn(async move {
                     let (mut ir, mut iw) = inbound.into_split();
                     let (mut or, mut ow) = outbound.into_split();
-                    let up = copy(&mut ir, &mut ow, &bytes);
-                    let down = copy(&mut or, &mut iw, &bytes);
+                    let up = copy(&mut ir, &mut ow, &bytes, delay);
+                    let down = copy(&mut or, &mut iw, &bytes, delay);
                     tokio::select! {
                         _ = up => {}
                         _ = down => {}
@@ -172,6 +178,7 @@ async fn copy(
     from: &mut tokio::net::tcp::OwnedReadHalf,
     to: &mut tokio::net::tcp::OwnedWriteHalf,
     bytes: &AtomicU64,
+    delay: Duration,
 ) {
     let mut buf = vec![0u8; 16 * 1024];
     loop {
@@ -179,6 +186,9 @@ async fn copy(
             Ok(0) | Err(_) => return,
             Ok(n) => n,
         };
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
         if to.write_all(&buf[..n]).await.is_err() {
             return;
         }
@@ -967,6 +977,11 @@ async fn pipe_fixture() -> PipeFixture {
 
 /// [`pipe_fixture`] whose carriers keep a warm spare `spare_ttl` (zero: none).
 async fn pipe_fixture_with(spare_ttl: Duration) -> PipeFixture {
+    pipe_fixture_over(spare_ttl, Duration::ZERO).await
+}
+
+/// [`pipe_fixture_with`] whose relay is `latency` away (one way, each hop).
+async fn pipe_fixture_over(spare_ttl: Duration, latency: Duration) -> PipeFixture {
     use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
     use cmux_remote::identity::AuthDatabase;
     use cmux_remote::session::SessionLimits;
@@ -984,7 +999,7 @@ async fn pipe_fixture_with(spare_ttl: Duration) -> PipeFixture {
     tokio::spawn(async move {
         let _ = axum::serve(relay_listener, router).await;
     });
-    let proxy = Proxy::start(relay_address).await;
+    let proxy = Proxy::start_delayed(relay_address, latency).await;
     let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
 
     let state = tempfile::tempdir().unwrap();
@@ -1163,6 +1178,40 @@ async fn hub_carrier_a_dead_spare_is_dropped_and_the_dial_opens_afresh() {
     let off = pipe_fixture_with(Duration::ZERO).await;
     assert_eq!(off.carrier_a.stats().spares.load(Ordering::SeqCst), 0);
     assert_eq!(off.carrier_a.warm_spares(), 0);
+}
+
+/// A `remote.pipe`-shaped dial (the service hello, refused by B's gate: no consent) with and
+/// without warm spares, the relay 25 ms away on each hop (run on demand: `cargo test -p acpmux
+/// --features hub-carrier --test hub_carrier spare_numbers -- --ignored --nocapture`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "numbers on demand"]
+async fn hub_carrier_spare_numbers() {
+    let _ = HERMETIC;
+    let latency = Duration::from_millis(25);
+    for (label, ttl) in [("no_spare", Duration::ZERO), ("warm_spare", Timings::default().spare_ttl)]
+    {
+        let fixture = pipe_fixture_over(ttl, latency).await;
+        let (a, b) = (&fixture.carrier_a, fixture.carrier_b.public_key());
+        let service = CircuitService::CmuxTui { port: fixture.daemon.port() };
+        let mut dials = Vec::new();
+        for _ in 0..20 {
+            if !ttl.is_zero() {
+                until_spare(a, 1).await;
+            }
+            let started = std::time::Instant::now();
+            let refused = within("a dial", a.dial_service(&b, service)).await.unwrap_err();
+            dials.push(started.elapsed());
+            assert!(refused.contains("consent_required"), "{refused}");
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let hits = a.stats().spare_hits.load(Ordering::SeqCst);
+        eprintln!(
+            "SPARE-NUMBERS {label} dial_ms p50={:.1} p95={:.1} n=20 spare_hits={hits} (relay {} ms away each hop)",
+            percentile(&mut dials, 0.5).as_secs_f64() * 1e3,
+            percentile(&mut dials, 0.95).as_secs_f64() * 1e3,
+            latency.as_millis(),
+        );
+    }
 }
 
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
