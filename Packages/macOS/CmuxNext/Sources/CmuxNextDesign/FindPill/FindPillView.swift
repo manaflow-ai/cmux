@@ -338,3 +338,16 @@ extension FindPillView: NSTextFieldDelegate {
         handleFieldCommand(selector, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
     }
 }
+
+// Here, not in SurfaceRole.swift: that file is the surface-role JSON's generated copy
+// (scripts/cmux-next/check-surface-roles.py), and this style is derived from one of its roles.
+extension FloatingGlassStyle {
+    /// The find pill's glass: the transient material, its dark veil at least 70 %. A pill holds a
+    /// field, not a list, and at the 42 % veil its field came out (78, 69, 57) over bright art in dark,
+    /// its placeholder 4.00:1 (Terminal Find on the Great Wave; terminal-find-art at 71726c94).
+    nonisolated public static var findPill: FloatingGlassStyle {
+        var style = FloatingGlassStyle.transient
+        style.darkVeilAlpha = max(style.darkVeilAlpha, 0.7)
+        return style
+    }
+}

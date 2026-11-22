@@ -13,6 +13,18 @@
 //! The mount stays when the dial ends; reads wait a few seconds for the Mac's next dial, then fail
 //! with "Host is down".
 //!
+//! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
+//! each one request and its answer, by projection `name`, mounted or not (the state folder
+//! outlives the mount and a daemon restart):
+//! - `{"id", "cmd": "projection.layer", "name"}`: answered `{"id", "ok": true, "data": {"bytes",
+//!   "upper", "whiteouts"}}`, then that many bytes of the encoded `cmux_projection::layer::Layer`;
+//! - `{"id", "cmd": "projection.files", "name", "paths_bytes"}`, then that many bytes of upper
+//!   paths, one per line: answered `{"id", "ok": true, "data": {}}`, then each file as
+//!   `cmux_projection::layer::send_files` writes it;
+//! - `{"id", "cmd": "projection.drop", "name"}`, once the Mac applied it all: unmounts the
+//!   projection and deletes its state (upper layer, whiteouts, cache); `{"id", "ok": true,
+//!   "data": {"dropped"}}`.
+//!
 //! Served where `fs-v1` is (a Cloud host), on Linux; anywhere else a dial is answered
 //! `projection.unavailable`.
 //!
@@ -33,6 +45,12 @@ use serde_json::{Value, json};
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
+/// Bring Back's dials (module docs).
+pub const LAYER: &str = "projection.layer";
+pub const FILES: &str = "projection.files";
+pub const DROP: &str = "projection.drop";
+/// The most bytes of paths a `projection.files` dial may send.
+const MAX_PATHS_BYTES: u64 = 256 * 1024 * 1024;
 /// The largest encoded manifest a dial may send (a 1.1 M-entry folder encodes to 14 MB).
 const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -140,10 +158,10 @@ fn wants_lines(first: &str) -> bool {
     serde_json::from_str::<ServeLine>(first).is_ok_and(|line| line.lines)
 }
 
-/// `projection.serve` when `line` asks for it, exactly.
+/// `projection.serve` (or one of Bring Back's dials) when `line` asks for it, exactly.
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
-    if !line.contains(SERVE) {
+    if !line.contains("projection.") {
         return None;
     }
     let value: Value = serde_json::from_str(line).ok()?;
@@ -151,7 +169,8 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
     if object.contains_key("protocol") {
         return None;
     }
-    (object.get("cmd")?.as_str()? == SERVE).then_some(SERVE)
+    let cmd = object.get("cmd")?.as_str()?;
+    [SERVE, LAYER, FILES, DROP].into_iter().find(|known| *known == cmd)
 }
 
 /// The capabilities to advertise: [`PROJECTION_CAPABILITY`] where a projection can mount (Linux,
@@ -226,6 +245,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
         .ok()
         .and_then(|value| value.get("id").cloned())
         .unwrap_or(Value::Null);
+    if let Some(cmd) = frame_command(first).filter(|cmd| *cmd != SERVE) {
+        way_back(cmd, first, &id, &mut reader, writer, framed);
+        return;
+    }
     let projected = match attach(first, &mut reader, roots) {
         Ok((projected, data)) => {
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
@@ -251,6 +274,133 @@ fn send_line(writer: &mut impl Write, value: &Value) -> std::io::Result<()> {
     writer.flush()
 }
 
+#[derive(Deserialize)]
+struct WayBackLine {
+    name: String,
+    #[serde(default)]
+    paths_bytes: u64,
+}
+
+/// A projection name: 1-64 letters, digits, `-` or `_`.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+}
+
+/// The state folder of projection `name` (upper layer, whiteouts, cache).
+fn state_of(name: &str) -> Result<PathBuf, Refusal> {
+    crate::platform::workspace_state_dir()
+        .map(|dir| dir.join("projections").join(name))
+        .ok_or(("projection.unavailable", "no state folder".to_owned()))
+}
+
+/// Serves one of Bring Back's dials (module docs): its answer line on `writer`, the bytes after
+/// it through `framed(writer)` (text lines on a `"lines": true` dial), or the refusal.
+fn way_back<W: Write, F: Write>(
+    cmd: &str,
+    first: &str,
+    id: &Value,
+    reader: &mut impl Read,
+    mut writer: W,
+    framed: impl FnOnce(W) -> F,
+) {
+    let (data, body) = match way_back_answer(cmd, first, reader) {
+        Ok(answer) => answer,
+        Err((code, message)) => {
+            let _ = send_line(
+                &mut writer,
+                &json!({"id": id, "ok": false, "error": message, "error_code": code}),
+            );
+            return;
+        }
+    };
+    if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
+        return;
+    }
+    // Past the answer line an error just ends the stream; the Mac sees it short.
+    let mut body_writer = std::io::BufWriter::with_capacity(256 * 1024, framed(writer));
+    let _ = match body {
+        WayBackBody::None => Ok(()),
+        WayBackBody::Bytes(bytes) => body_writer.write_all(&bytes),
+        WayBackBody::Files(state, paths) => {
+            cmux_projection::layer::send_files(&state, &paths, &mut body_writer)
+                .map(|_| ())
+                .map_err(std::io::Error::other)
+        }
+    };
+    let _ = body_writer.flush();
+}
+
+/// What one of Bring Back's dials sends after its answer line.
+enum WayBackBody {
+    None,
+    Bytes(Vec<u8>),
+    Files(PathBuf, Vec<String>),
+}
+
+/// The `data` of one of Bring Back's answers and the bytes that follow it, after reading what
+/// the dial sends.
+fn way_back_answer(
+    cmd: &str,
+    first: &str,
+    reader: &mut impl Read,
+) -> Result<(Value, WayBackBody), Refusal> {
+    let line: WayBackLine = serde_json::from_str(first)
+        .map_err(|error| ("projection.params_invalid", format!("bad request: {error}")))?;
+    if !valid_name(&line.name) {
+        return Err(("projection.params_invalid", "a name is 1-64 letters, digits, - or _".into()));
+    }
+    let state = state_of(&line.name)?;
+    let io = |error: &dyn std::fmt::Display| ("projection.io", error.to_string());
+    match cmd {
+        LAYER => {
+            if !state.is_dir() {
+                return Err(("projection.unknown", format!("no projection {} here", line.name)));
+            }
+            let layer =
+                cmux_projection::layer::Layer::collect(&state).map_err(|error| io(&error))?;
+            let encoded = layer.encode().map_err(|error| io(&error))?;
+            let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                              "whiteouts": layer.whiteouts.len()});
+            Ok((data, WayBackBody::Bytes(encoded)))
+        }
+        FILES => {
+            if line.paths_bytes > MAX_PATHS_BYTES {
+                return Err(("projection.too_large", "too many paths".into()));
+            }
+            let mut raw = Vec::new();
+            reader.take(line.paths_bytes).read_to_end(&mut raw).map_err(|error| io(&error))?;
+            if raw.len() as u64 != line.paths_bytes {
+                return Err(("projection.io", "the dial ended inside the paths".into()));
+            }
+            let text = String::from_utf8(raw)
+                .map_err(|_| ("projection.params_invalid", "paths are not UTF-8".to_owned()))?;
+            let paths: Vec<String> =
+                text.lines().filter(|path| !path.is_empty()).map(str::to_owned).collect();
+            Ok((json!({}), WayBackBody::Files(state, paths)))
+        }
+        _ => {
+            let old =
+                projections().lock().unwrap_or_else(PoisonError::into_inner).remove(&line.name);
+            if let Some(old) = old {
+                old.link.detach();
+                #[cfg(target_os = "linux")]
+                if let Some(mounted) =
+                    old.mounted.lock().unwrap_or_else(PoisonError::into_inner).take()
+                {
+                    mounted.unmount();
+                }
+            }
+            let dropped = state.is_dir();
+            if dropped {
+                std::fs::remove_dir_all(&state).map_err(|error| io(&error))?;
+            }
+            Ok((json!({"dropped": dropped}), WayBackBody::None))
+        }
+    }
+}
+
 /// Reads the dial's manifest and mounts it (or finds the mount it attaches to again).
 fn attach(
     first: &str,
@@ -262,10 +412,7 @@ fn attach(
     if line.cmd != SERVE {
         return Err(("projection.params_invalid", "not projection.serve".into()));
     }
-    if line.name.is_empty()
-        || line.name.len() > 64
-        || !line.name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
-    {
+    if !valid_name(&line.name) {
         return Err(("projection.params_invalid", "a name is 1-64 letters, digits, - or _".into()));
     }
     if line.manifest_bytes > MAX_MANIFEST_BYTES {
@@ -300,9 +447,7 @@ fn attach(
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
-    let state = crate::platform::workspace_state_dir()
-        .map(|dir| dir.join("projections").join(&line.name))
-        .ok_or(("projection.unavailable", "no state folder".to_owned()))?;
+    let state = state_of(&line.name)?;
     let projected = mount(&line.name, manifest, &state, &at, digest)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)

@@ -19,6 +19,13 @@
 // For captures rather than scores: --theme renders under a Ghostty theme from
 // Resources/ghostty/themes (e.g. "Catppuccin Mocha"), --anchor scrolls to other text,
 // and --open opens the turn's "Worked for" fold. The mismatch then means little.
+//
+// --look DIR draws the pane in a look written on public surfaces (examples/looks/NAME, a
+// cmux-setup.json folder, docs/cmux-next/look-addons.md): its theme file's colors stand in for the
+// terminal theme (the accent as the action color), its agentPane.display settings go to the page
+// as the host's `display` event does, and its agent-pane/theme.css goes through
+// cmuxAcpmuxBridge.applyCustomization, as the host sends a person's file. --look-theme NAME picks
+// another of the look's theme files (themes/NAME.json) than the one its setup selects.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -91,7 +98,11 @@ const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent
 const themeName = option("theme");
 const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);
 if (themeFile && !fs.existsSync(themeFile)) throw new Error(`no Ghostty theme ${themeFile}`);
-const terminalTheme = themeFile ? ghosttyThemeFile(themeFile) : ghosttyDefault;
+const baseTerminalTheme = themeFile ? ghosttyThemeFile(themeFile) : ghosttyDefault;
+const lookDir = option("look");
+const lookThemeName = option("look-theme");
+const look = lookDir ? readLook(path.resolve(lookDir), lookThemeName) : null;
+const terminalTheme = look ? look.terminal(baseTerminalTheme) : baseTerminalTheme;
 const anchorText = option("anchor");
 const openFold = args.includes("--open");
 if (openFold) args.splice(args.indexOf("--open"), 1);
@@ -122,7 +133,7 @@ async function run(browser, name, scenario) {
   const context = await browser.newContext({
     viewport: { width: Math.round(pane.width), height: Math.round(pane.height) },
     deviceScaleFactor: scale,
-    colorScheme: "dark",
+    colorScheme: agentPaneTheme(terminalTheme).isDark ? "dark" : "light",
   });
   try {
     const page = await context.newPage();
@@ -130,10 +141,20 @@ async function run(browser, name, scenario) {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await stubMockBridge(page, { script: fixture && { steps: fixture.steps, endAtMs: fixture.endAtMs } });
-    await page.goto(url, { waitUntil: "networkidle" });
+    // A cold dev server compiles the whole pane on the first load: a minute or more on a small VM.
+    await page.goto(url, { waitUntil: "networkidle", timeout: 300_000 });
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
     await page.evaluate((theme) => window.cmuxAcpmuxBridge.applyTheme(theme), agentPaneTheme(terminalTheme));
+    if (look) {
+      // The host's `display` event (chatDisplay.ts, the module the page already loaded) and the
+      // person's stylesheet through the host's own path.
+      await page.evaluate(async (display) => {
+        const chat = await import("/chatDisplay.ts");
+        chat.setChatDisplay(display);
+      }, look.display);
+      await page.evaluate((themeCSS) => window.cmuxAcpmuxBridge.applyCustomization({ themeCSS }), look.css);
+    }
     // The mock daemon answers the prompt once the recorded turn has finished; without a
     // fixture the seeded workspace already holds a finished turn.
     if (fixture)
@@ -189,6 +210,41 @@ async function run(browser, name, scenario) {
   } finally {
     await context.close();
   }
+}
+
+/// A look folder: its theme file's colors over `base`, its chat display settings and its stylesheet.
+function readLook(dir, themeName) {
+  // cmux-setup.json and theme files are JSONC: whole-line comments only in the looks this reads.
+  const jsonc = (file) => JSON.parse(fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  const setup = jsonc(path.join(dir, "cmux-setup.json"));
+  const settings = setup.settings ?? {};
+  const name = themeName ?? settings["appearance.themeFile"];
+  if (!name) throw new Error(`${dir}: the look selects no theme file; pass --look-theme`);
+  const theme = jsonc(path.join(dir, "themes", `${name}.json`));
+  const hex = (value) => {
+    const match = typeof value === "string" && /^#([0-9a-fA-F]{6})$/.exec(value);
+    if (!match) return undefined;
+    const n = parseInt(match[1], 16);
+    return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255, a: 1 };
+  };
+  const colors = theme.colors ?? {};
+  const display = Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith("agentPane.display.")));
+  const cssPath = path.join(dir, "agent-pane/theme.css");
+  return {
+    display,
+    css: fs.existsSync(cssPath) ? fs.readFileSync(cssPath, "utf8") : "",
+    terminal(base) {
+      const palette = [...base.palette];
+      const accent = hex(colors.accent);
+      if (accent) palette[4] = accent;
+      return {
+        ...base,
+        palette,
+        background: hex(theme["appearance.surfaces.agentPane.color"]) ?? hex(colors.background) ?? base.background,
+        foreground: hex(colors.foreground) ?? base.foreground,
+      };
+    },
+  };
 }
 
 /// Scrolls the transcript until `anchor.text` starts `anchor.top` px below the top.
