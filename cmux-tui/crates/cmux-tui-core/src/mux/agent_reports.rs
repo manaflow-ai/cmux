@@ -194,7 +194,9 @@ impl Mux {
                 let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
                     anyhow::bail!("surface {surface} is not a terminal");
                 };
-                (surface, terminal_id.clone())
+                // A report names the terminal by any of its surfaces (a hook by its runtime's);
+                // the record and its event name the one its tab shows.
+                (state.terminal_view_surface(terminal_id).unwrap_or(surface), terminal_id.clone())
             }
             AgentReportTarget::Resource { selectors, terminal_id } => {
                 self.resolve_resource_path_in_state(
@@ -205,10 +207,7 @@ impl Mux {
                 )
                 .map_err(anyhow::Error::new)?;
                 let surface = state
-                    .placements_of_content(&ContentPublicId::Terminal((*terminal_id).clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+                    .terminal_view_surface(terminal_id)
                     .with_context(|| format!("unknown terminal {terminal_id}"))?;
                 (surface, (*terminal_id).clone())
             }
@@ -445,15 +444,21 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         let notified = joined.map(|(post, staged)| {
-            let ring = self.install_feed_post(post, &staged.notification, staged.numeric_id);
-            (staged, ring)
+            let installed = self.install_feed_post(post, &staged.notification, staged.numeric_id);
+            (staged, installed)
         });
         drop(registry);
         drop(sequence_guard);
         // The notification's events come before the report's, as before.
-        if let Some((staged, ring)) = notified {
+        if let Some((staged, (ring, shown_by))) = notified {
             let (notification, id) = (&staged.notification, staged.numeric_id);
-            self.announce_notification(notification, id, ring, notified_session);
+            self.announce_notification(
+                notification,
+                id,
+                ring,
+                notified_session,
+                shown_by.as_deref(),
+            );
             self.prune_evicted_notification_reads();
         }
         let agent = AgentRecord {
@@ -480,6 +485,7 @@ impl Mux {
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
+                terminal_id: Some(Arc::from(agent.terminal_id.as_str())),
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
@@ -548,13 +554,7 @@ impl Mux {
                 // A terminal without a runtime runs no agent: its tabs are
                 // dead (a host loss keeps them, invariant 3) or kept.
                 state_snapshot.terminal_catalog.get(&terminal_id)?;
-                let representative = state_snapshot
-                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
-                    .first()
-                    .copied()
-                    .or_else(|| {
-                        state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
-                    })?;
+                let representative = state_snapshot.terminal_view_surface(&terminal_id)?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
                 // The hover card's folded cut; the whole prompt is the phone Feed's.

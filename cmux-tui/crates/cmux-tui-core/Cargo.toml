@@ -140,6 +140,9 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`.
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.

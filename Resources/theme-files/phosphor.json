@@ -7,6 +7,8 @@
 
   // The terminal theme, and its own colors.
   "appearance.theme": "Green Phosphor CRT",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#0b0f0b", "foreground": "#33ff33", "selection": "#0a3a0a", "accent": "#33ff33" },
   "appearance.accent": "green",
 
