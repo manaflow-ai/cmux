@@ -22,8 +22,9 @@ a pull request runs:
     whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
     above measured. Shard 1 keeps its whole share;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
-    runner scripts, ci-web.yml, this file, the preload and what it imports) or a deleted source. A test helper
-    (test/support/) or webviews script (webviews/scripts/) counts as a source here: the tests that import it.
+    runner scripts, ci-web.yml, this file, the preload and what it imports). A test helper (test/support/) or
+    webviews script (webviews/scripts/) counts as a source here: the tests that import it, or that are or import a
+    module reading it as data. A deleted source counts by the files that still name it in an import.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
 Every feat-cmux-next post-merge batch still runs all N shards over every file: a red a skipped shard would have
@@ -61,14 +62,16 @@ def matrix(shards: list[int], count: int) -> str:
     return json.dumps([{"shard": shard, "shard_count": count} for shard in shards], separators=(",", ":"))
 
 
-def read_beyond_imports(selector: "wa.Selector", f: str) -> str:
-    """Why a helper or script change must run every shard, or "" when only its importers can see it.
+def read_beyond_imports(selector: "wa.Selector", f: str) -> tuple[str, set[str]]:
+    """Why a helper or script change must run every shard ("" when it need not), and the modules that read it.
 
     A vite or compiler config (a code file at the top of webviews/) that imports it, directly or not, or names its
-    path (`new URL("./scripts/lint/x.mjs")`) feeds every bundle a test may load. A module some test reaches that names
-    its path without importing it reads it as data, and one that reads files and quotes its basename (10 or more
-    characters, outside comments) may read it by a joined path: none of those is an import edge. A script only shard
-    1's checks run (package.json scripts, a check's own baseline) needs no other shard: shard 1 always runs.
+    path (`new URL("./scripts/lint/x.mjs")`) feeds every bundle a test may load: every shard. A module some test
+    reaches that names its path without importing it reads it as data, and one that reads files and quotes its
+    basename (10 or more characters, outside comments) may read it by a joined path: none of those is an import edge,
+    so those readers stand for it as a changed source would (their tests, and the tests importing them). On
+    2026-11-21 13Z to 11-22 07Z such reads sent baselines and capture files to all 12 shards. A script only shard 1's
+    checks run (package.json scripts, a check's own baseline) needs no other shard: shard 1 always runs.
     """
     rel = f.removeprefix(wa.WEB)
     name = Path(f).name
@@ -76,17 +79,18 @@ def read_beyond_imports(selector: "wa.Selector", f: str) -> str:
     for source in selector.text:
         if "/" not in source.removeprefix(wa.WEB) and source.endswith(wa.ft.EXTENSIONS) and wa.EVERYTHING.search(source) \
                 and (f in selector.closure(source) or rel in selector.text[source]):
-            return f"{f} is loaded by the build input {source}"
+            return f"{f} is loaded by the build input {source}", set()
     reached = set().union(*(selector.closure(t) for t in selector.graph.tests))
     reads = set().union(*(selector.closure(t) for t in selector.always)) if selector.always else set()
     quoted = re.compile(r"[\"'`]" + re.escape(name) + r"[\"'`]")
+    readers: set[str] = set()
     for source in sorted(reached - importers - {f}):
         text = COMMENT.sub("", selector.text.get(source, ""))
-        if rel in text or f in text:
-            return f"{f} is read as data by {source}"
-        if source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
-            return f"{f} may be read by {source}, which reads files"
-    return ""
+        if rel in text or f in text or source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
+            if not wa.NARROW:
+                return f"{f} is read as data by {source}", set()
+            readers.add(source)
+    return "", readers
 
 
 def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None, str]:
@@ -99,10 +103,12 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
             # A test helper or webviews script (not the preload's): the tests that import it, as for a source, unless a
             # build input loads it or a file reads it as data (below). A file nothing imports or names touches none;
             # shard 1 still runs its whole share.
-            why = read_beyond_imports(selector, f)
+            why, readers = read_beyond_imports(selector, f)
             if why:
                 return None, why
-            out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
+            for source in readers | {f}:
+                out |= {source} & selector.graph.tests
+                out |= {t for t in selector.graph.importers.get(source, ()) if t in selector.graph.tests}
             continue
         if not f.startswith(wa.WEB):
             continue
@@ -110,7 +116,14 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
             out.add(f)
             continue
         if not (selector.root / f).exists() and f.endswith(wa.ft.EXTENSIONS) and not wa.ft.WEB_TEST.search(f):
-            return None, f"{f} was deleted"
+            # A deleted source: the files that still name it in an import stand for it (a broken one fails the type
+            # check, an edited one is in the diff): those that are tests, and the tests importing them.
+            namers = selector.deleted_namers(f)
+            if namers is None:
+                return None, f"{f} was deleted, and a non-code file or a short name may load it"
+            out |= {t for t in namers if t in selector.graph.tests}
+            out |= {t for n in namers for t in selector.graph.importers.get(n, ()) if t in selector.graph.tests}
+            continue
         # One hop: the tests that import the changed file themselves. The whole import closure reached 278 to 1,856
         # tests for one source edit on 2026-11-20's feat-cmux-next commits, every shard every time.
         out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
