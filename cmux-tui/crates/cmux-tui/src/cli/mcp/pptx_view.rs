@@ -321,17 +321,14 @@ fn asset(deck: &Path, relative: &str) -> Response {
 
 /// `%XX` escapes decoded; `None` for a bad escape or text that is not UTF-8.
 fn percent_decode(text: &str) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(at + 1..at + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            at += 3;
+    let mut out = Vec::with_capacity(text.len());
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let hex = [bytes.next()?, bytes.next()?];
+            out.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
         } else {
-            out.push(bytes[at]);
-            at += 1;
+            out.push(byte);
         }
     }
     String::from_utf8(out).ok()
