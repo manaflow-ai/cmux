@@ -115,10 +115,23 @@ pub fn print(reply: &Value) {
     }
 }
 
+/// Why a machine `machine ls` lists as connected has no health reading here.
+fn hub_only_why(name: &str) -> String {
+    format!(
+        "connected through the hub, not by a link from this machine, so it reports no health here; `acpmux machine doctor {name}` checks a direct route"
+    )
+}
+
 fn line(h: &Value) -> String {
     let name = h.get("name").and_then(Value::as_str).unwrap_or("?");
     let me = h.get("self").and_then(Value::as_bool).unwrap_or(false);
     let label = if me { format!("{name} (this)") } else { name.to_owned() };
+    if h.get("via").and_then(Value::as_str) == Some("hub")
+        && h.get("reachable").and_then(Value::as_bool) == Some(false)
+        && h.get("state").and_then(Value::as_str) == Some("connected")
+    {
+        return format!("{label:<20} via the hub  {}", hub_only_why(name));
+    }
     if !h.get("reachable").and_then(Value::as_bool).unwrap_or(false) {
         let why = h.get("error").and_then(Value::as_str).unwrap_or("unreachable");
         return format!("{label:<20} unreachable  {why}");
@@ -359,5 +372,17 @@ mod tests {
         assert_eq!(resources(&healthy), "disk 31.0 GB free");
         assert_eq!(resources(&json!({"health": {"unsupported": true}})), "resources unknown");
         assert_eq!(resources(&json!({"health": null})), "resources unknown");
+    }
+
+    #[test]
+    fn a_hub_carried_machine_is_not_called_unreachable() {
+        let row = serde_json::json!({"name": "ab", "reachable": false, "state": "connected", "via": "hub"});
+        let text = line(&row);
+        assert!(text.contains("via the hub"), "{text}");
+        assert!(!text.contains("unreachable"), "{text}");
+        assert!(text.contains("acpmux machine doctor ab"), "{text}");
+        let down =
+            serde_json::json!({"name": "ab", "reachable": false, "state": "down", "via": "hub"});
+        assert!(line(&down).contains("unreachable"));
     }
 }

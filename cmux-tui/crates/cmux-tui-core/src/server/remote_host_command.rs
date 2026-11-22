@@ -87,6 +87,14 @@ fn unavailable(message: String) -> anyhow::Error {
 pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let caller = caller(mux, client)?;
     let mut status = mux.control_clients.remote_host.status();
+    // Settings reads the on-demand supervisor without starting its worker or requesting its secret.
+    let computer_use = &mux.control_clients.computer_use;
+    if caller.verified_app
+        && computer_use.configured()
+        && let Some(fields) = status.as_object_mut()
+    {
+        fields.insert("computer_use".into(), computer_use.status());
+    }
     if !caller.verified_app
         && let Some(screen) = status.pointer_mut("/host/screen").and_then(Value::as_object_mut)
     {

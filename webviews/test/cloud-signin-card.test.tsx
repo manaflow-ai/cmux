@@ -344,14 +344,6 @@ test("no sign-in where acpmux lacks agent_login, or on another failure", async (
   expect(button("Sign in to Claude")).toBeUndefined();
 });
 
-test("in DEV the credential transfer stays beside the sign-in", async () => {
-  const { client } = mockClient();
-  const { signIn } = signInFor(client);
-  await render({ route: cloudRoute, cloudSignIn: signIn, transferCloudCredentials: async () => undefined });
-  expect(button("Sign in to Claude")).toBeDefined();
-  expect(button("Set up Claude Code credentials")).toBeDefined();
-});
-
 test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
   const opened: string[] = [];
   const { client, calls, sent } = mockClient({
@@ -477,13 +469,10 @@ test("Cursor: one click opens its page, the card waits for the approve with no c
 });
 
 // A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
-// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
-// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
-// own") is offered, by hand or automatically.
+// the card says so, Switch model leads, Use an API key stays, and Sign in to Claude is not offered.
 test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
   const { client } = mockClient();
   const { signIn } = signInFor(client);
-  const transfers: unknown[][] = [];
   const team = { ...cloudRoute, teamMachine: true };
   const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
   await render(
@@ -491,7 +480,6 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
       route: team,
       cloudSignIn: signIn,
       switchModel: () => undefined,
-      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
     },
     rejected,
   );
@@ -502,8 +490,6 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
   expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Sign in to Claude")).toBeUndefined();
-  expect(button("Set up Claude Code credentials")).toBeUndefined();
-  expect(transfers).toEqual([]);
   // An owner machine's card is as it was.
   await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);

@@ -56,6 +56,19 @@ pub trait Http {
         Err("GET is not supported by this transport".to_owned())
     }
 
+    /// One request with any `method` and extra `headers` (`apps_call.rs`: the apps routes'
+    /// PUT and DELETE, and a promote's `Idempotency-Key`). Transports opt in; the default refuses.
+    fn send(
+        &self,
+        _method: &str,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        Err("this Cloud transport sends no other method".to_owned())
+    }
+
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
@@ -238,14 +251,15 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
-/// The bind as the Cloud role makes it: the updater's connect hold first, so
-/// the machine's first link is never cut by an update's restart, then the
-/// request. A person's machine from this bind on, and the supervisor's
-/// `Bound` (an instance id change) does not cover a bind of the same machine.
-/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
-/// flip and restart goes through in whichever process runs it: either the
-/// flip sees this hold, or a restart was queued first and this answers None
-/// with `bind.json` left for the restarted service.
+/// The bind as the Cloud role makes it: the updater's connect hold and the
+/// bind's in-flight mark first, so the machine's first link is never cut by
+/// an update's or a rollback's restart, then the request, then the mark goes
+/// and the hold runs from the answer. A person's machine from this bind on,
+/// and the supervisor's `Bound` (an instance id change) does not cover a bind
+/// of the same machine. The hold is the state dir's restart gate
+/// (`updater/gate.rs`), which every flip and restart goes through in
+/// whichever process runs it. None, with `bind.json` left for a retry, when a
+/// restart was queued first (the restarted service binds) or the gate failed.
 #[allow(clippy::too_many_arguments)]
 pub fn hold_then_bind(
     paths: &crate::config::Paths,
@@ -258,16 +272,32 @@ pub fn hold_then_bind(
     now_wall_ms: u64,
 ) -> Option<BindResult> {
     #[cfg(unix)]
-    if !crate::updater::gate::hold_connects(
-        paths,
-        now_wall_ms,
-        crate::updater::gate::HoldKind::Connect,
-    ) {
-        return None;
+    {
+        let gate = crate::updater::gate::Gate::new(paths);
+        match gate.begin_bind(now_wall_ms) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: the restart gate failed ({e}); retrying");
+                return None;
+            }
+        }
+        let started = std::time::Instant::now();
+        let result =
+            bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms);
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let done_ms = now_wall_ms.saturating_add(took);
+        if let Err(e) = gate.end_bind(done_ms) {
+            // The mark lapses on its own; the hold taken before the request stands.
+            eprintln!("cmux-host: cloud: bind: clearing its in-flight mark failed: {e}");
+        }
+        Some(result)
     }
     #[cfg(not(unix))]
-    let _ = paths;
-    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    {
+        let _ = paths;
+        Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    }
 }
 
 pub fn bind_machine(
@@ -667,6 +697,27 @@ impl<H: Http> CloudClient<H> {
         let path = super::carrier_ticket::path(&self.bound.machine);
         let answer = self.post_empty_with_token(&path, now_wall_ms);
         super::carrier_ticket::reply_for(&answer)
+    }
+
+    /// One apps route as this machine's `vm` install (`apps_call.rs`, checked before it gets
+    /// here): the platform's status and body, with the machine the install speaks for.
+    pub fn apps_call(&mut self, call: &super::apps_call::AppsCall, now_wall_ms: u64) -> Value {
+        let url = self.url(&call.path);
+        let key = call.idempotency_key.as_deref();
+        let headers: Vec<(&str, &str)> = key.map(|k| ("Idempotency-Key", k)).into_iter().collect();
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send(&call.method, &url, call.body.as_ref(), Some(&token), &headers).ok()
+        };
+        let answer = match send(self) {
+            None => Answer::Transport,
+            Some((401, _)) => {
+                self.cached = None;
+                send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
+            }
+            Some((status, body)) => Answer::Http { status, body },
+        };
+        super::apps_call::reply_for(&answer, &self.bound.machine)
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {

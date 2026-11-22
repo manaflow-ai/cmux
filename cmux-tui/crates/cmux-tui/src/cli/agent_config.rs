@@ -1,6 +1,7 @@
 //! `cmux agent-config`: Claude Code's and Codex's own setup, read and changed in the agents' own
 //! files (the `cmux-agent-customize` crate), one part per module: [`skills`] (skills and slash
-//! commands), [`hooks`] (hooks by event, turned off and on) and [`mcp`] (MCP servers, and the
+//! commands), [`hooks`] (hooks by event, turned off and on), [`settings`] (model, permission or approval
+//! mode, sandbox, env masked) and [`mcp`] (MCP servers, and the
 //! usage for a bare `cmux agent-config`). Settings runs these verbs with `--json`, behind Labs
 //! `labs.agentCustomization`. No verb needs the app or the daemon.
 //!
@@ -9,11 +10,13 @@
 
 mod hooks;
 mod mcp;
+mod settings;
 mod skills;
 
 /// `Some(exit code)` when `args` is `agent-config ...`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     skills::run_if_requested(args)
         .or_else(|| hooks::run_if_requested(args))
+        .or_else(|| settings::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
 }

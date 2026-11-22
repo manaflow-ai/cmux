@@ -23,6 +23,8 @@ STAGES = ["compile", "link", "sign", "quit", "launch", "ready"]
 GRAPH = {"compile": [], "link": ["compile"], "sign": ["link"], "quit": [], "launch": ["sign", "quit"], "ready": ["launch"]}
 ANCHOR = 'defer { DebugTimings.markLaunch("did_finish_launching_end") }'
 IDLE_S = 15  # after a launch: time for the window, the typed key's echo and the app to go idle before the next step
+EXEC_SETTLE_MS = 5000  # a new process's path can still change by exec this long after its start (Watcher.sweep)
+LAUNCH_WAIT_S = 180  # LaunchServices' open to the app's process: a few s; 60 s once ran out (step a8b4d181c32ad2c06b3a0126)
 
 
 def now_ms():
@@ -44,16 +46,19 @@ class Watcher(threading.Thread):
         self.interval, self.procs, self.live, self.lock, self.stop_flag = interval, {}, {}, threading.Lock(), False
         self.buf = (ctypes.c_int * 16384)()
 
+    def path(self, pid):
+        buf = ctypes.create_string_buffer(4096)
+        n = self.lib.proc_pidpath(pid, buf, 4096)
+        return buf.value.decode(errors="replace") if n > 0 else ""
+
     def info(self, pid):
         raw = ctypes.create_string_buffer(136)
         if self.lib.proc_pidinfo(pid, 3, ctypes.c_uint64(0), raw, 136) != 136:  # PROC_PIDTBSDINFO
             return None
         import struct
         fields = struct.unpack("<12I16s32s6I2Q", raw.raw)
-        path = ctypes.create_string_buffer(4096)
-        n = self.lib.proc_pidpath(pid, path, 4096)
         name = fields[13].split(b"\0")[0].decode(errors="replace") or fields[12].split(b"\0")[0].decode(errors="replace")
-        return {"pid": pid, "ppid": fields[4], "path": path.value.decode(errors="replace") if n > 0 else "",
+        return {"pid": pid, "ppid": fields[4], "path": self.path(pid),
                 "name": name, "start": fields[20] * 1000.0 + fields[21] / 1000.0, "end": None}
 
     def sweep(self):
@@ -72,6 +77,16 @@ class Watcher(threading.Thread):
             for pid in list(self.live):
                 if pid not in pids:
                     self.procs[self.live.pop(pid)]["end"] = t
+                    continue
+                # LaunchServices starts an app as xpcproxy, which then execs the app in the same pid: a sweep that saw
+                # it first kept xpcproxy's path, so find() never matched the app. 2026-11-22 steps a8b4d181c32ad2c06b3a0126
+                # and acf6e3bb243cda244406f29b: "no app process within 180 s" with the app (9278) running. A young
+                # process's path is read again until it has been seen for EXEC_SETTLE_MS.
+                rec = self.procs[self.live[pid]]
+                if t - rec["start"] < EXEC_SETTLE_MS:
+                    path = self.path(pid)
+                    if path:
+                        rec["path"] = path
 
     def run(self):
         while not self.stop_flag:
@@ -180,12 +195,39 @@ def frontend_command(text, suffix):
         s = line.strip()
         if s.startswith("cd "):
             cwd = shlex.split(s)[1]
-        if "builtin-swiftTaskExecution -- " in s and "-primary-file" in s:
-            argv = shlex.split(s.split("builtin-swiftTaskExecution -- ", 1)[1])
-            prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
-            if any(p.endswith(suffix) for p in prim):
-                return argv, cwd
+        if "-primary-file" not in s or "swift-frontend" not in s:
+            continue
+        # Xcode writes the command after "builtin-swiftTaskExecution -- " or as a bare line; either way argv[0] is the
+        # swift-frontend binary.
+        try:
+            words = shlex.split(s.split(" -- ", 1)[1] if " -- " in s else s)
+        except ValueError:
+            continue
+        at = next((i for i, w in enumerate(words) if os.path.basename(w) == "swift-frontend"), None)
+        if at is None:
+            continue
+        argv = words[at:]
+        prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
+        if any(p.endswith(suffix) for p in prim):
+            return argv, cwd
     return None, None
+
+
+def log_census(paths, suffix):
+    """What the build logs held, for an error when no compile command matched: size, swift-frontend lines, lines naming
+    the edited file, and the first of those."""
+    parts = []
+    for p in paths:
+        if not os.path.exists(p):
+            parts.append("%s: missing" % os.path.basename(p))
+            continue
+        lines = open(p, errors="replace").read().splitlines()
+        named = [l.strip() for l in lines if os.path.basename(suffix) in l]
+        parts.append("%s: %d lines, %d swift-frontend, %d -primary-file, %d naming %s%s" % (
+            os.path.basename(p), len(lines), sum("swift-frontend" in l for l in lines),
+            sum("-primary-file" in l for l in lines), len(named), os.path.basename(suffix),
+            (", first: " + named[0][:240]) if named else ""))
+    return "; ".join(parts) or "no round logs"
 
 
 def remap_frontend(argv, suffix, tmp):
@@ -261,6 +303,9 @@ def remap_link(argv, tmp, k):
     return out
 
 
+WARM_BUILD_S = 4800  # the untimed warm build from a cold slot (see Loop.reload's warm call)
+
+
 def timed(argv, cwd=None, timeout=600):
     t = time.monotonic()
     p = subprocess.run(argv, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
@@ -301,18 +346,19 @@ class Loop:
             f.write(self.original)
 
     # -- reload.sh
-    def reload(self, label):
+    def reload(self, label, timeout_s=1800):
         logpath = os.path.join(self.out, "logs", "reload-%s.out" % label)
         t0 = now_ms()
         with open(logpath, "w") as f:
             p = subprocess.Popen(["scripts/reload.sh", "--tag", TAG, "--no-global-cli-links"], cwd=self.repo, stdout=f,
                                  stderr=subprocess.STDOUT)
             try:
-                rc = p.wait(timeout=1800)
+                rc = p.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 p.terminate()
                 p.wait(60)
-                raise RuntimeError("reload.sh %s ran over 1800 s" % label)
+                tail = open(logpath, errors="replace").read()[-800:].strip()
+                raise RuntimeError("reload.sh %s ran over %d s: %s" % (label, timeout_s, tail))
         t1 = now_ms()
         text = open(logpath, errors="replace").read()
         if rc != 0:
@@ -343,7 +389,7 @@ class Loop:
                               str(settle), os.path.join(self.sock_dir, "app.sock"), "type"], cwd=self.repo,
                              stdout=open(outp, "w"), stderr=open(outp + ".err", "w"), env=env)
         self.launches.append(p)
-        exe, pid, end = self.executable(), None, time.time() + 60
+        exe, pid, end = self.executable(), None, time.time() + LAUNCH_WAIT_S
         while time.time() < end and pid is None:
             rec = self.watch.find(exe, t)
             pid = rec["pid"] if rec else None
@@ -351,14 +397,31 @@ class Loop:
                 break
             time.sleep(0.05)
         if pid is None:
-            raise RuntimeError("launch %s: no app process within 60 s (%s)" % (label, open(outp + ".err").read()[-800:]))
+            # 2026-11-22 step a8b4d181c32ad2c06b3a0126: "launch floor3: no app process within 60 s ()": launch-ready's
+            # stderr was empty, and its own failure ("open: ...") goes to stdout. Say both, and what of the app ran.
+            with self.watch.lock:
+                live = sorted("%d %s" % (r["pid"], os.path.basename(r["path"])) for r in self.watch.procs.values()
+                              if r["end"] is None and r["path"].startswith(self.app + "/"))
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch %s: no app process within %d s (launch-ready %s; %s; app processes live: %s)"
+                               % (label, LAUNCH_WAIT_S, "running" if p.poll() is None else "exited %s" % p.returncode,
+                                  tails or "no output", ", ".join(live) or "none"))
         return p, outp, t, pid
 
     def finish_launch(self, label, p, outp):
         try:
             p.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("launch-ready %s did not end 90 s after its app quit" % label)
+            p.terminate()
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+            # Its own words, since the step returns only report.json: what it saw before it stopped.
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch-ready %s did not end 90 s after its app quit (%s)" % (label, tails or "no output"))
         lines = [l for l in open(outp).read().splitlines() if l.startswith("LR-RUN ")]
         if not lines:
             raise RuntimeError("launch-ready %s printed no LR-RUN (%s)" % (label, open(outp + ".err").read()[-800:]))
@@ -389,7 +452,10 @@ class Loop:
             raise RuntimeError("launch-ready.swift did not build: " + p.stderr[-1500:])
         log("warm build (untimed)")
         self.restore()
-        self.reload("warm")
+        # The untimed warm build starts from whatever .build the fleet slot kept, often none: a cold Xcode build of the
+        # app ran past 1800 s on 2026-11-21 step 0d5f8be711282a5a8062d811 ("reload.sh warm ran over 1800 s"). Timed
+        # rounds keep 1800 s; this one only fills the caches they measure from.
+        self.reload("warm", timeout_s=WARM_BUILD_S)
         log("app", self.app)
         # The priming launch: one workspace with its terminal left in front, so every later launch restores a
         # terminal and the `type` probe's key has a PTY to reach (launch-ready.sh front=tab).
@@ -501,7 +567,8 @@ class Loop:
                      and frontend_command(open(p, errors="replace").read(), suffix)[0]), "")
         argv, cwd = frontend_command(text, suffix)
         if not argv:
-            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs")
+            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs (%s)"
+                               % log_census(logs, suffix))
         cmd = remap_frontend(argv, suffix, tmp)
         for _ in range(n):
             self.floors["compile"].append(round(timed(cmd, cwd), 1))
@@ -651,6 +718,9 @@ def self_test():
     ])
     argv, cwd = frontend_command(log_text, "/CmuxNextApp/AppDelegate.swift")
     assert cwd == "/r/Packages" and argv[0] == "/X/swift-frontend", (argv, cwd)
+    bare = log_text.replace("builtin-swiftTaskExecution -- ", "")
+    assert frontend_command(bare, "/CmuxNextApp/AppDelegate.swift") == (argv, cwd), "a bare swift-frontend line"
+    assert frontend_command(log_text, "/CmuxNextApp/Other.swift") == (None, None)
     cmd = remap_frontend(argv, "/CmuxNextApp/AppDelegate.swift", "/t")
     assert cmd.count("-primary-file") == 1 and cmd[cmd.index("-o") + 1] == "/t/floor.o" and cmd.count("-o") == 1, cmd
     assert cmd[cmd.index("-index-store-path") + 1] == "/t/Index", cmd

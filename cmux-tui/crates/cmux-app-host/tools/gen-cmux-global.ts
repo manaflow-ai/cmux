@@ -48,9 +48,10 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // move from classic cmux only.
 // browser_import.read reads another browser's bookmarks, history and tabs by path: the app's own browser
 // import only (the daemon also refuses any origin but the verified app).
+// language_packs.ensure downloads the app's languages into its own cache by path: the app itself only.
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
+const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^language_packs\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
@@ -529,7 +530,7 @@ interface CmuxView {
   transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this

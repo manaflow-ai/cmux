@@ -83,6 +83,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=terminal-throughput" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
+# `--suite=power`: the app's power in mW, idle and scrolling, against standalone Ghostty at idle
+# (scripts/cmux-next/power-cron.py, bench_power.py; the perf cron's power part).
+if "--suite=power" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "power-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
@@ -139,6 +144,12 @@ if "--suite=hover-instant" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=stress`: the app under extreme stress from several angles (CPU and thread starvation, many streaming
+# agent chats, many workspaces with output floods, a CLI/socket flood, memory pressure), a baseline and a stress
+# window each (scripts/cmux-next/stress-bench.py; the `stress` cmux-bench).
+if "--suite=stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stress-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=stress"])
 # `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
 if "--suite=workspace-scaling" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
