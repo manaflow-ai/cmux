@@ -343,6 +343,12 @@ PARTS = [
     # listing, fan-out p50/p95/max, controller CPU and RSS per session and their slope over N. Its rows are
     # webui.coord_sim.*.
     {"name": "coord-sim", "where": "linux", "kind": "webui", "needs": "coord-sim"},
+    # Full-text chat search (cmux-tui/crates/acpmux/tests/chats_search_bench.rs, goal chat-history-search in
+    # cmuxterm-hq's NOW): phrases typed a key at a time into the Cmd-K chats page's window
+    # (`_acpmux/chats_window {query, content: true}`) on a
+    # 2,000-chat fixture sized like real stores; the p95 per keystroke (chat_search.keystroke) and, report-only, the
+    # scan through `_acpmux/chats_search` (chat_search.scan_keystroke). The release build runs first under its own cap.
+    {"name": "chat-search", "where": "linux", "kind": "webui", "needs": "chat-search"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -373,6 +379,7 @@ ROW_PARTS = [
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
+    (r"^webui\.chat_search\.", "chat-search"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -385,11 +392,13 @@ ROW_PARTS = [
 # but tracks the runner (100 to 185 ms for the same code, goal chat-attach-p95); attach_per_dcl beside it, the same
 # rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression. The power
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
-# Ghostty's mW as budget).
+# Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
+# keystroke row: shown, not judged.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
-                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$)")
+                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
+                                r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -1142,6 +1151,9 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "chat-search":
+        script = os.path.join(root, CHAT_SEARCH)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
         # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
@@ -1386,11 +1398,16 @@ def host_last_seen(state, host):
     return parse_iso(info.get("last_part_at") or info.get("at") or info.get("absent_since") or None)
 
 
-def host_gone(state, host, t):
-    """host left the fleet (pure): the controller said it has no such worker (gone_at, a host_gone result), or it ran
-    no part for HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+def host_retired(state, host):
+    """The controller said it has no such worker (gone_at, a host_gone result), and the host ran no part since (pure)."""
     info = host_info(state, host)
-    if info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]):
+    return bool(info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]))
+
+
+def host_gone(state, host, t):
+    """host left the fleet (pure): the controller said it has no such worker (host_retired), or it ran no part for
+    HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+    if host_retired(state, host):
         return True
     seen = host_last_seen(state, host)
     return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
@@ -1673,8 +1690,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # at every tick, and no Mac part ran while the bench host could have taken each one.
     # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
     # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
+    # Only the controller's word retires the bench host here (host_retired), never its silence: host_gone's
+    # HOST_GONE_HOURS clause assumes Mac parts ran elsewhere meanwhile, and with the bench host the only measure host
+    # none did. From 2026-11-18 cmux20-bench refused every claim (not isolated) for 3.5 days; once repaired, it was
+    # "gone" by silence, so every tick a nightly waited for a Mac held its parts back and no Mac row could refresh.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_retired(state, BENCH_WORKER))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
@@ -2252,6 +2273,8 @@ def supported_parts_at(sha):
             ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
                                                 capture_output=True).returncode == 0,
                                  drive.stdout if drive.returncode == 0 else None)
+        elif need == "chat-search":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_SEARCH}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -2324,6 +2347,7 @@ COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+CHAT_SEARCH = "scripts/measure/chat-search-linux.sh"
 TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 COORD_SIM = "scripts/measure/coord-sim-linux.sh"
