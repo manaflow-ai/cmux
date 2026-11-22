@@ -85,6 +85,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         refresh()
     }
 
+    /// Plays the one-shot settle on the glyph just shown (``StatusIndicatorLayer/playSettle()``):
+    /// the host calls it on a state transition only (a row's work finished). Nothing plays while
+    /// the view is out of a window, hidden (its own flag or an ancestor's) or its window is not
+    /// visible (occluded, minimized, another Space): the glyph is already in its end state, so a
+    /// skipped settle leaves nothing to catch up.
+    public func settle() {
+        guard let window, window.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor else { return }
+        indicator.playSettle()
+    }
+
     /// Whether `state` would draw anything with the current config (hosts
     /// reserve layout space only then).
     public var showsGlyph: Bool { indicator.plan.glyph != .none }

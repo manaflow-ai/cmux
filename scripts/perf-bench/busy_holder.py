@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """busy_holder: the bench load arm `oversub` (FABLE-COMMON.md "Load arm rule", coordinator order f24, 2026-11-10).
 
-Lawrence's Mac runs all day at a load average of about 250 to 300 on 18 cores: about 14 runnable threads per core
+A Mac in real use runs all day at a load average of about 250 to 300 on 18 cores: about 14 runnable threads per core
 (claude, codex, git, gh, node, bun, cargo, rustc). A read of it (2026-11-10) gave 97 % of them below the default
 priority 31 (at 20 and at 4), from processes that also sleep on I/O. A bench "load" arm with a host load under 15
 is a quiet machine next to that. This tool puts N busy threads beside the app under test, for a short time, and
@@ -27,14 +27,14 @@ takes them away again, in one of two shapes (see "Two shapes"). It is the ONE bu
 Shape. `--threads N` is the count of busy threads; `--procs P` spreads them over P processes (default 1: one
 process with N threads). The macOS scheduler shares a QoS band between thread groups (about one per process) before
 it shares it between threads, so 1 process with 250 threads and 250 processes with 1 thread are different loads;
-his Mac has many processes. Say the shape next to each number: threads, processes, cores, threads per core, the
+such a Mac has many processes. Say the shape next to each number: threads, processes, cores, threads per core, the
 1-minute load at the start and at the end (the summary of `stop` has all of them).
 
 Two shapes (`--shape`), say which one next to each number:
   spin    (default) N threads that never sleep and do no I/O. They start at the default priority 31; the kernel
           lowers a thread that never sleeps, so `ps -M` shows them at 0 to 24 during the arm. This is run-queue
           length only.
-  agents  N processes with one thread each, like a Mac full of agent CLIs and their helpers (measured on his Mac:
+  agents  N processes with one thread each, like a Mac full of agent CLIs and their helpers (measured on such a Mac:
           248 to 376 runnable threads, 97 % of them below priority 31, at 20 and at 4, from processes that also
           sleep on I/O). Two of three run at utility QoS (priority 20), one of three at background (4). Each one
           repeats: a CPU burst of 2 to 24 ms, ONE I/O step (write 64 KiB, with an fsync each 8th turn; or lstat
@@ -45,7 +45,7 @@ Two shapes (`--shape`), say which one next to each number:
           and such a child stays at 31), so each has its own interpreter memory. A process that does not get its
           class ends with an error and the holder ends with it: the shape never runs at the wrong priority.
 
-What neither shape copies from his Mac: memory pressure, page cache traffic of large files, timers of real
+What neither shape copies from such a Mac: memory pressure, page cache traffic of large files, timers of real
 programs, GPU work, network. `spin` also has no disk I/O and no process starts.
 
 SAFETY (each one is enforced here, not left to the caller):
@@ -72,7 +72,7 @@ copy of /bin/bash> --args job.sh`; `open` does not pass the environment: write i
 print the scheduler priority of the supervisor (`sched_pri`): 31 is right, 20 means the ssh ceiling.
 The caller's duty: stop it before the job ends, run `cooldown` inside the same hold, then check `status` = live 0.
 
-A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
+A bench tool: not a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
 """
 from __future__ import annotations
 
@@ -93,6 +93,15 @@ import sys
 import threading
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HARD_LIMIT_S = 600
 DEFAULT_MAX_S = 240
@@ -606,15 +615,22 @@ def cmd_start(args) -> int:
         if state and state.get("token") == token and state.get("ready"):
             break
         if sup.poll() is not None:
+            try:
+                os.killpg(sup.pid, signal.SIGKILL)  # what it left in its group (cmux#41767 review F1)
+            except (ProcessLookupError, PermissionError):
+                pass
             return fail("the supervisor ended at once (exit %s); see %s" % (sup.returncode, log.name))
         time.sleep(0.05)
     else:
-        sup.terminate()
+        try:
+            os.killpg(sup.pid, signal.SIGTERM)  # the supervisor this run started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
         return fail("the supervisor was not ready in 20 s; stopped")
-    sys.stderr.write(json.dumps({k: state[k] for k in (
+    safe_print(json.dumps({k: state[k] for k in (
         "pid", "owner", "watch_pid", "shape", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos",
-        "nice", "sched_pri", "load1_start", "started_utc") if k in state}) + "\n")
-    print(sup.pid)
+        "nice", "sched_pri", "load1_start", "started_utc") if k in state}), file=sys.stderr)
+    safe_print(sup.pid)
     return 0
 
 
@@ -646,7 +662,7 @@ def cmd_stop(args) -> int:
     final = read_state(args.pid) or state
     final["left_after_stop"] = len([p for p in final.get("workers", []) + [args.pid] if alive(p) and is_ours(p, token)])
     final.pop("token", None)
-    print(json.dumps(final))
+    safe_print(json.dumps(final))
     return 0 if final["left_after_stop"] == 0 else 1
 
 
@@ -1033,8 +1049,8 @@ def cmd_selftest(args) -> int:
     finally:
         shutil.rmtree(root, ignore_errors=True)
     ok = all(results)
-    print("SELFTEST %s (%d checks) on %s, %s cores, Python %s" % ("PASS" if ok else "FAIL", len(results),
-          os.uname().nodename, os.cpu_count(), sys.version.split()[0]))
+    safe_print("SELFTEST %s (%d checks) on %s, %s cores, Python %s" % ("PASS" if ok else "FAIL", len(results),
+               os.uname().nodename, os.cpu_count(), sys.version.split()[0]))
     return 0 if ok else 1
 
 

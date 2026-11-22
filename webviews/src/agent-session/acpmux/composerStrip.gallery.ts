@@ -72,6 +72,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext", "agent-session/acpmux/Composer.tsx#Composer"],
   variants: {
     project: {
+      composerLook: "claude",
       note: "A new chat in a project: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",
       ready: { newSession: true },
       snapshot: fresh(true, { cwd: "/Users/you/src/cmux", branch: "main" }),
@@ -137,6 +138,7 @@ export default agentPaneEntry({
       snapshot: fresh(true),
     },
     queued: {
+      composerLook: "claude",
       note: "A running turn with queued prompts: no strip, the queue sits on the card, never over it or the field.",
       snapshot: {
         ...started({ isWorking: true }),

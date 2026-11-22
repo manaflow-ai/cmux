@@ -179,10 +179,8 @@ export function ProjectChooser({
         type="button"
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("composer.folder")}: ${label}` : t("composer.folder")}
-        aria-haspopup="dialog"
         // tooltip-allow: a truncated project label keeps its full path available.
         title={current}
-        aria-expanded={open}
         {...press}
       >
         {!inline &&
@@ -192,9 +190,13 @@ export function ProjectChooser({
             icon
           ))}
         <span>{label}</span>
-        <ChevronIcon />
+        {/* Inside a sentence ("What should we build in cmux?") the underlined name is the control, with
+            no caret after it, as Codex draws it (Austin 2026-11-11: "We just do exactly what Codex is
+            doing here"). */}
+        {!inline && <ChevronIcon />}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}

@@ -13,7 +13,7 @@ reads share a 45 s budget), logs and raises after one attempt, as before.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
+import importlib
 import io
 import sys
 import unittest
@@ -26,11 +26,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts/ci" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault(name, module)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    return importlib.import_module(name)
 
 
 pool = load("pr_runner_pool")
@@ -38,11 +37,7 @@ cascade = load("next_macos_cascade")
 
 
 def load_side():
-    spec = importlib.util.spec_from_file_location("side_lane_placement_under_test",
-                                                  ROOT / "scripts/ci/side_lane_placement.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load("side_lane_placement")
 
 
 def refused(code: int, body: str, **headers: str) -> urllib.error.HTTPError:

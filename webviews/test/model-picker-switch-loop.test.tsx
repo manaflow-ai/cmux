@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from 
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 setDefaultTimeout(60_000);
 
@@ -63,12 +64,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function press(element: Element) {
@@ -262,17 +258,27 @@ const checkedLevel = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"][aria-checked="true"]') ?? [])].map(
     (row) => row.querySelector(".acpmux-cols-name")?.textContent,
   );
+// Each pick opens the menu when a pick before it closed it, and closes it (David Beyer 2026-11-20).
 async function pickModel(name: string) {
+  await openMenu();
   const row = modelRow(name);
   expect(row, name).toBeDefined();
   await act(async () => press(row!));
   await settle();
+  expect(menu()).toBeNull();
 }
 async function pickLevel(label: string) {
+  await openMenu();
   const row = levelRow(label);
   expect(row, label).toBeDefined();
   await act(async () => press(row!));
   await settle();
+  expect(menu()).toBeNull();
+}
+/// The checked level, read in the menu opened again.
+async function checkedAfterOpen() {
+  await openMenu();
+  return checkedLevel();
 }
 
 test("effort picks on the running model reach the agent", async () => {
@@ -284,10 +290,10 @@ test("effort picks on the running model reach the agent", async () => {
   await pickLevel("Medium");
   await agent.deliver();
   expect(agent.state).toEqual({ model: "gpt-6.1-sol", effort: "medium" });
-  expect(checkedLevel()).toEqual(["Medium"]);
+  expect(await checkedAfterOpen()).toEqual(["Medium"]);
 });
 
-test("a model pick, then an effort pick in the same open menu after the agent switched", async () => {
+test("a model pick, then an effort pick in the menu opened again after the agent switched", async () => {
   const { agent } = await mount();
   await openMenu();
   await pickModel("GPT-6 Astra");
@@ -299,7 +305,7 @@ test("a model pick, then an effort pick in the same open menu after the agent sw
   await pickLevel("Medium");
   await agent.deliver();
   expect(agent.state).toEqual({ model: "gpt-6-astra", effort: "medium" });
-  expect(checkedLevel()).toEqual(["Medium"]);
+  expect(await checkedAfterOpen()).toEqual(["Medium"]);
 });
 
 test("an effort pick while the model switch is still in flight lands on the new model", async () => {

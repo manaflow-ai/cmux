@@ -79,7 +79,10 @@ TOKENS = {
                       rf"|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
     ".swift": re.compile(rf"{STRING_COMMON}|{COMMENT}"),
 }
-TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{COMMENT}")
+# A regex literal follows punctuation that cannot end an operand; read as text, `/^https:\/\//` held a `//` and blanked
+# the rest of its line as a comment, hiding the host after it.
+REGEX_JS = r"(?<=[(,=:\[!&|?{};])[ \t]*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\[\n])+/[a-z]*"
+TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{REGEX_JS}|{COMMENT}")
 CFG_TEST = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 
 

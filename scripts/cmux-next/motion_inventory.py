@@ -538,7 +538,7 @@ def spring_visible_end(response: float, damping: float) -> float:
     return last
 
 
-AMBIENT_NATIVE = {"highlight", "hibernateRing", "focusFlash"}  # MotionScaleTests.ambientFades
+AMBIENT_NATIVE = {"highlight", "hibernateRing", "focusFlash", "wallpaper"}  # MotionScaleTests.ambientFades
 
 
 def native_tokens(root: Path, scale: dict) -> list[Site]:

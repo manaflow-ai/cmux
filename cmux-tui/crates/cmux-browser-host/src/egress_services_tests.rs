@@ -43,7 +43,9 @@ fn a_port_held_by_a_cmux_executable_is_refused() {
     let dir = std::env::temp_dir().join(format!("cmux-egress-svc-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let probe = dir.join("cmux-probe");
-    std::fs::copy("/usr/bin/python3", &probe).unwrap();
+    // The probe is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+    let copied = Command::new("cp").arg("/usr/bin/python3").arg(&probe).status().unwrap();
+    assert!(copied.success(), "cp /usr/bin/python3 {}", probe.display());
     let mut child = Command::new(&probe)
         .args(["-c", "import socket,sys; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); print(s.getsockname()[1], flush=True); sys.stdin.read()"])
         .stdin(Stdio::piped())

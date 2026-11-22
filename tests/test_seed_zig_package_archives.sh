@@ -11,6 +11,8 @@ TMP="$(mktemp -d)"
 server_pid=""
 trap '[[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null; rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; [[ -f "$TMP/out" ]] && cat "$TMP/out" >&2; exit 1; }
+# The upstream pass: no mirror lock, and not mirror only (CI=true turns it on).
+export CMUX_ZIG_MIRROR_ONLY=0 CMUX_ZIG_LOCK="$TMP/no.lock"
 
 mkdir -p "$TMP/www" "$TMP/src/pkg/a" "$TMP/src/zig-pkg/N-dep" "$TMP/cache/p"
 mkdir -p "$TMP/tree/pkg-1.0" && echo hello > "$TMP/tree/pkg-1.0/file"
@@ -97,6 +99,75 @@ if [[ "$have_xz" == true ]]; then
 else
   grep -q "Seeded 4 of 7 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 fi
+
+# The mirror pass: the lock's packages tagged with the source's name, each
+# checked against its sha256; mirror only, nothing comes from an upstream URL.
+mkdir -p "$TMP/www/m" "$TMP/mirror-src" "$TMP/mirror-cache"
+cp "$TMP/www/one.tar.gz" "$TMP/www/m/N-m1.tar.gz"
+cp "$TMP/www/one.tar.gz" "$TMP/www/m/N-other.tar.gz"
+mkdir -p "$TMP/tree2/pkg-2.0" && echo other > "$TMP/tree2/pkg-2.0/file"
+tar -C "$TMP/tree2" -czf "$TMP/www/m/N-bad.tar.gz" pkg-2.0
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+one_sha="$(sha "$TMP/www/one.tar.gz")"
+cat > "$TMP/mirror.lock" <<EOF
+# HASH SHA256 TAGS UPSTREAM DEPS
+mirror $base/m/
+N-m1 $one_sha mirror-src,vt git+https://codeberg.example/x#abc -
+N-other $one_sha ghostty $base/one.tar.gz -
+N-bad $one_sha mirror-src $base/two.tgz -
+N-absent $one_sha mirror-src $base/absent.tar.gz -
+EOF
+cp "$TMP/src/build.zig.zon" "$TMP/mirror-src/build.zig.zon"
+for mode in explicit ci; do
+  rm -rf "$TMP/mirror-cache"; mkdir -p "$TMP/mirror-cache"
+  if [[ $mode == explicit ]]; then
+    CMUX_ZIG_LOCK="$TMP/mirror.lock" CMUX_ZIG_MIRROR_ONLY=1 "$SEED" "$TMP/mirror-cache" "$TMP/mirror-src" > "$TMP/out" 2>&1 \
+      || fail "a mirror-only seed did not exit 0"
+  else
+    env -u CMUX_ZIG_MIRROR_ONLY CI=true CMUX_ZIG_LOCK="$TMP/mirror.lock" "$SEED" "$TMP/mirror-cache" "$TMP/mirror-src" > "$TMP/out" 2>&1 \
+      || fail "a CI seed did not exit 0"
+  fi
+  cmp -s "$TMP/mirror-cache/p/N-m1.tar.gz" "$TMP/www/one.tar.gz" || fail "$mode: a mirrored package of the source was not seeded"
+  [[ ! -e "$TMP/mirror-cache/p/N-other.tar.gz" ]] || fail "$mode: a package of another source was seeded"
+  [[ ! -e "$TMP/mirror-cache/p/N-bad.tar.gz" ]] || fail "$mode: a copy whose sha256 differs from the lock took the final name"
+  grep -q "the lock pins" "$TMP/out" || fail "$mode: a sha256 mismatch was not reported"
+  [[ ! -e "$TMP/mirror-cache/p/N-one.tar.gz" ]] || fail "$mode: mirror only, an upstream URL was fetched"
+  grep -q "Seeded 1 of 3 Zig package archives from the mirror" "$TMP/out" || fail "$mode: the mirror summary miscounts"
+  grep -q "Mirror only" "$TMP/out" || fail "$mode: mirror only was not reported"
+done
+# A cache path with a backslash, as on a Windows runner (C:\Users\...\zig): GNU
+# sha256sum, and shasum, put a "\" before the hash of a file whose name has one,
+# so every mirror copy failed its check ("has sha256 \<hash>, the lock pins
+# <hash>", "Seeded 0 of 38", cmux-tui run 43137287296, job 130915587979).
+back="$TMP/back\\slash-cache"
+rm -rf "$back"; mkdir -p "$back"
+CMUX_ZIG_LOCK="$TMP/mirror.lock" CMUX_ZIG_MIRROR_ONLY=1 "$SEED" "$back" "$TMP/mirror-src" > "$TMP/out" 2>&1 \
+  || fail "a mirror-only seed into a cache path with a backslash did not exit 0"
+cmp -s "$back/p/N-m1.tar.gz" "$TMP/www/one.tar.gz" || fail "a mirrored copy was not seeded into a cache path with a backslash"
+grep -q "Seeded 1 of 3 Zig package archives from the mirror" "$TMP/out" || fail "a cache path with a backslash miscounts the mirror seed"
+! grep -q 'has sha256 \\' "$TMP/out" || fail "a hash was read with sha256sum's escape backslash"
+rm -rf "$back"
+
+# Not mirror only: the mirror first, then the upstream URLs for the rest.
+rm -rf "$TMP/mirror-cache"; mkdir -p "$TMP/mirror-cache"
+CMUX_ZIG_LOCK="$TMP/mirror.lock" "$SEED" "$TMP/mirror-cache" "$TMP/mirror-src" > "$TMP/out" 2>&1 || fail "a mirror-then-upstream seed failed"
+cmp -s "$TMP/mirror-cache/p/N-m1.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/mirror-cache/p/N-one.tar.gz" "$TMP/www/one.tar.gz" \
+  || fail "not mirror only, the mirror and then the upstream URLs were not both seeded"
+
+# A cache path with a drive letter, as `zig env` gives on a Windows runner
+# (C:\Users\runneradmin\AppData\Local\zig): GNU tar reads an archive argument
+# whose part before the first colon has no slash as HOST:FILE, so every check
+# failed there ("is not a whole tar archive" for all 37 packages, "Seeded 0 of
+# 37", cmux-tui run 43017313504, job 130512447393). Run from the directory that
+# holds C:/, the same path is a local one here.
+mkdir -p "$TMP/drive/C:/zig" "$TMP/drive-src" "$TMP/tree/named-1"
+echo ".{ .dependencies = .{ .inner = .{ .url = \"$base/one.tar.gz\", .hash = \"N-drive-inner\" } } }" > "$TMP/tree/named-1/build.zig.zon"
+tar -C "$TMP/tree" -czf "$TMP/www/named.tar.gz" named-1
+echo ".{ .dependencies = .{ .named = .{ .url = \"$base/named.tar.gz\", .hash = \"N-drive\" } } }" > "$TMP/drive-src/build.zig.zon"
+(cd "$TMP/drive" && "$SEED" "C:/zig" "$TMP/drive-src") > "$TMP/out" 2>&1 || fail "a seed into a cache path with a drive letter did not exit 0"
+cmp -s "$TMP/drive/C:/zig/p/N-drive.tar.gz" "$TMP/www/named.tar.gz" || fail "a package was not seeded into a cache path with a drive letter"
+cmp -s "$TMP/drive/C:/zig/p/N-drive-inner.tar.gz" "$TMP/www/one.tar.gz" \
+  || fail "the package a seeded archive names was not read when the cache path has a drive letter"
 
 # A second run downloads nothing: everything seeded is already there.
 kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""

@@ -1,7 +1,13 @@
 /** A gallery play's report as its stage publishes it (`window.cmuxGalleryPlayReport`, src/gallery/play.ts). */
 type PlayReport = {
   status?: string;
-  steps?: { step: string; status: string; problems: string[]; shifts?: { value: number; sources: string[] }[] }[];
+  steps?: {
+    step: string;
+    status: string;
+    problems: string[];
+    shifts?: { value: number; sources: string[] }[];
+    longFrameParts?: string[];
+  }[];
   error?: string;
 };
 
@@ -43,13 +49,16 @@ export function playFailures(report: string | undefined, steps: "failed" | "all"
  * undefined when the play passed. A test prints it and the runner keeps a passing file's notices
  * (scripts/ci/run-webviews-tests.sh), so a green run on a slow runner still says which step it was:
  * `::notice title=<name> play::status fail; step 1 of 2, click button "Stop": 1 frame(s) over 33 ms (longest 63.8 ms)`.
+ * Where the engine says where a long frame's time went (play.ts `longFramePart`), the line says it too.
  */
 export function playNotice(name: string, report: string | undefined): string | undefined {
   const play = JSON.parse(report ?? "{}") as PlayReport;
   if (play.status === "pass") return undefined;
   const steps = play.steps ?? [];
   const problems = steps.flatMap((step, index) =>
-    step.problems.map((problem) => `step ${index + 1} of ${steps.length}, ${step.step}: ${problem}`),
+    [...step.problems, ...(step.longFrameParts ?? []).map((part) => `long frame ${part}`)].map(
+      (problem) => `step ${index + 1} of ${steps.length}, ${step.step}: ${problem}`,
+    ),
   );
   const said = [play.error, ...problems].filter(Boolean).join("; ") || `no problem named: ${report}`;
   return `::notice title=${name} play::status ${play.status ?? "none"}; ${said.replace(/\s+/g, " ")}`;

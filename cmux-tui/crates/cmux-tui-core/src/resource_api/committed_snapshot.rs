@@ -1,6 +1,6 @@
 //! The committed rows of the whole-session snapshot, read with no writer lock.
 //!
-//! Lawrence's daemon, 2026-11-10 (826 workspaces, 2 h): the snapshot read held the workspace registry lock and the
+//! A large session, 2026-11-10 (826 workspaces, 2 h): the snapshot read held the workspace registry lock and the
 //! state lock across its O(session) walk 434 times, mean 105 ms, max 262 ms; a split waited behind it. Chromium's
 //! rule: a reader never holds the writer's lock across an O(session) walk; it reads a published immutable snapshot.
 //!
@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{public_pane_and_tab_values, public_workspace_values};
@@ -30,14 +31,43 @@ use crate::resource_screen::{public_screen_value, tabs_by_pane};
 use crate::workspace_registry::SessionRows;
 
 /// One committed revision of everything durable the session snapshot shows.
+///
+/// The public workspaces, screens, panes, tabs and state fields are kept as their compact JSON text, not as
+/// `Value` trees: the cache lives as long as the session is idle, and a `Value` tree costs about five times its
+/// text (a map node, a key string and a 32-byte slot for every field). At 1,000 workspaces the trees were most of
+/// the ~10.5 MB that dhat put under `build`. Each read parses the text into its reply, where it deep-copied the
+/// trees before, so a reader gets the same values (`mux/tests/snapshot_read/compact.rs`).
 pub(crate) struct CommittedSnapshot {
     commits: u64,
     pub(super) rows: SessionRows,
-    pub(super) workspaces: Vec<Value>,
-    pub(super) screens: Vec<Value>,
-    pub(super) panes: Vec<Value>,
-    pub(super) tabs: Vec<Value>,
-    pub(super) state: Value,
+    pub(super) workspaces: CompactJson,
+    pub(super) screens: CompactJson,
+    pub(super) panes: CompactJson,
+    pub(super) tabs: CompactJson,
+    pub(super) state: CompactJson,
+}
+
+/// A `Value` kept as its compact JSON text.
+///
+/// The parse gives back the same value: integers keep their type, a map's keys serialize sorted and parse into
+/// the same map, and the crate's serde_json parses floats with `float_roundtrip`, so a float written by `ryu`
+/// reads back bit for bit. The parse has no recursion limit: the text is the serialization of a tree that this
+/// process held in memory, so its depth is one the reply had anyway, and a limit would fail a stored value nested
+/// near serde_json's 128 levels once the snapshot nests it a few levels deeper.
+pub(crate) struct CompactJson(Box<str>);
+
+impl CompactJson {
+    fn of(value: &Value) -> anyhow::Result<Self> {
+        Ok(Self(serde_json::to_string(value)?.into_boxed_str()))
+    }
+
+    pub(super) fn value(&self) -> anyhow::Result<Value> {
+        let mut deserializer = serde_json::Deserializer::from_str(&self.0);
+        deserializer.disable_recursion_limit();
+        let value = Value::deserialize(&mut deserializer)?;
+        deserializer.end()?;
+        Ok(value)
+    }
 }
 
 /// The snapshot readers' own read-only connection and the rows of the last commit count a reader saw.
@@ -191,6 +221,48 @@ pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnaps
     Ok(built)
 }
 
+/// The public workspaces, screens, panes and tabs of `rows`, before their state fields.
+fn public_values(rows: &SessionRows) -> anyhow::Result<PublicValues> {
+    let topology = &rows.topology;
+    let tabs_by_pane = tabs_by_pane(&topology.tabs);
+    let panes_by_id =
+        topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+    let screens_by_id = topology
+        .screens
+        .iter()
+        .map(|screen| (&screen.public_id, screen))
+        .collect::<HashMap<_, _>>();
+    let workspaces = public_workspace_values(&rows.registry, topology)?;
+    let screens = topology
+        .screens
+        .iter()
+        .map(|screen| public_screen_value(topology, screen, &tabs_by_pane, &panes_by_id))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let (panes, tabs) = public_pane_and_tab_values(topology, &screens_by_id, &panes_by_id)?;
+    Ok((workspaces, screens, panes, tabs))
+}
+
+/// Workspaces, screens, panes and tabs.
+type PublicValues = (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>);
+
+/// The snapshot's `workspaces`, `screens` and `tabs` as its rows give them, before their state
+/// fields (test hook: the decoration's equality check decorates them two ways).
+#[cfg(test)]
+pub(crate) fn undecorated_snapshot_values_for_test(
+    connection: &rusqlite::Connection,
+    mux: &Mux,
+) -> anyhow::Result<Value> {
+    let (registry_id, generation) = mux.registry_identity();
+    let rows = crate::workspace_registry::read_session_rows(
+        connection,
+        &registry_id,
+        &generation,
+        &mux.session_public_id,
+    )?;
+    let (workspaces, screens, _panes, tabs) = public_values(&rows)?;
+    Ok(json!({"workspaces": workspaces, "screens": screens, "tabs": tabs}))
+}
+
 fn build(
     connection: &rusqlite::Connection,
     registry_id: &str,
@@ -209,32 +281,48 @@ fn build(
             && rows.registry.resource_revision == rows.topology.revision,
         "resource projection changed while snapshotting"
     );
-    let (workspaces, screens, panes, tabs) = {
-        let topology = &rows.topology;
-        let tabs_by_pane = tabs_by_pane(&topology.tabs);
-        let panes_by_id =
-            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
-        let screens_by_id = topology
-            .screens
-            .iter()
-            .map(|screen| (&screen.public_id, screen))
-            .collect::<HashMap<_, _>>();
-        let workspaces = public_workspace_values(&rows.registry, topology)?;
-        let screens = topology
-            .screens
-            .iter()
-            .map(|screen| public_screen_value(topology, screen, &tabs_by_pane, &panes_by_id))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let (panes, tabs) = public_pane_and_tab_values(topology, &screens_by_id, &panes_by_id)?;
-        (workspaces, screens, panes, tabs)
-    };
+    let (workspaces, screens, panes, tabs) = public_values(&rows)?;
     let mut decorated = json!({"workspaces": workspaces, "screens": screens, "tabs": tabs});
     crate::state::values::decorate_snapshot(connection, &mut decorated)?;
-    let mut take = |key: &str| match decorated.get_mut(key).map(Value::take) {
-        Some(Value::Array(values)) => values,
-        _ => Vec::new(),
+    let compact = |key: &str| match decorated.get(key) {
+        Some(values @ Value::Array(_)) => CompactJson::of(values),
+        _ => CompactJson::of(&Value::Array(Vec::new())),
     };
-    let (workspaces, screens, tabs) = (take("workspaces"), take("screens"), take("tabs"));
-    let state = crate::state::store::state_snapshot(connection)?;
+    let (workspaces, screens, tabs) =
+        (compact("workspaces")?, compact("screens")?, compact("tabs")?);
+    let panes = CompactJson::of(&Value::Array(panes))?;
+    let state = CompactJson::of(&crate::state::store::state_snapshot(connection)?)?;
     Ok(CommittedSnapshot { commits, rows, workspaces, screens, panes, tabs, state })
+}
+
+/// The snapshot's decorated `workspaces`, `screens`, `panes` and `tabs` and its state fields as `Value`s built
+/// from the rows on `connection`, with no compact text between (test reference: a reply gives these values and
+/// these bytes).
+#[cfg(test)]
+pub(crate) fn decorated_snapshot_values_for_test(
+    connection: &rusqlite::Connection,
+    mux: &Mux,
+) -> anyhow::Result<Value> {
+    let (registry_id, generation) = mux.registry_identity();
+    let rows = crate::workspace_registry::read_session_rows(
+        connection,
+        &registry_id,
+        &generation,
+        &mux.session_public_id,
+    )?;
+    let (workspaces, screens, panes, tabs) = public_values(&rows)?;
+    let mut decorated = json!({"workspaces": workspaces, "screens": screens, "tabs": tabs});
+    crate::state::values::decorate_snapshot(connection, &mut decorated)?;
+    decorated["panes"] = Value::Array(panes);
+    decorated["state"] = crate::state::store::state_snapshot(connection)?;
+    Ok(decorated)
+}
+
+/// The bytes the cached snapshot keeps for its workspaces, screens, panes, tabs and state fields, or `None` when
+/// nothing is cached (test hook: what it keeps is the compact text, not a `Value` tree).
+#[cfg(test)]
+pub(crate) fn retained_public_bytes_for_test(mux: &Mux) -> Option<usize> {
+    let latest = mux.committed_snapshots.as_ref()?.latest.load_full()?;
+    let parts = [&latest.workspaces, &latest.screens, &latest.panes, &latest.tabs, &latest.state];
+    Some(parts.iter().map(|part| part.0.len()).sum())
 }

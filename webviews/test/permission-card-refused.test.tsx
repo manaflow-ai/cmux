@@ -15,6 +15,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -36,7 +37,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Document|Event|KeyboardEvent)/.test(key) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -459,7 +461,7 @@ test("external access settings is a side action and Skip never opens feedback", 
     },
   });
   try {
-    expect(card.host.textContent).toContain("cmux needs one-time access to /Users/you/Documents/report.txt");
+    expect(card.host.textContent).toContain("cmux needs access to /Users/you/Documents/report.txt");
     expect(card.host.textContent).toContain("you may need to grant access in System Settings first");
     expect(card.host.textContent?.match(/\/Users\/you\/Documents\/report.txt/g)).toHaveLength(1);
     await card.click("Open Settings");

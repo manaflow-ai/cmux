@@ -73,8 +73,33 @@ fn a_missing_task_or_an_out_of_range_timeout_is_a_usage_error() {
     let long = "x".repeat(16_001);
     assert!(parsed(&["run", "--sandboxed", &long]).is_err());
     assert!(parsed(&["run", "--sandboxed", &"x".repeat(16_000)]).is_ok());
-    // Counted as the server counts: 8,001 emoji are 16,002 UTF-16 units.
-    assert!(parsed(&["run", "--sandboxed", &"\u{1F600}".repeat(8_001)]).is_err());
+}
+
+/// #39022 F3: the CLI asks the daemon's own `task_fits`, so a task whose bytes, UTF-16 units,
+/// scalars and characters all differ is taken or refused here exactly as the daemon takes or
+/// refuses it. It used to count UTF-16 units and refuse 8,001 emoji the daemon takes.
+#[test]
+fn the_task_limit_is_the_daemons_counted_in_characters() {
+    // A ZWJ family: 18 bytes, 5 scalars, 8 UTF-16 units, one character.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    // A decomposed "é": 3 bytes, 2 scalars, 2 UTF-16 units, one character.
+    let accent = "e\u{301}";
+    let at_limit = format!("{}{family}", accent.repeat(TASK_MAX_CHARS - 1));
+    assert!(at_limit.chars().count() > TASK_MAX_CHARS);
+    assert!(at_limit.encode_utf16().count() > TASK_MAX_CHARS);
+    let past_limit = format!("{at_limit}x");
+    for (task, fits) in [
+        (at_limit.clone(), true),
+        (past_limit, false),
+        (family.repeat(TASK_MAX_CHARS), true),
+        (family.repeat(TASK_MAX_CHARS + 1), false),
+        ("\u{1F600}".repeat(8_001), true),
+    ] {
+        assert_eq!(task_fits(&task), fits);
+        assert_eq!(parsed(&["run", "--sandboxed", &task]).is_ok(), fits, "{} bytes", task.len());
+    }
+    // Whitespace around the task is trimmed first, as the daemon trims it.
+    assert!(parsed(&["run", "--sandboxed", &format!("  {at_limit}  ")]).is_ok());
 }
 
 #[test]
@@ -115,7 +140,7 @@ fn the_receipt_reads_reply_first_then_status_time_cost_and_cleanup() {
     let failed = json!({ "status": "failed", "timedOut": true, "timings": {}, "cost": { "vmSeconds": null, "estimateUsd": null }, "cleanup": "pending", "error": "timed out" });
     assert_eq!(
         receipt_text(&failed, messages),
-        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: destroy pending (the reaper finishes it)"
+        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: delete pending (cmux keeps trying while the app runs)"
     );
     assert_eq!(exit_code(&failed), 1);
     // A cancelled receipt (the deadline cancel's answer) exits 1 like a failed one; 4 is only
@@ -288,6 +313,21 @@ fn the_deadline_cancel_says_what_happened() {
     for code in ["run_not_found", "http_409", "rate_limited"] {
         assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Refused, "{code}");
     }
+}
+
+/// #39022 review at a5563b2d, F2: a cleanup cmux gave up on is this Run's receipt, and says the
+/// machine is left for the person to delete, never that cmux keeps trying.
+#[test]
+fn an_abandoned_cleanup_says_the_machine_is_left_to_delete() {
+    let messages = &crate::localization::catalog_for_locale("en").sandbox_run;
+    let snapshot = json!({ "receipt": {
+        "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed",
+        "status": "succeeded", "cleanup": "abandoned",
+    } });
+    let receipt = run_receipt(&snapshot, "run-1").expect("an abandoned cleanup is still a receipt");
+    let text = receipt_text(receipt, messages);
+    assert!(text.ends_with(messages.cleanup_abandoned), "{text}");
+    assert_ne!(messages.cleanup_abandoned, messages.cleanup_pending);
 }
 
 #[test]

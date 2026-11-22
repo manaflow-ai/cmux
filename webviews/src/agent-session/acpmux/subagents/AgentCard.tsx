@@ -44,10 +44,14 @@ export type AgentCardProps = {
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
+  /// False keeps the visible state as the details control, without a chevron.
+  disclosureChevron?: boolean;
   disclosureKey?: string;
   findItems?: DisclosureRowProps["findItems"];
   /// The complete localized disclosure label, with its name in the locale's word order.
   disclosureLabel?: ReactNode;
+  /// Controls at the line's end, after its state (a stopped one's Resume, ResumeControl.tsx).
+  actions?: ReactNode;
   children?: ReactNode;
 };
 
@@ -66,9 +70,11 @@ export function AgentCard({
   onOpen,
   openLabel,
   disclosure = false,
+  disclosureChevron,
   disclosureKey,
   findItems,
   disclosureLabel,
+  actions,
   children,
 }: AgentCardProps) {
   const t = useT();
@@ -87,6 +93,7 @@ export function AgentCard({
       <DisclosureRow
         disclosureKey={disclosureKey ?? `subsession:${sessionId ?? name}`}
         findItems={findItems}
+        chevron={disclosureChevron}
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
@@ -115,6 +122,7 @@ export function AgentCard({
         openLabel={openLabel ?? t("subagents.open", { name })}
         onOpen={onOpen}
         openSession={onOpen ? sessionId : undefined}
+        actions={actions}
       >
         {children}
       </DisclosureRow>
@@ -155,6 +163,7 @@ export function AgentCard({
           {time ? ` · ${time}` : ""}
         </span>
       )}
+      {actions}
     </>
   );
   return (

@@ -7,6 +7,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-html-paste-edit.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -53,23 +54,27 @@ await requireBrowserLane("composer-html-paste-edit.test.ts", async () => {
       });
     });
     await page.goto(base());
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
     return page;
   }
 
   for (const [engine] of engines)
     test(`${engine}: a pasted HTML fragment remains editable at the clicked text`, async () => {
       const page = await newChat(engine);
-      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.click();
-      await page.evaluate(() => {
-        const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
-        const data = new DataTransfer();
-        data.setData("text/plain", "<div>\n  Hello\n</div>");
-        field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      });
-      await page.waitForFunction(() =>
-        document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes("Hello"),
+      await page.evaluate(
+        ({ COMPOSER_EDITOR }) => {
+          const field = document.querySelector<HTMLElement>(COMPOSER_EDITOR)!;
+          const data = new DataTransfer();
+          data.setData("text/plain", "<div>\n  Hello\n</div>");
+          field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+        { COMPOSER_EDITOR },
+      );
+      await page.waitForFunction(
+        ({ COMPOSER_EDITOR }) => document.querySelector(COMPOSER_EDITOR)?.textContent?.includes("Hello"),
+        { COMPOSER_EDITOR },
       );
       const pasted = await prompt.innerText();
       expect(pasted).toContain("<div>");
@@ -88,16 +93,20 @@ await requireBrowserLane("composer-html-paste-edit.test.ts", async () => {
   for (const [engine] of engines)
     test(`${engine}: inline JSX remains editable text`, async () => {
       const page = await newChat(engine);
-      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.click();
-      await page.evaluate(() => {
-        const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
-        const data = new DataTransfer();
-        data.setData("text/plain", "const el = <><span>Hello</span></>;");
-        field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      });
-      await page.waitForFunction(() =>
-        document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes("Hello"),
+      await page.evaluate(
+        ({ COMPOSER_EDITOR }) => {
+          const field = document.querySelector<HTMLElement>(COMPOSER_EDITOR)!;
+          const data = new DataTransfer();
+          data.setData("text/plain", "const el = <><span>Hello</span></>;");
+          field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+        { COMPOSER_EDITOR },
+      );
+      await page.waitForFunction(
+        ({ COMPOSER_EDITOR }) => document.querySelector(COMPOSER_EDITOR)?.textContent?.includes("Hello"),
+        { COMPOSER_EDITOR },
       );
       expect(await prompt.locator("[contenteditable='false']").count()).toBe(0);
       await prompt.click();

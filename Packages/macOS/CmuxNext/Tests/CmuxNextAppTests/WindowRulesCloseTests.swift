@@ -10,11 +10,11 @@ import Testing
         TabModel(TabSnapshot(surface: SurfaceID(rawValue: surface), kind: kind, title: "t", url: url))
     }
 
-    @Test func oneIdleTerminalBesideABlankPageAsksWhatTheTerminalRuns() throws {
+    @Test func oneIdleTerminalBesideABlankPageClosesWithNoToast() throws {
         let rules = WindowRules()
         let blank = tab(.browser, url: "about:blank", surface: 1), terminal = tab(.pty, surface: 2)
         let toast = try #require(rules.closeToast([blank, terminal].map { WindowRules.ClosingTab($0, agentAtWork: false) }), "the FFI did not answer")
-        #expect(toast == .askTerminals([1]))
+        #expect(toast == .skip)
     }
 
     @Test func twoRealTabsShowTheToast() throws {

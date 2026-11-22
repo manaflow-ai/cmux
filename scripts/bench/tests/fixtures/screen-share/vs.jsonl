@@ -1,0 +1,15 @@
+{"clock": {"offset_ns": 123456789, "rtt_min_ms": 0.41, "rtt_ms": {"n": 200, "p50": 0.55, "p95": 0.9, "min": 0.41, "max": 2.1}, "replies": 200}, "host": "mac-a", "viewer": "mac-b", "host_ip": "192.0.2.10", "link": "wired"}
+{"stack": "cmux", "mode": "key", "ok": true, "connect_ms": 41.0, "first_frame_ms": 120.5, "warmup": true}
+{"stack": "cmux", "mode": "key", "ok": true, "trial": 1, "connect_ms": 41.0, "first_frame_ms": 111.0, "g2g_ms": {"n": 30, "p50": 22.0, "p95": 30.0}, "lost": 0, "breakdown": []}
+{"stack": "cmux", "mode": "key", "ok": true, "trial": 2, "connect_ms": 42.0, "first_frame_ms": 112.0, "g2g_ms": {"n": 30, "p50": 23.0, "p95": 30.0}, "lost": 1, "breakdown": []}
+{"stack": "cmux", "mode": "key", "ok": true, "trial": 3, "connect_ms": 43.0, "first_frame_ms": 113.0, "g2g_ms": {"n": 30, "p50": 24.0, "p95": 30.0}, "lost": 0, "breakdown": []}
+{"stack": "cmux", "mode": "fps", "ok": true, "trial": 1, "first_frame_ms": 112.0, "marker_fps": 59.0, "fps": 60.0, "mbit_per_s": 3.1}
+{"stack": "cmux", "mode": "fps", "ok": true, "trial": 2, "first_frame_ms": 112.0, "marker_fps": 60.0, "fps": 60.0, "mbit_per_s": 3.3}
+{"stack": "cmux", "mode": "fps", "ok": true, "trial": 3, "first_frame_ms": 112.0, "marker_fps": 61.0, "fps": 60.0, "mbit_per_s": 2.9}
+{"stack": "apple", "mode": "key", "trial": 0, "first_frame_ms": 640.0, "key_to_frame_ms": [40.0], "lost": 0, "ok": true, "warmup": true}
+{"stack": "apple", "mode": "key", "trial": 1, "first_frame_ms": 610.0, "auth_ms": 300.0, "security_type": 30, "screen": [1920, 1080], "key_to_frame_ms": [35.0, 38.0, 41.0], "lost": 0, "ok": true}
+{"stack": "apple", "mode": "key", "trial": 2, "first_frame_ms": 620.0, "auth_ms": 300.0, "security_type": 30, "screen": [1920, 1080], "key_to_frame_ms": [35.0, 38.0, 41.0], "lost": 0, "ok": true}
+{"stack": "apple", "mode": "key", "trial": 3, "first_frame_ms": 630.0, "auth_ms": 300.0, "security_type": 30, "screen": [1920, 1080], "key_to_frame_ms": [35.0, 38.0, 41.0], "lost": 0, "ok": true}
+{"stack": "apple", "mode": "fps", "trial": 1, "ok": false, "error": "RuntimeError('timeout')"}
+{"clock_end": {"offset_ns": 123456900, "rtt_min_ms": 0.4}, "drift_ms": 0.000111}
+{"summary": {"cmux Mac Screen": {"first_frame_ms": {"n": 3, "p50": 112.0, "p95": 113.0, "min": 111.0, "max": 113.0}, "key_to_frame_ms": {"n": 90, "p50": 22.4, "p95": 31.2, "min": 15.0, "max": 40.0}, "fps": {"n": 3, "p50": 60.0, "p95": 61.0, "min": 59.0, "max": 61.0}}, "macOS Screen Sharing": {"first_frame_ms": {"n": 3, "p50": 620.0, "p95": 630.0, "min": 610.0, "max": 630.0}, "key_to_frame_ms": {"n": 9, "p50": 38.0, "p95": 41.0, "min": 35.0, "max": 41.0}, "fps": null}, "cmux_breakdown": {"up": {"p50": 0.3, "p95": 0.6, "mean": 0.35}, "draw": {"p50": 12.1, "p95": 18.0, "mean": 12.9}, "encode": {"p50": 4.2, "p95": 5.0, "mean": 4.3}, "total": {"p50": 22.4, "p95": 31.2, "mean": 23.0}}, "cmux_first_frame_breakdown": {"signal": {"p50": 30.0, "p95": 35.0, "mean": 31.0}, "total": {"p50": 112.0, "p95": 113.0, "mean": 112.0}}}, "link": "wired", "rtt": {"offset_ns": 123456789, "rtt_min_ms": 0.41, "rtt_ms": {"n": 200, "p50": 0.55, "p95": 0.9, "min": 0.41, "max": 2.1}, "replies": 200}}

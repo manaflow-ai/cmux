@@ -31,6 +31,7 @@ struct AgentPaneTransportStatusTests {
     @Test func localStatusRepliesRespectTheInboundByteLimit() throws {
         var limits = AgentPaneTransport.Limits()
         limits.maximumQueuedBytes = 8
+        limits.ceilingQueuedBytes = 8
         let url = try #require(URL(string: "ws://127.0.0.1"))
         let socket = AcpmuxPaneSocket(request: URLRequest(url: url), limits: limits,
                                      options: AcpmuxPermissionOptions(), sessions: AcpmuxPaneSessions(),

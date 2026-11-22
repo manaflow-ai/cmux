@@ -1134,7 +1134,10 @@ holding the push or sign group when none of its build, sign or publish jobs has
 started and the newer run waiting on that group has waited 5 min on it
 (`scripts/ci/nightly_next_supersede.py`, with the light-job list and started rule
 from main's `scripts/ci/delivery_workflows.py`). It never cancels a started job,
-the tip's push run or the newest sign stage. `--dry-run` sends nothing.
+the tip's push run or the newest sign stage. When a holder is still inside that
+5 min wait as its run ends, the run dispatches itself again on `nightly-next`
+(input `chain`, at most 12 links after one push), so a stuck holder is dropped
+within minutes instead of at the next promotion. `--dry-run` sends nothing.
 
 ## Guard
 

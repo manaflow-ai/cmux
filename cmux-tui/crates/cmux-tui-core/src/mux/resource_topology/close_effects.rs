@@ -261,6 +261,7 @@ impl Mux {
                     changes: json!([]),
                     result: json!({}),
                     restates_all: false,
+                    restated: Vec::new(),
                 }
             } else {
                 self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
@@ -571,8 +572,7 @@ impl Mux {
             ResourceOperation::TabClose
                 | ResourceOperation::PaneClose
                 | ResourceOperation::ScreenClose
-        ) && plan.workspace_close.is_none()
-            && registry.public_fold_seeded();
+        ) && plan.workspace_close.is_none();
         let mut projection = match target_workspace {
             Some(workspace) if scoped => self.resource_effect_projection_scoped_locked(
                 &registry,
@@ -605,6 +605,9 @@ impl Mux {
             plan.workspace_close.as_ref(),
             projection.restates_all,
         )?;
+        if !close.resource.replayed {
+            registry.mark_workspaces_whole(close.resource.revision, &projection.restated);
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
             hook();
@@ -853,10 +856,12 @@ impl Mux {
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             // Every index change of this close is inside the closed workspace: drop its entries
             // and no other. The rebuild of every index walked the whole session for one close.
-            // An index that names no workspace keeps the full rebuild below.
+            // An index that names no workspace takes the full rebuild below.
             if let Some(closed) = state.workspaces.get(index) {
                 forget_closed_workspace_indexes(&mut projected, closed, index);
                 split_index_changed = false;
+            } else {
+                split_index_changed = true;
             }
         } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
             registry,

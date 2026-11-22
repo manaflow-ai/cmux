@@ -55,6 +55,11 @@ pub trait RemoteMessageWriter: Send {
 /// `RemoteMessageWriter::send`.
 pub trait RemoteTransportAbort: Send + Sync {
     fn abort(&self) -> io::Result<()>;
+
+    /// The connection is over: close any descriptor of it this handle holds.
+    /// On macOS the other end can miss the wake of a shutdown while this side
+    /// keeps a descriptor; the last close wakes it for certain.
+    fn release(&self) {}
 }
 
 /// The independently-owned read and write halves of a remote connection.
@@ -82,18 +87,36 @@ impl RemoteTransport {
         Ok(Self {
             reader: Box::new(JsonLineReader { inner: BufReader::new(read_half) }),
             writer: Box::new(JsonLineWriter { inner: stream }),
-            abort: Arc::new(StreamTransportAbort { inner: abort_stream }),
+            abort: Arc::new(StreamTransportAbort { inner: Mutex::new(Some(abort_stream)) }),
         })
     }
 }
 
+/// A descriptor of the connection, for an abort from any thread. Both an
+/// abort and a release close it: a session that outlives its connection
+/// holds no descriptor of the socket.
 struct StreamTransportAbort {
-    inner: Box<dyn transport::Stream>,
+    inner: Mutex<Option<Box<dyn transport::Stream>>>,
+}
+
+impl StreamTransportAbort {
+    fn take(&self) -> Option<Box<dyn transport::Stream>> {
+        self.inner.lock().unwrap_or_else(|poison| poison.into_inner()).take()
+    }
 }
 
 impl RemoteTransportAbort for StreamTransportAbort {
     fn abort(&self) -> io::Result<()> {
-        self.inner.shutdown(Shutdown::Both)
+        match self.take() {
+            Some(stream) => stream.shutdown(Shutdown::Both),
+            None => Ok(()),
+        }
+    }
+
+    fn release(&self) {
+        if let Some(stream) = self.take() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
     }
 }
 

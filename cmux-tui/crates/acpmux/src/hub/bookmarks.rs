@@ -66,6 +66,9 @@ impl Hub {
                 meta.updated_at = before;
             }
         }
+        // The rewind has no record of its own: told before the next list read, and the row placed
+        // again in the list's order (`list_order.rs`).
+        self.events.row_changed(session);
         // `append` notes the record before the timestamp rewind above. Note again after the
         // direct metadata write so a closed snapshot that raced the append cannot publish the
         // forward timestamp as this chat's newest continuation.

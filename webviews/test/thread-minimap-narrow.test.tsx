@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // The edge-strip gutter (gutter.experiment.ts): the placement whose occluded state and strip these cover.
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": "compact",
@@ -87,13 +88,9 @@ setBookmarkTransport({
   },
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 afterEach(() => {

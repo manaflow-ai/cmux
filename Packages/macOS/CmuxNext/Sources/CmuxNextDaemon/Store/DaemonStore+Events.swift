@@ -117,6 +117,14 @@ extension DaemonStore {
         case .daemonShutdown:
             return DaemonConnectionChange.shutdown.apply(to: self)
 
+        case .screenDeviceChanged(let id):
+            guard let envelope, let stamp = sideEvents.controlStamp,
+                  envelope.sourceID == stamp.sourceID, envelope.connectionSerial == stamp.serial,
+                  var identity else { return .none }
+            identity.screenDeviceID = DaemonIdentity.normalizedScreenDeviceID(id)
+            noteHandshake(identity)
+            return .none
+
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
                 if let existing = store.index.workspacesByID[WorkspaceModel.identity(delta.entity)] {
@@ -317,7 +325,7 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .agentSessionShareChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none

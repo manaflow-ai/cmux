@@ -23,10 +23,10 @@ pub(super) async fn handle(
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
-        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -159,12 +159,38 @@ async fn inbox(
 ) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let before = params.get("before").and_then(Value::as_u64);
-    let mut page = mesh
-        .team_messages(unread_only, None, before)
-        .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+    let mut page = team_page(mesh, unread_only, before).await?;
     page.messages.retain(|message| may_read(conn, &message.to));
     Ok(serde_json::to_value(page).unwrap_or(Value::Null))
+}
+
+/// One page of the team's messages (`acpmux inbox`), tried again on a hub failure that passes
+/// (`mesh_retry`: no connection, a 5xx, or a 404 `mesh.not_found` while the hub briefly does not
+/// list this daemon). What is left says how it failed ([`inbox_failure`]).
+async fn team_page(
+    mesh: &Arc<dyn MeshHub>,
+    unread_only: bool,
+    before: Option<u64>,
+) -> Result<crate::mesh::TeamPage, RpcError> {
+    crate::mesh_retry::retry(true, || mesh.team_messages(unread_only, None, before))
+        .await
+        .map_err(inbox_failure)
+}
+
+/// An inbox read that failed, in words for how: a hub that is down (5xx, 408, 429) is
+/// unavailable, no connection did not answer, a 4xx is the hub's refusal, and a refusal with no
+/// status is this daemon's own (no token command), made before it asked the hub.
+fn inbox_failure(e: crate::mesh::HubError) -> RpcError {
+    let what = match (e.refused, e.status) {
+        (false, Some(_)) => "the mesh hub is unavailable",
+        (false, None) => "the mesh hub did not answer",
+        (true, Some(_)) => "the mesh hub refused the inbox read",
+        (true, None) => "this daemon could not ask the mesh hub for the inbox",
+    };
+    RpcError::internal(format!("{what}: {e}")).with_data(json!({
+        "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
+        "retryable": !e.refused,
+    }))
 }
 
 /// Local session identity, not a mutable address tag, scopes agent access. The hub
@@ -188,18 +214,16 @@ async fn read(
     let mut before = None;
     // Browse all pages to locate the body; this never steals the relay's lease.
     loop {
-        let page = mesh
-            .team_messages(false, None, before)
-            .await
-            .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+        let page = team_page(mesh, false, before).await?;
         if let Some(mut message) = page
             .messages
             .into_iter()
             .find(|message| message.message_id == id && may_read(conn, &message.to))
         {
-            let receipt = mesh.read(&id).await.map_err(|e| {
-                RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
-            })?;
+            let receipt =
+                crate::mesh_retry::retry(false, || mesh.read(&id)).await.map_err(|e| {
+                    RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
+                })?;
             message.state = Some(receipt.state.clone());
             return Ok(json!({"message": message, "receipt": receipt}));
         }

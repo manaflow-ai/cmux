@@ -30,6 +30,7 @@ import { PAPERCUT_CHAT, papercutEvents } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
@@ -156,7 +157,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// The placement in each painted frame for `ms`, starting with the next one; `act` runs first.
   async function paintedFor(page: Page, ms: number, act?: () => Promise<unknown>): Promise<Placement[]> {
     const done = page.evaluate(
-      (ms) =>
+      ({ ms, MAIN_DOCK }) =>
         new Promise<Placement[]>((resolve) => {
           const out: Placement[] = [];
           let start: number | undefined;
@@ -164,7 +165,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             start ??= frame;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
             out.push({
               top: scroller.scrollTop,
               fromEnd: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
@@ -177,7 +178,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             return false;
           });
         }),
-      ms,
+      { ms, MAIN_DOCK },
     );
     await act?.();
     return done;
@@ -186,7 +187,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// animation runs.
   const settle = (page: Page) =>
     page.evaluate(
-      () =>
+      ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
           let last = "";
           let still = 0;
@@ -195,7 +196,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             frames++;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
             const now = [
               scroller.scrollTop,
               scroller.scrollHeight,
@@ -215,6 +216,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             return false;
           });
         }),
+      { MAIN_DOCK },
     );
   const placement = async (page: Page) => (await paintedFor(page, 0))[0];
   /// The wheel over the transcript's rows above the stack, in steps of 40 px as a trackpad sends.
@@ -298,8 +300,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       // (one the fold hides, or past an opened list's cap) changes no size, so no size observer noted
       // it. Still noted as queued, the next resize that shrank the stack took it for a card that left
       // then, and kept FLOOR_HOLD_MS of room for it above the stack, which then glided away.
-      const stack = (page: Page) =>
-        page.locator(".acpmux-main > .acpmux-dock").evaluate((dock) => dock.getBoundingClientRect().height);
+      const stack = (page: Page) => page.locator(MAIN_DOCK).evaluate((dock) => dock.getBoundingClientRect().height);
       /// Another client runs queued prompt `id` (acpmux `dequeued`); waits until the pane drew it.
       async function runElsewhere(page: Page, id: string) {
         hear("dequeued", { promptId: id });

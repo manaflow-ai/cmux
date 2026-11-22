@@ -259,6 +259,19 @@ extension DaemonConnection {
                                                       activate: activate, after: after, split: split).send(on: self)
     }
 
+    /// App-rendered browser tab in workspace `workspace` itself (`frontend-browser-tab-workspace-v1`): in its pane, or in a
+    /// first pane the daemon makes when it has none, so no terminal hosts it. A daemon without the capability gets
+    /// `missingCapabilities` and no request.
+    @discardableResult
+    public func newFrontendBrowserTab(_ request: NewFrontendBrowserTabRequest, inWorkspace workspace: WorkspaceHandle) async throws -> NewFrontendBrowserTabRequest.Response {
+        guard identity?.supports(DaemonCapability.frontendBrowserTabWorkspace.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabWorkspace.rawValue])
+        }
+        var request = request
+        (request.pane, request.workspace) = (nil, workspace)
+        return try await request.send(on: self)
+    }
+
     @discardableResult
     public func updateFrontendBrowserTab(_ surface: SurfaceID, url: String? = nil, title: String? = nil,
                                          faviconURL: FieldUpdate<String> = .unchanged) async throws -> UpdateFrontendBrowserTabRequest.Response {

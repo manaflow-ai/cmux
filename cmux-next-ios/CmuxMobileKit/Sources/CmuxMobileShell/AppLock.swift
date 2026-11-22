@@ -227,6 +227,7 @@ private struct LockScreen: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 Text("cmux is locked")
                     .font(.title3.weight(.semibold))
                 if controller.locked {

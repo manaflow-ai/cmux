@@ -167,7 +167,8 @@ struct CloudChatsConnecting: View {
     var body: some View {
         VStack(spacing: 6) {
             CmuxSpinner(label: Text("Connecting to \(machine) through \(mac)…"))
-            TimelineView(.periodic(from: since, by: 1)) { context in
+            // The text is "Up to 40 s" for the first 5 s: no redraw until it counts.
+            TimelineView(ElapsedTextSchedule(since: since, quietSeconds: 5)) { context in
                 let elapsed = Int(context.date.timeIntervalSince(since))
                 Text(elapsed < 5 ? "Up to \(cloudConnectBudget.components.seconds) s"
                                  : "\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
@@ -223,7 +224,8 @@ private struct CloudMachineChatsScreen: View {
             if relay?.isRetired == true {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             } else if let relay, relay.hub.isReady {
-                if let preferredSession, !openedPreferred, relay.hub.sessions[preferredSession] == nil {
+                // Until the whole list is read (it comes in pages, CMUX-563) an older chat may still be on its way.
+                if let preferredSession, !openedPreferred, relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
@@ -232,7 +234,7 @@ private struct CloudMachineChatsScreen: View {
                         ForEach(listed.rows, id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
-                                    Text(chat.name.isEmpty ? chat.harness : chat.name)
+                                    Text(chat.displayName)
                                     if let prompt = chat.lastPrompt, !prompt.isEmpty {
                                         Text(prompt).lineLimit(2).foregroundStyle(.secondary)
                                     }
@@ -301,8 +303,9 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
-        .onChange(of: relay?.hub.isReady, initial: true) { _, ready in
-            guard ready == true, !openedPreferred, let preferredSession,
+        // The preferred chat opens once it is listed: with the first page, or with a later one.
+        .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
+            guard ready, !openedPreferred, let preferredSession,
                   relay?.hub.sessions[preferredSession]?.peer == nil,
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true

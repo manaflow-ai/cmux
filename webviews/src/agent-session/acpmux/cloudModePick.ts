@@ -5,6 +5,8 @@
 // to just go through with stuff?". One page holds one pick; every Cloud send from it carries it.
 import { useSyncExternalStore } from "react";
 
+import { cloudStartAgent } from "./harnessModes";
+
 type Pick = { harness: string | undefined; mode: string };
 
 let held: Pick | undefined;
@@ -47,4 +49,17 @@ export function useCloudModePick(): Pick | undefined {
     },
     () => held,
   );
+}
+
+/** What a Cloud send says about its agent for a chat the composer shows on `harness`: the harness
+ * and model when the machine runs that agent, else neither (the machine starts its default, Claude,
+ * which the Mode chip names: cloudStartAgent), and the mode picked on the chip either way. */
+export function cloudSendAgent(
+  family: string | undefined,
+  harness: string,
+  model: string | undefined,
+): { harness?: string; model?: string; mode?: string } {
+  const pick = cloudStartModePick(harness);
+  if (!cloudStartAgent(family, harness).named) return pick;
+  return { harness, ...(model ? { model } : {}), ...pick };
 }

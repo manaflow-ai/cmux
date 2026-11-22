@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only a chat on this Mac can be shared."
+            "value": "Only a chat on this Mac or on your own Cloud machine can be shared."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur ein Chat auf diesem Mac kann geteilt werden."
+            "value": "Nur ein Chat auf diesem Mac oder auf deiner eigenen Cloud-Maschine kann geteilt werden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seule une conversation sur ce Mac peut être partagée."
+            "value": "Seule une discussion sur ce Mac ou sur votre propre machine Cloud peut être partagée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن مشاركة سوى دردشة على هذا الـ Mac."
+            "value": "يمكن مشاركة محادثة على هذا الـ Mac أو على جهاز Cloud الخاص بك فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solo se puede compartir un chat de este Mac."
+            "value": "Solo se puede compartir un chat de este Mac o de tu propia máquina en Cloud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "只能分享這台 Mac 上的聊天。"
+            "value": "只能分享這台 Mac 或你自己的 Cloud 機器上的聊天。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "只能共享这台 Mac 上的聊天。"
+            "value": "只能分享这台 Mac 或你自己的 Cloud 机器上的聊天。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 채팅만 공유할 수 있습니다."
+            "value": "이 Mac 또는 내 Cloud 머신의 채팅만 공유할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有できるのはこの Mac 上のチャットだけです。"
+            "value": "共有できるのは、この Mac または自分の Cloud マシン上のチャットだけです。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Može se podijeliti samo chat na ovom Macu."
+            "value": "Može se dijeliti samo chat na ovom Macu ili na vašoj vlastitoj Cloud mašini."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kun en chat på denne Mac kan deles."
+            "value": "Kun en chat på denne Mac eller på din egen Cloud-maskine kan deles."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si può condividere solo una chat su questo Mac."
+            "value": "Si può condividere solo una chat su questo Mac o sulla tua macchina Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អាចចែករំលែកបានតែការជជែកនៅលើ Mac នេះ។"
+            "value": "អាចចែករំលែកបានតែការជជែកនៅលើ Mac នេះ ឬនៅលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់អ្នកប៉ុណ្ណោះ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bare en chat på denne Macen kan deles."
+            "value": "Bare en chat på denne Macen eller på din egen Cloud-maskin kan deles."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Udostępnić można tylko czat na tym Macu."
+            "value": "Udostępnić można tylko czat na tym Macu lub na własnej maszynie Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Só é possível compartilhar um chat deste Mac."
+            "value": "Só é possível compartilhar um chat neste Mac ou na sua própria máquina do Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поделиться можно только чатом на этом Mac."
+            "value": "Поделиться можно только чатом на этом Mac или на вашей собственной машине Cloud."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชร์ได้เฉพาะแชตบน Mac เครื่องนี้เท่านั้น"
+            "value": "แชร์ได้เฉพาะแชทบน Mac เครื่องนี้หรือบนเครื่อง Cloud ของคุณเองเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yalnızca bu Mac'teki bir sohbet paylaşılabilir."
+            "value": "Yalnızca bu Mac'teki veya kendi Cloud makinenizdeki bir sohbet paylaşılabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поділитися можна лише чатом на цьому Mac."
+            "value": "Поділитися можна лише чатом на цьому Mac або на вашій власній машині Cloud."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chỉ có thể chia sẻ cuộc trò chuyện trên máy Mac này."
+            "value": "Chỉ có thể chia sẻ cuộc trò chuyện trên máy Mac này hoặc trên máy Cloud của riêng bạn."
           }
         }
       }
@@ -7071,6 +7071,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Đã sao chép"
+          }
+        }
+      }
+    },
+    "agentShare.notCloudOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is on a teammate’s Cloud machine, so its owner shares it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat liegt auf der Cloud-Maschine einer Teamkollegin oder eines Teamkollegen, daher teilt ihn die Person, der sie gehört."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion se trouve sur la machine Cloud d’un coéquipier : c’est son propriétaire qui la partage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه المحادثة على جهاز Cloud لزميل في الفريق، لذا يشاركها مالكه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat está en la máquina Cloud de un compañero, así que la comparte su propietario."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個聊天位於隊友的 Cloud 機器上，因此由機器擁有者分享。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个聊天位于队友的 Cloud 机器上，因此由机器所有者分享。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 팀원의 Cloud 머신에 있으므로 소유자가 공유합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはチームメイトの Cloud マシン上にあるため、所有者が共有します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat je na Cloud mašini člana tima, pa ga dijeli njen vlasnik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat er på en holdkammerats Cloud-maskine, så dens ejer deler den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è sulla macchina Cloud di un collega, quindi la condivide il proprietario."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះនៅលើម៉ាស៊ីន Cloud របស់មិត្តរួមក្រុម ដូច្នេះម្ចាស់របស់វាជាអ្នកចែករំលែក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten er på en lagkamerats Cloud-maskin, så eieren deler den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat jest na maszynie Cloud członka zespołu, więc udostępnia go jej właściciel."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat está na máquina do Cloud de um colega, então quem compartilha é o dono."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат на машине Cloud коллеги, поэтому делится им её владелец."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้อยู่บนเครื่อง Cloud ของเพื่อนร่วมทีม เจ้าของเครื่องจึงเป็นผู้แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet bir ekip arkadaşınızın Cloud makinesinde, bu yüzden onu sahibi paylaşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат на машині Cloud колеги, тому ним ділиться її власник."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này nằm trên máy Cloud của đồng đội, nên chủ máy sẽ chia sẻ."
+          }
+        }
+      }
+    },
+    "agentShare.cloudRoomMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine can’t make share links yet. Update the machine, then try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine kann noch keine Freigabelinks erstellen. Aktualisiere die Maschine und versuche es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud ne peut pas encore créer de liens de partage. Mettez-la à jour, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لجهاز Cloud هذا إنشاء روابط مشاركة بعد. حدّث الجهاز ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina Cloud aún no puede crear enlaces para compartir. Actualízala y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器還無法建立分享連結。請更新機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器还无法创建分享链接。请更新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 아직 공유 링크를 만들 수 없습니다. 머신을 업데이트한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンではまだ共有リンクを作成できません。マシンを更新してからもう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud mašina još ne može praviti linkove za dijeljenje. Ažurirajte mašinu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskine kan endnu ikke lave delingslinks. Opdater maskinen, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina Cloud non può ancora creare link di condivisione. Aggiorna la macchina e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះមិនទាន់អាចបង្កើតតំណចែករំលែកបានទេ។ សូមធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskinen kan ikke lage delingslenker ennå. Oppdater maskinen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna Cloud nie może jeszcze tworzyć linków do udostępniania. Zaktualizuj ją i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina do Cloud ainda não cria links de compartilhamento. Atualize a máquina e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта машина Cloud пока не может создавать ссылки для общего доступа. Обновите машину и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้ยังสร้างลิงก์แชร์ไม่ได้ อัปเดตเครื่องแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesi henüz paylaşım bağlantısı oluşturamıyor. Makineyi güncelleyip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця машина Cloud ще не може створювати посилання для спільного доступу. Оновіть машину й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud này chưa thể tạo liên kết chia sẻ. Hãy cập nhật máy rồi thử lại."
           }
         }
       }
