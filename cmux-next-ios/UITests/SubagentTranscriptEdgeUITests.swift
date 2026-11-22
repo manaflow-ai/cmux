@@ -31,6 +31,8 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         }
         if stream { app.launchEnvironment["CMUX_MOBILE_LIST_STREAM"] = "1" }
         if giant { app.launchEnvironment["CMUX_MOBILE_LIST_GIANT"] = "1" }
+        // A main thread busy for 2 s logs its stack (CMUX_MAIN_STALL, the step's app-log.txt).
+        app.launchEnvironment["CMUX_MOBILE_STALL_WATCHDOG"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")

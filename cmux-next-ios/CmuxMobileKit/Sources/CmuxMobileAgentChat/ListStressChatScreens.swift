@@ -25,6 +25,7 @@ enum ListStressChatScreens {
 
     /// The screen in a navigation stack with its load started, or nil for another screen.
     static func make(_ screen: String, settings: ListStressSettings) -> UIViewController? {
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_STALL_WATCHDOG"] == "1" { MainStallWatchdog.start() }
         let root: AnyView
         switch screen {
         case "subagent":
