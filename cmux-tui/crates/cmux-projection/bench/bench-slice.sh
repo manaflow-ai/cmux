@@ -67,8 +67,8 @@ trap cleanup EXIT
 
 # --- setup ---------------------------------------------------------------------------------------
 if [ -z "${BIN:-}" ]; then
-  (cd "$CHECKOUT/cmux-tui" && "$CARGO" build -q -p cmux-projection --example slice_bench)
-  BIN=$CHECKOUT/cmux-tui/target/debug/examples/slice_bench
+  (cd "$CHECKOUT/cmux-tui" && "$CARGO" build -q --release -p cmux-projection --example slice_bench)
+  BIN=$CHECKOUT/cmux-tui/target/release/examples/slice_bench
 fi
 if [ ! -f "$ROOT/mac/.fixture-$COMMIT" ]; then
   log "fixture: git archive $COMMIT into $ROOT/mac"
@@ -204,7 +204,7 @@ import json, sys
 mount = json.loads('''$mount_json''' or 'null')
 stats = json.loads('''$stats''' or 'null')
 stats2 = json.loads('''$stats2''' or 'null')
-row = dict(arm="projected", run=$run, rtt_ms=$RTT_MS, mbps=$MBPS, commit="$COMMIT",
+row = dict(arm="projected", run=$run, load1=float(open("/proc/loadavg").read().split()[0]), rtt_ms=$RTT_MS, mbps=$MBPS, commit="$COMMIT",
   fixture_files=$FIX_FILES, fixture_bytes=$FIX_BYTES, serve=json.loads('''$SERVE_JSON'''),
   mount_s=$mount_s, mount=mount, first_read_ms=$first, warm_read_ms=$warm,
   warm_read_dropped_ms=$dropped, ls_r_s=$ls_s, ls_r_entries=$ls_n, ls_r_link_bytes_down=$ls_b1 - $ls_b0,
@@ -261,7 +261,7 @@ run_copy() {
 import json, sys
 copy_s = $(json_or_null "$copy_s")
 cold_s = $cold_s
-row = dict(arm="copy", run=$run, rtt_ms=$RTT_MS, mbps=$MBPS, commit="$COMMIT",
+row = dict(arm="copy", run=$run, load1=float(open("/proc/loadavg").read().split()[0]), rtt_ms=$RTT_MS, mbps=$MBPS, commit="$COMMIT",
   fixture_files=$FIX_FILES, fixture_bytes=$FIX_BYTES, copy_s=copy_s,
   copy_timed_out=$([ "$timed_out" = true ] && echo True || echo False), copy_link_bytes_down=$b1 - $b0,
   first_read_ms=$first, warm_read_ms=$warm, warm_read_dropped_ms=$dropped, ls_r_s=$ls_s,
