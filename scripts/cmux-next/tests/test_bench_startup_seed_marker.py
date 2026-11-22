@@ -85,7 +85,8 @@ class SeedMarker(unittest.TestCase):
                 mock.patch.object(bench_startup, "reset_state", lambda tag: None), \
                 mock.patch.object(bench_startup, "daemon_socket", lambda tag, timeout=20: "/nonexistent.sock"), \
                 mock.patch.object(bench_startup, "app_client", lambda *a, **k: RefusingApp()), \
-                mock.patch.object(bench_startup, "app_tab_id", lambda *a, **k: "tab-1"):
+                mock.patch.object(bench_startup, "app_tab_id", lambda *a, **k: "tab-1"), \
+                mock.patch.object(bench_startup, "seed_chat_session", lambda tag: "sess-1"):
             with redirect_stderr(io.StringIO()) as err:
                 bench_startup.seed_realistic(self.tag, tempfile.mkdtemp(dir=self.home), 1)
             self.assertIn("seeding without an agent chat", err.getvalue())
