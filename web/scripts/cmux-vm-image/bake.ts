@@ -78,6 +78,7 @@ import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
+  devboxClaudeSettingsDefaultsCommand,
   devboxFileBytes,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -1034,6 +1035,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
+  // After wireCmuxTui, whose hook install wrote the work user's ~/.claude/settings.json; this only adds keys it lacks.
+  await L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
