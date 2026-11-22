@@ -716,6 +716,7 @@ struct ShellView: View {
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
             await ListStressRig.runIfConfigured(shell: shell)
+            Task { await HostLoadDriver.runIfConfigured(store: shell.store) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
