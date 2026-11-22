@@ -225,6 +225,18 @@ impl State {
         self.reducer.last_seq
     }
 
+    /// Active wall time per finished turn. The reducer already survives a daemon swap.
+    /// Before the first reply its elapsed active turn is a lower bound on its service time.
+    pub(crate) fn reply_period_ms(&self, now: u64) -> Option<u64> {
+        let r = &self.reducer;
+        let waiting = r.totals.get(&Category::Person).copied().unwrap_or_default();
+        r.total_ms
+            .saturating_sub(waiting)
+            .checked_div(r.ended_turns)
+            .or_else(|| r.turn.as_ref().map(|turn| now.saturating_sub(turn.start_at)))
+            .filter(|period| *period > 0)
+    }
+
     pub(crate) fn snapshot(&self, now: u64) -> TimeBreakdown {
         let mut reducer = self.reducer.clone();
         if let Some(turn) = reducer.turn.as_mut() {
