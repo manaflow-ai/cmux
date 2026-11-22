@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -76,6 +77,10 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
+# Undo: the repository variable CI_WEBVIEWS_NARROW_SELECTION=0 (ci-web.yml hands it to every job) turns off
+# what 2026-11-22 added: RUNTIME_LOADS, a deleted source's namers (deleted_namers) and a read script's readers
+# (webviews_pr_shards.read_beyond_imports). Each then runs what it ran before, or more.
+NARROW = os.environ.get("CI_WEBVIEWS_NARROW_SELECTION", "1") != "0"
 # Reviewed loads the import graph cannot follow that read nothing a test or its change controls. Pinned
 # to the reviewed content: any edit puts the file back among the untracked modules, so every test that
 # reaches it runs again until it is reviewed again. On 2026-11-22's tree these two made 835 of the 2,101
@@ -114,7 +119,7 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        reviewed = {f for f, digest in RUNTIME_LOADS.items() if f in self.text
+        reviewed = {f for f, digest in RUNTIME_LOADS.items() if NARROW and f in self.text
                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
         self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - reviewed)}
         self.preload = self.closure(PRELOAD)
@@ -159,7 +164,7 @@ class Selector:
         """
         p = Path(path)
         name = p.parent.name if p.stem == "index" else p.stem
-        if len(name) < 4:
+        if not NARROW or len(name) < 4:
             return None
         pattern = re.compile(SPECIFIER.format(re.escape(name)))
         out: set[str] = set()

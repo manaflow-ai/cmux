@@ -87,6 +87,8 @@ def read_beyond_imports(selector: "wa.Selector", f: str) -> tuple[str, set[str]]
     for source in sorted(reached - importers - {f}):
         text = COMMENT.sub("", selector.text.get(source, ""))
         if rel in text or f in text or source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
+            if not wa.NARROW:
+                return f"{f} is read as data by {source}", set()
             readers.add(source)
     return "", readers
 

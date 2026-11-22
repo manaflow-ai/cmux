@@ -232,6 +232,22 @@ class SelectTest(unittest.TestCase):
         self.assertIsNone(self.change("webviews/src/listed.ts", delete=True))
         self.assertIsNone(self.change("webviews/src/abc.ts", delete=True))
 
+    def test_the_undo_variable_restores_the_wider_selection(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        (self.root / "webviews/scripts").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/scripts/table-baseline.tsv").write_text("a\t1\n")
+        (self.root / "webviews/test/table.test.ts").write_text(
+            'import { readFileSync } from "node:fs";\nreadFileSync("scripts/table-baseline.tsv");\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture reader")
+        wa.NARROW = False
+        try:
+            self.assertIsNone(self.change("webviews/src/leaf.ts", delete=True))
+            found, _ = ps.touched(wa.Selector(self.root), ["webviews/scripts/table-baseline.tsv"])
+            self.assertIsNone(found)
+        finally:
+            wa.NARROW = True
+
     def test_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
         self.assertIsNone(self.change("webviews/test/preload.ts"))
