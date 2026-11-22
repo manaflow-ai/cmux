@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextServer
+import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxNextTestSupport
@@ -270,7 +271,7 @@ struct MacScreenHubCardTests {
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(pane.model.card == .hubConnect)
         #expect(!pane.model.showsStreamControls)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -290,7 +291,7 @@ struct MacScreenViewOnlyTests {
 
     @Test func theSessionsScopeDecidesViewOnly() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(!pane.model.viewOnly)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         #expect(pane.model.viewOnly)
@@ -1458,5 +1459,44 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
         #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}
+
+/// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
+struct MacScreenRdCustomizeTests {
+    @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.customize(ScreenPreferences())
+        #expect(!document.text.contains("max-kbps") && !document.text.contains("cmux-rd-cursor"))
+        document.customize(ScreenPreferences(maxKbps: 10_000, showCursorInStream: false))
+        #expect(document.text.contains("a=cmux-rd-max-kbps:10000\r\n"))
+        #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: document.text))
+        #expect(parsed == document)
+    }
+}
+
+/// Screen Sharing Profile (`remote.screenSharingProfile`): Ultra travels in the offer as
+/// `a=cmux-rd-encode-profile:ultra` (cmux-hub-host rd_doc.rs); Balanced sends no line.
+struct MacScreenRdEncodeProfileTests {
+    private let key = String(repeating: "ab", count: 32)
+
+    @Test func anUltraOfferRoundTripsItsEncodeProfile() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.maxFps = 120
+        offer.encodeProfile = "ultra"
+        #expect(offer.text.contains("\r\na=cmux-rd-encode-profile:ultra\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: offer.text))
+        #expect(parsed == offer)
+        #expect(parsed.encodeProfile == "ultra")
+    }
+
+    @Test func aBalancedOfferSendsNoProfileLine() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.encodeProfile = MacScreenPages.encodeProfile(ScreenSharingProfile.balanced)
+        #expect(!offer.text.contains("encode-profile"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)).encodeProfile == nil)
+        #expect(MacScreenPages.encodeProfile(ScreenSharingProfile.ultra) == "ultra")
+        #expect(RemoteSettings().screenSharingProfile == .balanced, "Balanced stays the default")
     }
 }

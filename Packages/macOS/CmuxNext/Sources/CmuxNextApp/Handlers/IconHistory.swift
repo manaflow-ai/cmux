@@ -59,6 +59,6 @@ struct IconHistory {
 
 /// Undo toast messages of icon changes (Handlers.xcstrings).
 enum IconStrings {
-    static var undoSet: String { String(localized: "icon.undo.set", defaultValue: "Icon Set", table: "Handlers", bundle: .module) }
-    static var undoRemove: String { String(localized: "icon.undo.remove", defaultValue: "Icon Removed", table: "Handlers", bundle: .module) }
+    static var undoSet: String { String(localized: "icon.undo.set", defaultValue: "Icon Set", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var undoRemove: String { String(localized: "icon.undo.remove", defaultValue: "Icon Removed", table: "Handlers", bundle: .module.inAppLanguage) }
 }
