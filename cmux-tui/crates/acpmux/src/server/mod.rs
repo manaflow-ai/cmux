@@ -197,6 +197,10 @@ pub struct Conn {
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
+    /// The client asked, in its `initialize` (`_meta.acpmux.peerRowBatches`), to hear a burst of
+    /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
+    /// follow the list for them, not one `session_changed` per row.
+    peer_row_batches: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -839,7 +843,8 @@ pub async fn serve_unix_with_v2(
     }
 }
 
-const INDEX_HTML: &str = include_str!("../../web/index.html");
+static INDEX_HTML: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../web/index.html"));
 
 /// One TCP port serves both the dashboard page (plain HTTP GET) and the
 /// WebSocket protocol. The request head is peeked, never consumed, so the
@@ -1458,7 +1463,7 @@ async fn serve_http(
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
+        ("200 OK", INDEX_HTML.inflate(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
@@ -1685,6 +1690,7 @@ async fn serve_connection_from(
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
+        peer_row_batches: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -1794,6 +1800,8 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // An open of a chat's view is timed from here to its reply (`gauges.attach`).
+                let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
                 // principal it is a single-purpose channel. In particular,
                 // the local socket must not keep granting ordinary person
@@ -1817,7 +1825,10 @@ async fn serve_connection_from(
                                 "reason": "connection.busy",
                                 "retryable": true,
                             }));
-                        conn.send(&Message::err(id, error));
+                        // In the lane of its method's answer: a busy refusal of a cheap read (the
+                        // pane's liveness probe) proves the daemon alive only if it arrives.
+                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
                 };
@@ -1942,6 +1953,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                     } else {
                         dual_requests::finish(first, None);
+                    }
+                    if let Some(from) = attach_from {
+                        crate::gauges::attach_latency().record(from.elapsed());
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -2121,6 +2135,21 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    // The close of one peer's batch of rows (`hub/list_guard.rs` `send_remote_batch`): only a
+    // watcher that asked for batches hears it, in place of the rows' `session_changed`.
+    if ev.record.kind == crate::hub::PEER_ROWS_CHANGED {
+        if let Some(remote) = &ev.remote
+            && conn.peer_row_batches.load(Ordering::SeqCst)
+            && conn.watch_all.load(Ordering::SeqCst)
+            && !view::a_link(conn)
+        {
+            let mut params = ev.record.msg.clone();
+            params.set("peer", json!(remote.peer));
+            params.set("listSeq", json!(ev.list_seq));
+            conn.send(&Message::notification(method::MUX_PEER_ROWS_CHANGED, params));
+        }
+        return;
+    }
     conn.controls.event(hub, conn, &ev);
     if ev.record.kind == crate::hub::PEER_LAGGED {
         if conn.sub_opts(&ev.session_id).is_some() {
@@ -2285,16 +2314,20 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // daemon's link hears no change of a row this daemon mirrors: the link drops every
             // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
             // every other peer's link for nothing (24 copies of every change with one daemon's
-            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
-            if rec.dir == "peer" && !view::a_link(conn) {
-                let sid = remote
-                    .summary
-                    .get("sessionId")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own. A row of a batch
+            // reaches a watcher that asked for batches as the batch's one notice, unless this
+            // connection attached the row's chat (`send_remote_batch`, `peer_rows_changed`).
+            let batched =
+                ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
+            if rec.dir == "peer" && !view::a_link(conn) && !batched {
+                let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
+                // The packed row, parsed for this line only (`RemoteRef::summary`).
+                let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
+                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
+                    .unwrap_or(Value::Null);
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                 ));
             }
             return;
@@ -2317,20 +2350,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &*ev.row;
+        let [list_row, full_row] = &ev.row.cells;
         let row = if full { full_row } else { list_row };
-        let summary = match row.get() {
-            Some(summary) => Some(summary),
-            None => hub.resolve(&ev.session_id).ok().map(|s| {
-                row.get_or_init(|| {
-                    if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) }
-                })
-            }),
-        };
+        let summary = row.get_or_build(|| {
+            let s = hub.resolve(&ev.session_id).ok()?;
+            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+        });
         if let Some(summary) = summary {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
@@ -2367,6 +2396,9 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+#[cfg(test)]
+#[path = "chatgpt_import_tests.rs"]
+mod chatgpt_import_tests;
 mod client_request;
 mod computer_use_relay;
 #[cfg(test)]
@@ -2374,6 +2406,9 @@ mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+#[cfg(test)]
+#[path = "latency_gauges_tests.rs"]
+mod latency_gauges_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
@@ -2424,8 +2459,11 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
+mod ssh_carry;
+mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
+mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
@@ -2449,6 +2487,8 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+#[cfg(test)]
+mod attach_latency_bench;
 mod connections;
 mod mcp_connect;
 mod routes;
