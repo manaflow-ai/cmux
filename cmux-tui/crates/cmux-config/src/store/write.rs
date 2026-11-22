@@ -14,7 +14,9 @@ use crate::history::{self, HistoryEntry};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, replaced_by_row, retired_keys, retired_reason};
+use crate::schema::{
+    Row, accepts, normalize_backdrop, replaced_by_row, retired_keys, retired_reason,
+};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -357,6 +359,11 @@ fn set_text(
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
+    // A pasted YouTube address in a background row is stored as its `youtube:` id.
+    let value = match row {
+        Some(row) => normalize_backdrop(row, value),
+        None => value,
+    };
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
         // The default's own value removes the key, so it keeps following the default when a later

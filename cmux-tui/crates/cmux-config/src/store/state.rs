@@ -14,6 +14,7 @@ use crate::jsonc;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::render::compact;
 use crate::schema::{Schema, accepts};
+use crate::sidebar_look;
 use crate::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use crate::value::value_at;
 
@@ -220,6 +221,8 @@ impl State {
                 diagnostics.push(Diagnostic::new(kind, &problem.path, &problem.display()));
             }
         }
+        // The sidebar look fills only what every layer above leaves unset (sidebar_look).
+        effective.root = sidebar_look::filled(&effective.root, self.schema, &self.domains);
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
             if let Some(stored) = value_at(&effective.root, &row.path)

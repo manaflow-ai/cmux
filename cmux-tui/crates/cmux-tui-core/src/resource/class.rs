@@ -110,6 +110,7 @@ impl ResourceOperation {
                 | Self::SettingsSnapshot
                 | Self::SettingsHistory
                 | Self::KeybindingsGet
+                | Self::LanguagePacksEnsure
                 | Self::BrowserDevicesList
                 | Self::BrowserProfileList
                 | Self::SidebarLayoutGet

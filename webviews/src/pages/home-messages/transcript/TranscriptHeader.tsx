@@ -9,6 +9,7 @@ import { HomeIcon } from "../../home-channels/icons";
 import type { HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { initials } from "../../../ui/initials";
+import { intl } from "../../../ui/intl";
 
 /** One top-right toggle (`HomeHeaderPanelItem`): a panel beside Home that it opens and closes. */
 export interface HeaderPanelItem {
@@ -50,7 +51,7 @@ export function alsoHereNames(
     const name = person.name.trim();
     if (others.has(person.id) && name && !names.has(person.id)) names.set(person.id, name);
   }
-  const collator = new Intl.Collator(language, { numeric: true, sensitivity: "base" });
+  const collator = intl.Collator(language, { numeric: true, sensitivity: "base" });
   return [...others].map((id) => names.get(id) ?? id).sort(collator.compare);
 }
 
@@ -70,7 +71,7 @@ export function TranscriptHeader({
   onContact,
   strings,
 }: TranscriptHeaderProps) {
-  const list = new Intl.ListFormat(strings.language, { type: "conjunction" });
+  const list = intl.ListFormat(strings.language, { type: "conjunction" });
   return (
     <header className="mt-header">
       <div className="mt-header-center">

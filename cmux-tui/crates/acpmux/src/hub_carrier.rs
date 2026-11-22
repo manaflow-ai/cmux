@@ -53,7 +53,13 @@
 //! the key only under this machine's key lock (`cmux_link::key_holder`): the transport's, when
 //! the transport runs, else its own ([`KeyLease`]), taken only where no cmux link serves this
 //! home's node key and handed to the link once one does, the rule the transport follows
-//! (`mesh_node_key::link_serves_node_key`). Where the link holds the key, the carrier is off.
+//! (`mesh_node_key::link_serves_node_key`). The lock exists because a key carries one live
+//! WireGuard session per peer, so the link (or the transport) stays the one holder of the key's
+//! session. Where the link holds the lock the carrier takes none and reads the key through
+//! `key_holder::open_for_noise_static`: it opens no WireGuard session, only the Noise XX static
+//! key of condition 2, so the key still has one session holder and the machine stays reachable
+//! (`cmux remote exec --via-machine`) with the app's link running. A key the link then replaces
+//! stops the carrier, as any replaced key does (condition 3).
 //!
 //! Load: per machine one relay control socket (the registration, pinged a third of its lease);
 //! per live pair one relay circuit (two sockets) and one ticket call per dial. The dialer closes
@@ -80,6 +86,8 @@ use cmux_remote::provider::{
     spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+
+use crate::protocol::peer_state::OfflineReason;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
@@ -290,6 +298,10 @@ pub struct Timings {
     pub handshake: Duration,
     /// How often a serving carrier checks that its key is still the machine's.
     pub key_check: Duration,
+    /// How long a dial waits for the far machine to join the circuit it allocated. A carrier
+    /// that serves answers in well under a second; past this the machine's carrier is taken as
+    /// not serving, and the dial says so rather than leave the caller on its own timeout.
+    pub peer_join: Duration,
 }
 
 impl Default for Timings {
@@ -298,6 +310,7 @@ impl Default for Timings {
             control: Duration::from_secs(10),
             handshake: Duration::from_secs(10),
             key_check: Duration::from_secs(30),
+            peer_join: Duration::from_secs(6),
         }
     }
 }
@@ -336,6 +349,9 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Why this machine's own registration cannot heal by retrying alone, while it cannot
+    /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
+    serve_reason: RwLock<Option<OfflineReason>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -362,6 +378,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -386,6 +403,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -484,7 +502,18 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let answer = self.tickets.connect(daemon).await?;
+        // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`), unless
+        // the hub has no carrier for it at all ([`ticket_refusal`]).
+        let answer = self.tickets.connect(daemon).await.map_err(|e| {
+            if e.contains("machine.not_found") {
+                ticket_refusal(e)
+            } else {
+                format!(
+                    "{} no relay ticket: {e}",
+                    crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE
+                )
+            }
+        })?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
@@ -525,11 +554,17 @@ impl HubCarrier {
                 routing: BTreeMap::new(),
             })
             .await
-            .map_err(|e| e.to_string())?;
-        let opened = group.open(LinkRequest { lane: Lane::Control, generation: 0 }).await;
+            .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
+        let opened = tokio::time::timeout(
+            self.timings.peer_join,
+            group.open(LinkRequest { lane: Lane::Control, generation: 0 }),
+        )
+        .await;
         // The circuit is its own socket: the allocation socket is not needed past this.
         let _ = group.close().await;
-        let link = opened.map_err(|e| e.to_string())?;
+        let link = opened
+            .map_err(|_| carrier_not_serving(self.timings.peer_join))?
+            .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         let secure = initiate_secure_link(
             link,
             ClientHandshake {
@@ -621,6 +656,7 @@ impl HubCarrier {
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
+                    self.set_serve_reason(Some(OfflineReason::CredentialUnavailable));
                     // The first refusal is the start's answer, a warn. The later ones say at info
                     // where the asking stands, at most once per `REFUSAL_SAID_EVERY`.
                     let now = tokio::time::Instant::now();
@@ -698,13 +734,23 @@ impl HubCarrier {
         tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
         // Held until this task is aborted ([`HubServe`]'s drop) or the key is replaced, which
         // drops it and unregisters.
+        let mut state = registration.state();
         let _registration = registration;
         let mut every = tokio::time::interval(self.timings.key_check);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // False once the registration's task ended (only at shutdown, which the drop does).
+        let mut reporting = true;
         loop {
+            let reason =
+                state.borrow_and_update().reason().map(|_| OfflineReason::CredentialUnavailable);
+            self.set_serve_reason(reason);
             tokio::select! {
                 _ = every.tick() => {}
                 () = self.rekeyed.notified() => {}
+                changed = state.changed(), if reporting => {
+                    reporting = changed.is_ok();
+                    continue;
+                }
             }
             if self.generation.load(Ordering::SeqCst) != generation {
                 return;
@@ -750,22 +796,18 @@ pub struct HubCarrierSlot(Arc<std::sync::RwLock<Option<Arc<HubCarrier>>>>, bool)
 
 impl HubCarrierSlot {
     /// A slot for a daemon whose startup may run the carrier: one with the joined machine
-    /// credential (`meshRelay.credential: "join"`) that may hold the node key: its WireGuard
-    /// transport holds the key lock, or no transport runs and no cmux link serves this home's
-    /// node key, so [`start_configured`] takes the lock itself.
+    /// credential (`meshRelay.credential: "join"`). Whichever holds the node key lock (the
+    /// WireGuard transport, the carrier's own lease, or the cmux link, whose key the carrier
+    /// reads as a Noise static key only), [`start_configured`] runs it.
     pub fn for_daemon(
         config: &crate::config::Config,
-        wireguard: Option<&Arc<crate::wireguard::Transport>>,
+        _wireguard: Option<&Arc<crate::wireguard::Transport>>,
     ) -> Self {
         let joined = config
             .mesh_relay
             .as_ref()
             .is_some_and(|relay| relay.credential.as_deref() == Some("join"));
-        let held = || match wireguard {
-            Some(transport) => transport.key_holder().is_some(),
-            None => !link_serves(&crate::config::home()),
-        };
-        Self(Arc::default(), joined && held())
+        Self(Arc::default(), joined)
     }
 
     /// Whether the carrier runs or this daemon's startup may start it.
@@ -1054,6 +1096,55 @@ fn random_16() -> Result<[u8; 16], String> {
     Ok(bytes)
 }
 
+/// What a dial says when the far machine's hub carrier is not serving, whatever told it so (the
+/// hub's 404 `machine.not_found` on the connect ticket, the relay's `slot-offline`, or a far
+/// machine that never joined the circuit): the machine's own fix, with a reason the CLI ends on
+/// ([`cmux_remote::provider::TERMINAL_REFUSALS`]), where a redial only waits out its timeout.
+pub(crate) fn carrier_off(how: &str) -> String {
+    format!(
+        "that machine's hub carrier is off ({how}): its acpmux is stopped or not joined to this \
+         account, or it runs a build from before the carrier served beside the cmux link (its \
+         app's link holds the node key and the older carrier stays off there). Update cmux on \
+         that machine and restart its acpmux; `acpmux machine status --json` there shows the \
+         carrier. (carrier.not_serving)"
+    )
+}
+
+/// The far machine never joined the circuit within `waited`.
+pub(crate) fn carrier_not_serving(waited: Duration) -> String {
+    carrier_off(&format!("it did not answer on the relay within {}s", waited.as_secs().max(1)))
+}
+
+/// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` is
+/// [`not_a_teammate_machine`]; any other refusal keeps its text.
+pub(crate) fn ticket_refusal(text: String) -> String {
+    if text.contains("machine.not_found") { not_a_teammate_machine() } else { text }
+}
+
+/// The hub's connect ticket answers `machine.not_found` for any key that is not one of the
+/// caller's person's live machines joined in the caller's own team (cmux-platform
+/// `server/mesh/MeshCarrier.ts`: rows of `caller.team` minted by `caller.user`). Whether the far
+/// carrier serves does not enter into it: a machine joined in another team of the same person
+/// registers and serves on its own slot and still answers this, so the words name the team.
+pub(crate) fn not_a_teammate_machine() -> String {
+    "the hub knows no live machine of yours with that key in this machine's team: it is not \
+     joined, its join was revoked or expired, or it is joined in another of your teams (the hub \
+     carrier only connects machines joined in the same team). Compare teamId in `acpmux machine \
+     join --status --json` on both machines; `acpmux machine doctor --here` names the team and \
+     how to move a join. (carrier.not_serving)"
+        .to_owned()
+}
+
+/// A relay's refusal of a dial, as the dialer words it: the relay's `slot-offline` (no daemon
+/// registered for the machine's slot, or its registration lease ran out) is the far carrier not
+/// serving ([`carrier_not_serving`]); any other refusal keeps its own text.
+pub(crate) fn relay_refusal(text: String, waited: Duration) -> String {
+    let offline = text.contains("slot-offline")
+        || text.contains("no daemon is registered")
+        || text.contains("registration lease has expired");
+    if offline { carrier_not_serving(waited) } else { text }
+}
+
 /// The platform's tickets, by this machine's `cmm_` credential, through the mesh hub's client.
 pub(crate) struct PlatformTickets {
     hub: crate::mesh_http::HttpHub,
@@ -1100,16 +1191,11 @@ pub(crate) struct KeyLease {
 }
 
 impl KeyLease {
-    /// Takes this machine's key lock in `home`, unless a cmux link serves its node key there or
-    /// another process holds the lock (a link, another daemon): then the carrier stays off.
+    /// Takes this machine's key lock in `home` (the caller checked that no cmux link serves its
+    /// node key there, [`link_serves`]), unless another process holds the lock (a link, another
+    /// daemon): then the carrier stays off.
     fn take(home: &std::path::Path) -> Option<(Self, Arc<cmux_link::key_holder::KeyHolder>)> {
         use cmux_link::key_holder::{KeyHolder, KeyHolderError};
-        if link_serves(home) {
-            tracing::info!(
-                "hub carrier off: the cmux link holds this machine's node key; peers use the link"
-            );
-            return None;
-        }
         let holder = match KeyHolder::acquire(home) {
             Ok(holder) => Arc::new(holder),
             Err(KeyHolderError::KeyHeld { pid }) => {
@@ -1151,7 +1237,8 @@ impl KeyLease {
             }
         }
         tracing::info!(
-            "hub carrier off: the cmux link now serves this machine's node key; peers use the link"
+            "hub carrier: the cmux link now serves this machine's node key; the carrier gives \
+             it the key lock and goes on serving on the Noise key alone"
         );
         drop(held.lock().unwrap_or_else(|e| e.into_inner()).take());
     }
@@ -1165,9 +1252,9 @@ impl Drop for KeyLease {
 }
 
 /// The node key, read only under this machine's key lock (`cmux_link::key_holder`): the one this
-/// daemon's WireGuard transport holds, or the carrier's own ([`KeyLease`]). Never where the cmux
-/// link is the key holder: a carrier holding the lock there would refuse the link's
-/// `cmux link ensure` (`key_held`).
+/// daemon's WireGuard transport holds, or the carrier's own ([`KeyLease`]). Where the cmux link
+/// is the key holder the carrier takes no lock (it would refuse the link's `cmux link ensure`,
+/// `key_held`) and reads the key as a Noise static key instead ([`linked_node_key`]).
 fn node_key(
     state_dir: &std::path::Path,
     held: Arc<cmux_link::key_holder::KeyHolder>,
@@ -1177,13 +1264,21 @@ fn node_key(
     Ok((held, private))
 }
 
+/// The node key where a cmux link serves it, read with no lock as a Noise static key (never
+/// created: the link adopted the key, so it exists; none means the carrier stays off).
+fn linked_node_key(state_dir: &std::path::Path) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
+    crate::cli::mesh_node_key::read_noise_static(state_dir)
+        .map_err(|e| format!("no node key to read beside the cmux link: {e:#}"))
+}
+
 /// The daemon's hub carrier: on when config.json names a mesh hub with the joined machine
 /// credential (`meshRelay.credential: "join"`), this home is not a copy, and it holds the node
 /// key: under the key lock the daemon's WireGuard transport hands it (`held`), else under its own
 /// ([`KeyLease`]), which it takes only where no cmux link serves this home's node key. No
 /// `transport.wireguard`, `wireguardStatic` or Labs switch is needed. Where the link holds the
-/// key it stays off and peers go on over the link, ssh and the relay. It serves at once; peers
-/// find it through `hub.hub_carrier`.
+/// key the carrier serves too, on a lockless read of the key as a Noise static key
+/// ([`linked_node_key`]): a customer's Mac with the app's link running stays reachable over the
+/// relay. It serves at once; peers find it through `hub.hub_carrier`.
 pub async fn start_configured(
     hub: &Arc<crate::hub::Hub>,
     state_dir: &std::path::Path,
@@ -1220,20 +1315,38 @@ pub async fn start_configured(
             return None;
         }
     };
-    // The transport's lock when it runs; else the carrier's own, unless the link holds the key.
+    // The transport's lock when it runs; else the carrier's own, unless the link holds the key
+    // (then none: the carrier reads the key as a Noise static key).
+    let linked = held.is_none() && link_serves(state_dir);
     let (lease, held) = match held {
-        Some(held) => (None, held),
+        Some(held) => (None, Some(held)),
+        None if linked => {
+            tracing::info!(
+                "hub carrier: the cmux link holds this machine's node key; serving on the Noise \
+                 key alone, with no key lock"
+            );
+            (None, None)
+        }
         None => {
             let (lease, held) = KeyLease::take(state_dir)?;
-            (Some(lease), held)
+            (Some(lease), Some(held))
         }
     };
-    let (holder, private) = match node_key(state_dir, held) {
-        Ok(key) => key,
-        Err(why) => {
-            tracing::warn!("hub carrier off: {why}");
-            return None;
-        }
+    let (holder, private) = match held {
+        Some(held) => match node_key(state_dir, held) {
+            Ok((holder, private)) => (Some(holder), private),
+            Err(why) => {
+                tracing::warn!("hub carrier off: {why}");
+                return None;
+            }
+        },
+        None => match linked_node_key(state_dir) {
+            Ok(private) => (None, private),
+            Err(why) => {
+                tracing::warn!("hub carrier off: {why}");
+                return None;
+            }
+        },
     };
     // A copy of another machine's home never serves (condition 3), whatever its credential.
     let copied_home = state_dir.to_path_buf();
@@ -1251,10 +1364,13 @@ pub async fn start_configured(
     // it, so a transport or lease that yields to the cmux link (`Transport::yield_to_link`,
     // [`KeyLease`]) frees the key at once, and from then the check fails: the carrier unregisters
     // and refuses its dials.
-    let holder = Arc::downgrade(&holder);
+    // A lock handed to the cmux link is no end of the carrier: it serves on the Noise key, so
+    // while a link serves this home's key the check holds on the key alone.
+    let holder = holder.as_ref().map(Arc::downgrade);
     let check: KeyCheck = Arc::new(move |public: &[u8; 32]| {
-        holder.upgrade().is_some()
-            && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
+        let held =
+            holder.as_ref().is_none_or(|holder| holder.upgrade().is_some()) || link_serves(&home);
+        held && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
         Arc::new(PlatformTickets { hub: client, shown: config.shown() }),
@@ -1305,106 +1421,13 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     carrier.is_some() || serving.is_some()
 }
 
+#[path = "hub_carrier_serve_reason.rs"]
+mod serve_reason;
+
 #[cfg(test)]
 #[path = "hub_carrier_register_log_tests.rs"]
 mod register_log_tests;
 
 #[cfg(test)]
-mod key_lock_tests {
-    use super::*;
-    use cmux_link::key_holder::KeyHolder;
-
-    fn joined_hub(home: &std::path::Path) -> Arc<crate::hub::Hub> {
-        let mut config = crate::config::Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
-            url: "http://127.0.0.1:9".into(),
-            token_command: vec!["must-not-run".into()],
-            team_messaging: true,
-            credential: Some("join".into()),
-            control_from: Vec::new(),
-        });
-        let store = crate::store::open(&config.store, home).unwrap();
-        crate::hub::Hub::new(config, store)
-    }
-
-    /// The carrier needs only the node key: with transport.wireguard off (no static endpoints, no
-    /// Labs switch) and no cmux link serving the key, a joined daemon's carrier takes the key lock
-    /// itself and comes up, and stopping it frees the lock.
-    #[tokio::test]
-    async fn with_only_the_node_key_the_carrier_comes_up() {
-        let home = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await;
-        assert!(serving.is_some(), "the carrier stayed off with only the node key");
-        let carrier = hub.hub_carrier.get().expect("the carrier is on the hub");
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).expect("a node key");
-        assert_eq!(
-            carrier.public_key(),
-            base64::engine::general_purpose::STANDARD.encode(public),
-            "the carrier runs on the node key"
-        );
-        assert!(carrier.key_current());
-        assert!(KeyHolder::acquire(home.path()).is_err(), "the carrier runs without the key lock");
-        drop(serving);
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "a stopped carrier kept the lock");
-    }
-
-    /// A carrier on its own lock hands it to the cmux link once the link serves this home's node
-    /// key (`cmux link ensure` records the home first), and from then its key check fails.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_carriers_own_lock_goes_to_the_link_once_it_serves_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await.expect("on");
-        let carrier = hub.hub_carrier.get().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let deadline = Instant::now() + LINK_HANDOFF_EVERY * 5;
-        while KeyHolder::acquire(home.path()).is_err() {
-            assert!(Instant::now() < deadline, "the carrier kept the lock from the link");
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(!carrier.key_current(), "the carrier still serves without the lock");
-        drop(serving);
-    }
-
-    /// Where the cmux link serves this home's node key, the carrier steps down: it takes no lock
-    /// and reads no key, so the link holds the key while the daemon runs.
-    #[tokio::test]
-    async fn where_the_link_serves_the_node_key_the_carrier_takes_none() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        assert!(start_configured(&hub, home.path(), websocket, None).await.is_none());
-        let link = KeyHolder::acquire(home.path());
-        assert!(link.is_ok(), "the carrier kept the lock: {:?}", link.err());
-        assert!(
-            !home.path().join(cmux_link::key_holder::KeyFile::Node.file_name()).exists(),
-            "a key was read"
-        );
-    }
-
-    /// Given the transport's holder, the carrier reads the key under that same lock, and the lock
-    /// is free once both drop.
-    #[test]
-    fn with_the_transports_lock_the_carrier_reads_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let shared = Arc::new(KeyHolder::acquire(home.path()).unwrap());
-        let (holder, private) = node_key(home.path(), shared.clone()).unwrap();
-        assert!(Arc::ptr_eq(&holder, &shared));
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).unwrap();
-        assert_eq!(
-            public,
-            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*private)).to_bytes()
-        );
-        drop((holder, shared));
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "the lock outlived its holders");
-    }
-}
+#[path = "hub_carrier_key_lock_tests.rs"]
+mod key_lock_tests;

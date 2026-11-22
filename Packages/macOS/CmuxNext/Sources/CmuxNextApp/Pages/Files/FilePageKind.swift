@@ -53,55 +53,55 @@ nonisolated enum FilePageKind: String, Sendable, CaseIterable {
 /// The file pages' host strings (table `FilePages`). The pages' own labels ship with the pages.
 nonisolated enum FilePageStrings {
     static var markdownTitle: String {
-        String(localized: "filePages.markdown.tabTitle", defaultValue: "Markdown", table: "FilePages", bundle: .module)
+        String(localized: "filePages.markdown.tabTitle", defaultValue: "Markdown", table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     static var editorTitle: String {
-        String(localized: "filePages.editor.tabTitle", defaultValue: "Editor", table: "FilePages", bundle: .module)
+        String(localized: "filePages.editor.tabTitle", defaultValue: "Editor", table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     static var noFilePage: String {
-        String(localized: "filePages.noFilePage", defaultValue: "No file page has the keyboard.", table: "FilePages", bundle: .module)
+        String(localized: "filePages.noFilePage", defaultValue: "No file page has the keyboard.", table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     static var notAFile: String {
-        String(localized: "filePages.notAFile", defaultValue: "That file cannot be opened.", table: "FilePages", bundle: .module)
+        String(localized: "filePages.notAFile", defaultValue: "That file cannot be opened.", table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     static func openOutsideTitle(_ path: String) -> String {
-        String(format: String(localized: "filePages.openOutside.title", defaultValue: "Open “%@”?", table: "FilePages", bundle: .module), path)
+        String(format: String(localized: "filePages.openOutside.title", defaultValue: "Open “%@”?", table: "FilePages", bundle: .module.inAppLanguage), path)
     }
 
     static var openOutsideDetail: String {
         String(localized: "filePages.openOutside.detail", defaultValue: "A link in this page points outside the folder of the file you opened.",
-               table: "FilePages", bundle: .module)
+               table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     static func restoreConflict(_ name: String) -> String {
         String(format: String(localized: "filePages.restoreConflict",
                               defaultValue: "“%@” changed on disk after its recovered draft was saved. The draft is open as unsaved changes; saving replaces the file.",
-                              table: "FilePages", bundle: .module), name)
+                              table: "FilePages", bundle: .module.inAppLanguage), name)
     }
 
     static func noRecovery(_ name: String) -> String {
         String(format: String(localized: "filePages.noRecovery", defaultValue: "No crash recovery for “%@”: the file is too large.",
-                              table: "FilePages", bundle: .module), name)
+                              table: "FilePages", bundle: .module.inAppLanguage), name)
     }
 
     /// The Copy Settings from VS Code or Zed action found no other editor's settings.
     static var noEditorSettings: String {
         String(localized: "filePages.editorSettings.none",
-               defaultValue: "No VS Code, Cursor, Windsurf, VSCodium or Zed settings were found.", table: "FilePages", bundle: .module)
+               defaultValue: "No VS Code, Cursor, Windsurf, VSCodium or Zed settings were found.", table: "FilePages", bundle: .module.inAppLanguage)
     }
 
     /// The action copied `count` keys from `from` (a product name) into cmux.json.
     static func editorSettingsCopied(_ count: Int, from: String) -> String {
         String(format: String(localized: "filePages.editorSettings.copied",
-                              defaultValue: "Code editor settings from %1$@ copied into cmux.json: %2$ld.", table: "FilePages", bundle: .module),
+                              defaultValue: "Code editor settings from %1$@ copied into cmux.json: %2$ld.", table: "FilePages", bundle: .module.inAppLanguage),
                from, count)
     }
 
     static var noPane: String {
-        String(localized: "filePages.noPane", defaultValue: "No pane is open to show the file.", table: "FilePages", bundle: .module)
+        String(localized: "filePages.noPane", defaultValue: "No pane is open to show the file.", table: "FilePages", bundle: .module.inAppLanguage)
     }
 }
