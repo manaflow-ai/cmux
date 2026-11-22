@@ -1738,6 +1738,7 @@ fn steps(
                 fresh.as_deref(),
                 progress.made.as_deref(),
                 refused,
+                deadline,
             );
         }
     };

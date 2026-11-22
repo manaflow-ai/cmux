@@ -184,6 +184,7 @@ pub(super) fn release_refused(
     fresh_name: Option<&str>,
     made: Option<&str>,
     mut outcome: Outcome,
+    deadline: Deadline,
 ) -> Outcome {
     let Outcome::Failed { error, .. } = &mut outcome else { return outcome };
     if fresh_name.is_none() && made.is_none() {
@@ -205,7 +206,7 @@ pub(super) fn release_refused(
     }
     let released = match (made, fresh_name) {
         (Some(id), _) => release_id(runner, id),
-        (None, Some(name)) => release(runner, name),
+        (None, Some(name)) => release(runner, name, deadline),
         (None, None) => return outcome,
     };
     let next = if released.gone {
