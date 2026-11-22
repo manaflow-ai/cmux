@@ -62,5 +62,8 @@ cmux setup remove manaflow-ai/instrument-look
 | The type scale and its line heights | Tool-row text size, chrome weights and the chrome font are fixed; only sizes of the chat, Markdown and chrome text can be set. |
 | Menu metrics | Menu highlight inset and corner, icon size and gap are fixed (the menu tokens here are not read yet). |
 | Sidebar row inset and icon gap | No setting reaches them. |
-| How much of a fill hover and selection take | Hover and selected fills are computed by the app; a look sets only the selection colour. |
+| How much of a fill hover and selection take | Hover and selected fills are computed by the app from the accent; a look sets only the colours. With the accent as the ink, the selected sidebar row draws at about 20% (light) and 29% (dark) instead of the 12% step. |
+| The tool-row text tone | Tool rows and "Worked for" take a fixed 58% mix of the text, not the muted token, so they sit at 4.2:1 on a light card where the 84% step would hold 10:1. |
+| The sidebar group heading and tab strip + tone | Fixed mixes in the window chrome; about 4:1 in light. |
+| Status hues in the chat | The waiting pill and diff counts keep the app's own yellow, red and green, not the theme's palette. |
 | Tab shape | Only the corner join to the pane can be chosen, not the tab's shape. |
