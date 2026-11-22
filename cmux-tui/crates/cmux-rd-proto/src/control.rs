@@ -190,6 +190,11 @@ pub enum Control {
         /// Departure receipts lost to the bounded buffer: lost observations, not lost media.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         departure_overflows: Option<u64>,
+        /// The encoder profile the session runs now (`standard` or `ultra`): what the host
+        /// measured, so a viewer labels the stream from it and never from what it asked for.
+        /// A host too old to send it leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encode_profile: Option<String>,
     },
 }
 

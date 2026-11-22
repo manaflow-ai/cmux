@@ -877,6 +877,7 @@ impl MediaSession {
             departed_datagrams: Some(self.departed_datagrams),
             departed_bytes: Some(self.departed_bytes),
             departure_overflows: Some(carrier.departure_overflows()),
+            encode_profile: Some(self.engine.profile().as_str().to_owned()),
         };
         let _ = carrier.send_control(&stats);
     }
