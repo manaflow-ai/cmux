@@ -5,7 +5,7 @@ import type { Principal } from "@cmux/ownership"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
-import { planLink, PRICING_URL } from "../plan-checkout.ts"
+import { type PlanAsker, planGrantedNote, planLink, PRICING_URL, type PlanNotice } from "../plan-checkout.ts"
 import { EVENT_PROVIDERS, type JobView, type LegacyJobs, upstashAuto, upstashConfig } from "./jobs-upstash.ts"
 import { declared } from "../do-stub.ts"
 
@@ -26,7 +26,8 @@ import { declared } from "../do-stub.ts"
  *
  * Upsell: without a paid plan an owner has FREE_CHIEF_JOBS jobs. The next create answers
  * `automation.plan.required` with the plan that lifts it and a Stripe Checkout link (plan-checkout.ts,
- * test mode), which the Chief sends in one line. A plan read that fails lets the job through.
+ * test mode), which the Chief sends in one line. A plan read that fails lets the job through. Once the
+ * person pays, `chiefPlanWake` queues one "[billing]" note here: the Chief confirms and redoes the add.
  */
 export const FREE_CHIEF_JOBS = 1
 export const UPSELL_PLAN = "pro"
@@ -82,6 +83,33 @@ export const chiefJobWake = async (b: ChiefBrainDO, j: ChiefJob): Promise<JobDel
     j.trigger === "event" ? 0 : 1
   )
   if (j.destination) rememberJobDestination(b, `job:${j.run}`, j.destination)
+  b.kick()
+  return { ok: true }
+}
+
+/**
+ * ChiefBrainDO side: a plan bought through this Chief's checkout link is on (plan-checkout.ts
+ * grantPlanSession). Queues one note per checkout session and starts a turn, only for this Chief and
+ * only when the plan is on its owner's own team.
+ */
+export const chiefPlanWake = async (b: ChiefBrainDO, n: PlanNotice): Promise<JobDelivery> => {
+  await b.lifecycle.start()
+  const cfg = b.config()
+  if (!cfg.agent || !cfg.owner || cfg.agent !== n.chief) return { ok: false, code: "chief.not_found", message: "this Chief has never answered in that conversation" }
+  if (personalTeamIdFor(cfg.owner) !== n.team) return { ok: false, code: "chief.forbidden", message: "the plan is not on this Chief's owner's team" }
+  const adm = await b.admitted(cfg.agent, cfg.owner, false)
+  if (!adm.ok && adm.reason === "owner.unreachable") return { ok: false, code: "owner.unreachable", message: "the Chief's record could not be read", retry: true }
+  // A memory copy under way ends on its own: the webhook's redelivery brings the note after it.
+  if (!adm.ok && adm.reason === "memory_importing") return { ok: false, code: "chief.memory_importing", message: "the Chief's memory is being copied", retry: true }
+  if (!adm.ok && adm.reason !== "credits_exhausted") return { ok: false, code: `chief.${adm.reason}`, message: `the Chief cannot take a turn (${adm.reason})` }
+  const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, n.conversation).toArray()[0]?.seq ?? 0)
+  b.sql.exec(
+    `INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING`,
+    `plan:${n.session}`,
+    n.conversation,
+    seq,
+    planGrantedNote(n.plan)
+  )
   b.kick()
   return { ok: true }
 }
@@ -183,7 +211,7 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
     // An event WHEN with filters runs long; a cut one would be made and listed but never match, so refuse it.
     if (req.action === "auto_create" && typeof req.when === "string" && req.when.trim().length > WHEN_MAX) return { status: 400, json: { error: `WHEN is longer than ${WHEN_MAX} characters`, code: "trigger.invalid" } }
     const create = req.action === "auto_create" ? { name: name!, prompt: prompt!, when: str(req.when, WHEN_MAX), tz: str(req.tz, 64) ?? "UTC", ...(destination ? { destination } : {}) } : null
-    return upstashAuto(env, upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count), legacyJobs(env, p, conversation))
+    return upstashAuto(env, upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count, { chief: cfg.agent!, conversation }), legacyJobs(env, p, conversation))
   }
   if (req.action === "auto_list") return { status: 200, json: { jobs: (await ownJobs(env, p, conversation)).map(view) } }
   if (req.action === "auto_rm" || req.action === "auto_run" || req.action === "auto_pause" || req.action === "auto_resume") return legacyJobs(env, p, conversation).act(req.action, str(req.automation, 40) ?? "")
@@ -199,7 +227,7 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   if (when === "webhook") triggers.unshift({ type: "webhook" })
   else if (when && when !== "manual") triggers.unshift({ type: "cron", expr: when, tz })
   // The upsell gate: on the free plan a Chief has FREE_CHIEF_JOBS jobs (over all its conversations).
-  const blocked = await planGate(env, p, cfg.owner, (await ownJobs(env, p, null)).length)
+  const blocked = await planGate(env, p, cfg.owner, (await ownJobs(env, p, null)).length, { chief: cfg.agent, conversation })
   if (blocked) return blocked
   const body: Body = { type: "chief", chief: cfg.agent, conversation, prompt, ...(destination ? { destination } : {}) }
   const r = await mutate(env, p, "automation.create", { name, description: `Chief job: ${prompt.slice(0, 200)}`, triggers, body }, `chief-auto:create:${cfg.agent}:${conversation}:${crypto.randomUUID()}`)
@@ -213,10 +241,13 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   return { status: 200, json: { job: view(job), ...(webhook ? { webhook } : {}) } }
 }
 
-/** The upsell gate for a new job, given how many jobs the Chief has: a 402 with a checkout link, or null. */
-const planGate = async (env: Env, p: Principal, owner: string, count: number): Promise<Out | null> => {
+/**
+ * The upsell gate for a new job, given how many jobs the Chief has: a 402 with a checkout link, or null.
+ * The link carries the asking Chief and conversation, so paying wakes that chat (`chiefPlanWake`).
+ */
+const planGate = async (env: Env, p: Principal, owner: string, count: number, asker: PlanAsker): Promise<Out | null> => {
   if (count < FREE_CHIEF_JOBS || (await ownerPaid(env, owner)) !== "free") return null
-  const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN) : null
+  const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN, asker) : null
   return {
     status: 402,
     json: {
@@ -244,7 +275,8 @@ export const AUTO_CLIENT = `#!/bin/sh
 #   chief-auto hook ID                   a webhook job's URL and signing secret
 #   chief-auto rm ID
 # A 402 answer with code automation.plan.required carries "checkout": send the person that link in
-# one line (what the plan adds, its price); nothing is charged until they pay on that page.
+# one line (what the plan adds, its price); nothing is charged until they pay on that page. When they
+# pay, a "[billing]" note starts a turn here: say the plan is on and run the add again.
 set -eu
 call() {
   out=$(curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-auto: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
