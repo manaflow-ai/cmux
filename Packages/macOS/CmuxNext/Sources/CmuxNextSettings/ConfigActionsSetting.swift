@@ -30,7 +30,9 @@ public nonisolated struct ConfigActionsSetting: Sendable {
 
 /// `sidebar.sections.hidden` and `sidebar.sections.order` in cmux-next.json: sidebar section ids (or
 /// their stable keys), the overlay cmux-layout-reducer's sidebar_section_customization.rs plans.
-public nonisolated enum SidebarSectionIDsSetting {
+public nonisolated struct SidebarSectionIDsSetting: Sendable {
+    public init() {}
+
     /// The most ids a list holds, and the longest id (sidebar_section_customization.rs).
     public static let maxEntries = 256
     public static let maxIDLength = 128

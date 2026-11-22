@@ -351,10 +351,9 @@ fn project_value(row: &Row, value: &Value) -> Value {
                 actions
                     .iter()
                     .map(|(id, action)| {
-                        let read = [
-                            "type", "title", "tooltip", "command", "agent", "args", "icon",
-                            "target",
-                        ];
+                        // `command` and `args` are shell text that can embed credentials
+                        // (`TOKEN=... gh pr list`), which no key or URL check recognizes: withheld.
+                        let read = ["type", "title", "tooltip", "agent", "icon", "target"];
                         (id.clone(), fields(action, &read))
                     })
                     .collect(),
