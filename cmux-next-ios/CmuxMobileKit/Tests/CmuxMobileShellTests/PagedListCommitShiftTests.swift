@@ -261,8 +261,8 @@ import UIKit
         hosted.rows.items.removeAll { $0.id == 20 }
         settle()
         #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
-        let big = hosted.seen.drawn.filter { abs($0) > 100 }
-        #expect(big.isEmpty, "the removed row was followed out of the list: \(hosted.seen.drawn)")
+        // The anchor keeps the next row (21) where it was: nothing drawn moved.
+        #expect(hosted.seen.drawnWorst <= 0.5, "the removed row was not followed by a surviving one: \(hosted.seen.drawn)")
     }
 
     /// One run loop turn: the frame so far is committed.
