@@ -1,5 +1,6 @@
 // Dates, sizes and regions in the page's language. Absolute times: nothing on the server surfaces
 // counts down, so nothing needs a timer.
+import { intl } from "../../../ui/intl";
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -7,13 +8,15 @@ const sameDay = (a: Date, b: Date) =>
 /** Today's times as the time alone; other days with a short month and day. */
 export function formatTime(ms: number, language: string, now: number = Date.now()): string {
   const date = new Date(ms);
-  if (sameDay(date, new Date(now))) return new Intl.DateTimeFormat(language, { timeStyle: "short" }).format(date);
-  return new Intl.DateTimeFormat(language, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  if (sameDay(date, new Date(now))) return intl.DateTimeFormat(language, { timeStyle: "short" }).format(date);
+  return intl
+    .DateTimeFormat(language, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+    .format(date);
 }
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
@@ -26,12 +29,14 @@ export function formatBytes(count: number, language: string): string {
     value /= 1000;
     unit++;
   }
-  return new Intl.NumberFormat(language, {
-    style: "unit",
-    unit: UNITS[unit],
-    unitDisplay: "short",
-    maximumFractionDigits: unit < 2 ? 0 : 1,
-  }).format(value);
+  return intl
+    .NumberFormat(language, {
+      style: "unit",
+      unit: UNITS[unit],
+      unitDisplay: "short",
+      maximumFractionDigits: unit < 2 ? 0 : 1,
+    })
+    .format(value);
 }
 
 const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -49,7 +54,7 @@ export function formatRelative(ms: number, language: string, now: number = Date.
   let value = (ms - now) / 1000;
   for (const [unit, size] of STEPS) {
     if (Math.abs(value) < size)
-      return new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(Math.round(value), unit);
+      return intl.RelativeTimeFormat(language, { numeric: "auto" }).format(Math.round(value), unit);
     value /= size;
   }
   return "";
