@@ -47,6 +47,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupBy`.
     public nonisolated static let groupByPath = ["sidebar", "groupBy"]
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
+    /// `sidebar.nav`: The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.
+    public nonisolated static let navPath = ["sidebar", "nav"]
+    public nonisolated static let navDefault: [String] = []
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
     public nonisolated static let showSpacesDefault = false
@@ -112,7 +115,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupHeaderUnreadCountDefault = false
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
-    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .folder
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass

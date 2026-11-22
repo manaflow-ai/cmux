@@ -1,0 +1,109 @@
+{
+  "agent_hosts": false,
+  "attach_failed": 0,
+  "attach_ms": {
+    "max": 7.956,
+    "n": 200,
+    "p50": 4.882,
+    "p95": 6.758,
+    "p99": 7.643
+  },
+  "attach_one_ms": {
+    "max": 44.479,
+    "n": 60,
+    "p50": 5.055,
+    "p95": 9.007,
+    "p99": 18.705
+  },
+  "client_methods": {
+    "_acpmux/event": 5000,
+    "_acpmux/prompt_accepted": 104,
+    "catalog.changed": 1,
+    "session/update": 20584
+  },
+  "controller": {
+    "cpu_basis": "whole life",
+    "cpu_pct": 2.126,
+    "cpu_pct_per_session": 0.011,
+    "cpu_s_life": 6.81,
+    "hosts_cpu_s_life": 10.01,
+    "life_s": 320.374,
+    "rss_kb": 218380,
+    "rss_kb_baseline": 48688,
+    "rss_kb_peak": 213384,
+    "rss_kb_per_session": 848.46,
+    "rss_kb_window_max": 218424
+  },
+  "create_failed": 0,
+  "events": {
+    "client_lagged": 0,
+    "dup": 0,
+    "emitted": 19350,
+    "fanout_dup": 0,
+    "fanout_lost": 0,
+    "fanout_sent": 600,
+    "lost": 0
+  },
+  "fanin_ms": {
+    "max": 290.689,
+    "n": 19350,
+    "p50": 0.331,
+    "p95": 0.763,
+    "p99": 1.955
+  },
+  "fanout_back_ms": {
+    "max": 385.361,
+    "n": 600,
+    "p50": 278.578,
+    "p95": 365.898,
+    "p99": 381.775
+  },
+  "fanout_ms": {
+    "max": 186.965,
+    "n": 600,
+    "p50": 68.098,
+    "p95": 115.949,
+    "p99": 149.52
+  },
+  "gaps": [],
+  "gauges": {
+    "attach_p95_ms": 6.512,
+    "fanout_p95_ms": 0.056
+  },
+  "hosts": 10,
+  "hosts_rss_kb": {
+    "max": 154616.0,
+    "mean": 147200.8
+  },
+  "latency_ms": 0,
+  "list": {
+    "paged_ms_at_rest": 4.66,
+    "pages": 2,
+    "rows": 200,
+    "whole_ms_at_rest": 4.404,
+    "whole_ms_window": {
+      "max": 12.352,
+      "n": 19,
+      "p50": 4.995,
+      "p95": 6.871,
+      "p99": 12.352
+    }
+  },
+  "n": 200,
+  "prompt_ms": {
+    "max": 234.148,
+    "n": 600,
+    "p50": 231.901,
+    "p95": 234.134,
+    "p99": 234.145
+  },
+  "rate_per_session": 0.333,
+  "schema": "fanin-table.v1",
+  "setup_ms": {
+    "attach_all": 33,
+    "controller_ready": 284,
+    "create": 456,
+    "hosts": 75
+  },
+  "window_s": 300.02
+}

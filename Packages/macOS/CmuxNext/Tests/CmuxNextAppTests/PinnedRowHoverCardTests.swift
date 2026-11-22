@@ -169,4 +169,17 @@ import Testing
         let pinnedPoint = harness.list.convert(try harness.pinnedRowMiddle(), from: nil)
         #expect(harness.list.hoverCardWorkspace(at: pinnedPoint) == Self.pinnedID)
     }
+
+    /// A capture tour's `debug.mouse` `row` and the icon picker find a row by `rowFrameOnScreen`, which looked only
+    /// at list rows: every pinned workspace answered nil, so the pin lifecycle tour's hovers, drags and clicks on
+    /// pinned rows all failed. A pinned workspace answers with its drawn pill; a list row still answers with its row.
+    @Test func aPinnedRowIsFoundOnScreen() throws {
+        let harness = Self.sidebar(clock: ManualClock())
+        defer { harness.tearDown() }
+        let row = try #require(harness.pinnedRow, "the pinned workspace drew no row")
+        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        #expect(harness.list.rowFrameOnScreen(for: Self.pinnedID) == pill)
+        let listed = try #require(harness.list.rowFrameOnScreen(for: Self.listedID), "the list row was not found")
+        #expect(!listed.intersects(pill), "the list row answered with the pinned pill")
+    }
 }

@@ -364,6 +364,13 @@ if [[ "$mode" == clippy-changed ]]; then
   fi
   step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
   step "pinned go" use_pinned_go "$root"
+  # The target lives in the checkout's .build, which a fleet worker's warm cargo slot keeps between steps at one
+  # path (HQ build-fleet step_warm.go; the worker measures the slot, counts it against its disk floor and wipes it
+  # over its cap), so the next step rechecks only what changed. Before, it was cmux-tui/target in a fresh checkout:
+  # every step checked about 1,067 crates from nothing, three times when the panic ratchet linted the base too.
+  # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
+  [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
+  echo "cargo target: $CARGO_TARGET_DIR"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
   host_identity() {
     local changed log rc=0
