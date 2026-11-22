@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44995686837",
+  "recorded_at": "2026-11-22T07:07:09Z",
+  "reason": "image inputs changed in fb5e8c8891079f7ea897f1f8480860428212de5a..d099cac28846a32723fa455066913e472839dffc",
+  "dry_run": false,
+  "cmux_tui": "32a9c06e0790e8cbb07815f16fbf07a315d43290",
+  "fixes": [
+    {
+      "sha": "d099cac28846a32723fa455066913e472839dffc",
+      "mergedAt": "2026-11-22T06:52:31+00:00",
+      "subject": "Cloud image probe: list_windows waits up to 30 s for the probe page's window (#49492)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T07:07:09Z",
+    "snapshot_id": "sh-043c2dc506334bc2bf8f06f295a60e90",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44995686837): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5fe1422cdca385160a96d4ee2d232140a4f3ce32",
+    "image": "cloud-native-auto-32a9c06e-44995686837-1",
+    "revision": "ci-44995686837-1",
+    "at": "2026-11-22T07:07:09Z"
+  },
+  "rolled_back": false
+}
