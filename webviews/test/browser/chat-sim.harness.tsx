@@ -239,43 +239,48 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   let played = 0;
   let stoppedEarly = false;
   let lastAt = scenario.steps[0]?.at ?? 0;
-  for (let index = 0; index < scenario.steps.length; index += 1) {
-    if (performance.now() > deadline) {
-      stoppedEarly = true;
-      break;
+  // The page's own clock comes back however the playback ends (a step that throws, a shot hook that
+  // rejects): the next run on this page reads real time, never the last scenario's virtual time.
+  try {
+    for (let index = 0; index < scenario.steps.length; index += 1) {
+      if (performance.now() > deadline) {
+        stoppedEarly = true;
+        break;
+      }
+      const step = scenario.steps[index]!;
+      // fixed-wait: the step's own (scaled) time since the step before: the playback's clock.
+      await sleep(Math.min(maxGap, Math.max(minGap, (step.at - lastAt) / speed)));
+      lastAt = step.at;
+      virtualAt = step.at;
+      realAt = performance.now();
+      const wasEnded = sim.state().turnEnded;
+      const rows = sim.advance(index);
+      played += 1;
+      if (!rows) continue;
+      const state = sim.state();
+      const opened = state.turn !== turn;
+      if (opened) {
+        turn = state.turn;
+        sends += 1;
+      }
+      flushSync(() => show({ rows, working: state.working, sends }));
+      sim.check(index);
+      await frame();
+      const shot = { step: index, label: step.label, turn: state.turn };
+      if (opened) await shoot({ ...shot, why: "turn-start" });
+      else if (state.turnEnded && !wasEnded) {
+        // fixed-wait: let the turn's fold animation play out before the picture.
+        await sleep(Math.min(1200, maxGap));
+        await shoot({ ...shot, why: "turn-end" });
+      } else if (options.shotEvery && index % options.shotEvery === 0 && index < scenario.steps.length - 1)
+        await shoot({ ...shot, why: "every" });
     }
-    const step = scenario.steps[index]!;
-    // fixed-wait: the step's own (scaled) time since the step before: the playback's clock.
-    await sleep(Math.min(maxGap, Math.max(minGap, (step.at - lastAt) / speed)));
-    lastAt = step.at;
-    virtualAt = step.at;
-    realAt = performance.now();
-    const wasEnded = sim.state().turnEnded;
-    const rows = sim.advance(index);
-    played += 1;
-    if (!rows) continue;
-    const state = sim.state();
-    const opened = state.turn !== turn;
-    if (opened) {
-      turn = state.turn;
-      sends += 1;
-    }
-    flushSync(() => show({ rows, working: state.working, sends }));
-    sim.check(index);
-    await frame();
-    const shot = { step: index, label: step.label, turn: state.turn };
-    if (opened) await shoot({ ...shot, why: "turn-start" });
-    else if (state.turnEnded && !wasEnded) {
-      // fixed-wait: let the turn's fold animation play out before the picture.
-      await sleep(Math.min(1200, maxGap));
-      await shoot({ ...shot, why: "turn-end" });
-    } else if (options.shotEvery && index % options.shotEvery === 0 && index < scenario.steps.length - 1)
-      await shoot({ ...shot, why: "every" });
+    // fixed-wait: let the last fold animation play out before the last picture.
+    await sleep(Math.min(1200, maxGap));
+    await shoot({ step: played - 1, label: "end", turn, why: "end" });
+  } finally {
+    Date.now = realNow;
   }
-  // fixed-wait: let the last fold animation play out before the last picture.
-  await sleep(Math.min(1200, maxGap));
-  await shoot({ step: played - 1, label: "end", turn, why: "end" });
-  Date.now = realNow;
   const result = sim.result();
   return {
     scenario: scenario.name,

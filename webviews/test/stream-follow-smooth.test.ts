@@ -7,7 +7,7 @@
 // (scriptedTurn.ts) at Claude's cadence, 16 characters every 50 ms, on the frames' own clock at 60 Hz,
 // with the Claude harness family's folds; each frame is sampled after its layout. The report
 // (support/streamFollowReport.ts) counts the frames whose scroll offset, or whose newest reply text
-// where it paints, moved past half a line, per second, and the largest such move.
+// where it paints, moved past half a line (11.5 px, `JOLT_PX`), per second, and the largest such move.
 //
 // A measurement, not a gate: it runs only with CMUX_STREAM_FOLLOW=1 (the numbers in the PR), e.g.
 //   cmux-ci test -- bash -c 'cd webviews && CMUX_STREAM_FOLLOW=1 bun test test/stream-follow-smooth.test.ts'

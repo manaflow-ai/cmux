@@ -246,3 +246,79 @@ describe("tail glide clip release", () => {
     ]);
   });
 });
+
+// No glide starts out of the view (cmuxterm-hq docs/design/transcript-animation-rules.md: "An animation
+// plays only for a change the reader caused or is looking at, and only where the reader can see it").
+// Leo, 2026-11-22: "some bullshit ABOVE folds...? and plays an animation!?". The fold fuzzer's stray
+// sweep (scripts/fold-fuzz.ts --sweep --look wipe) found tail glides and their clips starting on rows
+// outside the scroller's box: a row out of the view is drawn at its place at once, and never clipped.
+describe("tail glide out of view", () => {
+  /// The reply grows by 40 px under the anchor; the live line under it moves down. `boxes` sets where
+  /// each row is drawn when the pass runs (after the move), against `view`.
+  function grow(view: { top: number; bottom: number } | undefined, boxes: (rows: Record<string, Row>) => void) {
+    const anchor = row("a", 0, 20);
+    const reply = row("r", 20, 40);
+    const live = row("l", 60, 30);
+    const rows = [anchor, reply, live];
+    const glide = createTailGlide();
+    glide.place(thread(rows), true, "a", true, undefined, undefined, undefined, () => view as DOMRect);
+    (reply as { offsetHeight: number }).offsetHeight = 80;
+    (live as { offsetTop: number }).offsetTop = 100;
+    boxes({ anchor, reply, live });
+    glide.place(thread(rows), true, "a", true, undefined, undefined, undefined, () => view as DOMRect);
+    const clips = reply.animations.filter((animation) => "clipPath" in animation.keyframes[0]!);
+    const slides = live.animations.filter((animation) => "translate" in animation.keyframes[0]!);
+    return { glide, clips, slides };
+  }
+
+  test("a row that moves wholly below the view is drawn at its place, with no glide and no clip", () => {
+    // The view ends above where the live line is drawn from (60..90) and to (100..130).
+    const { glide, clips, slides } = grow({ top: 0, bottom: 50 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    expect(slides).toEqual([]);
+    expect(clips).toEqual([]);
+    expect(glide.moving()).toBe(false);
+  });
+
+  test("a row that moves wholly above the view is drawn at its place", () => {
+    const { glide, slides } = grow({ top: 500, bottom: 900 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    expect(slides).toEqual([]);
+    expect(glide.moving()).toBe(false);
+  });
+
+  test("a row in view glides, and the row above it out of the view is never clipped", () => {
+    // The reply lies above the view's top; the live line is in it.
+    const { clips, slides } = grow({ top: 110, bottom: 400 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    expect(slides.map((slide) => slide.keyframes)).toEqual([[{ translate: "0 -40px" }, { translate: "0 0" }]]);
+    expect(clips).toEqual([]);
+  });
+
+  test("a glide that ends out of view but starts in it still plays", () => {
+    // Drawn from 60..90 (in view) down to 100..130 (below it): the reader sees it leave.
+    const { slides } = grow({ top: 0, bottom: 95 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    expect(slides.map((slide) => slide.keyframes)).toEqual([[{ translate: "0 -40px" }, { translate: "0 0" }]]);
+  });
+
+  test("in view, the glide and its clip are the same as with no view given", () => {
+    const seen = grow({ top: 0, bottom: 400 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    const plain = grow(undefined, () => {});
+    expect(seen.slides.map((slide) => slide.keyframes)).toEqual(plain.slides.map((slide) => slide.keyframes));
+    expect(seen.clips.map((clip) => clip.keyframes)).toEqual(plain.clips.map((clip) => clip.keyframes));
+    expect(seen.clips.length).toBe(1);
+    expect(seen.slides.length).toBe(1);
+  });
+});
