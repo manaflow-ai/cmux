@@ -770,8 +770,8 @@ pub(super) fn snapshot_rm(
     let elapsed = elapsed_ms(b, started);
     let mut answer = json!({"route": b.route(), "deleted": gone, "failed": deleted.failed,
                             "elapsed_ms": elapsed});
-    if b.needs_via() {
-        answer["not_listed"] = json!(not_listed);
+    if let (true, Some(map)) = (b.needs_via(), answer.as_object_mut()) {
+        map.insert("not_listed".into(), json!(not_listed));
     }
     snapshot_rm_answer(answer, ids.len())
 }
@@ -833,10 +833,10 @@ pub(super) fn with_vm_api(
         (Ok(_), None) => {}
     }
     let asked = deleted.len() + failed.len();
-    answer["deleted"] = json!(deleted);
-    answer["failed"] = json!(failed);
-    answer["route"] = json!("app+vm_api");
     if let Some(map) = answer.as_object_mut() {
+        map.insert("deleted".into(), json!(deleted));
+        map.insert("failed".into(), json!(failed));
+        map.insert("route".into(), json!("app+vm_api"));
         map.remove("not_listed");
     }
     snapshot_rm_answer(answer, asked)
