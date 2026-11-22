@@ -59,7 +59,15 @@ afterAll(() => {
 });
 
 const style = { getPropertyValue: () => "", translate: "none" };
-const view = { getComputedStyle: () => style };
+/// Callbacks waiting for the next animation frame; `paint()` runs them.
+const frames: FrameRequestCallback[] = [];
+function paint() {
+  for (const callback of frames.splice(0)) callback(0);
+}
+const view = {
+  getComputedStyle: () => style,
+  requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
+};
 const doc = { defaultView: view };
 
 type Row = HTMLElement & { animations: FakeAnimation[]; box: { top: number; bottom: number } };
@@ -329,5 +337,42 @@ describe("tail glide out of view", () => {
     expect(seen.clips.map((clip) => clip.keyframes)).toEqual(plain.clips.map((clip) => clip.keyframes));
     expect(seen.clips.length).toBe(1);
     expect(seen.slides.length).toBe(1);
+  });
+
+  test("a glide the scroller moves out of view before its first frame ends there, drawn at its place", () => {
+    // In view when the pass runs; by the first frame the scroller moved, and the view lies below both.
+    let shown = { top: 0, bottom: 400 };
+    const anchor = row("a", 0, 20);
+    const reply = row("r", 20, 40);
+    const live = row("l", 60, 30);
+    const rows = [anchor, reply, live];
+    const glide = createTailGlide();
+    frames.length = 0;
+    glide.place(thread(rows), true, "a", true, undefined, undefined, undefined, () => shown as DOMRect);
+    (reply as { offsetHeight: number }).offsetHeight = 80;
+    (live as { offsetTop: number }).offsetTop = 100;
+    reply.box = { top: 20, bottom: 100 };
+    live.box = { top: 100, bottom: 130 };
+    glide.place(thread(rows), true, "a", true, undefined, undefined, undefined, () => shown as DOMRect);
+    const slide = live.animations.find((animation) => "translate" in animation.keyframes[0]!)!;
+    const clip = reply.animations.find((animation) => "clipPath" in animation.keyframes[0]!)!;
+    expect(slide.playState).toBe("running");
+    expect(clip.playState).toBe("running");
+    shown = { top: 600, bottom: 1000 };
+    paint();
+    expect(slide.playState).toBe("idle");
+    expect(clip.playState).toBe("idle");
+    expect(glide.moving()).toBe(false);
+  });
+
+  test("a glide still in view at its first frame plays on", () => {
+    frames.length = 0;
+    const { slides, clips } = grow({ top: 0, bottom: 400 }, ({ reply, live }) => {
+      reply.box = { top: 20, bottom: 100 };
+      live.box = { top: 100, bottom: 130 };
+    });
+    paint();
+    expect(slides.map((slide) => slide.playState)).toEqual(["running"]);
+    expect(clips.map((clip) => clip.playState)).toEqual(["running"]);
   });
 });
