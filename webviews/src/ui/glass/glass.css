@@ -218,7 +218,7 @@
    The page's own secondary ink is fitted to the opaque page, so on a level that lets a white page
    through under dark glass (or a black one under light glass) it fell to 1.9-2.8:1. Rather than
    raise any tint, every glass surface reads one secondary ink: the theme's text at the design
-   scale's --ds-glass-ink-secondary (64% light, 68% dark) over the glass, so it moves with whatever
+   scale's --ds-glass-ink-secondary (68% on both sides; 64% in light read Rose Pine Dawn's menu icons at 2.96:1) over the glass, so it moves with whatever
    the glass lets through. The page's secondary tokens point at it inside .ui-glass, so the
    composer's placeholder and dim words, a tooltip's detail and hint, and a hover card's muted rows
    are one recipe (--agent-soft too: a permission ask's command). Reduce Transparency (an opaque
