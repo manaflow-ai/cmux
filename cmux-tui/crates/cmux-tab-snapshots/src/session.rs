@@ -4,15 +4,21 @@
 //! buffered beyond the queue of wanted hashes.
 //!
 //! Rules:
-//! - The session opens on the phone's first frame. A reconnecting phone
-//!   sends `resume` first, so the opening frame is a delta from its rev; a
-//!   phone without one gets the manifest. The host may also open the
+//! - The session opens on the phone's first frame other than `have`. On
+//!   link-up the phone sends `have` (if it holds blobs), then `resume` (if
+//!   it holds a rev), then `viewport`. A resumed phone's opening frame is a
+//!   delta from its rev; a phone without one gets the manifest. The host may also open the
 //!   session itself ([`Session::open`]) if the phone stays silent.
 //! - A producer change since the last manifest or delta goes out as one
 //!   delta before any blob; changes made between two pulls coalesce.
 //! - Blobs go out in the order of the phone's last `want`; a new `want`
 //!   replaces the queue. A hash the phone listed in `have`, one this session
 //!   already sent, or one the store no longer holds is skipped.
+//! - Opt-in ([`Session::push_before_want`]): after each manifest or delta
+//!   the session queues every card blob the phone lacks, favicons first,
+//!   then thumbnails or screens, in row order (the reference phone's own
+//!   order), so blobs flow without waiting a round trip for `want`. The
+//!   phone's next `want` replaces that queue as usual.
 
 use crate::hash::BlobHash;
 use crate::producer::Producer;
@@ -64,12 +70,19 @@ pub struct Session {
     sent: HashSet<BlobHash>,
     queue: VecDeque<BlobHash>,
     viewport: Option<Viewport>,
+    push_before_want: bool,
     stats: SessionStats,
 }
 
 impl Session {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A session that queues missing card blobs itself after each manifest
+    /// or delta (see the module rules).
+    pub fn push_before_want() -> Self {
+        Self { push_before_want: true, ..Self::default() }
     }
 
     /// Opens the session without waiting for the phone's first frame.
@@ -107,6 +120,10 @@ impl Session {
                 self.phone_has.extend(hashes);
                 let has = &self.phone_has;
                 self.queue.retain(|h| !has.contains(h));
+                // `have` comes first on link-up and does not open the
+                // session: the frame after it (`resume` or `viewport`) does,
+                // so the opening already knows the phone's cache and rev.
+                return Ok(());
             }
             Message::Resume(r) => {
                 self.phone_rev = Some(r.rev);
@@ -149,6 +166,18 @@ impl Session {
         None
     }
 
+    /// Replaces the queue with every card blob the phone lacks, favicons
+    /// first, then thumbnails or screens, in row order.
+    fn queue_missing(&mut self, producer: &Producer) {
+        let rows = producer.rows();
+        let favicons = rows.iter().filter_map(|r| r.favicon_hash);
+        let bodies = rows.iter().flat_map(|r| [r.thumb_hash, r.screen_hash]).flatten();
+        let mut seen = HashSet::new();
+        let queue: VecDeque<BlobHash> =
+            favicons.chain(bodies).filter(|h| !self.held(h) && seen.insert(*h)).collect();
+        self.queue = queue;
+    }
+
     /// A manifest or delta when the phone's rev is not the producer's.
     fn rows_frame(&mut self, producer: &Producer) -> Option<Vec<u8>> {
         let rev = producer.rev();
@@ -159,6 +188,9 @@ impl Session {
         };
         self.answer_resume = false;
         self.phone_rev = Some(rev);
+        if self.push_before_want {
+            self.queue_missing(producer);
+        }
         Some(match delta {
             Some(delta) => {
                 self.stats.deltas += 1;

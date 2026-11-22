@@ -198,10 +198,12 @@ impl Mirror {
         (!self.held.is_empty()).then(|| Message::Have(self.export_held()).encode())
     }
 
-    /// What the phone writes on link-up, in order: `resume` first (so the
-    /// Mac answers with a delta), then `have`.
+    /// What the phone writes on link-up, in order: `have` (which does not
+    /// open the Mac's session), then `resume`, so the Mac's opening frame
+    /// knows both the phone's cache and its rev. The caller appends
+    /// `viewport`, which opens the session when neither is sent.
     pub fn link_up_frames(&self) -> Vec<Vec<u8>> {
-        self.resume_frame().into_iter().chain(self.have_frame()).collect()
+        self.have_frame().into_iter().chain(self.resume_frame()).collect()
     }
 }
 

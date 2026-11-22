@@ -88,7 +88,9 @@ fn held_set_exports_and_imports() {
     assert_eq!(Mirror::new().link_up_frames(), Vec::<Vec<u8>>::new());
     next.apply(manifest(3, vec![])).unwrap();
     let frames = next.link_up_frames();
-    assert_eq!(Message::decode(&frames[0]).unwrap(), Message::Resume(Resume { rev: 3 }));
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0][0], crate::wire::kind::HAVE);
+    assert_eq!(Message::decode(&frames[1]).unwrap(), Message::Resume(Resume { rev: 3 }));
 }
 
 #[test]

@@ -141,3 +141,25 @@ fn mac_to_phone_frames_are_refused() {
     assert!(matches!(s.on_frame(&[0xee]), Err(SessionError::Wire(WireError::UnknownKind(0xee)))));
     assert!(s.next_frame(&p).is_none());
 }
+
+#[test]
+fn push_before_want_queues_missing_blobs_favicons_first() {
+    let mut p = producer();
+    let mut s = Session::push_before_want();
+    s.on_message(Message::Have(vec![h(b"ta")])).unwrap();
+    assert!(s.next_frame(&p).is_none(), "have alone does not open the session");
+    s.on_message(Message::Viewport(Viewport::default())).unwrap();
+    let out = drain(&mut s, &p);
+    assert!(matches!(out.first(), Some(Message::Manifest(_))));
+    assert_eq!(blob_hashes(&out), vec![h(b"fav"), h(b"tb")]);
+    p.observe(browser("a", "A", b"fav", b"ta2"));
+    let out = drain(&mut s, &p);
+    assert!(matches!(out.first(), Some(Message::Delta(_))));
+    assert_eq!(blob_hashes(&out), vec![h(b"ta2")]);
+    // A want still replaces what the session queued.
+    p.observe(browser("b", "B", b"fav2", b"tb2"));
+    let first = s.next_frame(&p).unwrap();
+    assert_eq!(first.first(), Some(&kind::DELTA));
+    s.on_message(Message::Want(vec![h(b"tb2")])).unwrap();
+    assert_eq!(blob_hashes(&drain(&mut s, &p)), vec![h(b"tb2")]);
+}
