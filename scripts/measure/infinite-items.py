@@ -89,6 +89,33 @@ def children_map():
     return kids
 
 
+def pids_note():
+    """The tightest cgroup task cap above this process, when it is nearly full: a scope's pids.max (a session scope
+    of 4096 on a lane VM) ends the open near 320 workspaces, and the daemon's error then names only the spawn."""
+    if not IS_LINUX:
+        return ""
+    try:
+        with open("/proc/self/cgroup") as f:
+            rel = f.read().strip().split("::", 1)[-1]
+    except OSError:
+        return ""
+    path, worst = "/sys/fs/cgroup" + rel, None
+    while path.startswith("/sys/fs/cgroup/"):
+        try:
+            with open(os.path.join(path, "pids.max")) as f:
+                cap = f.read().strip()
+            with open(os.path.join(path, "pids.current")) as f:
+                cur = int(f.read())
+            if cap != "max" and (worst is None or int(cap) - cur < worst[0] - worst[1]):
+                worst = (int(cap), cur, path)
+        except (OSError, ValueError):
+            pass
+        path = os.path.dirname(path)
+    if worst and worst[1] >= worst[0] * 0.9:
+        return f" (cgroup task cap nearly full: pids.current {worst[1]} of pids.max {worst[0]} at {worst[2]})"
+    return ""
+
+
 def cmdline(pid):
     try:
         if IS_LINUX:
@@ -533,7 +560,10 @@ class Run:
         tui = Tui(self.tui_sock, timeout=300)
         self.workspaces, self.panes, self.chat_tabs = [], [], []
         for i in range(n):
-            data = tui.call("new-workspace", name=f"w{i}", cols=80, rows=24)
+            try:
+                data = tui.call("new-workspace", name=f"w{i}", cols=80, rows=24)
+            except RuntimeError as exc:
+                raise RuntimeError(f"new-workspace {i} of {n}: {exc}{pids_note()}") from exc
             self.workspaces.append(data.get("workspace"))
         tree = tui.call("list-workspaces")
         listed = tree.get("workspaces", [])[-n:]
