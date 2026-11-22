@@ -22,6 +22,9 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+// The person's prompts to a held chat wait to go in together (`person_hold.rs`).
+mod person_hold;
+pub use person_hold::PromptTriager;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
@@ -1186,6 +1189,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// What triages held prompts instead of the small model (tests; `person_hold.rs`).
+    pub(super) prompt_triager: StdMutex<Option<person_hold::PromptTriager>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1608,6 +1613,7 @@ impl Hub {
             host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            prompt_triager: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -2180,6 +2186,7 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             gathering: StdMutex::new(None),
+            person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
             stop_restart: StdMutex::new(None),

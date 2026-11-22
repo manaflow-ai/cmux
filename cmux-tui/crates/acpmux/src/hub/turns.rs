@@ -966,8 +966,13 @@ impl Hub {
             let head =
                 super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
             let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
-            provenance = Some(super::digest::digest_provenance(&parts));
-            let blocks = super::digest::digest_blocks(&parts);
+            // The person's prompts a hold gathered stay the person's words (`person_hold.rs`).
+            let blocks = if run.agent.is_none() {
+                super::person_hold::person_blocks(&parts)
+            } else {
+                provenance = Some(super::digest::digest_provenance(&parts));
+                super::digest::digest_blocks(&parts)
+            };
             let text = prompt_text(&blocks);
             display_parts = None;
             (blocks, text)
