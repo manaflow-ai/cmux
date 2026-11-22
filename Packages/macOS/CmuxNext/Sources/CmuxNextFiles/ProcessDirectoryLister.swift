@@ -122,10 +122,11 @@ private final class RequestID: Sendable {
 }
 
 /// The app FFI's lister: freeing it answers every pending request with nil and ends the child.
-private final class FilesListerClient: @unchecked Sendable {
+private final class FilesListerClient: Sendable {
     #if canImport(CCmuxFilesListerFFI)
-    // The handle's calls are thread-safe (src/files_lister.rs); it is freed once, in deinit.
-    private let handle: OpaquePointer
+    /// The handle's address: its calls are thread-safe (src/files_lister.rs); freed once, in deinit.
+    private let address: UInt
+    private var handle: OpaquePointer? { OpaquePointer(bitPattern: address) }
 
     init?(arguments: [String]) {
         let strings = arguments.map { strdup($0) }
@@ -133,7 +134,7 @@ private final class FilesListerClient: @unchecked Sendable {
         let pointers = strings.map { UnsafePointer($0) }
         guard let handle = pointers.withUnsafeBufferPointer({ cmux_files_lister_new($0.baseAddress, $0.count) })
         else { return nil }
-        self.handle = handle
+        address = UInt(bitPattern: handle)
     }
 
     deinit { cmux_files_lister_free(handle) }
