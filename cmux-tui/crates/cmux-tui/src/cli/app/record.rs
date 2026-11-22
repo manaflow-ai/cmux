@@ -48,7 +48,7 @@ const MOVIE_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v"];
 
 /// Which of the app's surfaces a recording shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Noun {
+pub(in crate::cli) enum Noun {
     Window,
     Pane,
 }
@@ -71,7 +71,7 @@ impl Noun {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Request {
+pub(in crate::cli) struct Request {
     pub noun: Noun,
     pub target: Option<String>,
     pub seconds: u64,
