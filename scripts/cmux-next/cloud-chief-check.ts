@@ -155,8 +155,9 @@ async function main(): Promise<number> {
       await writeFile(api, machine, tokenFile, Buffer.from(api.bearer), 0o600);
       await must(exec, asRoot(`chown cmux:cmux ${tokenFile} && chmod 0600 ${tokenFile}`));
       await must(exec, asUser(`CMUX_CLOUD_SESSION_TOKEN="$(cat ${tokenFile})"; rm -f ${tokenFile}; export CMUX_CLOUD_SESSION_TOKEN; optchat-chief cloud register --install ${INSTALL_FILE} --name ${shq(name)} --device ${shq(name)} >/dev/null`));
-      const chief = await must(exec, asUser(`optchat-chief cloud chief --install ${INSTALL_FILE} --create`));
+      // Read the install right after register, so the finally path revokes it even when the next command fails.
       install = await must(exec, asUser(`python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("install") or "")' ${INSTALL_FILE}`));
+      const chief = await must(exec, asUser(`optchat-chief cloud chief --install ${INSTALL_FILE} --create`));
       return { value: null, detail: `${install}; ${chief.split("\n").at(-1)}` };
     });
 
