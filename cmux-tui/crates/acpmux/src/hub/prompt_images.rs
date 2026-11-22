@@ -97,7 +97,7 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// A kept image's name: 64 lowercase hex digits, never a path.
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
