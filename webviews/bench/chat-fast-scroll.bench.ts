@@ -44,6 +44,8 @@ const CPU = Number(flag("--cpu") ?? 1);
 /// A click whose prompt is not on screen by then never loaded, as a person reads it.
 const LOAD_MS = Number(flag("--load-ms") ?? 3000);
 const PROFILE = argv.includes("--profile");
+/// --trace: the layouts and style recalcs over each measured part, and the scripts that forced them.
+const TRACE = argv.includes("--trace");
 const NOMINAL_MS = 1000 / 60;
 const NOTCH_MS = 8;
 if (SIZES.some((size) => !Number.isInteger(size) || size < 0) || !(TURNS >= 100) || !(CLICKS >= 2)) {
@@ -112,6 +114,48 @@ async function profiled<T>(cdp: CDPSession, label: string, run: () => Promise<T>
   console.log(
     `PROFILE ${label} total ${Math.round(total)} ms self:\n` +
       top.map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`).join("\n"),
+  );
+  return result;
+}
+
+type TraceEvent = { name: string; ph: string; dur?: number; tid: number; args?: any };
+/// --trace: over one measured part, the renderer main thread's layouts and style recalcs (count, ms), and the script
+/// frames that forced one (a read of layout before the frame's own), by their total ms.
+async function traced<T>(page: Page, label: string, run: () => Promise<T>): Promise<T> {
+  if (!TRACE) return run();
+  const browser = page.context().browser()!;
+  await browser.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"] });
+  const result = await run();
+  const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] }).traceEvents;
+  const sum = new Map<string, { n: number; ms: number }>();
+  const forced = new Map<string, number>();
+  const add = (key: string, ms: number) => {
+    const was = sum.get(key) ?? { n: 0, ms: 0 };
+    sum.set(key, { n: was.n + 1, ms: was.ms + ms });
+  };
+  for (const event of events) {
+    if (event.ph !== "X" || !["Layout", "UpdateLayoutTree", "Paint", "FunctionCall", "EventDispatch"].includes(event.name))
+      continue;
+    const ms = (event.dur ?? 0) / 1000;
+    add(event.name, ms);
+    const stack = event.args?.beginData?.stackTrace as { functionName: string; url: string; lineNumber: number }[] | undefined;
+    if ((event.name === "Layout" || event.name === "UpdateLayoutTree") && stack?.length) {
+      const top = stack
+        .slice(0, 3)
+        .map((f) => `${f.functionName || "(anon)"}@${f.url.split("/").pop()?.split("?")[0]}:${f.lineNumber + 1}`)
+        .join(" < ");
+      forced.set(`${event.name} ${top}`, (forced.get(`${event.name} ${top}`) ?? 0) + ms);
+    }
+  }
+  console.log(
+    `TRACE ${label}: ` +
+      [...sum].map(([k, v]) => `${k} ${v.n}x ${v.ms.toFixed(1)}ms`).join(", ") +
+      "\n" +
+      [...forced]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([k, ms]) => `  ${ms.toFixed(1).padStart(7)} ms forced ${k}`)
+        .join("\n"),
   );
   return result;
 }
@@ -319,12 +363,14 @@ try {
       for (const page of [hidden, shown]) await page.evaluate(() => (window as any).__scale.start());
       // fixed-wait: the change stream reaches its steady state before the measured input.
       await shown.waitForTimeout(1500);
-      const flung = await profiled(cdp, `fling n=${size}`, () => fling(shown, cdp));
+      const flung = await traced(shown, `fling n=${size}`, () => profiled(cdp, `fling n=${size}`, () => fling(shown, cdp)));
       // fixed-wait: the fling's pages and settle finish before the rail is clicked.
       await shown.waitForTimeout(1000);
       const clicked = await railClicks(
         shown,
-        PROFILE ? (run) => profiled(cdp, `rail-click n=${size}`, run) : undefined,
+        PROFILE || TRACE
+          ? (run) => traced(shown, `rail-click n=${size}`, () => profiled(cdp, `rail-click n=${size}`, run))
+          : undefined,
       );
       const changes = (
         await Promise.all([hidden, shown].map((page) => page.evaluate(() => (window as any).__scale.stop())))
