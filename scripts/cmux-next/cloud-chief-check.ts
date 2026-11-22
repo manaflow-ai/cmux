@@ -114,10 +114,10 @@ args = ["-I", "/home/cmux/.cmux/chief/chief-probe-agent.py"]
 
 /** Every process in cmux-chief.service's cgroup, `pid comm` each. */
 const unitProcs = async (exec: Exec) =>
-  (await exec(asRoot("cg=$(systemctl show -p ControlGroup --value cmux-chief.service); find /sys/fs/cgroup$cg -name cgroup.procs -exec cat {} + | sort -n | while read -r p; do echo \"$p $(cat /proc/$p/comm 2>/dev/null)\"; done"), 30_000)).stdout.trim().split("\n").filter(Boolean);
+  (await exec(asRoot("cg=$(systemctl show -p ControlGroup --value cmux-chief.service); [ -n \"$cg\" ] && [ -d /sys/fs/cgroup$cg ] || exit 0; find /sys/fs/cgroup$cg -name cgroup.procs -exec cat {} + | sort -n | while read -r p; do echo \"$p $(cat /proc/$p/comm 2>/dev/null)\"; done"), 30_000)).stdout.trim().split("\n").filter(Boolean);
 /** The acpmux daemon in cmux-chief.service's cgroup (the one the host started) and the probe subagent: their pids (0: none runs). */
 const daemonAndProbe = async (exec: Exec) => {
-  const out = (await exec(asRoot("cg=$(systemctl show -p ControlGroup --value cmux-chief.service); d=0; p=0; for q in $(find /sys/fs/cgroup$cg -name cgroup.procs -exec cat {} + | sort -n); do c=$(tr '\\0' ' ' < /proc/$q/cmdline 2>/dev/null); case \"$c\" in *'daemon run'*) [ $d = 0 ] && d=$q ;; *chief-probe-agent.py*) [ $p = 0 ] && p=$q ;; esac; done; echo $d $p"), 30_000)).stdout.trim().split(/\s+/);
+  const out = (await exec(asRoot("cg=$(systemctl show -p ControlGroup --value cmux-chief.service); [ -n \"$cg\" ] && [ -d /sys/fs/cgroup$cg ] || { echo 0 0; exit 0; }; d=0; p=0; for q in $(find /sys/fs/cgroup$cg -name cgroup.procs -exec cat {} + | sort -n); do c=$(tr '\\0' ' ' < /proc/$q/cmdline 2>/dev/null); case \"$c\" in *'daemon run'*) [ $d = 0 ] && d=$q ;; *chief-probe-agent.py*) [ $p = 0 ] && p=$q ;; esac; done; echo $d $p"), 30_000)).stdout.trim().split(/\s+/);
   return { daemon: Number(out[0] || 0), probe: Number(out[1] || 0) };
 };
 const alive = async (exec: Exec, pid: number) => pid > 0 && (await exec(`kill -0 ${pid} 2>/dev/null && echo up || echo gone`)).stdout.trim() === "up";
