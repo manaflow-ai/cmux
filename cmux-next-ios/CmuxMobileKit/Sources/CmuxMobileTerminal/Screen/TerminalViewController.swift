@@ -1517,6 +1517,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
+            paintTally.handed(data.count)
             output.append(data)
             if !outputPaused, output.isOverHighWater {
                 outputPaused = true
@@ -1557,6 +1558,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 output.append(hostGridOwner: name)
                 scheduleOutput()
             }
+        case .paintMark(let seq, let receivedMs):
+            paintTally.mark(seq: seq, receivedMs: receivedMs)
         case .inputNotSent:
             // Keys refused, or held through an outage and dropped: their
             // predicted glyphs would stand for keys that never arrive.
@@ -1571,6 +1574,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         default:
             model.ingest(event)
         }
+    }
+
+    /// Stamped redraws (`.paintMark`) waiting for the present that shows them.
+    private var paintTally = TerminalPaintTally()
+    /// Session bytes Ghostty parsed so far, and as of the last present.
+    private var paintParsed = 0
+    private var paintParsedAtPresent = 0
+
+    /// A present showed every byte parsed before it: the stamped redraws among them were painted.
+    private func paintPresented() {
+        guard paintParsed != paintParsedAtPresent else { return }
+        paintParsedAtPresent = paintParsed
+        let now = TerminalPaintReport.nowMs
+        paintTally.presented(parsed: paintParsed, atMs: now)
+        if let samples = paintTally.takeReport(nowMs: now) { model.session.reportPaint(samples) }
     }
 
     /// The session refused the input `send` was just given (`.inputNotSent`
@@ -2012,6 +2030,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
+        paintParsed += raw
         // A full-screen app taller than the phone (the Mac's rows as of the
         // bytes fed, `feedHostRows`), or partly under the keyboard: keep its
         // cursor row on screen.
@@ -2607,6 +2626,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        paintPresented()
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {

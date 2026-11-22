@@ -704,6 +704,21 @@ public final class DaemonTerminalSession: TerminalSession {
     private var scrollFramesInFlight = 0
     static let maxScrollFramesInFlight = 2
 
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    private var paintInFlight = false
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        // One report on its way at a time: a report while one is out is dropped, never queued.
+        guard let sink = paintSink, !paintInFlight, !samples.isEmpty else { return }
+        paintInFlight = true
+        let program = programName
+        Task { [weak self] in
+            await sink(samples, program)
+            self?.paintInFlight = false
+        }
+    }
+
     public func reportScrollFrames(_ pan: TerminalPanFrames) {
         guard let sink = scrollFramesSink, scrollFramesInFlight < Self.maxScrollFramesInFlight else { return }
         guard pan.intervalsMs.count >= TerminalPanFrames.minFrames else { return }
@@ -1063,6 +1078,8 @@ public final class DaemonTerminalSession: TerminalSession {
         switch event {
         case .output(let data):
             show(.output(data))
+        case .stamped(let seq, let receivedMs):
+            show(.paintMark(seq: seq, receivedMs: receivedMs))
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):

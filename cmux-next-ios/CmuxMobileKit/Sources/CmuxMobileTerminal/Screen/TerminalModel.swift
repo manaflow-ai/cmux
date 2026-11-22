@@ -337,7 +337,7 @@ public final class TerminalModel {
                 composerText = held.text
             }
             heldComposerSend = nil
-        case .hostGrid, .hostGridOwner:
+        case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
     }
