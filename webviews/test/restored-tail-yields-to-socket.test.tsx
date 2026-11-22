@@ -67,7 +67,7 @@ const tail = (count: number, connection: string): AcpmuxSnapshot =>
     rows: Array.from({ length: count }, (_, index) =>
       row(`turn-${index}`, index % 2 ? "assistant" : "user", `line ${index}`),
     ),
-  }) as AcpmuxSnapshot;
+  }) as unknown as AcpmuxSnapshot;
 
 const busy = (ms: number) => {
   const end = performance.now() + ms;
