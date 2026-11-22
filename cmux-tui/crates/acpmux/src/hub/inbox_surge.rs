@@ -69,6 +69,10 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || super::super::forum::slash_command(blocks).is_some()
         // The receiver's own batch must reach it. External tool notices have kind "notice".
         || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
+        // The end of a background task the chat (or its ended subagent) started is the chat's
+        // own work coming back, not another agent's message (`bg_notify.rs`): it wakes the chat.
+        // Held, a coordinator's waits never ended (2026-11-22: 168 of its 597 held).
+        || provenance.is_some_and(|p| p.get("bgTaskId").is_some())
     {
         return None;
     }
@@ -298,6 +302,27 @@ mod tests {
             &json!({"sender":"watcher","severity":"fire"}),
             "receiver",
         ));
+        assert!(eligible(&opts, &blocks).is_none());
+    }
+
+    #[test]
+    fn surge_never_holds_the_chats_own_background_task_ends() {
+        let blocks = [json!({"type":"text","text":"Background command finished: build (exit 0)"})];
+        let mut provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"acpmux","severity":"info","title":"Background command finished"}),
+            "receiver",
+        );
+        let mut opts = PromptOptions {
+            agent: Some("acpmux".into()),
+            class: Some(PromptClass::Result),
+            provenance: Some(provenance.clone()),
+            ..Default::default()
+        };
+        assert_eq!(eligible(&opts, &blocks).as_deref(), Some("acpmux"));
+        if let Some(p) = provenance.as_object_mut() {
+            p.insert("bgTaskId".into(), json!("bg-31166e43dff8"));
+        }
+        opts.provenance = Some(provenance);
         assert!(eligible(&opts, &blocks).is_none());
     }
 }
