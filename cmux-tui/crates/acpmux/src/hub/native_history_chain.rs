@@ -92,7 +92,7 @@ pub(super) fn older_ids(meta: &SessionMeta, seed: Option<&str>) -> Vec<String> {
     } else {
         return Vec::new();
     };
-    previous[..upto].iter().rev().cloned().collect()
+    previous.iter().take(upto).rev().cloned().collect()
 }
 
 /// The seq of the `k`th record of the page ending at `before`, `depth` transcripts back
