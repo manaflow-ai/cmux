@@ -1,4 +1,5 @@
 import { FreestyleApiError, type Freestyle } from "freestyle";
+import { FREESTYLE_EDGE_IPV4, FREESTYLE_EDGE_IPV6 } from "../images/dns";
 import { canonicalCidr, type NetworkRulePlan } from "../networkPolicy";
 
 /**
@@ -27,7 +28,7 @@ const DEFAULT_GUEST_DNS_RESOLVERS = ["8.8.8.8", "8.8.4.4", "2606:4700:4700::1111
  * does not document it, so it is configuration, not a constant, and the grant
  * is 443/tcp only.
  */
-const DEFAULT_EDGE_ADDRESSES = ["2602:f470:1::28", "10.32.0.28"];
+const DEFAULT_EDGE_ADDRESSES = [FREESTYLE_EDGE_IPV6, FREESTYLE_EDGE_IPV4];
 
 function addressList(envValue: string | undefined, fallback: readonly string[]): string[] {
   const values = envValue?.split(",").map((value) => value.trim()).filter(Boolean);
@@ -40,6 +41,16 @@ export function freestyleGuestDnsResolvers(env: NodeJS.ProcessEnv = process.env)
 
 export function freestyleEdgeAddresses(env: NodeJS.ProcessEnv = process.env): string[] {
   return addressList(env.FREESTYLE_EDGE_ADDRESSES, DEFAULT_EDGE_ADDRESSES);
+}
+
+/**
+ * The edge resolver addresses a guest can query: the configured edge, plus
+ * the two addresses baked into the image's cmux-edge-resolver script. The
+ * script cannot read FREESTYLE_EDGE_ADDRESSES, so an override must not drop
+ * the addresses it selects from the port 53 grant.
+ */
+export function freestyleEdgeResolverAddresses(env: NodeJS.ProcessEnv = process.env): string[] {
+  return [...new Set([...freestyleEdgeAddresses(env), ...[FREESTYLE_EDGE_IPV6, FREESTYLE_EDGE_IPV4].map((address) => canonicalCidr(address))])];
 }
 
 /** An egress destination; the source is always the machine itself. */
@@ -59,7 +70,10 @@ export function egressDestinations(plan: NetworkRulePlan, env: NodeJS.ProcessEnv
     ...(range.protocol !== undefined ? { protocol: range.protocol } : {}),
   }));
   if (plan.dns) {
-    for (const cidr of freestyleGuestDnsResolvers(env)) {
+    // The edge's forwarding resolver is the guest's resolver once a TLS rule
+    // exists (the agent names it; cmux-edge-resolver adds its IPv6 listener,
+    // services/vms/images/dns.ts), so it needs port 53 like the public ones.
+    for (const cidr of [...freestyleGuestDnsResolvers(env), ...freestyleEdgeResolverAddresses(env)]) {
       destinations.push({ cidr, port: 53, protocol: "udp" }, { cidr, port: 53, protocol: "tcp" });
     }
   }
