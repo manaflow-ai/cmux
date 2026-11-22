@@ -693,6 +693,12 @@ class Side:
         if not self.exists():
             return errors
         state = self.state()
+        # A dev server still starting behind a run (start_dev_server_behind) would point the copy at it after the
+        # `server off` below: its starting script, in its own process group, goes first.
+        starter = state.get("dev_server_starter_pid")
+        if isinstance(starter, int) and starting_dev_server(starter):
+            with contextlib.suppress(OSError):
+                os.killpg(starter, 15)
         if state.get("dev_server"):
             with contextlib.suppress(LookError, OSError, subprocess.SubprocessError):
                 env = {**os.environ, **self.env()}
@@ -712,8 +718,21 @@ class Side:
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
         with contextlib.suppress(LookError):
-            self.remember(dev_server=False, recorder_pid=None, recorder_name=None, worktree=None)
+            self.remember(dev_server=False, dev_server_starter_pid=None, recorder_pid=None, recorder_name=None,
+                          worktree=None)
         return errors
+
+
+def starting_dev_server(pid: int) -> bool:
+    """PID is still the web-overlay.sh a run started, the leader of its own process group, so killing that group
+    stops nothing else."""
+    try:
+        if os.getpgid(pid) != pid:
+            return False
+    except OSError:
+        return False
+    done = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    return "web-overlay.sh" in done.stdout
 
 
 def process_runs(pid: int, name: str) -> bool:
@@ -1386,6 +1405,7 @@ def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
         started = subprocess.Popen([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree),
                                     "--port", str(free_port())], env=env, stdin=subprocess.DEVNULL, stdout=out,
                                    stderr=subprocess.STDOUT, start_new_session=True)
+    side.remember(dev_server_starter_pid=started.pid)
     return started.pid
 
 

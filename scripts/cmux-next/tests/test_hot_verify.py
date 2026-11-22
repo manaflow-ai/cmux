@@ -989,6 +989,23 @@ class PublishedPullRequestWebTest(unittest.TestCase):
         self.assertEqual(done, {"how": "published bundles", "key": self.KEY})
         self.assertEqual(ran, ["fetch-web-bundles.sh", "web-overlay.sh"])
 
+    def test_stop_ends_a_dev_server_still_starting_before_server_off(self):
+        side = hv.Side("t")
+        order = []
+        with unittest.mock.patch.object(hv.Side, "exists", return_value=True), \
+                unittest.mock.patch.object(hv.Side, "state", return_value={"dev_server": True,
+                                                                           "dev_server_starter_pid": 99}), \
+                unittest.mock.patch.object(hv.Side, "env", return_value={}), \
+                unittest.mock.patch.object(hv.Side, "run", return_value=""), \
+                unittest.mock.patch.object(hv.Side, "remember") as remember, \
+                unittest.mock.patch.object(hv, "starting_dev_server", return_value=True), \
+                unittest.mock.patch.object(hv.os, "killpg", side_effect=lambda pid, sig: order.append(("kill", pid))), \
+                unittest.mock.patch.object(hv.subprocess, "run",
+                                           side_effect=lambda argv, **_kw: order.append(tuple(argv[1:3]))):
+            self.assertEqual(side.stop(), [])
+        self.assertEqual(order, [("kill", 99), ("server", "off")])
+        self.assertIsNone(remember.call_args.kwargs["dev_server_starter_pid"])
+
     def test_a_pointer_for_another_head_is_not_used(self):
         planned = {"head": "1" * 40, "pr": 45917}
         with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
@@ -1151,7 +1168,8 @@ class GoldenCopyTest(unittest.TestCase):
         self.assertEqual(ran, ["web-bundle-key.py", "web-overlay.sh"], "the cached bundles are not fetched again")
         self.assertEqual(slept, [])
         self.assertEqual(popen.call_args.args[0][1:4], ["server", "--local", "--worktree"])
-        side.remember.assert_called_with(dev_server=True)
+        side.remember.assert_any_call(dev_server=True)
+        side.remember.assert_called_with(dev_server_starter_pid=4242)
 
     def test_a_look_of_a_checkout_keeps_its_dev_server_first(self):
         tree = self.root / "tree"
