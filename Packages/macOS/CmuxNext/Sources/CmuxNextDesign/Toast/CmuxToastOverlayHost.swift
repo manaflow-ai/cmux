@@ -10,8 +10,9 @@ public import AppKit
 /// that ends fades where it is, and a toast replaced under its id is swapped in one frame.
 ///
 /// Toasts never cover what they avoid (``CmuxToastAvoiding``: the agent chat's composer, which
-/// never moves for a toast, #37545): each toast rests above every avoided view under it, and moves
-/// when one changes (``reanchor(in:)``). The views that reserve room (``CmuxToastReserving``) hear
+/// never moves for a toast, #37545): each toast rests above every avoided view in the window, wherever
+/// it lies across, so a divider drag or a sidebar toggle never moves it (``CmuxToastAvoidance/floor(width:in:window:)``);
+/// it moves when an avoided view grows, shrinks, shows or hides (``reanchor(in:)``). The views that reserve room (``CmuxToastReserving``) hear
 /// where the toasts rest whenever that changes.
 ///
 /// ```swift

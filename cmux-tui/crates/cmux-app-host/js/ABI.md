@@ -40,6 +40,18 @@ The VM is untrusted: these rules are enforced by the host, and the runtime only 
 - **One rule for use.** A token allows one change of view state (focus, selection, showing or closing a window, workspace, tab or pane, navigation). The first mutation that changes view state and presents a live token runs with origin `user` and spends the token. Reads and mutations that do not change view state (the app's own storage and settings, `clipboard.write`) run with origin `user` while the token is live and do not spend it. Every other call runs with origin `script`; the host decides only from the token it sees.
 - **Carrying.** While an event handler runs synchronously, every call carries the event token; after its first `await` only calls that pass `{gesture: cmux.gesture()}` captured earlier do. A command's token arrives in `__cmuxAppRunCommand`'s `ctxJSON` (`{gesture}`, palette-scopes.md 6.7 B2) and is `ctx.gesture`; calls through the command's `ctx.cmux` carry it across awaits, and `ctx.cmux.gesture()` returns it. The global `cmux` carries a command token only when the app passes it explicitly. When a call has several: `ctx.cmux`'s token, then an explicit `options.gesture`, then the ambient handler token.
 
+## Composer toolbar
+
+A manifest can put actions beside the + menu in a chat or new-tab composer.
+Set `implements["cmux.composer.toolbar/1"]` to
+`{"options":{"buttons":[{"action":"composer.attachFiles"},{"action":"composer.commands"}]}}`.
+Each button uses the icon and localized name of an available command in this
+composer's + menu. An optional `label` overrides its accessible name and tooltip.
+Clicks run the menu entry's normal handler. For example, `composer.attachFiles`
+opens the file chooser for this draft. Unavailable actions stay hidden. The
+daemon lists buttons from enabled, visible apps in app-id and manifest order,
+taking the first occurrence of each action. A manifest reload updates open panes.
+
 ## Palette actions run by the host
 When the user runs a palette row (Return, click, Cmd-Return), the host runs the row's `ActionRef` itself with origin `user`; no app code runs unless the ref is one of the app's own commands. Before it runs a ref, the host checks:
 - the ref id is an op or action the app's grants cover, or one of the app's own commands (`app:<this app id>#<command>`); for `action.run` it checks the inner action id the same way; a ref to another app's command is refused (the user can run that app's scope or command directly);

@@ -97,6 +97,9 @@ public actor AcpmuxConnection {
         start()
         let id = nextID
         nextID += 1
+        let isWrite = !AcpmuxHub.steadyMethods.contains(method)
+        if isWrite { writes.insert(id) }
+        defer { if isWrite { writes.remove(id) } }
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
@@ -182,6 +185,7 @@ public actor AcpmuxConnection {
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
         submitted.insert(id)
+        if !AcpmuxHub.steadyMethods.contains(method) { writes.insert(id) }
         let channel = channel
         do {
             try await LinkDeadline.run(
@@ -200,6 +204,7 @@ public actor AcpmuxConnection {
     /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.
     private func release(_ id: Int) {
         submitted.remove(id)
+        writes.remove(id)
         answered[id] = nil
     }
 
@@ -220,6 +225,14 @@ public actor AcpmuxConnection {
     /// Submitted requests not yet answered to their ``reply(to:)``, and answers that came
     /// before it was called.
     private var submitted: Set<Int> = []
+    /// Requests and submits other than idempotent reads (``AcpmuxHub/steadyMethods``) the Mac has
+    /// not answered yet. An answer, a release or the channel's end takes each out (an answer kept
+    /// for a later ``reply(to:)`` is no longer in flight).
+    private var writes: Set<Int> = []
+
+    /// A prompt or mutation is still waiting for the Mac on this channel: a slow answer here is
+    /// work, not a stall, and closing the channel would lose it.
+    var hasWritesInFlight: Bool { !writes.isEmpty }
     private var answered: [Int: Result<JSONValue, any Error>] = [:]
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -302,6 +315,7 @@ public actor AcpmuxConnection {
             } else {
                 outcome = .success(value["result"] ?? .null)
             }
+            writes.remove(Int(id))
             guard let continuation = pending.removeValue(forKey: Int(id)) else {
                 // A submitted request answered before its ``reply(to:)``: keep it for the caller.
                 if submitted.contains(Int(id)) {
@@ -516,6 +530,7 @@ public actor AcpmuxConnection {
         // A submitted request whose `reply(to:)` is still to come fails there.
         for id in submitted where pending[id] == nil && answered[id] == nil { answered[id] = .failure(error) }
         submitted.subtract(pending.keys)
+        writes.removeAll()
         pending.removeAll()
         continuation.finish()
     }

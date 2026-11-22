@@ -57,6 +57,15 @@ public final class CmuxToastButton: ClickableButton {
         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold))
     /// Room between an open disclosure's title and its chevron.
     static let chevronGap: CGFloat = 4
+    /// A quiet button that rests on a faint fill of the toast's text color, so it reads as a button and not as
+    /// more of the message (``CmuxToastButtonRow/chips``); the pointer still lights it with the hover fill.
+    public var restsOnFill = false {
+        didSet {
+            guard restsOnFill != oldValue else { return }
+            if !restsOnFill { hover.refresh(animated: false) }  // back to the hover's own fill (none at rest)
+            applyStyle()
+        }
+    }
     /// The fill the button shows now (tests): nil when it shows none.
     var shownFill: NSColor? { ChromeHover.fillColor(hover.state) }
     private lazy var hover = ChromeHover(self, cornerRadius: Metrics.buttonCornerRadius, behindContent: true)
@@ -125,6 +134,13 @@ public final class CmuxToastButton: ClickableButton {
                 let color = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
                 attributedTitle = NSAttributedString(string: plainTitle, attributes: [.font: Typography.body, .foregroundColor: color])
                 contentTintColor = color
+                // The hover fill lives in this layer's background (ChromeHover behindContent): the resting fill
+                // goes there only while the pointer is off, and nothing here clears the hover's own fill.
+                if restsOnFill, !hover.state.hovering, !hover.state.pressed {
+                    wantsLayer = true
+                    layer?.cornerRadius = fittedRadius
+                    layer?.backgroundColor = Palette.toastText(.primary).withAlphaComponent(0.08).cgColor
+                }
             case .close:
                 contentTintColor = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
             case .filled:
@@ -165,6 +181,9 @@ public final class CmuxToastButton: ClickableButton {
         invalidateIntrinsicContentSize()
     }
 
+    /// Lights or unlights the button as the pointer would (tests).
+    func showHover(_ hovering: Bool) { changeHover { $0.hovering = hovering } }
+
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
         var state = hover.state
         change(&state)
@@ -175,6 +194,7 @@ public final class CmuxToastButton: ClickableButton {
     public override func layout() {
         super.layout()
         hover.cornerRadius = fittedRadius
+        if restsOnFill { layer?.cornerRadius = fittedRadius }
         hover.layout()
     }
 
