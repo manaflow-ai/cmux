@@ -75,6 +75,8 @@ struct NativeNewTabViewTests {
         #expect(model.text == "vite")
         #expect(host.page.rows.map(\.content?.title) == model.rows.map { NativeNewTabRowContent($0, strings: NativeNewTabStrings()).title })
         #expect(host.page.rows.first?.selected == true)
+        // An agent driving the app finds each row by its stable id.
+        #expect(host.page.rows.map { $0.accessibilityIdentifier() } == model.rows.map { "cmux.nativeNewTab.row.\($0.id)" })
         host.layoutSubtreeIfNeeded()
         let field = try #require(host.fieldView)
         let rows = host.page.rows

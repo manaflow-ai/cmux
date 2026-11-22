@@ -23,6 +23,7 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
+import { rowGist } from "./conversation/rowGist";
 import { LayeredMap } from "./conversation/layeredMap";
 import { dockClearSpans, dockClearStops } from "./conversation/dockClear";
 import { KeptLayouts } from "./conversation/keptLayouts";
@@ -725,6 +726,8 @@ const RowFrame = React.memo(function RowFrame({
       aria-current={active ? "true" : undefined}
       {...rowTabStop}
       aria-label={speaker(kind, t)}
+      // The message's first line (conversation/rowGist.ts): an AX client finds the row by its words.
+      aria-description={rowGist(row)}
       aria-posinset={index + 1}
       // `aria-setsize` is not here: the transcript writes it to the mounted nodes, so a row that arrives
       // does not change a prop on every other one (TranscriptView, `setSize`).
