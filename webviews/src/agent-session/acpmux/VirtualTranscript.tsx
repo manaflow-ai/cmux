@@ -203,7 +203,8 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { noteUnreadNews, readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -730,7 +731,17 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // The unread line's row takes no height and draws its mark over the gap under it
+      // (conversation/unread.css), so it reads the gap's length.
+      style={
+        row.kind === SINCE_DIVIDER
+          ? ({
+              top: integralTop,
+              marginTop: placedTop - integralTop,
+              "--cv-since-gap": `${gapBelow}px`,
+            } as React.CSSProperties)
+          : { top: integralTop, marginTop: placedTop - integralTop }
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -4648,8 +4659,10 @@ function TranscriptView({
   // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
   // something went wrong with a retry button just above the composer ... and then it layout shifted"):
   // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
-  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
-  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // (`restExtra`), so a line covers no row. A taller notice (its Details open, an app notice card)
+  // moves no row either (Leo, 2026-11-22: "that message should not shift layout"): it lies over the
+  // newest row's foot too, and the room takes all of it only once the rows move anyway (`noticeHold`,
+  // the notice's height the room has not taken). So too at the chat's
   // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
   // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
   // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
@@ -4662,7 +4675,7 @@ function TranscriptView({
     dockSpace <= 0 || !following
       ? 0
       : dockNotice >= noticeHeldAt
-        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        ? Math.min(dockNotice - noticeHeldAt, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
         : noticeTaken
           ? 0
           : dockNotice - noticeHeldAt;
@@ -7498,6 +7511,12 @@ function TranscriptView({
   );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
+  // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
+  // banner and no Jump up target. Stops at the first news row, so a chat that answered reads one.
+  const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex);
+  useLayoutEffect(() => {
+    if (sinceKey !== undefined && sinceRow !== undefined) noteUnreadNews(sinceKey, sinceHasNews);
+  }, [sinceKey, sinceRow, sinceHasNews]);
   const jumpUp = jumpButton && jumpUpOn;
   const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
