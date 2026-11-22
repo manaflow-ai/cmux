@@ -149,17 +149,35 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   /* motion-allow: a look's opt-in working mark; runs only while the button shows and the agent works. */
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :root:not(
+      [data-status-indicators="static"],
+      [data-agent-motion="off"],
+      [data-agent-motion="reduced"],
+      [data-cmux-motion="off"],
+      [data-cmux-motion="reduced"]
+    )
     .acpmux-jump-latest[data-shown]
     .cv-jump-dots__dot[data-dot="start"] {
     animation: cv-jump-dots-start var(--cv-jump-dots-period, 1350ms) linear infinite;
   }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :root:not(
+      [data-status-indicators="static"],
+      [data-agent-motion="off"],
+      [data-agent-motion="reduced"],
+      [data-cmux-motion="off"],
+      [data-cmux-motion="reduced"]
+    )
     .acpmux-jump-latest[data-shown]
     .cv-jump-dots__dot[data-dot="middle"] {
     animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1350ms) linear infinite;
   }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :root:not(
+      [data-status-indicators="static"],
+      [data-agent-motion="off"],
+      [data-agent-motion="reduced"],
+      [data-cmux-motion="off"],
+      [data-cmux-motion="reduced"]
+    )
     .acpmux-jump-latest[data-shown]
     .cv-jump-dots__dot[data-dot="end"] {
     animation: cv-jump-dots-end var(--cv-jump-dots-period, 1350ms) linear infinite;
