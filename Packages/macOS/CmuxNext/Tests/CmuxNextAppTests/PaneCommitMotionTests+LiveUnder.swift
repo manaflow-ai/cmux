@@ -10,10 +10,11 @@ import Testing
 ///
 /// A window that shows through its panes would show both pictures: the last frame at the old size, and the live one
 /// at the new size under it. So the last frame's view covers the live layer while it is in a window: the layer's
-/// opacity is 0. The layer has the opacity that it had before again after each way out: the motion's end, a second
-/// act in the motion, a motion that is cut, a view that another hand takes out of its window, and a window that
-/// closes. No way out leaves the layer clear. Neither write has an animation: a fade of the live picture under the
-/// last frame would show both again.
+/// opacity is 0. The layer has the opacity that it had before again after each way that takes the last frame out of
+/// its window: the motion's end, a second act in the motion, a motion that is cut, and a view that another hand
+/// takes out of its window. None of these leaves the layer clear. A window that closes with the last frame's view
+/// still in it is not one of them: the view does not see the close, the layer stays clear, and no row has it.
+/// Neither write has an animation: a fade of the live picture under the last frame would show both again.
 extension PaneCommitMotionTests {
     /// The live layer's opacity before the unzoom: not 1, so the value that comes back is the layer's own.
     nonisolated static let liveOpacity: Float = 0.75
@@ -107,6 +108,45 @@ extension PaneCommitMotionTests {
         #expect(live.opacity == Self.liveOpacity, "at rest after the second act (\(act)) the live layer does not have its opacity: \(Self.look(live))")
     }
 
+    /// Two last frames in sequence over one live layer: an unzoom, the zoom key in its move, and the unzoom key again
+    /// in the next frame, inside the first unzoom's time. The frame that shows the zoom takes the first last frame
+    /// away and gives the layer its opacity back, so the second last frame's view covers a layer that shows. The
+    /// value that the second view keeps for the give-back is the layer's own and not the first cover's 0: the layer is
+    /// clear under the second last frame, and has its own opacity again in the frame that ends the second motion.
+    @Test func aSecondUnzoomInTheFirstOnesTimeGivesTheLiveLayerItsOwnOpacityBack() throws {
+        let live = Self.liveLayer()
+        let unzoom = try Self.unzooming(frames: 3, live: live)
+        let harness = unzoom.zoom.harness, screen = unzoom.zoom.screen
+        defer { harness.window.closeAfterTest() }
+        let first = try #require(Self.lastFrames(on: screen).first, "SETUP: three frames after the unzoom key the screen shows no last frame")
+        try #require(Self.inFlight(screen) && live.opacity == 0,
+                     "SETUP: three frames after the unzoom key its pane does not move over a clear live layer: \(Self.look(live))")
+        harness.model.apply(screens: Zoom.screens(zoomedOn: "p4"))
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        try #require(Self.lastFrames(on: screen).isEmpty, "SETUP: the frame that shows the zoom still shows the first last frame")
+        #expect(live.opacity == Self.liveOpacity && !Self.fades(live),
+                "the frame that shows the zoom did not give the live layer its opacity back at once: \(Self.look(live))")
+        harness.model.apply(screens: Zoom.screens())
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        let second = try #require(Self.lastFrames(on: screen).first, "SETUP: the frame that shows the second unzoom shows no last frame")
+        try #require(second !== first && Self.lastFrames(on: screen).count == 1 && Self.inFlight(screen),
+                     "SETUP: the second unzoom does not move its pane under one new last frame")
+        var ticks = 0
+        while Self.inFlight(screen), ticks < Commit.frames {
+            #expect(live.opacity == 0 && !Self.fades(live),
+                    "frame \(ticks + 1) of the second unzoom's motion shows the live picture under the second last frame: \(Self.look(live))")
+            _ = harness.root.advanceFrame(Self.dt)
+            ticks += 1
+        }
+        try #require(Self.lastFrames(on: screen).isEmpty, "SETUP: the frame that ends the second unzoom's motion still shows a last frame")
+        #expect(live.opacity == Self.liveOpacity && !Self.fades(live),
+                "the second last frame's view did not give the live layer its own opacity back (0: it kept the first cover's value): \(Self.look(live))")
+        for _ in 0..<Commit.frames { _ = harness.root.advanceFrame(Self.dt) }
+        #expect(live.opacity == Self.liveOpacity, "at rest after the second unzoom the live layer does not have its opacity: \(Self.look(live))")
+    }
+
     /// The ways that cut an unzoom's motion, or take its last frame off the glass, with no frame tick.
     /// - `a window resize`, `the screen out of sight`, `the screen taken away`: the layout ends the motion.
     /// - `the pane's host out of its window`, `the last frame's view taken out`: a hand that is not the motion takes
@@ -120,8 +160,7 @@ extension PaneCommitMotionTests {
         let live = Self.liveLayer()
         let unzoom = try Self.unzooming(frames: 3, live: live)
         let harness = unzoom.zoom.harness, screen = unzoom.zoom.screen
-        var closed = false
-        defer { if !closed { harness.window.closeAfterTest() } }
+        defer { harness.window.closeAfterTest() }
         try #require(Self.inFlight(screen) && Self.lastFrames(on: screen).count == 1,
                      "SETUP: three frames after the unzoom key its pane does not move under its last frame")
         #expect(live.opacity == 0, "three frames into the unzoom's move the live picture shows under the last frame: \(Self.look(live))")
@@ -140,8 +179,8 @@ extension PaneCommitMotionTests {
             let view = try #require(Self.lastFrames(on: screen).first, "SETUP: the screen shows no last frame")
             view.removeFromSuperview()
         default:
-            harness.window.closeAfterTest()
-            closed = true
+            Issue.record("SETUP: the row has no cut of the name \(cut)")
+            return
         }
         #expect(live.opacity == Self.liveOpacity && !Self.fades(live),
                 "directly after \(cut) in the unzoom's move the live layer does not have its opacity: \(Self.look(live))")
