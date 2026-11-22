@@ -35,10 +35,11 @@ mod aside;
 mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
-mod append_lock;
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+#[cfg(test)]
+mod worker_lock_tests;
 pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
