@@ -93,10 +93,16 @@ final class VoiceModeUITests: XCTestCase {
     func testVoiceButtonIsHiddenByDefault() {
         for demo in ["voice-chat", "voice-terminal"] {
             let app = launch(demo, placement: nil)
-            let send = demo == "voice-chat" ? app.buttons["agentChat.composer.send"] : app.buttons["terminal.composer.send"]
-            let field = demo == "voice-chat" ? app.textViews.firstMatch : app.textViews.firstMatch
+            if demo == "voice-chat" {
+                // The agent chat shows its composer collapsed ("Reply to ...") until tapped.
+                let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+                if capsule.waitForExistence(timeout: 30) {
+                    XCTAssertFalse(app.buttons["agentChat.composer.voice"].exists, "voice-chat: no voice button on the capsule")
+                    capsule.tap()
+                }
+            }
+            let field = app.textViews[demo == "voice-chat" ? "chat.composer.field" : "terminal.composer.field"]
             XCTAssertTrue(field.waitForExistence(timeout: 30), "\(demo): the composer shows\n\(app.debugDescription)")
-            _ = send.waitForExistence(timeout: 5)
             XCTAssertFalse(app.buttons["agentChat.composer.voice"].exists, "\(demo): no voice button by default")
             XCTAssertFalse(app.buttons["terminal.composer.voice"].exists, "\(demo): no voice button by default")
             let shot = XCTAttachment(screenshot: app.screenshot())
