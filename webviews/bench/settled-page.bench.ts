@@ -67,6 +67,7 @@ const arms = (process.env.ARMS?.split(",") as Arm[] | undefined) ?? [...ARMS];
 const TRACE = process.env.TRACE === "1";
 // PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
 const PROFILE = process.env.PROFILE === "1";
+const DIAG = process.env.DIAG === "1";
 
 type CpuProfile = {
   nodes: {
@@ -283,6 +284,9 @@ function installFrameReader() {
   // TRACE's timeline: each socket message out and in (its method, or the id it answers) and each long task.
   const marks: { t: number; what: string }[] = [];
   const mark = (what: string) => marks.push({ t: performance.now(), what });
+  (w as unknown as { __mark: typeof mark }).__mark = (what: string) => {
+    if (running) mark(what);
+  };
   const Native = window.WebSocket;
   const asked = new Map<unknown, string>();
   window.WebSocket = class extends Native {
@@ -383,6 +387,94 @@ function installFrameReader() {
     stop() {
       running = false;
       return { t0, frames, lastChange, marks: marks.slice() };
+    },
+  };
+}
+
+// DIAG=1 (local diagnosis): each React commit's root renders (components whose parent did not render) and the
+// state hooks that changed in them, as TRACE marks.
+function installCommitDiag() {
+  Error.stackTraceLimit = 60;
+  const seen = new WeakMap<object, unknown>();
+  let commits = 0;
+  type Hook = { memoizedState: unknown; queue: unknown; next: Hook | null } | null;
+  type Fiber = {
+    tag: number;
+    type: { displayName?: string; name?: string; type?: { name?: string }; render?: { name?: string } } | null;
+    memoizedState: Hook;
+    child: Fiber | null;
+    sibling: Fiber | null;
+    alternate: Fiber | null;
+  };
+  const nameOf = (f: Fiber) =>
+    f.type?.displayName || f.type?.name || f.type?.type?.name || f.type?.render?.name || `tag${f.tag}`;
+  const preview = (v: unknown) => {
+    try {
+      if (typeof v === "function") return "fn";
+      const j = JSON.stringify(v, (_k, x) =>
+        x instanceof Map ? `Map(${x.size})` : x instanceof Set ? `Set(${x.size})` : x,
+      );
+      const keys = v && typeof v === "object" && !Array.isArray(v) ? `keys[${Object.keys(v).join(",")}]` : "";
+      return keys + (j ?? String(v)).slice(0, 50);
+    } catch {
+      return typeof v;
+    }
+  };
+  (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+    supportsFiber: true,
+    renderers: new Map(),
+    inject: () => 1,
+    checkDCE: () => {},
+    onCommitFiberUnmount: () => {},
+    onPostCommitFiberRoot: () => {},
+    onCommitFiberRoot: (_id: unknown, root: { current: Fiber }) => {
+      commits += 1;
+      const t = performance.now();
+      const roots: string[] = [];
+      let rendered = 0;
+      let mounted = 0;
+      const walk = (fiber: Fiber | null, parentRendered: boolean) => {
+        for (let f = fiber; f; f = f.sibling) {
+          let mine = parentRendered;
+          if ([0, 1, 11, 14, 15].includes(f.tag) && f.memoizedState) {
+            const h = f.memoizedState;
+            const prev = (seen.get(f) ?? (f.alternate ? seen.get(f.alternate) : undefined)) as Hook | undefined;
+            if (prev === undefined) mounted += 1;
+            else if (prev !== h) {
+              rendered += 1;
+              if (!parentRendered) {
+                const changed: string[] = [];
+                let a: Hook = prev;
+                let b: Hook = h;
+                let i = 0;
+                while (a && b) {
+                  if (b.queue !== null && a.memoizedState !== b.memoizedState)
+                    changed.push(`#${i}=${preview(b.memoizedState)}`);
+                  a = a.next;
+                  b = b.next;
+                  i += 1;
+                }
+                roots.push(`${nameOf(f)}(${changed.join(",") || "props/ctx"})`);
+              }
+              mine = true;
+            }
+            seen.set(f, h);
+            if (f.alternate) seen.set(f.alternate, h);
+          }
+          walk(f.child, mine);
+        }
+      };
+      walk(root.current.child, false);
+      const mark = (window as unknown as { __mark?: (what: string) => void }).__mark;
+      mark?.(
+        `commit#${commits} rendered=${rendered} mounted=${mounted} walk=${(performance.now() - t).toFixed(1)}ms roots: ${roots.slice(0, 12).join(" | ")} STACK ${String(
+          new Error().stack,
+        )
+          .split("\n")
+          .slice(2, 30)
+          .map((l) => l.trim())
+          .join(" < ")}`,
+      );
     },
   };
 }
@@ -595,7 +687,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false, sourcemap: true } : {}) },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE || DIAG ? { minify: false, sourcemap: true } : {}) },
     logLevel: "error",
   });
   // PROFILE keeps the build's source maps beside its profiles, to read their lines back as source.
@@ -622,6 +714,7 @@ try {
   const newContext = async () => {
     const context = await browser.newContext({ viewport: VIEWPORT });
     await context.addInitScript(installFrameReader);
+    if (DIAG) await context.addInitScript(installCommitDiag);
     return context;
   };
   const waitPainted = (page: Page, mark: string) =>
@@ -702,6 +795,12 @@ try {
         const lines = [
           ...read.marks,
           ...(first ? [{ t: first.t, what: "first frame showing the target" }] : []),
+          ...read.frames
+            .filter((frame) => frame.t >= read.t0)
+            .map((frame) => ({
+              t: frame.t,
+              what: `frame rows=${frame.rows.length} target=${frame.rows.filter((row) => rowOf(row.id, target)).length} first=${frame.rows[0]?.id}@${frame.rows[0]?.top.toFixed(1)} last=${frame.rows.at(-1)?.id}@${frame.rows.at(-1)?.top.toFixed(1)} scroll=${frame.scrollTop} composer=${frame.composer?.top.toFixed(1)}`,
+            })),
           { t: read.t0 + judged.settledMs, what: "settled" },
         ]
           .filter((one) => one.t - read.t0 <= judged.settledMs + 50)
