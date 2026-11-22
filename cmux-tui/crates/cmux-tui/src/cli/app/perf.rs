@@ -38,7 +38,7 @@ pub(super) const DEFAULT_SIM_BUILD_SECONDS: u64 = 180;
 
 /// A parsed `cmux perf` command.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Command {
+pub(crate) enum Command {
     Profile(ProfileArgs),
     Compare { before: PathBuf, after: PathBuf },
     Ab(AbArgs),
@@ -46,7 +46,7 @@ pub(super) enum Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ProfileArgs {
+pub(crate) struct ProfileArgs {
     pub seconds: u64,
     pub out: Option<PathBuf>,
     pub label: Option<String>,
@@ -57,7 +57,7 @@ pub(super) struct ProfileArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct AbArgs {
+pub(crate) struct AbArgs {
     pub patch: String,
     pub rollback: bool,
     pub seconds: u64,
@@ -77,7 +77,7 @@ pub(super) struct AbArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SimArgs {
+pub(crate) struct SimArgs {
     pub profile: String,
     /// The run's length, counted from the end of the build.
     pub seconds: u64,

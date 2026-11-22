@@ -513,8 +513,7 @@ fn sim_run_window_starts_when_the_build_ends() {
     let t0 = Instant::now();
     let mut phases = sim::Phases::new(t0, Duration::from_secs(180));
     assert!(!phases.running(t0), "no run before the build ends");
-    assert!(!phases.build_over(t0 + Duration::from_secs(179)));
-    assert!(phases.build_over(t0 + Duration::from_secs(180)));
+    assert_eq!(phases.build_until, t0 + Duration::from_secs(180));
     // A 150 s build does not eat a 120 s run: the run ends 120 s after the build.
     let built = t0 + Duration::from_secs(150);
     phases.start_run(built, 120);

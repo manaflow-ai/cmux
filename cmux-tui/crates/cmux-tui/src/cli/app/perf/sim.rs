@@ -229,11 +229,6 @@ impl Phases {
         }
     }
 
-    /// The build's deadline has passed.
-    pub fn build_over(&self, now: Instant) -> bool {
-        now >= self.build_until
-    }
-
     /// Ends the build at `now` and starts the run's `seconds`.
     pub fn start_run(&mut self, now: Instant, seconds: u64) {
         self.run_started = Some(now);

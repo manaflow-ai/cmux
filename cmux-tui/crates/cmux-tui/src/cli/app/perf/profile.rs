@@ -186,9 +186,7 @@ pub(super) fn chat_metrics(chats: &[Value]) -> Vec<Metric> {
         measured
             .iter()
             .filter_map(|chat| {
-                path.iter()
-                    .fold(Some(*chat), |at, key| at.map(|v| &v[*key]))
-                    .and_then(Value::as_f64)
+                path.iter().try_fold(*chat, |at, key| Some(&at[*key])).and_then(Value::as_f64)
             })
             .reduce(f64::max)
     };
@@ -196,9 +194,7 @@ pub(super) fn chat_metrics(chats: &[Value]) -> Vec<Metric> {
         let values: Vec<f64> = measured
             .iter()
             .filter_map(|chat| {
-                path.iter()
-                    .fold(Some(*chat), |at, key| at.map(|v| &v[*key]))
-                    .and_then(Value::as_f64)
+                path.iter().try_fold(*chat, |at, key| Some(&at[*key])).and_then(Value::as_f64)
             })
             .collect();
         (!values.is_empty()).then(|| values.iter().sum())
