@@ -5,7 +5,7 @@
 #   cmux-ci test --setup webviews --timeout 5400 --artifact /tmp/reopen -- \
 #     bash webviews/scripts/agent-pane/chat-load/reopen.sh
 #
-#   reopen.sh [OUT_DIR] [--turns 1500] [--noise 20] [--others 40] [--rounds 10] [--load-pages 30]
+#   reopen.sh [OUT_DIR] [--turns 1500] [--noise 20] [--others 40] [--rounds 10] [--load-pages 30] [--up 40]
 #                     [--configs warm:none,restart:none]   (DAEMON:HOST_TAIL[:TARGET])
 #
 # ACPMUX_BIN names a daemon binary; else the published Linux acpmux of ACPMUX_TREE (a cmux-tui
@@ -14,7 +14,7 @@ set -euo pipefail
 # OUT_DIR defaults to $FAST_CHECKS_OUT, the folder cmux-ci test brings back as the artifact.
 if [[ $# -gt 0 && "$1" != --* ]]; then out="$1"; shift; else out="${FAST_CHECKS_OUT:?OUT_DIR or FAST_CHECKS_OUT}"; fi
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
-turns=1500; noise=20; others=40; rounds=10; load_pages=30; configs=warm:none,restart:none
+turns=1500; noise=20; others=40; rounds=10; load_pages=30; up=40; configs=warm:none,restart:none
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --turns) turns="$2"; shift 2 ;;
@@ -23,6 +23,8 @@ while [[ $# -gt 0 ]]; do
     --rounds) rounds="$2"; shift 2 ;;
     --load-pages) load_pages="$2"; shift 2 ;;
     --configs) configs="$2"; shift 2 ;;
+    # 0: the reader left the chat at its newest rows, where `vanished_rows` is judged.
+    --up) up="$2"; shift 2 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -65,6 +67,6 @@ for config in ${configs//,/ }; do
   name="reopen-$daemon-$tail"; [[ "$target" != 0 ]] && name="$name-t$target"
   (cd "$root/webviews" && node "$here/reopen_bench.mjs" --pane "$work/pane" --fixture "$work/fixture.json" \
     --acpmux "$bin" --out "$out/$name.json" --rounds "$rounds" --load-pages "$load_pages" \
-    --daemon "$daemon" --host-tail "$tail" --target "$target") | tee "$out/$name.log"
+    --daemon "$daemon" --host-tail "$tail" --target "$target" --up-viewports "$up") | tee "$out/$name.log"
 done
 echo "results in $out"

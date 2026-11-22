@@ -29,6 +29,12 @@
 //   hides           times the transcript went hidden again after it showed;
 //   cls             Chromium's layout-shift sum after first_rows_ms;
 //   long_max_ms     the longest main-thread task (>50 ms) or frame gap of the load.
+//   vanished_rows   rows painted in the viewport after first_rows_ms that the settled pane no
+//                   longer draws at all: tool calls and messages streamed in and then folded or
+//                   hidden (Leo, 2026-11-22: "i see this rush and barrage of tool calls and message
+//                   on a sort of "renewed-load" of chats. but they get folded/hidden anyways").
+//                   A reopen paints the chat as it settles; every such row is a wasted, jarring
+//                   frame and a layout shift. Their ids are in `vanished` (the first 40).
 // Results: every round, and p50/p95/max of each number, in --out (JSON) and on stdout.
 //
 //   node reopen_bench.mjs --pane DIR --fixture FIXTURE_JSON --acpmux BIN --out OUT_JSON
@@ -168,6 +174,8 @@ function shim(config) {
     cls: 0,
     longTasks: [],
     trace: [],
+    /// rowId -> page ms it was first painted in the viewport (`vanished_rows`).
+    painted: {},
   });
   try {
     new PerformanceObserver((list) => {
@@ -221,8 +229,9 @@ function shim(config) {
       for (const row of scroller.querySelectorAll("[data-row-id]")) {
         const r = row.getBoundingClientRect();
         if (r.bottom > box.top + 1 && r.top < box.bottom && r.height > 0) {
-          visible = [row.getAttribute("data-row-id"), r.top - box.top];
-          break;
+          const id = row.getAttribute("data-row-id");
+          visible ??= [id, r.top - box.top];
+          probe.painted[id] ??= Math.round(now);
         }
       }
     }
@@ -431,7 +440,19 @@ for (let round = 0; round < rounds; round += 1) {
   for (;;) {
     state = await page.evaluate(() => {
       const p = window.__reopen;
-      return { ...p, now: performance.now(), trace: p.trace.slice(0, 60) };
+      const drawn = new Set(
+        [...document.querySelectorAll(".acpmux-scroll [data-row-id]")].map((row) => row.getAttribute("data-row-id")),
+      );
+      const scroller = document.querySelector(".acpmux-scroll");
+      // Only a pane resting at its newest rows judges: one the reader's place scrolled up leaves
+      // rows the virtual list unmounts out of sight, which are not gone.
+      const atEnd = !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 4;
+      const vanished = atEnd
+        ? Object.entries(p.painted)
+            .filter(([id, at]) => p.firstRows !== undefined && at >= p.firstRows && !drawn.has(id))
+            .map(([id]) => id)
+        : null;
+      return { ...p, painted: undefined, vanished, now: performance.now(), trace: p.trace.slice(0, 60) };
     });
     const longEnd = state.longTasks.reduce((end, [start, d]) => Math.max(end, start + d), 0);
     const quiet = state.now - Math.max(state.lastChange, state.firstRows !== undefined ? longEnd : 0);
@@ -455,6 +476,8 @@ for (let round = 0; round < rounds; round += 1) {
     hides: state.hides,
     cls: Math.round(state.cls * 1000) / 1000,
     long_max_ms: Math.round(state.longTasks.reduce((m, [, d]) => Math.max(m, d), 0)),
+    vanished_rows: state.vanished?.length ?? null,
+    vanished: state.vanished?.slice(0, 40) ?? null,
     timed_out: !!state.timedOut,
     trace: state.trace,
   };
@@ -468,7 +491,17 @@ const pct = (values, p) => {
   const v = values.filter((x) => typeof x === "number").sort((a, b) => a - b);
   return v.length ? v[Math.min(v.length - 1, Math.ceil((p / 100) * v.length) - 1)] : null;
 };
-const keys = ["first_rows_ms", "placed_ms", "settled_ms", "shift_px", "shifts", "hides", "cls", "long_max_ms"];
+const keys = [
+  "first_rows_ms",
+  "placed_ms",
+  "settled_ms",
+  "shift_px",
+  "shifts",
+  "hides",
+  "cls",
+  "long_max_ms",
+  "vanished_rows",
+];
 const summary = Object.fromEntries(
   keys.map((k) => [
     k,
