@@ -140,6 +140,9 @@
 #                          events-burst (events-500, then 2000 records in 1 s)
 #                          events-filter (events-500 at 20 records/s while "tool_call"
 #                          is typed into Filter and cleared, repeating)
+#                          ws-heavy-live feed-live ws-2000 (the first two: a
+#                          busy Mac on the real live path, ListStressSettings
+#                          CMUX_MOBILE_LIST_FLOOD)
 #                          A row's rig knobs may exist only on a feature branch's
 #                          app; the table is data.
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
@@ -349,6 +352,9 @@ listperf_table=(
   "events-500         inspector   LIST_COUNT=500"
   "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
   "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
+  "ws-heavy-live   workspaces  LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 LIST_FLOOD_BURST=500 LIST_PASSES=3 LIST_SPEED=2400"
+  "feed-live       feed        LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 FEED_STRESS=320 LIST_PASSES=2 LIST_SPEED=2400"
+  "ws-2000         workspaces  LIST_COUNT=2000 LIST_PASSES=1"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)
@@ -1086,6 +1092,12 @@ for root in json.load(sys.stdin).get("testNodes", []):
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
   keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
+  # -only-testing that names no test (a suite in another target, a typo) runs nothing and exits 0:
+  # a filtered run that selected no test fails, naming the filter (ios_sim_test_filter.py).
+  if [[ ${#kit_only[@]} -gt 0 ]] && ! python3 -I scripts/ci/ios_sim_test_filter.py "$out/kit-tests.json" "${kit_only[@]}" | tee "$out/kit-filter.txt"; then
+    note "- kit filter selected no test: $(tr '\n' ' ' < "$out/kit-filter.txt")"
+    [[ $test_status -ne 0 ]] || test_status=1
+  fi
   [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
@@ -1314,6 +1326,23 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
+    # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
+    # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
+    # marked source=launch so a reader knows it is early by the recorder's start-up.
+    # Read every 10 ms, so the stamp is within about 10 ms of the line.
+    python3 -c '
+import sys, time
+log, t0 = sys.argv[1], time.time()
+while time.time() - t0 < 10:
+    try:
+        if "Recording started" in open(log, errors="replace").read():
+            print(f"MOBILEBENCH video-start t={time.time():.3f} source=recorder")
+            sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(0.01)
+print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
+' "$work/ui-video.log" >"$out/ui-video-start.txt" || true
   fi
   set +e
   ui_t0=$SECONDS
@@ -1353,6 +1382,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
+  if [[ ${#ui_suites[@]} -gt 0 && -d "$work/ui.xcresult" ]] && ! python3 -I scripts/ci/ios_sim_test_filter.py "$out/ui-tests.json" "${ui_suites[@]}" | tee "$out/ui-filter.txt"; then
+    note "- UI filter selected no test: $(tr '\n' ' ' < "$out/ui-filter.txt")"
+    [[ $ui_status -ne 0 ]] || ui_status=1
+  fi
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
   note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"

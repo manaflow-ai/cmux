@@ -88,10 +88,14 @@ public protocol HoverCardSource: AnyObject {
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect?
     /// The sources this one shares its card window with (``HoverCardGroup``); nil: none.
     var hoverCardGroup: HoverCardGroup? { get }
+    /// A card body made and configured ahead of the first hover, as a real card's (``HoverCardCoordinator/warm()``),
+    /// kept for that card to reuse; nil when the source has none to make or made it already.
+    func hoverCardWarmBody() -> HoverCardBody?
 }
 
 public extension HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? { nil }
     var hoverCardGroup: HoverCardGroup? { nil }
+    func hoverCardWarmBody() -> HoverCardBody? { nil }
 }

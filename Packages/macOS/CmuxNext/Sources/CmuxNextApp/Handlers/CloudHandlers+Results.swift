@@ -180,7 +180,7 @@ extension CloudHandlerRules {
 
     /// The refusal when the rules do not answer (the app's FFI is missing an op): the action does nothing.
     static var unanswered: String {
-        String(localized: "cloud.operationUnavailable", defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module)
+        String(localized: "cloud.operationUnavailable", defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage)
     }
 
     func arg(_ check: String, _ invocation: ActionInvocation, port names: CloudPortNames? = nil, extra: [String: Any] = [:]) throws -> Any {
