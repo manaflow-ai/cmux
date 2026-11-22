@@ -172,5 +172,126 @@ import UIKit
         #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
         #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
     }
+    // MARK: What the Mac pushes (`MacTabCards`)
+
+    static func hash(_ data: Data) -> String { TabSnapshotStore.hash(data) }
+
+    static func cards(_ directory: URL, account: String? = "user-1") -> (MacTabCards, TabCardSnapshots) {
+        let store = TabSnapshotStore(directory: directory)
+        let snapshots = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        snapshots.accountID = { account }
+        return (MacTabCards(store: store, snapshots: snapshots), snapshots)
+    }
+
+    static func png(_ color: UIColor) throws -> Data { try #require(picture(color, width: 8, height: 8).pngData()) }
+
+    @Test func aMacsBlobsAreKeptPerAccountAndMacApartFromThePhonesPictures() throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let bytes = Data("favicon".utf8), hash = Self.hash(bytes)
+        store.save(bytes, pixelWidth: 4, pixelHeight: 6, capturedAtMs: 10, source: .phone, for: Self.key("a"))
+        store.putMacBlob(bytes, hash: hash, accountID: "user-1", macID: "mac-1")
+        #expect(store.macBlob(hash, accountID: "user-1", macID: "mac-1") == bytes)
+        #expect(store.macBlob(hash, accountID: "user-2", macID: "mac-1") == nil, "another account reads nothing")
+        #expect(store.macBlob(hash, accountID: "user-1", macID: "mac-2") == nil, "another Mac reads nothing")
+        store.removeMacBlobs([hash], accountID: "user-1", macID: "mac-1")
+        #expect(store.macBlob(hash, accountID: "user-1", macID: "mac-1") == nil)
+        #expect(store.picture(Self.key("a")) == bytes, "the phone's own picture of the same bytes stays")
+        // A name that is not a hash never becomes a path.
+        store.putMacBlob(bytes, hash: "../../escape", accountID: "user-1", macID: "mac-1")
+        #expect(store.macDisk(accountID: "user-1", macID: "mac-1").names.isEmpty)
+    }
+
+    @Test func aCardFillsFromWhatTheMacSendsAndAgainOnTheNextLaunch() async throws {
+        let directory = Self.directory()
+        let favicon = try Self.png(.systemBlue), thumb = try Self.png(.systemGreen), screen = Data("$ ls\nREADME.md".utf8)
+        let web = MacCardInfo(title: "Docs", kind: "browser", faviconHash: Self.hash(favicon), thumbHash: Self.hash(thumb), capturedAtMs: 50)
+        let shell = MacCardInfo(title: "zsh", kind: "terminal", screenHash: Self.hash(screen), screenColumns: 80, screenRows: 24, capturedAtMs: 50)
+
+        let (first, pictures) = Self.cards(directory)
+        #expect(first.heldBlobs(macID: "mac-1").isEmpty)
+        first.cards([(tabID: "web", info: web), (tabID: "shell", info: shell)], macID: "mac-1")
+        #expect(first.entry(Self.key("web")).info?.title == "Docs", "the title is there with the row")
+        #expect(first.entry(Self.key("web")).favicon == nil)
+        for (bytes, tab) in [(favicon, "web"), (thumb, "web"), (screen, "shell")] {
+            first.save(bytes, hash: Self.hash(bytes), macID: "mac-1")
+            await first.blobArrived(hash: Self.hash(bytes), tabIDs: [tab], macID: "mac-1")?.value
+        }
+        #expect(first.entry(Self.key("web")).favicon != nil)
+        #expect(first.entry(Self.key("shell")).screen == "$ ls\nREADME.md")
+        #expect(pictures.entry(Self.key("web")).image != nil, "the Mac's thumbnail is the card's picture")
+        #expect(Set(first.heldBlobs(macID: "mac-1")) == [Self.hash(favicon), Self.hash(thumb), Self.hash(screen)])
+        let store = first.store
+        try await Self.wait("rows and blobs are written") {
+            let disk = store.macDisk(accountID: "user-1", macID: "mac-1")
+            return disk.names.count == 3 && disk.cards.count == 2
+        }
+
+        // The next launch, before any link: everything from disk.
+        let (next, nextPictures) = Self.cards(directory)
+        await next.warm(macID: "mac-1")?.value
+        #expect(next.warm(macID: "mac-1") == nil, "one read per Mac and launch")
+        #expect(next.entry(Self.key("web")).info == web)
+        #expect(next.entry(Self.key("web")).favicon != nil)
+        #expect(next.entry(Self.key("shell")).screen == "$ ls\nREADME.md")
+        #expect(Set(next.heldBlobs(macID: "mac-1")).count == 3, "the Mac is told what the phone holds")
+        try await Self.wait("the thumbnail is read") { nextPictures.entry(Self.key("web")).image != nil }
+
+        // Another account on the same phone sees none of it.
+        let (other, _) = Self.cards(directory, account: "user-2")
+        await other.warm(macID: "mac-1")?.value
+        #expect(other.entry(Self.key("web", account: "user-2")).info == nil)
+        #expect(other.heldBlobs(macID: "mac-1").isEmpty)
+    }
+
+    @Test func aFaviconStaysUntilItsReplacementIsHere() async throws {
+        let (cards, _) = Self.cards(Self.directory())
+        let old = try Self.png(.systemRed), new = try Self.png(.systemTeal)
+        cards.cards([(tabID: "web", info: MacCardInfo(title: "A", kind: "browser", faviconHash: Self.hash(old)))], macID: "mac-1")
+        cards.save(old, hash: Self.hash(old), macID: "mac-1")
+        await cards.blobArrived(hash: Self.hash(old), tabIDs: ["web"], macID: "mac-1")?.value
+        let shown = try #require(cards.entry(Self.key("web")).favicon)
+
+        cards.cards([(tabID: "web", info: MacCardInfo(title: "B", kind: "browser", faviconHash: Self.hash(new)))], macID: "mac-1")
+        #expect(cards.entry(Self.key("web")).info?.title == "B")
+        #expect(cards.entry(Self.key("web")).favicon === shown, "the old favicon, not a blank, until the new one arrives")
+        cards.save(new, hash: Self.hash(new), macID: "mac-1")
+        await cards.blobArrived(hash: Self.hash(new), tabIDs: ["web"], macID: "mac-1")?.value
+        #expect(cards.entry(Self.key("web")).favicon !== shown)
+
+        // A tab the Mac no longer lists loses its row.
+        cards.cards([], macID: "mac-1")
+        #expect(cards.entry(Self.key("web")).info == nil)
+    }
+
+    @Test func anOlderMacPictureNeverReplacesANewerOneOfThePhones() async throws {
+        let (cards, pictures) = Self.cards(Self.directory())
+        pictures.put(Self.picture(.systemRed), for: Self.key("web"), now: Date(timeIntervalSince1970: 100))
+        let own = try #require(pictures.entry(Self.key("web")).image)
+        let stale = try Self.png(.systemGreen), fresh = try Self.png(.systemBlue)
+        for (bytes, ms) in [(stale, Int64(50_000)), (fresh, Int64(200_000))] {
+            cards.cards([(tabID: "web", info: MacCardInfo(title: "A", kind: "browser", thumbHash: Self.hash(bytes), capturedAtMs: ms))], macID: "mac-1")
+            cards.save(bytes, hash: Self.hash(bytes), macID: "mac-1")
+            await cards.blobArrived(hash: Self.hash(bytes), tabIDs: ["web"], macID: "mac-1")?.value
+            if ms < 100_000 {
+                #expect(pictures.entry(Self.key("web")).image === own, "captured before the phone's: not shown")
+            } else {
+                #expect(pictures.entry(Self.key("web")).image !== own, "captured after: shown")
+            }
+        }
+    }
+
+    @Test func removingTheMacsBlobsLeavesThePhonesPictures() async throws {
+        let (cards, pictures) = Self.cards(Self.directory())
+        pictures.put(Self.picture(.systemRed), for: Self.key("web"))
+        try await Self.wait("the phone's picture is written") { pictures.saves == 1 }
+        let favicon = try Self.png(.systemBlue), hash = Self.hash(favicon)
+        cards.save(favicon, hash: hash, macID: "mac-1")
+        let store = cards.store
+        try await Self.wait("the blob is written") { store.macBlob(hash, accountID: "user-1", macID: "mac-1") != nil }
+        cards.remove(blobs: [hash], macID: "mac-1")
+        #expect(cards.heldBlobs(macID: "mac-1").isEmpty)
+        try await Self.wait("the blob is deleted") { store.macBlob(hash, accountID: "user-1", macID: "mac-1") == nil }
+        #expect(store.picture(Self.key("web")) != nil)
+    }
 }
 #endif

@@ -166,6 +166,8 @@ public struct TabSnapshotStore: Sendable {
 @Observable
 public final class TabSnapshotEntry {
     public fileprivate(set) var image: UIImage?
+    /// When `image` was captured (0: unknown), so an older picture never replaces a newer one.
+    @ObservationIgnored fileprivate var capturedAtMs: Int64 = 0
     /// The disk was asked for this tab's picture (once per launch, and again after a save or an eviction).
     @ObservationIgnored fileprivate var asked = false
 }
@@ -221,16 +223,18 @@ public final class TabCardSnapshots {
             guard entry.image == nil, !entry.asked else { continue }
             entry.asked = true
             Task.detached(priority: .userInitiated) { [weak self] in
-                let image = store.picture(key).flatMap { UIImage(data: $0) }?.preparingForDisplay()
-                await self?.loaded(image, key)
+                let newest = store.newestPicture(key)
+                let image = newest.flatMap { UIImage(data: $0.data) }?.preparingForDisplay()
+                await self?.loaded(image, key, capturedAtMs: newest?.capturedAtMs ?? 0)
             }
         }
     }
 
-    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey) {
+    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, capturedAtMs: Int64) {
         loads += 1
         guard let image, let entry = entries[key], entry.image == nil else { return }
         entry.image = image
+        entry.capturedAtMs = capturedAtMs
         touch(key)
     }
 
@@ -240,14 +244,14 @@ public final class TabCardSnapshots {
     /// off the main thread, and shown once scaled.
     public func put(_ image: UIImage, for key: TabSnapshotKey, pixelWidth: CGFloat = 0,
                     source: TabSnapshotRecord.Source = .phone, now: Date = Date()) {
-        if pixelWidth <= 0 { show(image, key) }
-        let store = store
         let ms = Int64(now.timeIntervalSince1970 * 1000)
+        if pixelWidth <= 0 { show(image, key, capturedAtMs: ms) }
+        let store = store
         Task.detached(priority: .utility) { [weak self] in
             var picture = image
             if pixelWidth > 0 {
                 picture = TabCardSnapshots.downscaled(image, pixelWidth: pixelWidth)
-                await self?.show(picture, key)
+                await self?.show(picture, key, capturedAtMs: ms)
             }
             guard let data = picture.jpegData(compressionQuality: 0.8) else { return }
             store.save(data, pixelWidth: Int(picture.size.width * picture.scale),
@@ -256,9 +260,16 @@ public final class TabCardSnapshots {
         }
     }
 
-    private func show(_ image: UIImage, _ key: TabSnapshotKey) {
+    /// The Mac's picture of a tab (`MacTabCards`): shown unless the card has a newer one.
+    public func show(macPicture image: UIImage, capturedAtMs: Int64, for key: TabSnapshotKey) {
+        if let shown = entries[key], shown.image != nil, shown.capturedAtMs > capturedAtMs { return }
+        show(image, key, capturedAtMs: capturedAtMs)
+    }
+
+    private func show(_ image: UIImage, _ key: TabSnapshotKey, capturedAtMs: Int64) {
         let entry = entry(key)
         entry.image = image
+        entry.capturedAtMs = capturedAtMs
         entry.asked = true
         touch(key)
     }
