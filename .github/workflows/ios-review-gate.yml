@@ -151,6 +151,16 @@ on:
         type: string
         required: false
         default: feat-cmux-next
+    # A called workflow sees only the secrets its caller passes, even in a job
+    # with `environment: release`: without these, asc-validate ran with an
+    # empty key and blocked on "missing authentication" (run 45038240860).
+    secrets:
+      ASC_API_KEY_ID:
+        required: false
+      ASC_API_ISSUER_ID:
+        required: false
+      ASC_API_KEY_P8_BASE64:
+        required: false
     outputs:
       blocking:
         description: Number of blocking findings
