@@ -261,7 +261,8 @@ async fn a_chat_the_person_renamed_asks_no_model_for_a_title() {
     assert_eq!(client.title(&launched).await, json!("Picnic menu"));
 
     let renamed = client.new_session().await;
-    assert_eq!(client.info(&renamed).await.get("nameGiven"), None, "the daemon named it");
+    // The daemon named it: `nameGiven` is absent or false (`_acpmux/info` lists every key, #49714).
+    assert_ne!(client.info(&renamed).await["nameGiven"], json!(true), "the daemon named it");
     client.call("_acpmux/rename", json!({"sessionId": renamed, "newName": "menu-ideas"})).await;
     assert_eq!(client.info(&renamed).await["nameGiven"], json!(true));
     client.prompt(&renamed, "Plan a three-dish picnic menu").await;
