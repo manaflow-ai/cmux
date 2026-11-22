@@ -47,6 +47,9 @@ pub enum AdminError {
     Invalid(String),
     /// Disk or registry trouble.
     Failed(String),
+    /// Bad parameters with a reason id a caller maps to its own sentence (cmux models,
+    /// [`byo_endpoint::CmuxModels::reason`]).
+    Refused(&'static str, String),
 }
 
 impl AdminError {
@@ -56,6 +59,7 @@ impl AdminError {
             AdminError::NotRemovable(_) => Some("harness.not_removable"),
             AdminError::SecretInline(_) => Some("harness.secret_inline"),
             AdminError::NotFound(_) => Some("harness.not_found"),
+            AdminError::Refused(reason, _) => Some(reason),
             AdminError::Invalid(_) | AdminError::Failed(_) => None,
         }
     }
@@ -67,7 +71,8 @@ impl AdminError {
             | AdminError::SecretInline(m)
             | AdminError::NotFound(m)
             | AdminError::Invalid(m)
-            | AdminError::Failed(m) => m,
+            | AdminError::Failed(m)
+            | AdminError::Refused(_, m) => m,
         }
     }
 }
@@ -864,7 +869,9 @@ where
                 .into(),
         )
     })?;
-    let origin = platform(cmux.clone()).await.map_err(AdminError::Invalid)?;
+    let origin = platform(cmux.clone())
+        .await
+        .map_err(|why| AdminError::Refused(byo_endpoint::CmuxModels::SignedOut.reason(), why))?;
     p.base_url = Some(byo_endpoint::cmux_models_base(&origin));
     p.cmux_helper = Some(byo_endpoint::cmux_models_helper(&cmux.to_string_lossy()));
     Ok(())
@@ -926,7 +933,13 @@ pub async fn fetch_endpoint_models(
         byo_endpoint::FETCH_TIMEOUT,
     )
     .await
-    .map_err(|e| AdminError::Invalid(format!("could not list the endpoint's models: {e}")))?;
+    .map_err(|e| match byo_endpoint::CmuxModels::of_message(&e) {
+        // cmux models: the router's state, with a reason the app says in the person's language.
+        Some(state) if byo_endpoint::is_cmux_models_url(&base_url) => {
+            AdminError::Refused(state.reason(), e)
+        }
+        _ => AdminError::Invalid(format!("could not list the endpoint's models: {e}")),
+    })?;
     let mut models: Vec<String> = Vec::new();
     for m in wanted
         .into_iter()

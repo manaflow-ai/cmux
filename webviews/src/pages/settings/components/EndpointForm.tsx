@@ -46,6 +46,7 @@ const presetLabel = (id: EndpointPresetId) =>
     "team-server": t("settingsPage.agents.endpoint.preset.teamServer"),
     hosted: t("settingsPage.agents.endpoint.preset.hosted"),
     gateway: t("settingsPage.agents.endpoint.preset.gateway"),
+    "cmux-models": t("settingsPage.agents.endpoint.preset.cmuxModels"),
   })[id];
 
 /** The name a preset's harness starts with (the model picker shows it). */
@@ -56,6 +57,7 @@ const presetName = (id: EndpointPresetId) =>
     "team-server": t("settingsPage.agents.endpoint.name.teamServer"),
     hosted: t("settingsPage.agents.endpoint.name.hosted"),
     gateway: t("settingsPage.agents.endpoint.name.gateway"),
+    "cmux-models": t("settingsPage.agents.endpoint.name.cmuxModels"),
   })[id];
 
 const presetHint = (id: EndpointPresetId) =>
@@ -65,6 +67,7 @@ const presetHint = (id: EndpointPresetId) =>
     "team-server": t("settingsPage.agents.endpoint.hint.team"),
     hosted: t("settingsPage.agents.endpoint.hint.hosted"),
     gateway: t("settingsPage.agents.endpoint.hint.gateway"),
+    "cmux-models": t("settingsPage.agents.endpoint.hint.cmuxModels"),
   })[id];
 
 /** The draft a preset starts: its URL and default name, no models or key yet. */

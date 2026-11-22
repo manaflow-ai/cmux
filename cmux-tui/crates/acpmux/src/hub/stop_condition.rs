@@ -175,4 +175,38 @@ mod tests {
         assert_eq!(parsed["hooks"].as_object().unwrap().len(), 1);
         assert_eq!(parsed["hooks"]["Stop"][0]["hooks"][0]["prompt"], tricky);
     }
+
+    fn meta(condition: Option<&str>) -> SessionMeta {
+        let mut m: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
+            "family": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        m.stop_condition = condition.map(str::to_owned);
+        m
+    }
+
+    #[test]
+    fn a_profiles_inline_settings_take_the_stop_hook_and_keep_their_own_keys() {
+        let helper = json!({"apiKeyHelper": "'/Applications/cmux.app/bin/cmux' auth token"});
+        let own = || vec!["--settings".to_owned(), helper.to_string()];
+        // No condition: the profile's args as they are.
+        let mut args = own();
+        add_claude_args(&mut args, &meta(None));
+        assert_eq!(args, own());
+        // A condition: one --settings with both, never a second that would replace the helper.
+        let mut args = own();
+        add_claude_args(&mut args, &meta(Some("landed")));
+        assert_eq!(args.iter().filter(|a| *a == "--settings").count(), 1, "{args:?}");
+        let merged: Value = serde_json::from_str(&args[1]).unwrap();
+        assert_eq!(merged["apiKeyHelper"], helper["apiKeyHelper"]);
+        assert_eq!(merged["hooks"], settings("landed")["hooks"]);
+        // No inline settings (or a settings file path): the condition's own --settings follows.
+        for start in [vec![], vec!["--settings".to_owned(), "/tmp/s.json".to_owned()]] {
+            let mut args = start.clone();
+            add_claude_args(&mut args, &meta(Some("landed")));
+            assert_eq!(args[..start.len()], start[..]);
+            assert_eq!(args[start.len()..], claude_args(&meta(Some("landed")))[..]);
+        }
+    }
 }

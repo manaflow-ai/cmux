@@ -58,7 +58,12 @@ const PROVIDER_PREFIX = "byo/";
 /** Whether the endpoint needs a key: `none` (a server on this Mac), `optional` or `required`. */
 export type KeyNeed = "none" | "optional" | "required";
 
-export type EndpointPresetId = "local-server" | "desktop-app" | "team-server" | "hosted" | "gateway";
+export type EndpointPresetId = "local-server" | "desktop-app" | "team-server" | "hosted" | "gateway" | "cmux-models";
+
+/** cmux models: open-weight models cmux hosts, through cmux-platform's model router. acpmux knows
+ *  this URL (any cmux platform's `/v1/inference`), points the add at the router of the platform the
+ *  app's sign-in belongs to, and signs each request with the person's cmux token: no key here. */
+export const CMUX_MODELS_URL = "https://cmux-platform-production.debussy.workers.dev/v1/inference";
 
 export interface EndpointPreset {
   id: EndpointPresetId;
@@ -113,6 +118,14 @@ export const ENDPOINT_PRESETS: readonly EndpointPreset[] = [
     example: "https://gateway.example.com",
     key: "required",
     idBase: "claude-gateway",
+  },
+  {
+    id: "cmux-models",
+    kind: "anthropic-endpoint",
+    baseUrl: CMUX_MODELS_URL,
+    example: CMUX_MODELS_URL,
+    key: "none",
+    idBase: "cmux-models",
   },
 ];
 

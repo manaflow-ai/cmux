@@ -119,13 +119,58 @@ pub fn cmux_models_settings(helper: &str) -> String {
     serde_json::json!({ "apiKeyHelper": helper }).to_string()
 }
 
+/// Why cmux models cannot be listed or added: each with a reason id (`data.reason` of the add's
+/// refusal) the app turns into a sentence in the person's language, and an English message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmuxModels {
+    /// The app cannot sign the add in (not signed in, not reachable).
+    SignedOut,
+    /// This cmux deployment has no model router (`/models` is 404).
+    Off,
+    /// The router lists no models.
+    Empty,
+    /// The router refused for load or a limit (429).
+    Busy,
+    /// The router is not answering (502, 503).
+    Down,
+}
+
+impl CmuxModels {
+    const ALL: [CmuxModels; 4] = [Self::Off, Self::Empty, Self::Busy, Self::Down];
+
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::SignedOut => "harness.cmux_models_signed_out",
+            Self::Off => "harness.cmux_models_off",
+            Self::Empty => "harness.cmux_models_empty",
+            Self::Busy => "harness.cmux_models_busy",
+            Self::Down => "harness.cmux_models_down",
+        }
+    }
+
+    /// The message's opening (a status may follow it).
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::SignedOut => "cmux models need you signed in to cmux",
+            Self::Off => "cmux models are not available on this cmux deployment",
+            Self::Empty => "no cmux models are available here yet: the model router lists none",
+            Self::Busy => "cmux models are busy: try again in a minute",
+            Self::Down => "cmux models are not answering right now: try again in a few minutes",
+        }
+    }
+
+    /// The state a [`fetch_models`] error for a cmux models URL names, if any.
+    pub fn of_message(message: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|state| message.starts_with(state.message()))
+    }
+}
+
 /// The fix for a failed cmux models turn: what the router's refusal means to the person.
 /// `detail` is the turn's (masked) error text, which names the router's own reason.
 pub fn cmux_models_fix(problem: Problem, detail: &str) -> String {
     let t = detail.to_ascii_lowercase();
     if t.contains("cannot use the model router") {
-        return "cmux models are not open to this team yet: ask cmux to turn them on for it, or \
-                choose another team in Settings > Accounts"
+        return "cmux models are not open to this team yet: ask cmux to turn them on for it"
             .to_owned();
     }
     if has_code(&t, "429") || t.contains("rate limit") || t.contains("rate_limited") {
@@ -137,7 +182,7 @@ pub fn cmux_models_fix(problem: Problem, detail: &str) -> String {
     }
     match problem {
         Problem::Key => {
-            "sign in to cmux in the app (Settings > Accounts), then try again".to_owned()
+            "sign in to cmux in the cmux app (Sign In to cmux), then try again".to_owned()
         }
         Problem::Model => {
             "this model is no longer served: fetch the cmux models again and pick one".to_owned()
@@ -560,16 +605,10 @@ pub async fn fetch_models(
     let cmux = is_cmux_models_url(&base);
     match status {
         200..=299 => {}
-        404 if cmux => {
-            return Err("cmux models are not available on this cmux deployment (HTTP 404)".into());
-        }
-        429 if cmux => {
-            return Err("cmux models are busy (HTTP 429): try again in a minute".into());
-        }
+        404 if cmux => return Err(format!("{} (HTTP 404)", CmuxModels::Off.message())),
+        429 if cmux => return Err(format!("{} (HTTP 429)", CmuxModels::Busy.message())),
         502 | 503 if cmux => {
-            return Err(format!(
-                "cmux models are not answering right now (HTTP {status}): try again in a few minutes"
-            ));
+            return Err(format!("{} (HTTP {status})", CmuxModels::Down.message()));
         }
         401 | 403 => return Err(format!("the endpoint refused the key (HTTP {status})")),
         404 | 405 => {
@@ -583,7 +622,7 @@ pub async fn fetch_models(
     let bytes = read_capped(response, MAX_LIST_BYTES).await?;
     let models = parse_models(&String::from_utf8_lossy(&bytes))?;
     if models.is_empty() && cmux {
-        return Err("no cmux models are available here yet: the model router lists none".into());
+        return Err(CmuxModels::Empty.message().into());
     }
     if models.is_empty() {
         return Err("the endpoint lists no models: type the model ids".into());
