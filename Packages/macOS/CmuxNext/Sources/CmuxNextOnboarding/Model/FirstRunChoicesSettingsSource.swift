@@ -2,15 +2,10 @@ public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation
 import ImageIO
-import os
 import UniformTypeIdentifiers
 
 /// The Make cmux Yours step's source over the app's settings owner (cmux#48416). Each pick is the
-/// person's own write, made at once so the window behind shows it:
-/// - how they work: `tabs.newTabTemplate` `terminal` for terminal-first (a person's Cmd-T then opens a
-///   terminal, cmux-window-rules `tabs::new_tab_kind`), removed for GUI-first (the New Tab page);
-/// - density: through the App's `appearance.density.set` (`setDensity`), which also applies the tokens;
-/// - background: `appearance.background`, removed for none.
+/// person's own write, made at once through Settings so the window behind shows it.
 @MainActor
 public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The built-in backgrounds the step offers after None: Shuffle Paintings, then a few calm works
@@ -21,28 +16,22 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The work Shuffle Paintings' tile shows.
     nonisolated static let shufflePreview = "munch-scream"
 
-    /// The way to work the person picked on the step, if they changed it: read before its settings write lands,
-    /// so the first chat (none for terminal-first) does not race a Return pressed right after the pick.
-    public private(set) var pickedWorkStyle: WorkStyle?
-
     private let settings: @MainActor () -> SettingsController?
-    private let setDensity: @MainActor (String) -> Void
-    private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
-    /// `settings` is the app's settings owner (nil before it started); `setDensity` runs the density
-    /// action with a preset id (`compact`, `cozy`, `comfortable`).
-    public init(settings: @escaping @MainActor () -> SettingsController?, setDensity: @escaping @MainActor (String) -> Void) {
+    /// `settings` is the app's settings owner (nil before it started).
+    public init(settings: @escaping @MainActor () -> SettingsController?) {
         self.settings = settings
-        self.setDensity = setDensity
     }
 
     public func currentChoices() -> FirstRunChoices {
         guard let snapshot = settings()?.snapshot else { return .recommended }
-        let template = snapshot.root.value(at: ["tabs", "newTabTemplate"])?.stringValue
-        let background = snapshot.root.value(at: ["appearance", "background"])?.stringValue
-        return FirstRunChoices(workStyle: template == "terminal" ? .terminal : .gui,
-                               density: Self.density(snapshot.density),
-                               background: background == "none" ? nil : background)
+        // Keep source modes like Shuffle Paintings instead of the picture they display today.
+        let background = snapshot.root.value(at: BackdropSelectionSetting.configPath)?.stringValue
+            ?? snapshot.backdropSelection?.id
+        let density = snapshot.selectedDensity
+        return FirstRunChoices(workStyle: snapshot.newTabTemplate == .terminal ? .terminal : .gui,
+                               density: Self.density(density.basedOn ?? density.id),
+                               background: background == BackdropSelectionSetting.fallback ? nil : background)
     }
 
     /// A density setting as the step's three choices: the smaller and larger extremes go to their neighbor.
@@ -74,23 +63,18 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         return zip(rows, previews).map { FirstRunBackground(id: $0.id, name: $0.name, preview: $1) }
     }
 
-    public func apply(_ new: FirstRunChoices, from old: FirstRunChoices) {
-        if new.workStyle != old.workStyle { pickedWorkStyle = new.workStyle }
-        if new.density != old.density { setDensity(Self.preset(new.density)) }
-        guard let settings = settings() else { return }
-        var writes: [([String], JSONValue?)] = []
-        if new.workStyle != old.workStyle { writes.append((["tabs", "newTabTemplate"], new.workStyle == .terminal ? .string("terminal") : nil)) }
-        if new.background != old.background { writes.append((["appearance", "background"], new.background.map(JSONValue.string))) }
-        guard !writes.isEmpty else { return }
-        // task-owner: one settings write per pick; the settings owner serializes them.
-        Task { [log, writes] in
-            for (path, value) in writes {
-                do {
-                    try await settings.setSetting(at: path, to: value, by: .user)
-                } catch {
-                    log.error("first-run choice \(path.joined(separator: "."), privacy: .public) refused: \(String(describing: error), privacy: .public)")
-                }
-            }
+    public func apply(_ new: FirstRunChoices, from old: FirstRunChoices) async throws {
+        guard let settings = settings() else { throw SettingsWriterDisconnected() }
+        if new.workStyle != old.workStyle {
+            let template: NewTabTemplate = new.workStyle == .terminal ? .terminal : .minimal
+            try await settings.setSetting(at: NewTabTemplate.configPath, to: .string(template.rawValue), by: .user)
+        }
+        if new.density != old.density {
+            try await settings.setSetting(at: DensitySetting.configPath, to: .string(Self.preset(new.density)), by: .user)
+        }
+        if new.background != old.background {
+            try await settings.setSetting(at: BackdropSelectionSetting.configPath,
+                                          to: .string(new.background ?? BackdropSelectionSetting.fallback), by: .user)
         }
     }
 

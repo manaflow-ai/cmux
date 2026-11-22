@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextAccounts
-import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextAppCore
@@ -69,10 +68,8 @@ final class OnboardingService {
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
-    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
-    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
-        _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
-    })
+    /// Make cmux Yours reads and writes through the same owner as Settings.
+    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings })
     /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -179,7 +176,7 @@ final class OnboardingService {
     @discardableResult
     func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
         await presenter.untilClosed()
-        let terminalFirst = (firstRunChoices.pickedWorkStyle ?? firstRunChoices.currentChoices().workStyle) == .terminal
+        let terminalFirst = firstRunChoices.currentChoices().workStyle == .terminal
         guard services.agentTabs.canHost(on: services.daemon), services.windows.active?.shownTopPage == nil,
               OnboardingWindowPresenter.claimFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps,
                                                        terminalFirst: terminalFirst, defaults: defaults) else { return nil }

@@ -70,8 +70,10 @@ public final class OnboardingWindowPresenter {
     /// closed (Continue, Skip or its close button). A replacing window is waited out too, so the
     /// next first-run step never shows beside a tool window.
     public func untilClosed() async {
-        guard controller != nil else { return }
+        guard let controller else { return }
+        let choices = controller.model.makeItYours
         await withCheckedContinuation { closeWaiters.append($0) }
+        await choices.waitForWrites()
     }
 
     /// The Agents step's once flag; the Set Up cmux card (``FirstRunSetup``) sets it in its place.

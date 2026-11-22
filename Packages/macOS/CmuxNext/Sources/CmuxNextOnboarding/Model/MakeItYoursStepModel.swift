@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 
 /// How a new person wants to work in cmux (cmux#48416): GUI-first, the recommended default (agent
 /// chats, browsers and terminals side by side, a new tab starts a chat and Chief is in the sidebar),
@@ -53,7 +54,7 @@ public protocol FirstRunChoicesSource: AnyObject {
     /// The built-in backgrounds offered, in order (the step adds None first).
     func backgrounds() async -> [FirstRunBackground]
     /// Writes what changed from `old` to `new` now, so the app behind the window shows it at once.
-    func apply(_ new: FirstRunChoices, from old: FirstRunChoices)
+    func apply(_ new: FirstRunChoices, from old: FirstRunChoices) async throws
 }
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
@@ -69,6 +70,9 @@ public final class MakeItYoursStepModel {
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
+    @ObservationIgnored private var write: Task<Void, Never>?
+    @ObservationIgnored private var pendingWrites = 0
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     public init(source: (any FirstRunChoicesSource)?) {
         self.source = source
@@ -107,12 +111,35 @@ public final class MakeItYoursStepModel {
         return true
     }
 
+    func waitForWrites() async {
+        await write?.value
+    }
+
     private func update(_ change: (inout FirstRunChoices) -> Void) {
         var next = choices
         change(&next)
         guard next != choices else { return }
         let old = choices
         choices = next
-        source?.apply(next, from: old)
+        guard let source else { return }
+        let previous = write
+        pendingWrites += 1
+        // task-owner: the step's ordered writes. Closing the window stops the preview
+        // reads, but the launch flow waits for these choices to reach Settings.
+        write = Task { [weak self] in
+            await previous?.value
+            do {
+                try await source.apply(next, from: old)
+            } catch {
+                Self.log.error("First-run settings write failed: \(String(describing: error), privacy: .public)")
+            }
+            guard let self else { return }
+            pendingWrites -= 1
+            if pendingWrites == 0 {
+                // Reflect the effective settings, including a policy or a failed save.
+                choices = source.currentChoices()
+                write = nil
+            }
+        }
     }
 }

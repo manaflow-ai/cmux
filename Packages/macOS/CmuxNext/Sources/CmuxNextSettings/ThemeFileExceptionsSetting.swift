@@ -35,7 +35,7 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
         if writes.contains(where: { $0.key == themeFileKey }) {
             next = []
         } else if let overlay {
-            let fileKeys = Set(overlay.values.map { $0.path.joined(separator: ".") })
+            let fileKeys = overlay.settingKeys
             for write in writes where !unexceptionable.contains(write.key) {
                 if write.sets {
                     if fileKeys.contains(write.key) { next.insert(write.key) }
