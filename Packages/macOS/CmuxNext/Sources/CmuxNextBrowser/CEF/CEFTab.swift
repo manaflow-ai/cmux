@@ -349,7 +349,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
     /// The first such frame of a page a person sees is the launch mark `browser_pane.first_paint` (``CEFLaunchMarks``).
     @ObservationIgnored var documentPainted = false {
-        didSet { if documentPainted, !oldValue, countsForLaunchMarks { CEFLaunchMarks.mark(CEFLaunchMarks.firstPaint) } }
+        didSet { if documentPainted, !oldValue, countsForLaunchMarks { CEFLaunchMarks.shared.mark(CEFLaunchMarks.firstPaint) } }
     }
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
@@ -491,7 +491,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         hasDocument = true
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
-        if countsForLaunchMarks { CEFLaunchMarks.mark(CEFLaunchMarks.inputReady) }
+        if countsForLaunchMarks { CEFLaunchMarks.shared.mark(CEFLaunchMarks.inputReady) }
         onReadyForKeys?()
     }
 

@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -6,20 +7,19 @@ import Testing
 /// mark made before the App installed its receiver arrives with its own time, and only a front page a person opened
 /// counts. Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our motherfucking
 /// agent pane."
-@MainActor @Suite(.serialized) struct CEFLaunchMarksTests {
+@Suite struct CEFLaunchMarksTests {
     @Test func eachMarkComesOncePerLaunchAndEarlyMarksKeepTheirTime() {
-        CEFLaunchMarks.resetForTests()
-        defer { CEFLaunchMarks.resetForTests() }
+        let marks = CEFLaunchMarks()
         let early = Date(timeIntervalSince1970: 1_800_000_000)
-        CEFLaunchMarks.mark(CEFLaunchMarks.firstPaint, at: early)
-        var got: [(String, Date)] = []
-        CEFLaunchMarks.install { got.append(($0, $1)) }
-        #expect(got.map(\.0) == [CEFLaunchMarks.firstPaint])
-        #expect(got.first?.1 == early)
-        CEFLaunchMarks.mark(CEFLaunchMarks.firstPaint)
-        CEFLaunchMarks.mark(CEFLaunchMarks.inputReady)
-        CEFLaunchMarks.mark(CEFLaunchMarks.inputReady)
-        #expect(got.map(\.0) == [CEFLaunchMarks.firstPaint, CEFLaunchMarks.inputReady])
+        marks.mark(CEFLaunchMarks.firstPaint, at: early)
+        let got = Mutex<[(String, Date)]>([])
+        marks.install { name, date in got.withLock { $0.append((name, date)) } }
+        #expect(got.withLock { $0.map(\.0) } == [CEFLaunchMarks.firstPaint])
+        #expect(got.withLock { $0.first?.1 } == early)
+        marks.mark(CEFLaunchMarks.firstPaint)
+        marks.mark(CEFLaunchMarks.inputReady)
+        marks.mark(CEFLaunchMarks.inputReady)
+        #expect(got.withLock { $0.map(\.0) } == [CEFLaunchMarks.firstPaint, CEFLaunchMarks.inputReady])
     }
 
     @Test func onlyAFrontPageAPersonOpenedCounts() {

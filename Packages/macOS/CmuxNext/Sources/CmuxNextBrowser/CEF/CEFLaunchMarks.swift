@@ -1,30 +1,40 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The browser pane's launch marks: `browser_pane.first_paint`, the first page a person sees in a Chromium tab
 /// presented its first frame (``CEFTab/documentPainted``), and `browser_pane.input_ready`, the first such page took
-/// keys (``CEFTab/onReadyForKeys``). Once per launch each (the App keeps a mark's first time); a tab an agent drives,
-/// one not in front and a blank New Tab page count for neither. scripts/ci/launch_tti_check.py reads them beside the
-/// terminal's `first_terminal_frame` and `terminal_echo` and the chat's `agent_pane.painted` and
-/// `agent_pane.input_echoed`.
+/// keys (``CEFTab/onReadyForKeys``). Once per launch each; a tab an agent drives, one not in front and a blank New Tab
+/// page count for neither. scripts/ci/launch_tti_check.py reads them beside the terminal's `first_terminal_frame` and
+/// `terminal_echo` and the chat's `agent_pane.painted` and `agent_pane.input_echoed`.
 ///
 /// Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our motherfucking agent
 /// pane."
 ///
-/// The App installs the receiver at launch (``DebugTimings``); a mark made before that waits with its time.
-public enum CEFLaunchMarks {
+/// The App installs the receiver at launch (`DebugTimings.install`, beside ``AgentPaneLaunchTimings``); a mark made
+/// before that waits with its time.
+public nonisolated final class CEFLaunchMarks: Sendable {
+    public static let shared = CEFLaunchMarks()
     public static let firstPaint = "browser_pane.first_paint"
     public static let inputReady = "browser_pane.input_ready"
 
-    private static var sink: ((String, Date) -> Void)?
-    private static var early: [(String, Date)] = []
-    private static var made: Set<String> = []
+    private struct State {
+        var sink: (@Sendable (String, Date) -> Void)?
+        var early: [(String, Date)] = []
+        var made: Set<String> = []
+    }
+
+    private let state = Mutex(State())
+
+    init() {}
 
     /// Takes every mark from now on, and the ones made before.
-    public static func install(_ receiver: @escaping (String, Date) -> Void) {
-        sink = receiver
-        let waiting = early
-        early.removeAll()
-        for (name, date) in waiting { receiver(name, date) }
+    public func install(_ receiver: @escaping @Sendable (String, Date) -> Void) {
+        let early = state.withLock { state -> [(String, Date)] in
+            state.sink = receiver
+            defer { state.early.removeAll() }
+            return state.early
+        }
+        for (name, date) in early { receiver(name, date) }
     }
 
     /// Whether a tab's page counts: one a person opened (not an agent's), in front, showing a real page.
@@ -33,14 +43,13 @@ public enum CEFLaunchMarks {
     }
 
     /// Marks `name` the first time this launch; later calls do nothing.
-    static func mark(_ name: String, at date: Date = Date()) {
-        guard made.insert(name).inserted else { return }
-        if let sink { sink(name, date) } else { early.append((name, date)) }
-    }
-
-    /// Tests only: a fresh launch.
-    static func resetForTests() {
-        (sink, early, made) = (nil, [], [])
+    func mark(_ name: String, at date: Date = Date()) {
+        let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
+            guard state.made.insert(name).inserted else { return nil }
+            if state.sink == nil { state.early.append((name, date)) }
+            return state.sink
+        }
+        receiver?(name, date)
     }
 }
 
