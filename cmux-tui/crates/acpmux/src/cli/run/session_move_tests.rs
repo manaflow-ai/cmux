@@ -37,6 +37,10 @@ fn the_forward_is_a_unix_socket_forward_that_fails_at_once_and_ends_options_befo
     let argv = forward_argv("gcp-1", Path::new("/tmp/x/d.sock"), "/home/cmux/.acpmux/acpmux.sock");
     let at = |s: &str| argv.iter().position(|a| a == s).unwrap();
     assert!(argv.contains(&"ExitOnForwardFailure=yes".to_owned()), "{argv:?}");
+    // Its own connection, never the fleet config's shared master for the host (item D).
+    assert_eq!(argv[at("ControlMaster=no") - 1], "-o", "{argv:?}");
+    assert_eq!(argv[at("ControlPath=none") - 1], "-o", "{argv:?}");
+    assert!(at("ControlPath=none") < at("--"), "{argv:?}");
     assert_eq!(argv[at("-L") + 1], "/tmp/x/d.sock:/home/cmux/.acpmux/acpmux.sock");
     assert_eq!(argv[at("--") + 1], "gcp-1");
     assert_eq!(argv.last().unwrap(), "gcp-1");

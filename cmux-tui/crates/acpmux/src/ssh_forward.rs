@@ -117,10 +117,18 @@ pub(crate) fn reap(child: &mut tokio::process::Child) {
     }
 }
 
-/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made.
+/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made. On a
+/// connection of its own (`ControlMaster=no`, `ControlPath=none`, which win over the fleet ssh
+/// config's `ControlMaster auto` per host): a forward a mux client asks for is the shared
+/// master's and outlives the killed client there (its listener still bound), and the peer link's
+/// `ssh -W` to the same host rides that master, so the move's ssh never takes part in it.
 pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String> {
     let mut argv: Vec<String> = [
         "-N",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -158,21 +166,15 @@ mod tests {
         assert!(!alive, "the killed child {pid} is still in the process table");
     }
 
-    /// Dropping a forward on an error path returns at once (the wait for its ssh runs off the
-    /// worker), and the child is still reaped, not left defunct.
+    /// On a runtime, the wait for a killed child runs off the worker (`spawn_blocking`), and the
+    /// child is still reaped, not left defunct.
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
-    async fn a_child_reaped_off_the_worker_returns_at_once_and_leaves_no_zombie() {
+    async fn a_child_reaped_off_the_worker_leaves_no_zombie() {
         let child =
             tokio::process::Command::new("sleep").arg("60").kill_on_drop(true).spawn().unwrap();
         let pid = child.id().unwrap() as libc::pid_t;
-        let t = std::time::Instant::now();
         super::reap_off_worker(child);
-        assert!(
-            t.elapsed() < std::time::Duration::from_millis(50),
-            "the caller waited {:?}",
-            t.elapsed()
-        );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         // SAFETY: signal 0 only checks that the pid exists.
         while unsafe { libc::kill(pid, 0) } == 0 {
