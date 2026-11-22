@@ -1,8 +1,11 @@
 # cmux-next-ios App Store review package
 
-cmux-next-ios ships under the production App Store record and replaces the
-classic iPhone app as an update. Everything App Store Connect shows a reviewer or
-a customer for it lives here, beside the app it describes.
+The App Store submission is cmux INTERNAL (bundle `dev.cmux.app.internal`, ASC
+app 6791408425), built by `project.yml`'s TestFlight configuration on its 1.2.x
+version base. `com.cmux.app` (ASC 6783338052) is not the submission record.
+Whether 6791408425 already has an App Store version, metadata and privacy
+answers in App Store Connect is not verified. Everything App Store Connect shows
+a reviewer or a customer for the app lives here, beside the app it describes.
 
 | Path | What it is | How it reaches App Store Connect |
 |---|---|---|
@@ -23,7 +26,8 @@ python3 <checkout>/cmux-next-ios/scripts/asc_review_package.py --app "$ASC_APP_I
 ```
 
 `--version` defaults to the AppStore configuration's `MARKETING_VERSION` in
-`cmux-next-ios/project.yml` (1.0.0; the base value is the INTERNAL lane's). Both
+`cmux-next-ios/project.yml` (1.0.0, the com.cmux.app configuration; the base
+value, 1.2.0, is the INTERNAL lane's, and the submission is INTERNAL). Both
 commands take `--dry-run`. Environment:
 
 - App Store Connect key: `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, and
@@ -35,12 +39,14 @@ commands take `--dry-run`. Environment:
 
 ## Locales and version
 
-The listing covers the 14 locales of the production record: de-DE, en-US, es-ES,
+The listing covers the 14 locales the com.cmux.app record had (whether cmux
+INTERNAL, 6791408425, has the same locales is not verified): de-DE, en-US, es-ES,
 fr-FR, it, ja, ko, nl-NL, pl, pt-BR, ru, tr, zh-Hans, zh-Hant. `asc metadata
 apply --allow-deletes` deletes a locale that is missing here.
 
 `metadata/version/` holds one directory, named for the AppStore configuration's
-`MARKETING_VERSION` (not the base one the INTERNAL lane uses). When
+`MARKETING_VERSION` (not the base one the INTERNAL lane uses; the INTERNAL
+submission's 1.2.x version has no directory here yet). When
 that version changes, rename the directory in the same change;
 `tests/test_ios_appstore_listing_text.py` fails until it matches.
 

@@ -195,12 +195,39 @@ def frontend_command(text, suffix):
         s = line.strip()
         if s.startswith("cd "):
             cwd = shlex.split(s)[1]
-        if "builtin-swiftTaskExecution -- " in s and "-primary-file" in s:
-            argv = shlex.split(s.split("builtin-swiftTaskExecution -- ", 1)[1])
-            prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
-            if any(p.endswith(suffix) for p in prim):
-                return argv, cwd
+        if "-primary-file" not in s or "swift-frontend" not in s:
+            continue
+        # Xcode writes the command after "builtin-swiftTaskExecution -- " or as a bare line; either way argv[0] is the
+        # swift-frontend binary.
+        try:
+            words = shlex.split(s.split(" -- ", 1)[1] if " -- " in s else s)
+        except ValueError:
+            continue
+        at = next((i for i, w in enumerate(words) if os.path.basename(w) == "swift-frontend"), None)
+        if at is None:
+            continue
+        argv = words[at:]
+        prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
+        if any(p.endswith(suffix) for p in prim):
+            return argv, cwd
     return None, None
+
+
+def log_census(paths, suffix):
+    """What the build logs held, for an error when no compile command matched: size, swift-frontend lines, lines naming
+    the edited file, and the first of those."""
+    parts = []
+    for p in paths:
+        if not os.path.exists(p):
+            parts.append("%s: missing" % os.path.basename(p))
+            continue
+        lines = open(p, errors="replace").read().splitlines()
+        named = [l.strip() for l in lines if os.path.basename(suffix) in l]
+        parts.append("%s: %d lines, %d swift-frontend, %d -primary-file, %d naming %s%s" % (
+            os.path.basename(p), len(lines), sum("swift-frontend" in l for l in lines),
+            sum("-primary-file" in l for l in lines), len(named), os.path.basename(suffix),
+            (", first: " + named[0][:240]) if named else ""))
+    return "; ".join(parts) or "no round logs"
 
 
 def remap_frontend(argv, suffix, tmp):
@@ -540,7 +567,8 @@ class Loop:
                      and frontend_command(open(p, errors="replace").read(), suffix)[0]), "")
         argv, cwd = frontend_command(text, suffix)
         if not argv:
-            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs")
+            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs (%s)"
+                               % log_census(logs, suffix))
         cmd = remap_frontend(argv, suffix, tmp)
         for _ in range(n):
             self.floors["compile"].append(round(timed(cmd, cwd), 1))
@@ -690,6 +718,9 @@ def self_test():
     ])
     argv, cwd = frontend_command(log_text, "/CmuxNextApp/AppDelegate.swift")
     assert cwd == "/r/Packages" and argv[0] == "/X/swift-frontend", (argv, cwd)
+    bare = log_text.replace("builtin-swiftTaskExecution -- ", "")
+    assert frontend_command(bare, "/CmuxNextApp/AppDelegate.swift") == (argv, cwd), "a bare swift-frontend line"
+    assert frontend_command(log_text, "/CmuxNextApp/Other.swift") == (None, None)
     cmd = remap_frontend(argv, "/CmuxNextApp/AppDelegate.swift", "/t")
     assert cmd.count("-primary-file") == 1 and cmd[cmd.index("-o") + 1] == "/t/floor.o" and cmd.count("-o") == 1, cmd
     assert cmd[cmd.index("-index-store-path") + 1] == "/t/Index", cmd
