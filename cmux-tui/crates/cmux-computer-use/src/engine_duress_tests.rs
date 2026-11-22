@@ -448,26 +448,19 @@ fn duress_5_classic_cmux_is_never_launched_or_used() {
     assert_eq!(run.rig.desktop.focus.lock().unwrap().clone(), Some(victim_front()));
 }
 
-/// The cursor must be drawn by the worker that runs Computer Use on this
-/// platform. On macOS, Release and NIGHTLY run the Rust worker in the Screen
-/// Sharing helper (cmux-rd-host `__computer-use-worker`), whose cursor is
+/// The cursor must be drawn by the worker that runs Computer Use on a Mac.
+/// Release and NIGHTLY run the Rust worker in the Screen Sharing helper
+/// (cmux-rd-host `__computer-use-worker`), whose cursor is
 /// `platform::cursor_overlay()`: nothing draws it there today
 /// (cmux-rd-host/src/computer_use_worker.rs: "No agent cursor or takeover
-/// watch here"). KNOWN RED on macOS, kept failing on purpose, not weakened:
-/// run with `--include-ignored` to see it. Linux and Windows pass.
+/// watch here"). KNOWN RED, kept failing on purpose, not weakened: run with
+/// `--include-ignored` on a Mac to see it. (Linux and Windows draw theirs
+/// only with a display, so a headless runner cannot judge them; the live
+/// suite does.)
+#[cfg(target_os = "macos")]
 #[test]
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "KNOWN RED: the macOS Computer Use worker (Screen Sharing helper) draws no agent cursor; see the duress suite PR on feat-cmux-next"
-)]
-fn duress_3b_platform_worker_draws_a_cursor() {
-    #[cfg(feature = "desktop")]
-    {
-        let sink = crate::platform::cursor_overlay();
-        assert_ne!(
-            sink.overlay(),
-            "none",
-            "this platform's Computer Use worker draws no agent cursor"
-        );
-    }
+#[ignore = "KNOWN RED: the macOS Computer Use worker (Screen Sharing helper) draws no agent cursor (cmux-rd-host/src/computer_use_worker.rs uses NoCursor); https://github.com/manaflow-ai/cmux/pull/50056"]
+fn duress_3b_mac_worker_draws_a_cursor() {
+    let sink = crate::platform::cursor_overlay();
+    assert_ne!(sink.overlay(), "none", "the macOS Computer Use worker draws no agent cursor");
 }
