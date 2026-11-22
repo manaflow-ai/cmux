@@ -222,6 +222,18 @@ int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, Cmu
    the "clock" cap: an older host refuses the probe kinds. Pings then leave
    through cmux_rd_session_feedback; pongs are consumed, not queued. */
 int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
+/* Stage ledger (cmux.rd-stage-ledger/1). Frame `frame` of `stream` finished
+   decoding at decoded_at_us (the clock passed to push_*) after decode_us; also
+   feeds the feedback median like cmux_rd_session_note_decode. */
+int32_t cmux_rd_session_note_frame_decoded(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                           uint32_t decode_us, uint64_t decoded_at_us);
+/* Frame `frame` of `stream` reached the glass at presented_at_us (the clock
+   passed to push_*; the drawable's presented time). */
+int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                             uint64_t presented_at_us);
+/* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
+   when cap is too small; *out_len then holds the size needed. */
+int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */

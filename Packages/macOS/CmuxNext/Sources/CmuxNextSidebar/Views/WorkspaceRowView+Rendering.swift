@@ -89,7 +89,7 @@ extension WorkspaceRowView {
             }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
-            cloudMark.setTint(Palette.textSecondary)
+            cloudMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -255,6 +255,12 @@ extension WorkspaceRowView {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
         }
+        // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
+        // cluster, never in the leading slot or against the name (Leo 2026-11-22).
+        if !cloudMark.isHidden {
+            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            trailing = columns.trailingEdge(before: cloudMark.frame)
+        }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
             // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
@@ -300,14 +306,8 @@ extension WorkspaceRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : columns.lead)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        // A Cloud row's mark sits right after the name, which gives up room for it (it truncates first).
-        let cloudRoom = cloudMark.isHidden ? 0 : ind + Metrics.space1
-        let titleWidth = max(0, textW - inset - cloudRoom) // draws at its edge, so it runs to `trailing`
+        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
-        if !cloudMark.isHidden {
-            let nameEnd = title.frame.minX + min(title.intrinsicContentSize.width, title.frame.width)
-            cloudMark.frame = NSRect(x: nameEnd + Metrics.space1, y: title.frame.midY - ind / 2, width: ind, height: ind)
-        }
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
@@ -326,11 +326,19 @@ extension WorkspaceRowView {
         startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
+        // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
+        // status stack, the counts and the time hide in place (no layout shift). Only what a person points at keeps
+        // its place: the usage warning (its tooltip, left of the controls), the audio button, and the Cloud mark,
+        // which belongs to the name.
+        let controlsShow = !shownControls.isEmpty
         for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
+            let keepsPlace = mark === usageWarningMark || mark === cloudMark || mark === audioSlot.made
+                || (mark === agentMark && agentMarkVariant == .besideTitle)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
-                : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+                : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             // The usage warning never gives way (the layout keeps it left of the controls).
             let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
