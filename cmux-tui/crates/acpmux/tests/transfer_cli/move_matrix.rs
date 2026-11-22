@@ -34,6 +34,21 @@ impl Rpc {
     }
 
     /// Each record's kind, in log order, without the move's own records.
+    /// The rules the chat's log last recorded (`_acpmux/set_rules` logs `mux/rules`).
+    async fn rules(&mut self, id: &str) -> Value {
+        let page = self
+            .call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+            .await;
+        page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|e| e["kind"] == "rules")
+            .map(|e| e["msg"]["rules"].clone())
+            .unwrap_or(Value::Null)
+    }
+
     async fn kinds(&mut self, id: &str) -> Vec<String> {
         let page = self
             .call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
@@ -47,24 +62,6 @@ impl Rpc {
             })
             .collect()
     }
-}
-
-/// The chat's record as its daemon saved it (`session.json`, `store::SessionMeta`).
-fn saved_meta(home: &Path, id: &str) -> Value {
-    let mut dirs = vec![home.to_path_buf()];
-    while let Some(dir) = dirs.pop() {
-        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() && entry.file_name() != "transfers" {
-                dirs.push(path);
-            } else if entry.file_name() == "session.json"
-                && path.parent().is_some_and(|p| p.ends_with(id))
-            {
-                return serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-            }
-        }
-    }
-    Value::Null
 }
 
 struct Cells {
@@ -83,8 +80,8 @@ impl Cells {
 }
 
 /// The values a person set: model, effort and mode as `_acpmux/info` reports them, and the
-/// allow rules as the daemon saved them.
-fn chosen(info: &Value, saved: &Value) -> Value {
+/// allow rules as the chat's log last recorded them.
+fn chosen(info: &Value, rules: &Value) -> Value {
     let option = |id: &str| {
         info["configOptions"]
             .as_array()
@@ -98,15 +95,21 @@ fn chosen(info: &Value, saved: &Value) -> Value {
         "model": info.pointer("/models/currentModelId").cloned().unwrap_or_else(|| option("model")),
         "effort": option("effort"),
         "mode": info.get("currentModeId").cloned().unwrap_or(Value::Null),
-        "rules": saved["permissionRules"].clone(),
+        "rules": rules.clone(),
     })
 }
 
-async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool) {
+async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibernate: bool) {
     let tag = format!("mx-{harness}{}", if hibernate { "-h" } else { "" });
-    let target = Daemon::with_env(&format!("{tag}-t"), None, harness_env.clone(), &[]).await;
+    // Under the ask policy a client other than the app may pick a mode and rules that ask.
+    let target = Daemon::with_env(&format!("{tag}-t"), None, harness_env.clone(), &[], "ask").await;
     let idle: &[(&str, &str)] = if hibernate { &[("ACPMUX_IDLE_CHILD_SECS", "1")] } else { &[] };
-    let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), harness_env, idle).await;
+    let mut harness_env = harness_env;
+    let pids = std::env::temp_dir().join(format!("amx-{tag}-pids-{}", std::process::id()));
+    let _ = std::fs::remove_file(&pids);
+    harness_env["FAKE_CLASS_LOG"] = json!(pids);
+    let source =
+        Daemon::with_env(&format!("{tag}-s"), Some(&target), harness_env, idle, "ask").await;
     let mut cells = Cells { harness, red: Vec::new() };
     let cwd = source.home.join("project");
     std::fs::create_dir(&cwd).unwrap();
@@ -140,7 +143,7 @@ async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool)
             "session/set_config_option",
             json!({"sessionId": id, "configId": "effort", "value": "low"}),
         ),
-        ("session/set_mode", json!({"sessionId": id, "modeId": "default"})),
+        ("session/set_mode", json!({"sessionId": id, "modeId": mode})),
         (
             "_acpmux/set_rules",
             json!({"sessionId": id, "rules": {"autoDeny": ["delete"], "ask": ["execute"], "default": "ask"}}),
@@ -151,10 +154,8 @@ async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool)
             eprintln!("MATRIX {harness} setup {method} refused: {e}");
         }
     }
-    let before = chosen(
-        &src.call("_acpmux/info", json!({"sessionId": id})).await,
-        &saved_meta(&source.home, id),
-    );
+    let before =
+        chosen(&src.call("_acpmux/info", json!({"sessionId": id})).await, &src.rules(id).await);
     eprintln!("MATRIX {harness} chosen on source: {before}");
 
     // Unsent words: the draft and a composer.
@@ -172,11 +173,17 @@ async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool)
         // The agent goes after a second idle: the move takes a hibernated chat.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         loop {
-            let saved = saved_meta(&source.home, id);
-            if saved["hibernatedMs"].as_u64().is_some_and(|ms| ms > 0) {
+            // Its agent's process is gone: the fake agent logs its pid when the chat starts.
+            let log = std::fs::read_to_string(&pids).unwrap_or_default();
+            let gone = !log.is_empty()
+                && log.lines().all(|line| {
+                    let pid = serde_json::from_str::<Value>(line).unwrap()["pid"].as_u64().unwrap();
+                    !Path::new(&format!("/proc/{pid}")).exists()
+                });
+            if gone {
                 break;
             }
-            assert!(tokio::time::Instant::now() < deadline, "never hibernated: {saved}");
+            assert!(tokio::time::Instant::now() < deadline, "never hibernated: {log}");
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     } else {
@@ -246,10 +253,8 @@ async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool)
     let image = dst.try_call("_acpmux/attachment", json!({"sessionId": id, "id": image_id})).await;
     cells.check("image-in-history", image.is_ok(), format!("{:?}", image.as_ref().err()));
 
-    let after = chosen(
-        &dst.call("_acpmux/info", json!({"sessionId": id})).await,
-        &saved_meta(&target.home, id),
-    );
+    let after =
+        chosen(&dst.call("_acpmux/info", json!({"sessionId": id})).await, &dst.rules(id).await);
     for key in ["model", "effort", "mode", "rules"] {
         cells.check(
             key,
@@ -293,15 +298,33 @@ async fn move_matrix(harness: &'static str, harness_env: Value, hibernate: bool)
 
 #[tokio::test]
 async fn a_claude_style_chat_moves_with_every_payload() {
-    move_matrix("claude", json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}), false).await;
+    move_matrix(
+        "claude",
+        json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}),
+        "acceptEdits",
+        false,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn a_codex_style_chat_moves_with_every_payload() {
-    move_matrix("codex", json!({"FAKE_PICKER": "1", "FAKE_MODELS": "gpt-a,opus"}), false).await;
+    move_matrix(
+        "codex",
+        json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "1", "FAKE_MODELS": "gpt-a,opus"}),
+        "strict",
+        false,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn a_hibernated_claude_style_chat_moves_and_resumes() {
-    move_matrix("claude", json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}), true).await;
+    move_matrix(
+        "claude",
+        json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}),
+        "acceptEdits",
+        true,
+    )
+    .await;
 }

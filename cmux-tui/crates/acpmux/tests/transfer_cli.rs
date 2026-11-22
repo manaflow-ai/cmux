@@ -61,22 +61,24 @@ impl Daemon {
     }
 
     async fn with_peer(tag: &str, target: Option<&Daemon>) -> Self {
-        Self::with_env(tag, target, json!({}), &[]).await
+        Self::with_env(tag, target, json!({}), &[], "approve-all").await
     }
 
-    /// `with_peer`, with `harness_env` in the fake harness's env and `vars` in the daemon's.
+    /// `with_peer`, with `harness_env` in the fake harness's env, `vars` in the daemon's, and
+    /// `policy` its permission policy.
     async fn with_env(
         tag: &str,
         target: Option<&Daemon>,
         harness_env: Value,
         vars: &[(&str, &str)],
+        policy: &str,
     ) -> Self {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": harness_env}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": harness_env}}, "defaultHarness": "fake", "permissionPolicy": policy});
         let path = target.map(|target| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             session_move::fake_ssh(&home, target)

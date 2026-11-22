@@ -86,6 +86,10 @@ impl Hub {
         out.flush()?;
         // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold.
         super::prompt_images::bundle_images(&images, &dir)?;
+        // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log.
+        let composers = session.composers.lock().unwrap_or_else(|e| e.into_inner()).bundled();
+        crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
@@ -323,6 +327,13 @@ impl Hub {
         }
         if live {
             self.restore_queue(&session);
+            // A bundle from a daemon that wrote none moves the chat without them.
+            if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            {
+                session.composers.lock().unwrap_or_else(|e| e.into_inner()).restore(&v);
+            }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
         }
