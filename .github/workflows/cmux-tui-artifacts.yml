@@ -1179,7 +1179,17 @@ jobs:
           poll=0
           deferred=false
           unmarked=false
-          if [[ -n "$OWNER_RUN_ID" ]]; then
+          # The CDN first (no API call): a tree already published and
+          # daemon-tested leaves nothing the owner's state could change, so
+          # the owner and builder reads below are skipped. They spend the
+          # routing App installation's budget (164690637), which ran out on
+          # 2026-11-21 with runner placement waiting on it.
+          if [[ -n "$OWNER_RUN_ID" ]] && tree_ready &&
+              curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/tree/$KEY/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
+            echo "Tree $KEY is published and daemon-tested; owner run $OWNER_RUN_ID is not read, and this run builds nothing."
+            takeover=false
+          elif [[ -n "$OWNER_RUN_ID" ]]; then
             # One look, no waiting (cx-urd.26). Polling a live owner for up to
             # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
             # 765 waits built the key anyway after a chain of failed owners.
@@ -1396,6 +1406,11 @@ jobs:
       # taken over through the claim, as in the wait step. An owner whose
       # hand-off already started may have missed the marker: wait (bounded)
       # for it to end, then decide. Any other live owner sees the marker.
+      #
+      # The CDN is read first (no API call) and before each owner read; the
+      # owner run is read at most 5 times. Until 2026-11-21 a hand-off held
+      # this step in a 15 s loop of up to 13 owner reads on the routing App
+      # installation's budget (164690637), which runner placement needs.
       - name: Re-check the owner after leaving the marker
         id: recheck
         if: steps.wait.outputs.deferred == 'true'
@@ -1423,12 +1438,19 @@ jobs:
               python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("key") == sys.argv[2] else 1)' \
                 "$RUNNER_TEMP/cmux-tui-recheck-completion.json" "$KEY" 2>/dev/null
           }
-          state="$(owner_state)"
-          if [[ "$state" != completed ]] &&
+          state=unread
+          if ! published; then
+            state="$(owner_state)"
+          fi
+          if [[ "$state" != completed && "$state" != unread ]] &&
               api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
-            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting for it to end."
-            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              sleep 15
+            # The hand-off job lists the markers, re-runs one run and ends;
+            # the run ends with it. Same 3-minute bound as before, a third of
+            # the owner reads, and none once the CDN shows the tree.
+            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting (at most 4 looks, 45 s apart) for it to end."
+            for _ in 1 2 3 4; do
+              sleep 45
+              published && break
               state="$(owner_state)"
               [[ "$state" == completed ]] && break
             done
