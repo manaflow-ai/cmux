@@ -123,6 +123,7 @@ blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
+blob schemas/transcript-look/transcript-look.json
 # cmux-action-catalog's customize_elements test embeds the shipped settings defaults.
 blob schemas/defaults/cmux-next.json
 blob schemas/settings/source/subsessions.json

@@ -379,6 +379,57 @@ class PerFileRunner(unittest.TestCase):
             self.assertEqual(calls.count("./test/base-fail.test.ts"), 2, f"{reds}: {output}")
             self.assertNotIn("NO RETRY", output)
 
+    def test_the_retry_breaker_stops_alone_retries_once_its_first_ones_all_fail_again(self):
+        """Shard 1 of run 44987019885 retried 38 red files alone over 23 min and none passed; 8 sampled long shards
+        passed 7 of 88. Once CMUX_WEB_TEST_RETRY_BREAKER retries have run with no pass, the rest keep their first run
+        (marked retry-skipped, so the base check judges them as unretried) and the summary says how many and why."""
+        files = [f"test/{index}-fail.test.ts" for index in range(4)] + ["test/hang.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        step_summary = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "step-summary.md"
+        result, _, calls = self.run_runner(
+            files, extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                              "CMUX_WEB_TEST_RETRY_BREAKER": "2", "CMUX_WEB_TEST_RESULTS": str(results_path),
+                              "GITHUB_STEP_SUMMARY": str(step_summary)})
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(len(calls), len(files) + 2, output)
+        self.assertEqual(output.count("(CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"), 3, output)
+        self.assertIn("5 failed or timed out (2 retried alone, 0 passed alone)", output)
+        line = ("alone retries skipped: 3, since the first 2 alone retries all failed again (not contention; "
+                "react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)")
+        self.assertIn(line, output)
+        self.assertIn(line, step_summary.read_text(encoding="utf-8"))
+        for file in files:
+            self.assertRegex(output, rf"(FAIL|TIMEOUT) {file} \(limit", output)
+        states = json.loads(results_path.read_text())
+        self.assertTrue(all(ok is False for ok in states.values()), states)
+
+    def test_the_retry_breaker_keeps_retrying_once_a_retry_passes_alone_and_is_off_by_default(self):
+        """A pass among the first retries is contention: every red file keeps its alone retry. Unset or 0, every red
+        file is retried as before."""
+        files = [f"test/{index}-timed-out-once.test.ts" for index in range(3)] + ["test/fail.test.ts"]
+        for breaker in ("2", "0", None):
+            env = {"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60"}
+            if breaker is not None:
+                env["CMUX_WEB_TEST_RETRY_BREAKER"] = breaker
+            result, _, calls = self.run_runner(files, extra_env=env)
+            output = result.stdout + result.stderr
+            for file in files:
+                self.assertEqual(calls.count(f"./{file}"), 2, f"{breaker}: {output}")
+            self.assertNotIn("NO RETRY", output)
+            self.assertNotIn("alone retries skipped", output)
+            self.assertIn("1 failed or timed out (4 retried alone, 3 passed alone)", output)
+        # Every one red: off, every file is retried.
+        result, _, calls = self.run_runner([f"test/{index}-fail.test.ts" for index in range(4)],
+                                           extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                                                      "CMUX_WEB_TEST_RETRY_BREAKER": "0"})
+        self.assertEqual(len(calls), 8, result.stdout + result.stderr)
+
+    def test_ci_turns_the_retry_breaker_on_for_pull_request_shards_only(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && "
+                      "(vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}", text)
+
     def test_ci_hands_a_pull_request_shard_its_base_reds(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         step = text[text.index("      - name: Test webviews\n"):]

@@ -251,7 +251,7 @@ enum CloudHandlers {
         guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
         else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
+        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), services)
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.
