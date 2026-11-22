@@ -52,7 +52,7 @@ pub mod caps {
     /// the host applies the viewer's text and sends its own only in a control session.
     pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 11] = [
+    pub const ALL: [&str; 12] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
