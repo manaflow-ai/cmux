@@ -473,6 +473,131 @@ npm ci --ignore-scripts --no-audit --no-fund
 WRANGLER_SEND_METRICS=false npm run check
 '''
 
+# Four more checks whose pull request runs took a Linux job apiece, each bun (and node for the last two):
+# cmux-vm-clients.yml's sdk job, cmux-vm-cloud.yml's check job, release-rails.yml's cmux-vm-schema-gate job and
+# web-complexity.yml's complexity job. Each keeps its other runs (pushes, dispatch, pull requests into main); a
+# feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former pull_request path
+# filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the workflow file where it stays.
+# A failure in one command of a step does not stop the step's others, as the jobs' `!cancelled()` steps did.
+# The jobs' failure-only artifact uploads (the regenerated client, schema and contract) are not steps: a failed
+# step prints its `git diff --stat`, and the generator commands are in its message.
+[step.cmux-vm-sdk]
+job = "linux"
+timeout = 300
+title = "cmux VM SDK"
+about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
+needs = ["bun"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+cd workers/cmux-vm/sdk
+bun install --frozen-lockfile
+status=0
+bun run generate
+if [[ -n "$(git status --porcelain -- .)" ]]; then
+  git --no-pager diff --stat -- .
+  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+  status=1
+fi
+bun run typecheck || status=1
+exit "$status"
+'''
+
+[step.cmux-vm-cloud]
+job = "linux"
+timeout = 300
+title = "cmux VM Cloud adapter"
+about = "the backend API typechecks, the protocol catalog and its generated clients are current, the Team VM, tenant adapter and server pairing tests pass, and the backend source size budget holds"
+needs = ["bun", "node"]
+inputs = [
+  "workers/cmux-vm/sdk/**",
+  "workers/cmux-vm/src/**",
+  "libs/vm-instance-identity/**",
+  "backend/apps/api/src/team-vm-api*",
+  "backend/apps/api/test/team-vm-api*",
+  ".github/workflows/cmux-vm-cloud.yml",
+]
+run = '''
+(cd backend && bun install --frozen-lockfile)
+status=0
+(cd backend/apps/api && bun run typecheck) || status=1
+(
+  cd backend
+  bun run catalog:export
+  bun run catalog:client
+  bun run catalog:rust
+  paths=(catalog/cloud-operations.json ../clients/ts/cloud/src/generated.ts ../cmux-tui/crates/cmux-cloud-wire/src/generated)
+  if [[ -n "$(git status --porcelain -- "${paths[@]}")" ]]; then
+    git diff --stat -- "${paths[@]}"
+    echo "::error::Protocol catalog or generated clients are stale; run bun run catalog:export, catalog:client and catalog:rust in backend and commit the result"
+    exit 1
+  fi
+) || status=1
+(
+  cd backend/apps/api
+  bun run test -- test/team-vm-api
+  bun run test -- test/team-vm-bind.test.ts test/team-vm.test.ts test/team-vm-taint.test.ts test/team-vm-retired-fence.test.ts test/team-vm-export.test.ts
+  bun run test -- test/server-pairing.test.ts test/server-pairing-failures.test.ts
+) || status=1
+(cd backend && bun run lint:size) || status=1
+exit "$status"
+'''
+
+[step.cmux-vm-schema-gate]
+job = "linux"
+timeout = 300
+title = "cmux VM schema gate"
+about = "the cmux VM Worker's typecheck, its Oxlint findings (a warning on feat-cmux-next, as the style guards are) and its store and schema tests on PGlite"
+needs = ["bun", "node"]
+inputs = [
+  "scripts/cmux-next/release/**",
+  "workers/cmux-vm/migrations/**",
+  "workers/cmux-vm/src/db/schema-*.ts",
+  "workers/cmux-vm/release-smoke.json",
+  "backend/db/migrations/**",
+  "backend/apps/api/release-smoke.json",
+  "backend/apps/api/wrangler.jsonc",
+  "images/cmux-vm/channels/**",
+  "images/cmux-vm/promote.ts",
+  ".github/workflows/release-rails.yml",
+]
+run = '''
+cd workers/cmux-vm
+bun install --frozen-lockfile
+status=0
+bun run typecheck || status=1
+# Lint is a style guard: for pull requests into feat-cmux-next it warns (Leo 2026-10-19).
+bun run lint || echo "::warning title=release rails oxlint::lint findings; see this step's log"
+bun run test:pg || status=1
+exit "$status"
+'''
+
+[step.web-complexity]
+job = "linux"
+timeout = 300
+title = "Web complexity candidate"
+about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
+needs = ["bun"]
+inputs = ["web/**"]
+run = '''
+# The merge commit's first parent is the base tip the router diffed against; its second is the pull request.
+base="$(git rev-parse -q --verify 'HEAD^1')"
+bash scripts/ci/fetch-complexity-base.sh "$base"
+cd web
+bash ../scripts/ci/bun-install.sh --frozen-lockfile
+./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
+bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
