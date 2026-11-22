@@ -53,7 +53,8 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-const USAGE: &str = "usage: coord-sim gen|agent|drive|degen|report|surface|shape ... (see src/main.rs)";
+const USAGE: &str =
+    "usage: coord-sim gen|agent|drive|degen|report|surface|shape ... (see src/main.rs)";
 
 /// `--name value` from an argument list.
 pub fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
