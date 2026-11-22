@@ -4,7 +4,8 @@
 // `card` (Claude's proposal card and Codex's limit card: a mark, a title, a plain line, buttons at
 // the trailing edge, the checkmark at the leading edge). `line` (Sonner's one-row toast) and
 // `header` (Codex's card with a tinted title strip) stay here for comparison.
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import looks from "virtual:cmux-gallery/looks";
 import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import { Notice, type NoticeKind } from "./Notice";
@@ -16,7 +17,7 @@ type Look = "card" | "line" | "header";
 // the neutral veil it replaced; `popover` the popovers' denser theme tint. Compare them under a
 // hued theme (the gallery's theme axis).
 type Tint = "theme" | "gray" | "popover";
-type Props = { look: Look; only?: NoticeKind | "stack"; tint?: Tint };
+type Props = { look: Look; only?: NoticeKind | "stack" | "corners"; tint?: Tint };
 
 const noop = () => undefined;
 
@@ -105,9 +106,87 @@ function Stack({ look, tint = "theme" }: Props) {
   );
 }
 
-function NoticeGallery(props: Props) {
-  return props.only === "stack" ? <Stack {...props} /> : <Kinds {...props} />;
+// The toast's corner, three candidates side by side (Leo 2026-11-22: "the toast is this awkward pill
+// glass. im not sure if it should be that rounded"): 16, the uncapped concentric corner it drew
+// before; 9, the toast role's own radius, shipped; 12, between. Each column only sets the role
+// variable --surface-toast-radius (Notice.gallery.css), so the corner is one role value, and prints
+// the toast's measured corner and height.
+const CORNERS = [
+  { id: "16", label: "16: before, the concentric 8 + 8" },
+  { id: "9", label: "9: the toast role, shipped" },
+  { id: "12", label: "12: between" },
+] as const;
+
+function Measured({ children, label }: { children: ReactNode; label: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [sizes, setSizes] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return undefined;
+    const measure = () =>
+      setSizes(
+        [...element.querySelectorAll<HTMLElement>(".ui-notice")].map((notice) => {
+          const radius = getComputedStyle(notice).borderTopLeftRadius;
+          return `corner ${Number.parseFloat(radius)}, height ${Math.round(notice.getBoundingClientRect().height)}`;
+        }),
+      );
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <figure className="ui-notice-corner-cell">
+      <figcaption className="ui-notice-corner-label">{label}</figcaption>
+      <div ref={box} className="ui-notice-corner-toasts">
+        {children}
+      </div>
+      <output className="ui-notice-corner-sizes">
+        {sizes.map((size, index) => (
+          <span key={index}>{size}</span>
+        ))}
+      </output>
+    </figure>
+  );
 }
+
+function Corners({ tint = "theme" }: Props) {
+  return (
+    <div className="ui-notice-gallery ui-notice-corners" data-look="card" data-tint={tint}>
+      {CORNERS.map((corner) => (
+        <div key={corner.id} className="ui-notice-corner" data-radius={corner.id}>
+          <Measured label={corner.label}>
+            <Notice
+              kind="toast"
+              placement="stack"
+              message="Moved this chat to Cloud machine dev."
+              actions={[{ id: "undo", label: "Undo", onSelect: noop }]}
+              onDismiss={noop}
+              dismissLabel="Dismiss"
+            />
+            <Notice
+              kind="toast"
+              placement="stack"
+              title="Moved this chat to Cloud machine dev"
+              message="It keeps running there when this Mac sleeps."
+              onDismiss={noop}
+              dismissLabel="Dismiss"
+            />
+          </Measured>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NoticeGallery(props: Props) {
+  if (props.only === "stack") return <Stack {...props} />;
+  if (props.only === "corners") return <Corners {...props} />;
+  return <Kinds {...props} />;
+}
+
+// A look from examples/looks drawn over the toast (its theme file per scheme), absent when this
+// checkout lacks its files.
+const material = looks.looks.find((look) => look.id === "material-addon");
 
 const checkAskFirst: Play = async (ctx) => {
   await ctx.click({ role: "checkbox" });
@@ -145,6 +224,22 @@ export default componentEntry<Props>({
       props: { look: "card", only: "stack", tint: "popover" },
       note: "Option: the popovers' theme tint (--ds-glass-popover-tint).",
     },
+    corners: {
+      props: { look: "card", only: "corners" },
+      note: "The toast's corner at 16 (before), 9 (the toast role, shipped) and 12: only --surface-toast-radius differs.",
+    },
+    ...(material && {
+      "corners-material": {
+        props: { look: "card", only: "corners" },
+        look: material,
+        note: "The three corners under the Material look (examples/looks/material).",
+      },
+      "stack-material": {
+        props: { look: "card", only: "stack" },
+        look: material,
+        note: "Three toasts over a pane under the Material look (examples/looks/material).",
+      },
+    }),
     "ask-check": { props: { look: "card", only: "ask" }, play: checkAskFirst },
     "error-retry-first": { props: { look: "card", only: "error" }, play: retryLeads },
   },
