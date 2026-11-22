@@ -701,13 +701,57 @@ fn uninstall_removes_nothing_when_the_service_did_not_stop() {
         runner.on_run(stop_step(platform), move || {
             if let Some(runner) = still.upgrade() {
                 runner.answer("--property=ActiveState", shows("active\n"));
-                runner.answer("launchctl print", shows(&format!("path = {}\n", plist.display())));
+                // launchd keeps the job for longer than uninstall waits
+                // (5 s, 50 checks).
+                for _ in 0..60 {
+                    runner
+                        .answer("launchctl print", shows(&format!("path = {}\n", plist.display())));
+                }
             }
         });
         let err = svc.uninstall().unwrap_err();
         assert!(err.to_string().contains("removed nothing"), "{platform:?}: {err}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}: removed it");
     }
+}
+
+/// `launchctl bootout` returns before launchd has dropped the job: on macOS
+/// 27 `launchctl print` still finds it for a moment after (seen on a fleet
+/// Mac: found right after the bootout, gone 2 s later). Uninstall waits for
+/// the job to go, then removes the plist.
+#[test]
+fn uninstall_waits_for_launchd_to_drop_the_job_after_its_bootout() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let path = svc.unit_path().unwrap();
+    let going = std::sync::Arc::downgrade(&runner);
+    let plist = path.clone();
+    runner.on_run("launchctl bootout", move || {
+        if let Some(runner) = going.upgrade() {
+            for _ in 0..3 {
+                runner.answer(
+                    "launchctl print",
+                    shows(&format!("path = {}\n\tstate = not running\n", plist.display())),
+                );
+            }
+        }
+    });
+    svc.uninstall().unwrap();
+    assert!(!path.exists(), "the plist is left");
+    let prints = runner
+        .lines()
+        .iter()
+        .skip_while(|line| !line.contains("launchctl bootout"))
+        .filter(|line| line.contains("launchctl print"))
+        .count();
+    assert_eq!(prints, 4, "uninstall asked launchd {prints} times after the bootout");
 }
 
 /// `KillMode=process` stops only the main process, and the kill that ends
