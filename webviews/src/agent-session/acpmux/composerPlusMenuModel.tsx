@@ -5,7 +5,7 @@ import { composerPlusSections, type ComposerPlusEntry, type ComposerPlusSection 
 import { Icon } from "./icons/Icon";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 
-function rowIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
+export function composerActionIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
   if (entry.id === "add.files") return <PaperclipIcon />;
   if (entry.id === "add.mention") return <AtIcon />;
   if (entry.id === "add.commands") return <SlashIcon />;
@@ -49,7 +49,7 @@ export function composerPlusMenuSections(
                 entry.description.trim() && entry.description.trim() !== entry.name.trim()
                   ? entry.description
                   : undefined,
-              icon: rowIcon(entry, planning),
+              icon: composerActionIcon(entry, planning),
               ...(entry.id === "add.mention" ? { hint: "@" } : {}),
               ...(entry.id === "add.commands" ? { hint: "/" } : {}),
               ...(planShortcut && entry.id.startsWith("add.mode.") ? { hint: planShortcut } : {}),

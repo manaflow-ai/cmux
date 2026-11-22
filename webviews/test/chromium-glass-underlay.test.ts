@@ -83,7 +83,9 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
       const faded = await barContrast(after, FLOATING);
       // Without the underlay the clear page leaves the bars crisp under the tint.
       expect(crisp, "bars under the tint alone").toBeGreaterThan(30);
-      expect(faded, "bars under the default underlay").toBeLessThan(crisp * 0.45);
+      // The default underlay is the design scale's 40% (design/glass-system.md, rule 6: a menu's 80%
+      // over it covers 88%, not 93%), so what the tint lets through drops by 40%: a trace, not a slab.
+      expect(faded, "bars under the default underlay").toBeLessThan(crisp * 0.7);
       expect(await barContrast(after, IN_FLOW)).toBeCloseTo(await barContrast(before, IN_FLOW), 0);
       await before.close();
       await after.close();

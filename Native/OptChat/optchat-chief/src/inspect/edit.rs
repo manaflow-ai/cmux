@@ -132,6 +132,26 @@ struct Book {
     queue: VecDeque<(u64, NodeId)>,
     /// The rebuild running now, if any.
     running: Option<(u64, NodeId)>,
+    /// Times the worker woke and found nothing to build.
+    idle_wakes: u64,
+    /// The editor went: the worker ends.
+    closed: bool,
+}
+
+/// What the editor and its worker share. The worker holds this, not the
+/// editor, while it waits, so it can wait with no timeout: the editor's `Drop`
+/// wakes it to end.
+struct Shared {
+    book: Mutex<Book>,
+    work: Condvar,
+}
+
+impl Shared {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Book> {
+        self.book
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl Book {
@@ -165,8 +185,14 @@ impl Book {
 pub struct Editor {
     chat: Arc<OptChat>,
     dir: PathBuf,
-    book: Mutex<Book>,
-    work: Condvar,
+    shared: Arc<Shared>,
+}
+
+impl Drop for Editor {
+    fn drop(&mut self) {
+        self.shared.lock().closed = true;
+        self.shared.work.notify_all();
+    }
 }
 
 impl Editor {
@@ -188,20 +214,27 @@ impl Editor {
         let editor = Arc::new(Editor {
             chat,
             dir: dir.to_owned(),
-            book: Mutex::new(book),
-            work: Condvar::new(),
+            shared: Arc::new(Shared {
+                book: Mutex::new(book),
+                work: Condvar::new(),
+            }),
         });
         let weak = Arc::downgrade(&editor);
+        let shared = editor.shared.clone();
         let _ = std::thread::Builder::new()
             .name("memory-rebuild".into())
-            .spawn(move || rebuild_loop(weak));
+            .spawn(move || rebuild_loop(&shared, weak));
         editor
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Book> {
-        self.book
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.shared.lock()
+    }
+
+    /// How many times the worker woke and found nothing to build: 0 while
+    /// nothing changes (row 9 of plans/cmux-next/perf-lead.md, idle cost).
+    pub fn idle_wakes(&self) -> u64 {
+        self.lock().idle_wakes
     }
 
     /// The summaries waiting to be built again.
@@ -220,6 +253,7 @@ impl Editor {
                 return false;
             }
             book = self
+                .shared
                 .work
                 .wait_timeout(book, left.min(std::time::Duration::from_millis(50)))
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -355,7 +389,7 @@ impl Editor {
         book.changes.push(change);
         book.dedupe();
         drop(book);
-        self.work.notify_all();
+        self.shared.work.notify_all();
         Ok(answer)
     }
 
@@ -549,29 +583,30 @@ fn read_journal(path: &Path) -> Vec<Change> {
 }
 
 /// Builds the queued stale summaries, one at a time, until the editor goes.
-fn rebuild_loop(editor: std::sync::Weak<Editor>) {
+/// With nothing queued it sleeps until a change queues one or the editor's
+/// `Drop` closes the book: no timed wake (perf-lead.md row 9).
+fn rebuild_loop(shared: &Shared, editor: std::sync::Weak<Editor>) {
     loop {
-        let Some(ed) = editor.upgrade() else { return };
-        let next = {
-            let mut book = ed.lock();
-            match book.queue.pop_front() {
-                Some(job) => {
-                    book.running = Some(job);
-                    Some(job)
+        let (change, node) = {
+            let mut book = shared.lock();
+            loop {
+                if book.closed {
+                    return;
                 }
-                None => {
-                    let _ = ed
-                        .work
-                        .wait_timeout(book, std::time::Duration::from_millis(500))
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    None
+                if let Some(job) = book.queue.pop_front() {
+                    book.running = Some(job);
+                    break job;
+                }
+                book = shared
+                    .work
+                    .wait(book)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if book.queue.is_empty() && !book.closed {
+                    book.idle_wakes += 1;
                 }
             }
         };
-        let Some((change, node)) = next else {
-            drop(ed);
-            continue;
-        };
+        let Some(ed) = editor.upgrade() else { return };
         let built = ed.chat.rebuild_node(node);
         let mut book = ed.lock();
         book.running = None;
@@ -599,12 +634,12 @@ fn rebuild_loop(editor: std::sync::Weak<Editor>) {
                 // Tried again later (a model error passes; a restart retries too).
                 book.queue.push_back((change, node));
                 drop(book);
-                ed.work.notify_all();
+                ed.shared.work.notify_all();
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 continue;
             }
         }
         drop(book);
-        ed.work.notify_all();
+        ed.shared.work.notify_all();
     }
 }

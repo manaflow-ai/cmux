@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::fresh::{START_BOUND, STUCK_CODE};
+use super::super::fresh::{RELEASE_WAIT, START_BOUND, STUCK_CODE};
 use super::*;
 
 /// A new machine with a folder on it: the start answers once start-session does (no read of where it runs).
@@ -168,6 +168,75 @@ fn a_stuck_machine_that_cannot_be_deleted_stops_the_retry_and_names_the_delete()
             .contains("cmux cloud kill-machine --target machine:vm-stuck --confirm"),
         "{error}"
     );
+}
+
+/// Production 2026-11-22 (job 137057804629): the Cloud service still held the stuck machine's create at
+/// `approval.pending` when the bound passed, so the app listed it only as creating. The delete is tried again until
+/// the machine is listed, then deleted, and the chat starts on a fresh machine.
+#[test]
+fn a_stuck_machine_whose_create_is_still_on_its_way_is_deleted_once_it_lands_and_replaced() {
+    let creating = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "dev"}],
+                             "creating": [{"name": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        creating.clone(),
+        creating,
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.ran[5], kill("vm-stuck"));
+    assert_eq!(starts(&fake), 2);
+    assert_eq!(answer["fresh_retry"][0]["deleted"], true);
+    assert_eq!(fake.paused, Duration::from_secs(6), "two waits before the create landed");
+}
+
+/// Production 2026-11-22 (job 137099694829): a long-idle spare began pausing just after its claim, and its delete
+/// answered "This machine is pausing". The delete is tried again once it can be, then the chat starts on a fresh one.
+#[test]
+fn a_stuck_machine_that_is_pausing_is_deleted_once_it_can_be_and_replaced() {
+    let pausing = Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable",
+                       "message": "This machine is pausing. Try again once it is paused."})
+        .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        pausing,
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(starts(&fake), 2);
+    assert_eq!(answer["fresh_retry"][0]["deleted"], true);
+    assert_eq!(answer["fresh_retry"][0]["machine_id"], "vm-stuck");
+}
+
+/// A machine still creating after [`RELEASE_WAIT`] is left as before: no fresh machine, and the answer says how to
+/// delete it.
+#[test]
+fn a_create_that_never_lands_within_the_release_wait_stops_the_retry() {
+    let creating = ok(json!({"account": {"signed_in": true}, "machines": [],
+                             "creating": [{"name": "chat-fresh"}]}));
+    let mut answers = vec![signed_in(), not_connected("chat-fresh", "vm-stuck")];
+    answers.extend(std::iter::repeat_n(creating, 40));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(CWD)) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(starts(&fake), 1);
+    assert_eq!(error["details"]["fresh_retry"][0]["deleted"], false);
+    assert!(fake.paused <= RELEASE_WAIT, "{:?}", fake.paused);
+    assert!(error["message"].as_str().unwrap().contains("could not be deleted"), "{error}");
 }
 
 /// A machine the caller named (`--name`, `--target`) is never given up or deleted: the app's answer stands,
