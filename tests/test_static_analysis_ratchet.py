@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """scripts/static-analysis/ratchet.py: zizmor findings are keyed per file, audit and severity, and only a
-count above its baseline (or a file zizmor cannot audit that the baseline does not list) fails."""
+count above its baseline (or a file zizmor cannot audit that the baseline does not list) is new; new findings
+are reported (warning, exit 0) unless CMUX_STATIC_ANALYSIS_BLOCKING=1 makes them fail."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("sa_ratchet", ROOT / "scripts/static-analysis/ratchet.py")
@@ -55,6 +58,21 @@ class RatchetTest(unittest.TestCase):
         for key, n in data["findings"].items():
             self.assertEqual(len(key.split("|")), 3, key)
             self.assertGreater(n, 0, key)
+
+    def test_report_only_by_default_and_blocking_only_when_set(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CMUX_STATIC_ANALYSIS_BLOCKING", None)
+            self.assertFalse(ratchet.blocking())
+            self.assertEqual(ratchet.verdict(True), 0)
+            self.assertTrue(ratchet.annotate("a.yml", "m").startswith("::warning file=a.yml::"))
+        with mock.patch.dict(os.environ, {"CMUX_STATIC_ANALYSIS_BLOCKING": "1"}):
+            self.assertEqual(ratchet.verdict(True), 1)
+            self.assertEqual(ratchet.verdict(False), 0)
+            self.assertEqual(ratchet.annotate("a.yml", "m", 4), "::error file=a.yml,line=4::m")
+
+    def test_the_workflow_ships_report_only(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text()
+        self.assertIn('CMUX_STATIC_ANALYSIS_BLOCKING: "0"', workflow)
 
 
 if __name__ == "__main__":

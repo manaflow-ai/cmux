@@ -102,7 +102,7 @@ FAST_GROUPS = ("ci",)
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
     # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
-    "Hold zizmor's workflow findings at their baseline",
+    "Report new zizmor workflow findings against the baseline",
     "Scan this change's commits for secrets (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
