@@ -49,6 +49,13 @@ cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
 # What the stage-0 launch window shows and which input it holds (src/ffi.rs, include/cmux_launch_shell.h).
 cmux-launch-shell = { path = "../cmux-launch-shell" }
+# The files lister's child, owned (src/files_lister.rs): it ends with its lister.
+cmux-process = { path = "../cmux-process" }
+# The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
+unicode-segmentation = "1"
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

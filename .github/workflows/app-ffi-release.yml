@@ -68,6 +68,7 @@ on:
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
+      - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
