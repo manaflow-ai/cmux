@@ -4929,7 +4929,9 @@ button.cv-video-frames__frame:focus-visible {
   flex: none;
   align-items: center;
   gap: var(--ds-space-2);
-  color: var(--cv-text-dim);
+  /* The muted ink, not the dim one: a run's time and status are read, and dim drew them at 3.84:1 light,
+     4.40:1 dark. */
+  color: var(--cv-text-muted);
   font-size: calc(var(--cv-font-size) * 12 / 14);
   font-variant-numeric: tabular-nums;
 }
@@ -4940,7 +4942,7 @@ button.cv-video-frames__frame:focus-visible {
    before the status and time, so the approval reads on its row and never as a line of its own. */
 .cv-command__approved {
   white-space: nowrap;
-  color: var(--cv-text-dim);
+  color: var(--cv-text-muted); /* with the meta it sits in: 4.5:1 */
 }
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
