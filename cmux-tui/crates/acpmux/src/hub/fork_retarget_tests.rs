@@ -16,7 +16,11 @@ fn hub() -> Arc<Hub> {
                         "picky": {"argv": ["python3", fake], "family": "picky",
                                   "env": {"FAKE_PICKER": "1", "FAKE_REFUSE_ID": "bad-model"}},
                         // Takes its model at spawn, from its defaults' env only.
-                        "spawned": {"argv": ["python3", fake], "family": "spawned"}},
+                        "spawned": {"argv": ["python3", fake], "family": "spawned"},
+                        // Takes its model at spawn, as Claude Code does, and lists two.
+                        "listing": {"argv": ["python3", fake], "family": "listing",
+                                    "env": {"FAKE_MODEL_ARG": "${model}"},
+                                    "models": ["haiku", "opus"]}},
                      "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
@@ -212,4 +216,213 @@ async fn a_switch_whose_named_model_the_harness_refuses_fails_and_leaves_no_fork
         .await
         .unwrap();
     assert_eq!(fork.meta().harness, "picky");
+}
+
+/// A hub whose `lister` harness lists its models (a `model` option, as Claude Code and OpenCode
+/// do) and takes any `set_model`, as Claude Code does; each model set is logged to `calls`.
+fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let lister = json!({"argv": ["python3", fake], "family": "lister",
+                        "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude",
+                                "FAKE_CALLS": calls.to_str().unwrap()}});
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister},
+                     "defaultHarness": "fake",
+                     "titles": {"generate": false}});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// The model `session`'s agent runs, as its meta shows it.
+fn model_option(session: &Session) -> Option<String> {
+    let meta = session.meta();
+    let opts = meta.config_options.as_deref().and_then(Value::as_array)?;
+    let model = opts.iter().find(|o| o["id"] == "model")?;
+    model["currentValue"].as_str().map(str::to_owned)
+}
+
+/// The last model the agent session `sid` was told to run (`FAKE_CALLS`).
+fn last_model_set(calls: &std::path::Path, sid: &str) -> Option<String> {
+    let text = std::fs::read_to_string(calls).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == sid)
+        .filter_map(|c| match c["method"].as_str()? {
+            "session/set_model" => c["params"]["modelId"].as_str().map(str::to_owned),
+            "session/set_config_option" if c["params"]["configId"] == "model" => {
+                c["params"]["value"].as_str().map(str::to_owned)
+            }
+            _ => None,
+        })
+        .last()
+}
+
+fn live(hub: &Hub) -> usize {
+    hub.sessions()
+        .into_iter()
+        .filter(|s| s.meta().status != crate::store::SessionStatus::Closed)
+        .count()
+}
+
+/// A fork on the chat's own harness that names a model runs that model, its agent and its meta
+/// alike; one the harness does not list is refused with no fork left. It ran the chat's model
+/// (fork-hammer 2026-11-22: `session fork -m opencode/big-pickle` ran deepseek-v4.1-flash-free).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_on_its_own_harness_runs_the_model_it_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = dir.path().join("calls.jsonl");
+    let hub = lister_hub(&calls);
+    let parent = hub
+        .new_session(NewRequest {
+            harness: Some("lister".into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+    hub.set_model(&parent, "claude-opus-5-5").await.unwrap();
+
+    // `harness` empty: the chat's own (`acpmux session fork CHAT -m MODEL`).
+    let fork = hub
+        .fork_to(
+            &parent,
+            to_model("", "claude-sonnet-5-5"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "lister");
+    assert_eq!(fork.meta().parent_id.as_deref(), Some(parent.id.as_str()));
+    let sid = fork.meta().agent_session_id.expect("started before the reply");
+    assert_eq!(last_model_set(&calls, &sid).as_deref(), Some("claude-sonnet-5-5"));
+    assert_eq!(model_option(&fork).as_deref(), Some("claude-sonnet-5-5"));
+    // The parent keeps its own.
+    assert_eq!(model_option(&parent).as_deref(), Some("claude-opus-5-5"));
+
+    // Named with its harness, as `-m HARNESS/MODEL` spells it.
+    let fork = hub
+        .fork_to(
+            &parent,
+            to_model("lister", "lister/claude-haiku-5-5"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(model_option(&fork).as_deref(), Some("claude-haiku-5-5"));
+
+    let before = live(&hub);
+    let refused = hub
+        .fork_to(&parent, to_model("", "no-such-model"), None, None, Default::default(), None, true)
+        .await
+        .err()
+        .expect("refused");
+    assert_eq!(refused.code, -32602, "{}", refused.message);
+    assert!(refused.message.contains("no-such-model"), "{}", refused.message);
+    assert!(refused.message.contains("claude-sonnet-5-5"), "{}", refused.message);
+    assert_eq!(live(&hub), before, "a refused model change left a fork");
+}
+
+/// A switch onto another harness takes its model as `-m HARNESS/MODEL` spells it, and one the
+/// harness does not list fails the switch, not its first prompt (fork-hammer 2026-11-22:
+/// `--harness claude -m claude/haiku` forked, then every prompt failed "There's an issue with
+/// the selected model (claude/haiku)").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_takes_harness_slash_model_and_refuses_a_model_its_harness_does_not_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = dir.path().join("calls.jsonl");
+    let hub = lister_hub(&calls);
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+
+    let fork = hub
+        .fork_to(
+            &parent,
+            to_model("lister", "lister/claude-haiku-5-5"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "lister");
+    let sid = fork.meta().agent_session_id.expect("started before the reply");
+    assert_eq!(last_model_set(&calls, &sid).as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(model_option(&fork).as_deref(), Some("claude-haiku-5-5"));
+
+    let before = live(&hub);
+    let refused = hub
+        .fork_to(
+            &parent,
+            to_model("lister", "lister/no-such-model"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .err()
+        .expect("refused");
+    assert_eq!(refused.code, -32602, "{}", refused.message);
+    assert!(refused.message.contains("no-such-model"), "{}", refused.message);
+    assert!(live(&hub) <= before, "a refused switch left a fork");
+}
+
+/// A switch onto a harness that takes its model at spawn (Claude Code) and lists its models:
+/// `listing/haiku` spawns it on `haiku`, and a model it does not list is refused by the fork
+/// call (fork-hammer 2026-11-22: `--harness claude -m claude/haiku` failed its first prompt).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_onto_a_spawn_model_harness_reads_harness_slash_model_and_refuses_unlisted() {
+    let hub = hub();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    let fork = hub
+        .fork_to(
+            &parent,
+            to_model("listing", "listing/haiku"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "listing");
+    assert_eq!(fork.meta().model_request.as_deref(), Some("haiku"));
+    let before = live(&hub);
+    let refused = hub
+        .fork_to(
+            &parent,
+            to_model("listing", "listing/sonnet"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .err()
+        .expect("refused");
+    assert_eq!(refused.code, -32602, "{}", refused.message);
+    assert!(refused.message.contains("haiku, opus"), "{}", refused.message);
+    assert_eq!(live(&hub), before, "a refused switch left a fork");
 }

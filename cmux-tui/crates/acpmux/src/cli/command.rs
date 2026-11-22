@@ -823,8 +823,9 @@ pub enum Command {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     #[command(hide = true)]
@@ -1258,8 +1259,9 @@ pub enum SessionCmd {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
@@ -2241,6 +2243,28 @@ mod help_contract_tests {
         assert!(
             Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
         );
+    }
+
+    /// `session fork -m MODEL` without `--harness` forks onto another model of the chat's own
+    /// harness; it was refused, so no fork could change only its model.
+    #[test]
+    fn a_fork_takes_a_model_without_a_harness() {
+        use super::{Command, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        for argv in [
+            &["acpmux", "session", "fork", "chat", "-m", "opencode/big-pickle"][..],
+            &["acpmux", "fork", "chat", "-m", "opencode/big-pickle"][..],
+        ] {
+            let fork = parse(argv);
+            assert!(
+                matches!(
+                    fork,
+                    Ok(Command::Fork { ref model, ref harness, .. })
+                        if model.as_deref() == Some("opencode/big-pickle") && harness.is_none()
+                ),
+                "{argv:?}"
+            );
+        }
     }
 
     /// `--harness` is `-m` wherever a HARNESS[/MODEL] is asked for: `run --harness codex` starts

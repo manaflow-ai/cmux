@@ -76,7 +76,8 @@ pub(super) fn asks_retarget(params: &Value) -> bool {
 }
 
 /// The harness a `session/fork` forks onto (`_meta.acpmux.harness`, with `model`): a pick of
-/// another harness's model in a started chat, at its next send (`hub/fork.rs` `Retarget`).
+/// another harness's model in a started chat, at its next send (`hub/fork.rs` `Retarget`); or
+/// `model` alone, the model of a fork on the chat's own harness.
 pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, RpcError> {
     let text = |key: &str| -> Result<Option<String>, RpcError> {
         match params.pointer(&format!("/_meta/acpmux/{key}")) {
@@ -97,12 +98,13 @@ pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, R
             "_meta.acpmux.model must be one model id: ASCII letters, digits and ._-/:@[]+, not starting with -",
         ));
     }
-    Ok(match text("harness")? {
-        Some(harness) => Some(crate::hub::Retarget { harness, model, remote: false }),
-        None if model.is_some() => {
-            return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
+    // A model alone changes the model on the chat's own harness (an empty `harness`).
+    Ok(match (text("harness")?, model) {
+        (Some(harness), model) => Some(crate::hub::Retarget { harness, model, remote: false }),
+        (None, Some(model)) => {
+            Some(crate::hub::Retarget { harness: String::new(), model: Some(model), remote: false })
         }
-        None => None,
+        (None, None) => None,
     })
 }
 
@@ -440,5 +442,16 @@ mod tests {
         for bad in ["m;id", "--dangerously-skip-permissions", "a b", "$(x)", "m`x`"] {
             assert!(retarget(&with(bad)).is_err(), "{bad}");
         }
+    }
+
+    /// A model alone is a model change on the chat's own harness, not refused for want of one.
+    #[test]
+    fn a_model_alone_forks_on_the_chats_own_harness() {
+        let r = retarget(&json!({"_meta": {"acpmux": {"model": "opencode/big-pickle"}}}))
+            .unwrap()
+            .expect("a retarget");
+        assert_eq!(r.harness, "");
+        assert_eq!(r.model.as_deref(), Some("opencode/big-pickle"));
+        assert!(retarget(&json!({"_meta": {"acpmux": {}}})).unwrap().is_none());
     }
 }

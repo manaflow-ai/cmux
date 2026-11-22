@@ -41,8 +41,11 @@ enum Made {
 /// (`rehydrate`): no agent can resume another harness's conversation.
 #[derive(Debug, Clone, Default)]
 pub struct Retarget {
-    /// A family or profile name, as `session/new` takes it.
+    /// A family or profile name, as `session/new` takes it; empty for the chat's own (a model
+    /// change only).
     pub harness: String,
+    /// The model the fork runs, on that harness or the chat's own (`fork_model.rs`): as the
+    /// harness lists it, `HARNESS/MODEL` as `-m` spells it too, else the fork is refused.
     pub model: Option<String>,
     /// A remote device (the Web, or a peer forwarding for it) asked: the new harness starts as a
     /// chat that device starts would (`session/new`), remote-origin and in a reviewed asking
@@ -60,6 +63,9 @@ struct Target {
     family: String,
     spawn_model: bool,
     model: Option<String>,
+    /// The names its model may be prefixed with (`fork_model::listed_model`): the harness as
+    /// asked, its profile and its family.
+    heads: Vec<String>,
     /// The switch named its model (`Retarget::model`): a harness that cannot run it fails the
     /// switch, as an explicit model fails `session/new`, rather than running its own default.
     explicit_model: bool,
@@ -138,7 +144,7 @@ impl Hub {
     }
 
     /// [`Hub::fork`] onto another harness ([`Retarget`]). A harness that resolves to the chat's
-    /// own profile is an ordinary fork; its model is the caller's to set.
+    /// own profile is an ordinary fork, on the model the retarget names (`fork_model.rs`).
     #[allow(clippy::too_many_arguments)]
     pub async fn fork_to(
         self: &Arc<Self>,
@@ -165,13 +171,17 @@ impl Hub {
         .await
     }
 
-    /// The harness a [`Retarget`] names, or None when it is the chat's own profile.
+    /// The harness a [`Retarget`] names, or None when it is the chat's own profile, with the
+    /// model a fork on the chat's own profile changes to.
     async fn retarget_to(
         &self,
         parent: &SessionMeta,
-        retarget: Retarget,
+        mut retarget: Retarget,
         cwd: &Path,
-    ) -> Result<Option<Target>, RpcError> {
+    ) -> Result<(Option<Target>, Option<super::fork_model::OwnModel>), RpcError> {
+        if retarget.harness.is_empty() {
+            retarget.harness = parent.harness.clone();
+        }
         self.rediscover_head(Some(retarget.harness.as_str()), None).await;
         let cfg = self.config.read().await;
         let remote = parent.remote_origin || retarget.remote;
@@ -183,27 +193,60 @@ impl Hub {
             remote,
             Some(cwd),
         )?;
-        if r.agent == parent.harness {
-            return Ok(None);
-        }
-        if r.profile.kind == crate::config::HarnessKind::Terminal {
-            return Err(super::new_request::terminal_harness_refusal(&r.agent));
-        }
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // `${model}` in the profile or in its defaults' env, as `session/new` decides it
         // (`lifecycle.rs`): the model is a spawn parameter there, not a set_model call.
         let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
+        let mut heads = vec![retarget.harness.clone(), r.agent.clone(), family.clone()];
+        heads.dedup();
+        let head_refs: Vec<&str> = heads.iter().map(String::as_str).collect();
+        if r.agent == parent.harness {
+            // The chat's own harness: a model change, or an ordinary fork.
+            let own = match retarget.model.as_deref() {
+                Some(m) => Some(self.own_fork_model(
+                    &cfg,
+                    parent,
+                    r.profile.kind,
+                    &head_refs,
+                    m,
+                    spawn_model,
+                )?),
+                None => None,
+            };
+            return Ok((None, own));
+        }
+        if r.profile.kind == crate::config::HarnessKind::Terminal {
+            return Err(super::new_request::terminal_harness_refusal(&r.agent));
+        }
         let explicit_model = retarget.model.is_some();
-        Ok(Some(Target {
-            remote,
-            agent: r.agent.clone(),
-            profile: r.profile.clone(),
-            family,
-            spawn_model,
-            model: retarget.model.or_else(|| r.profile.model.clone()),
-            explicit_model,
-        }))
+        let mut model = retarget.model.or_else(|| r.profile.model.clone());
+        // Taken at spawn (Claude Code): as the harness lists it (`claude/haiku` is `haiku`), and a
+        // model the switch named that it does not list refused now, not at the first prompt.
+        if spawn_model && let Some(m) = &model {
+            let listed = self.listed_models(&cfg, &r.agent, None);
+            let claude = r.profile.kind == crate::config::HarnessKind::ClaudeStdio;
+            model = Some(match super::fork_model::listed_model(m, &head_refs, &listed, claude) {
+                Some(m) => m,
+                None if explicit_model => {
+                    return Err(super::fork_model::not_listed(m, &r.agent, &listed));
+                }
+                None => m.clone(),
+            });
+        }
+        Ok((
+            Some(Target {
+                remote,
+                agent: r.agent.clone(),
+                profile: r.profile.clone(),
+                family,
+                spawn_model,
+                model,
+                heads,
+                explicit_model,
+            }),
+            None,
+        ))
     }
 
     /// [`Hub::fork`] with an optional boundary (`fork_before.rs`), and with `sub` a fork that is
@@ -251,7 +294,7 @@ impl Hub {
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         // Onto another harness: its agent starts from the chat's transcript (`Made::Fresh`).
-        let target = match retarget {
+        let (target, own_model) = match retarget {
             Some(r) if before.is_none() && !empty && through.is_none() => {
                 self.retarget_to(&parent_meta, r, &cwd).await?
             }
@@ -260,7 +303,7 @@ impl Hub {
                     "a fork onto another harness forks the whole chat as it is now",
                 ));
             }
-            None => None,
+            None => (None, None),
         };
         let sid = parent_meta
             .agent_session_id
@@ -844,6 +887,10 @@ impl Hub {
             meta.preset_mode_approval = None;
             meta.harness_cost_usd = None;
         }
+        // A model change on the chat's own harness that takes its model at spawn: its first start.
+        if let Some(own) = own_model.as_ref().filter(|o| o.spawn) {
+            meta.model_request = Some(own.model.clone());
+        }
         if (empty || target.is_some()) && !meta.remote_origin {
             let cfg = self.config.read().await;
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
@@ -1096,6 +1143,12 @@ impl Hub {
             if let Err(e) = self.start_retargeted(&new, t).await {
                 return Err(self.close_refused(&new, e).await);
             }
+        } else if let Some(own) = own_model.as_ref().filter(|o| !o.spawn) {
+            // A model change on the chat's own harness: up and on that model before the reply,
+            // as a switch onto another harness is, or no fork.
+            if let Err(e) = self.start_on_model(&new, &own.model).await {
+                return Err(self.close_refused(&new, e).await);
+            }
         } else if start_later {
             let hub = self.clone();
             let fork = new.clone();
@@ -1138,8 +1191,19 @@ impl Hub {
             self.append(fork, "mux", "fork_start_failed", json!({"error": e.message}));
             return Ok(());
         }
-        if !target.spawn_model
-            && let Some(model) = &target.model
+        let model = match &target.model {
+            // As the harness, now up, lists it (`claude/haiku` is Claude Code's `haiku`); a model
+            // the switch named that it does not list fails the switch here, not its first prompt.
+            Some(m) if !target.spawn_model => {
+                let heads: Vec<&str> = target.heads.iter().map(String::as_str).collect();
+                let kind = target.profile.kind;
+                let listed =
+                    self.started_fork_model(fork, &target.agent, kind, &heads, m, must_set).await?;
+                Some(listed)
+            }
+            _ => None,
+        };
+        if let Some(model) = &model
             && let Err(e) = Box::pin(self.set_model(fork, model)).await
         {
             if must_set {

@@ -75,6 +75,7 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+mod fork_model;
 pub use fork::Retarget;
 #[cfg(test)]
 mod forum_held_turn_tests;
