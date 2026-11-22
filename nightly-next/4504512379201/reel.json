@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4504512379201",
+  "notes": "notes/4504512379201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48951,
+      "title": "iOS terminal: measure \"this claude code cli is often slow to scroll up and down from ios\" against the bare shell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41367,
+      "title": "iOS App Review gate: setup finishes under a launch argument; the dead-control walk taps switches and sees Safari",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47373,
+      "title": "Agent chat: a reader scrolled far up holds a window of the chat, both ways",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43858,
+      "title": "fresh-home smoke: the watch looks for Home as each launch mark arrives, not on a fixed 0.25 s sleep (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49994,
+      "title": "link listing: keep the folders git's sorted paths share open (big Mac projection 2.3 s -> ~0.2 s listing)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
