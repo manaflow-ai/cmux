@@ -109,10 +109,7 @@ export default agentPaneEntry({
   title: "Subagent opened in the right split",
   area: "Agent pane",
   height: 640,
-  covers: [
-    "agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner",
-    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
-  ],
+  covers: ["agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner"],
   keywords: ["subagent", "split", "right", "task", "session info"],
   variants: {
     parent: {
