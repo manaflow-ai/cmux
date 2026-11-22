@@ -32,6 +32,12 @@ pub(crate) fn down_ssh_peers(peers: &[Value]) -> Vec<(String, String)> {
         .iter()
         .filter_map(|p| {
             let name = p.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())?;
+            // A joined machine is carried by the hub. Its peer record may still expose the
+            // address used before it joined, but a Mac client cannot necessarily dial that
+            // private address. Keep the hub/carrier route instead of falling through to SSH.
+            if p.get("via").and_then(Value::as_str) == Some("hub") {
+                return None;
+            }
             let url = p.get("url").and_then(Value::as_str)?;
             let state = p.get("state").and_then(Value::as_str).unwrap_or_else(|| {
                 if p.get("connected") == Some(&json!(true)) { "connected" } else { "offline" }
@@ -150,6 +156,7 @@ mod tests {
             {"name": "b", "url": "ssh://me@b:2222", "state": "offline"},
             {"name": "c", "url": "ssh://c", "state": "connected"},
             {"name": "d", "url": "ssh://d", "state": "degraded"},
+            {"name": "joined", "url": "ssh://10.0.0.8", "state": "offline", "via": "hub"},
             {"name": "e", "url": "ws://e:1", "state": "offline"},
             {"name": "f", "url": "ssh://-oProxyCommand=x", "state": "offline"},
         ]);
