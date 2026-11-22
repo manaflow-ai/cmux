@@ -113,12 +113,11 @@ fn save(
     let partial = format!("{out}.partial-{}", std::process::id());
     let written = (|| -> Result<u64, (String, String)> {
         let write_failed = |e: std::io::Error| ("write_failed".to_owned(), format!("{out}: {e}"));
-        if machine.is_none() {
-            if let Some(path) = body.get("path").and_then(Value::as_str) {
-                if let Ok(bytes) = std::fs::copy(path, &partial) {
-                    return Ok(bytes);
-                }
-            }
+        if machine.is_none()
+            && let Some(path) = body.get("path").and_then(Value::as_str)
+            && let Ok(bytes) = std::fs::copy(path, &partial)
+        {
+            return Ok(bytes);
         }
         let id = body.get("recording_id").and_then(Value::as_str).unwrap_or_default();
         let mut file = std::fs::File::create(&partial).map_err(write_failed)?;
