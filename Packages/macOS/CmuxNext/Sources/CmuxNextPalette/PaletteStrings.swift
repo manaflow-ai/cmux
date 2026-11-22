@@ -14,6 +14,8 @@ nonisolated enum PaletteStrings {
     static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Change Settings", bundle: .localizedModule) }
     static var sectionRecentDirectories: String { String(localized: "palette.section.recentDirectories", defaultValue: "Recent Directories", bundle: .localizedModule) }
     static var commandsTitle: String { String(localized: "palette.page.commands", defaultValue: "Commands", bundle: .localizedModule) }
+    /// The root page's field, naming what it searches.
+    static var rootPlaceholder: String { String(localized: "palette.placeholder.root", defaultValue: "Search actions, chats and tabs", bundle: .localizedModule) }
     static var searchPlaceholder: String { String(localized: "palette.placeholder.commands", defaultValue: "Search for commands…", bundle: .localizedModule) }
     static var shortcutsTitle: String { String(localized: "palette.page.shortcuts", defaultValue: "Keyboard Shortcuts", bundle: .localizedModule) }
     static var shortcutsPlaceholder: String { String(localized: "palette.placeholder.shortcuts", defaultValue: "Search shortcuts by name or keys…", bundle: .localizedModule) }
@@ -194,6 +196,10 @@ extension PaletteStrings {
     // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
     static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .localizedModule) }
     static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .localizedModule) }
+    /// The footer's Return label naming the row it acts on: "Switch to Tab “Fix the login bug”".
+    static func primaryNamingRow(_ verb: String, _ row: String) -> String {
+        String(localized: "palette.footer.primaryNamingRow", defaultValue: "\(verb) “\(row)”", bundle: .localizedModule)
+    }
     static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .localizedModule) }
     static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .localizedModule) }
     static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .localizedModule) }
