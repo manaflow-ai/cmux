@@ -77,14 +77,8 @@ extension HomeService {
                 refreshChiefHarnesses()
                 return .success(HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
                                                 mainConversation: made.conversation.rawValue, placed: true))
-            } catch let error as DaemonError {
-                switch error {
-                case .notConnected, .connectionClosed, .daemonShutdown: return .failure(.offline)
-                case .command(_, let message, let code, _, _): return .failure(.refused(message.isEmpty ? code ?? "" : message))
-                default: return .failure(.refused(error.description))
-                }
             } catch {
-                return .failure(.refused(String(describing: error)))
+                return .failed(error, onThisMac: true)
             }
         }
         do {
@@ -92,12 +86,8 @@ extension HomeService {
             if !record.placed { turnOnBrain(of: record.id) }
             pendingSelection = record.mainConversation.map { ConversationID($0) }
             return .success(record)
-        } catch FeedServiceError.signedOut {
-            return .failure(.offline)
-        } catch FeedServiceError.owner(let code, let message) {
-            return .failure(code == "policy.denied" || code == "validation.invalid" ? .refused(message) : .refusal(code: code))
         } catch {
-            return .failure(.refused(""))
+            return .failed(error, onThisMac: false)
         }
     }
 
