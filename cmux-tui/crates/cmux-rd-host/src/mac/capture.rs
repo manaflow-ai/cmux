@@ -738,12 +738,15 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
     sys::release(content);
 }
 
+/// Every display's streamed size, the index `which` picks, and every display's CGDirectDisplayID.
+pub type Displays = (Vec<(u32, u32)>, usize, Vec<u32>);
+
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
 /// captures it), left to right, the index of the display `which` picks (as [`Capture::start`]
 /// picks it), and every display's CGDirectDisplayID in the same order. Only `serve` (the `link`
 /// feature) asks.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
-pub fn displays(which: &str) -> Res<(Vec<(u32, u32)>, usize, Vec<u32>)> {
+pub fn displays(which: &str) -> Res<Displays> {
     let (content, displays) = shareable_displays()?;
     let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.

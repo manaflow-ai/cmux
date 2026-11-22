@@ -177,7 +177,7 @@ fn synthetic_size() -> Option<(u32, u32)> {
 /// asking ScreenCaptureKit (which needs the grant), with no id.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
-pub fn displays(which: &str) -> Res<(Vec<(u32, u32)>, usize, Vec<u32>)> {
+pub fn displays(which: &str) -> Res<crate::mac::capture::Displays> {
     match synthetic_size() {
         Some(size) => Ok((vec![size], 0, Vec::new())),
         None => crate::mac::capture::displays(which),

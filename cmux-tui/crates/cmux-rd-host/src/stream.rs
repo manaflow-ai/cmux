@@ -605,7 +605,7 @@ impl MediaSession {
                 frame.access_unit.len()
             );
         }
-        let mut times = FrameTimes {
+        let times = FrameTimes {
             display_us: frame.picked_times.map_or(0, |(shown, _)| shown),
             encode_start_us: frame.encode_start_us,
             encoded_us: frame.encoded_us,
