@@ -1304,6 +1304,8 @@ mod provider_channel;
 mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_status_item_tests.rs"]
+mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
 #[path = "supervisor_widget_tests.rs"]

@@ -865,3 +865,27 @@ fn an_update_whose_id_changed_leaves_one_receipt_in_the_old_place() {
     let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
     assert_eq!(ids, ["leo/top", "leo/renamed", "leo/below"]);
 }
+
+/// A setup (a look add-on) that picks the corner treatment installs it into
+/// cmux-next.json and removing it puts the default back (Leo, 2026-11-18: the
+/// gooey look "we have as a toggle maybe, and we can like do more stuff with
+/// that").
+#[test]
+fn a_setup_that_picks_the_corner_treatment_keeps_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("appearance.cornerFlush".to_owned(), json!("flush-goo"));
+    let customize = home.customize();
+    customize.plan_setup(&read, "manaflow-ai", "0.0.0").expect("a look setting plans");
+    let installed = customize.install_setup(&read, "setup corner", "cli", 10).unwrap();
+    let settings = home.settings();
+    assert_eq!(settings["appearance"]["cornerFlush"], json!("flush-goo"));
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
+}

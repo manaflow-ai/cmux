@@ -177,18 +177,23 @@ pub(in crate::cli) struct Http {
 
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
-        Http::with_deadline(Duration::from_secs(300))
+        Http::with_timeout(Duration::from_secs(300))
     }
 
     /// A client whose every request ends by `deadline`.
     pub(in crate::cli) fn with_deadline(deadline: Duration) -> Result<Http, Failure> {
+        Http::with_timeout(deadline)
+    }
+
+    /// One whose every request gives up after `timeout`.
+    pub(super) fn with_timeout(timeout: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
         let client = reqwest::Client::builder()
-            .timeout(deadline)
+            .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
