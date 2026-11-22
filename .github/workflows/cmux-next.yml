@@ -5408,9 +5408,12 @@ jobs:
         if: ${{ (!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
-          # The seed's key holds the path it was built at: the seed root on an owned mini.
-          SEED_KEY_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
-        run: scripts/cmux-next/fast-tier-cache-key.sh "$SEED_KEY_WORKSPACE" >> "$GITHUB_OUTPUT"
+          # The seed's key holds the path it was built at: the seed root on an owned mini. The script hashes
+          # CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE), never its ROOT argument, so a name of our own
+          # keyed the runner's checkout path and no restore ever matched (0 of 2026-11-22's generated-files
+          # runs on the minis restored the seed: every build cold).
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
