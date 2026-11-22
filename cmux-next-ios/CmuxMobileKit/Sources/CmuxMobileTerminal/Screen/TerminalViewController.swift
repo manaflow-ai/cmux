@@ -293,6 +293,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
     private var scrollMeter = ScrollMeter()
     /// G-04: in-app frame intervals (`-CmuxMobileFrameLog`).
+    #if DEBUG
+    /// cmux#48951: wheel report -> Mac output -> present (`TerminalScrollBench`).
+    let rttLog = TerminalScrollRTT()
+    #endif
     private lazy var frameLog: TerminalFrameLog = {
         let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
         log.phaseProvider = { [weak self] in
@@ -355,6 +359,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
 
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
@@ -772,6 +782,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -798,6 +815,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            #if DEBUG
+            self.rttLog.presented()
+            #endif
         }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -891,6 +911,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         registerEdgeEffectScrollView()
         #if DEBUG
         frameLog.start()
+        TerminalScrollBench.install(self)
         #endif
         startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
@@ -1513,6 +1534,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            rttLog.outputArrived(bytes: data.count)
             #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
@@ -1689,6 +1711,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.scanOutput(data)
                 firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -2022,6 +2045,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -2607,6 +2631,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        #if DEBUG
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
@@ -3236,6 +3266,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
 
+    /// DEBUG demo: a fling over a full-screen app, as the wheel (T-SCROLL-12).
+    func tuiFling(velocity: CGFloat) {
+        tuiScroll.demoFling(velocityY: velocity)
+    }
+
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {
@@ -3683,6 +3718,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             panFrames.begin(.tui, rows: documentRows)
         }
         tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
+        #if DEBUG
+        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
+        #endif
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
