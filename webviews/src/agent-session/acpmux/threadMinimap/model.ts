@@ -448,20 +448,39 @@ export function railClearHeight(
 export const RAIL_FADE = 40;
 export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
 
-/// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
-/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
-export function railFades(
+/// How far the chat's view is from each of its ends, as the transcript's own edge fades read it
+/// (transcriptFadeReach, 0 at that end, 1 once the view is TRANSCRIPT_FADE_RAMP px from it).
+export type ChatEdgeReach = { top: number; bottom: number };
+
+/// Which of the list's edge fades draw at offset `top`, and how deep (0 to 1 of the rail's fade): an
+/// end fades while there is more past it, rows of the list past that edge or chat past the view at
+/// that end, and has a hard edge once the list and the chat are both at that end. Both ends follow
+/// the one rule, so scrolled up from the bottom the rail's foot fades as its head does (Leo,
+/// 2026-11-22: "if i scroll up in the scroll rail, the lower end should reflect that i'm not at the
+/// very bottom, and therefore have the same fade effect as the top does. likewise, when im at the top,
+/// it should def have the hard edge like when im at the bottom."). Each depth is the deeper of the
+/// list's and the chat's, so it grows with the scroll from that end and never steps; it reaches no
+/// further than the band (the prompts on screen, `first` to `last`), which always draws in full ink:
+/// a lit prompt at the rail's very end keeps that end hard.
+export function railEdgeFades(
   band: { first: number; last: number },
   count: number,
   height: number,
   top: number,
+  chat: ChatEdgeReach,
   pitch = ROW_PITCH,
-): { top: boolean; bottom: boolean } {
+): { top: boolean; bottom: boolean; reach: ChatEdgeReach } {
   const fade = railFade(height);
-  return {
-    top: top > 0 && band.first * pitch - top >= fade,
-    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
+  const list = railFadeReach(count, height, top, pitch);
+  // The room between each edge and the band, as a share of the fade.
+  const room = (gap: number) => (fade > 0 ? Math.max(0, Math.min(1, gap / fade)) : 0);
+  // Down to whole hundredths: a depth rounded up could reach a fraction of a pixel over the band.
+  const round = (value: number) => Math.floor(value * 100 + 1e-9) / 100;
+  const reach = {
+    top: round(Math.min(Math.max(list.top, chat.top), room(band.first * pitch - top))),
+    bottom: round(Math.min(Math.max(list.bottom, chat.bottom), room(height - ((band.last + 1) * pitch - top)))),
   };
+  return { top: reach.top > 0, bottom: reach.bottom > 0, reach };
 }
 
 /// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
@@ -485,7 +504,7 @@ export const transcriptFadeReach = (distance: number) =>
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
-/// the whole band. In a rail too short for the band and the fades, the fades give way (railFades)
+/// the whole band. In a rail too short for the band and the fades, the fades give way (railEdgeFades)
 /// and the band still shows whole. A band taller than the rail shows its first row, or its last when
 /// it holds the chat's last prompt. A band that holds the chat's last prompt scrolls the list to its
 /// end, which draws no bottom fade, so at the bottom of the chat the bottom ticks show lit (Leo

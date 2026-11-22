@@ -251,6 +251,46 @@ test("each rail edge fades from nothing at its end to full a few rows on, like a
   for (let at = 1; at < steps.length; at += 1) expect(steps[at]! - steps[at - 1]!).toBeLessThanOrEqual(0.5);
 });
 
+// Leo, 2026-11-22: "if i scroll up in the scroll rail, the lower end should reflect that i'm not at the
+// very bottom, and therefore have the same fade effect as the top does. likewise, when im at the top, it
+// should def have the hard edge like when im at the bottom."
+test("each rail end fades while the list or the chat has more past it, hard once both are at that end", async () => {
+  const { railEdgeFades, railFade, ROW_PITCH } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  const height = 240;
+  const count = 100;
+  const end = count * ROW_PITCH - height;
+  const rows = height / ROW_PITCH;
+  const fade = railFade(height);
+  /// The band a few rows in from the list's offset, clear of both fades.
+  const mid = (top: number) => ({ first: top / ROW_PITCH + 8, last: top / ROW_PITCH + 10 });
+  const at = (top: number, chatTop: number, chatBottom: number, band = mid(top)) =>
+    railEdgeFades(band, count, height, top, { top: chatTop, bottom: chatBottom });
+  // The chat at its top, the list at its top: a hard head, the foot full.
+  expect(at(0, 0, 1)).toEqual({ top: false, bottom: true, reach: { top: 0, bottom: 1 } });
+  // The chat at its bottom, the list at its end: a hard foot.
+  expect(at(end, 1, 0)).toEqual({ top: true, bottom: false, reach: { top: 1, bottom: 0 } });
+  // Scrolled up from the bottom with the list still at its end: the foot fades by the chat's reach.
+  expect(at(end, 1, 0.4)).toEqual({ top: true, bottom: true, reach: { top: 1, bottom: 0.4 } });
+  // Scrolled down from the top with the list still at its top: the head fades by the chat's reach.
+  expect(at(0, 0.25, 1)).toEqual({ top: true, bottom: true, reach: { top: 0.25, bottom: 1 } });
+  // The list wheeled off its end while the chat stays at the bottom: the foot fades for the rows below.
+  expect(at(end - 400, 1, 0).bottom).toBe(true);
+  // Never over the band: a lit prompt one row from the foot leaves the fade that row, a lit last
+  // prompt at the rail's end leaves it hard, whatever the chat has below.
+  const lastRows = { first: count - 3, last: count - 2 };
+  expect(at(end, 1, 1, lastRows).reach.bottom).toBe(ROW_PITCH / fade);
+  expect(at(end, 1, 1, { first: count - 2, last: count - 1 })).toMatchObject({ bottom: false });
+  expect(at(0, 1, 1, { first: 0, last: 2 })).toMatchObject({ top: false });
+  // The fade's depth moves with every pixel scrolled, never in one step.
+  let was = at(end, 1, 0).reach.bottom;
+  for (let px = 1; px <= 96; px += 1) {
+    const now = at(end, 1, px / 96).reach.bottom;
+    expect(now - was).toBeLessThanOrEqual(0.02 + 1e-9);
+    was = now;
+  }
+  expect(rows).toBeGreaterThan(12);
+});
+
 test("the transcript's edges deepen as the view leaves each end", async () => {
   const { transcriptFadeReach, TRANSCRIPT_FADE_RAMP } = await import("../src/agent-session/acpmux/threadMinimap/model");
   expect(transcriptFadeReach(0)).toBe(0);

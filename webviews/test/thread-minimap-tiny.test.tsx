@@ -2,8 +2,8 @@
 // The rail rendered in tiny panes (see thread-minimap-room.test.ts for the whole sweep): pane heights
 // from the transcript's 96 px minimum, prompt counts from the rail's 4 up to 70, and offsets down the
 // whole chat. Every lit tick draws whole inside the rail's list and clear of the list's own edge fades
-// (they give way to the band in a short rail), and, where the pane has room, clear of the transcript's
-// faded edges.
+// at the depth each draws (they give way to the band, model.ts railEdgeFades), and, where the pane has
+// room, clear of the transcript's faded edges.
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -158,8 +158,13 @@ for (let height = 96; height <= 336; height += 16)
           );
           // Prompts whose rows could not all be on screen together are not a band the rail can owe.
           if (lit.length * railPitch() > viewport) continue;
-          const from = list.hasAttribute("data-fade-top") ? fade : 0;
-          const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
+          // Each fade as deep as it draws: the fade times its reach (threadMinimap.css).
+          const depth = (edge: "top" | "bottom") =>
+            list.hasAttribute(`data-fade-${edge}`)
+              ? fade * Number(list.style.getPropertyValue(`--acpmux-minimap-fade-${edge}-reach`))
+              : 0;
+          const from = depth("top");
+          const to = railHeight - depth("bottom");
           // The transcript's faded edges, where the pane has room for the rail clear of them.
           const roomy = railHeight <= viewport - 18 - 18 - 8;
           const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;

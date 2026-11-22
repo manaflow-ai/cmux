@@ -7514,6 +7514,10 @@ function TranscriptView({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach), the transcript's and
+  // the prompt rail's: none at that end of the chat, deeper the farther the view is from it.
+  const fadeTopReach = transcriptFadeReach(renderScroll.top - origin);
+  const fadeBottomReach = renderFollowing ? 0 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX);
   // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
   // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
@@ -7728,10 +7732,8 @@ function TranscriptView({
             // scroll restyles the scroller alone.
             style={
               {
-                "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
-                "--acpmux-fade-bottom-reach": renderFollowing
-                  ? 0
-                  : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+                "--acpmux-fade-top-reach": fadeTopReach,
+                "--acpmux-fade-bottom-reach": fadeBottomReach,
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
                 ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
                 ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
@@ -7766,6 +7768,10 @@ function TranscriptView({
                 columnWidth={width}
                 placed={minimapPlaced}
                 topInset={topInset}
+                // The rail's ends fade by the same reaches as the transcript's soft edges: hard at the
+                // end of the chat the view is at, fading where more lies past it (railEdgeFades).
+                chatFadeTop={fadeTopReach}
+                chatFadeBottom={fadeBottomReach}
               />
             )}
             {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
