@@ -8,12 +8,14 @@
 //! deleted, in a later step:
 //!
 //! - [`chromium`]: `Bookmarks`, `History`, the open tabs of a session file (an SNSS command log
-//!   of [`pickle`] payloads), the default search engine and the Web Store extensions;
+//!   of [`pickle`] payloads), the default search engine and the Web Store and unpacked extensions;
 //! - [`arc`]: Arc's `StorableSidebar.json` (Favorites and each space's pinned tabs);
 //! - [`firefox`]: `places.sqlite` bookmarks and history, the mozLz4 ([`lz4`]) session store and
 //!   `search.json.mozlz4`;
 //! - [`safari`]: `Bookmarks.plist`, `History.db` and the Search setting;
 //! - [`exported`]: history a browser exports as JSON (Safari, Google Takeout);
+//! - [`extension_plan`]: which imported extensions a cmux profile lacks (store pages to open,
+//!   unpacked folders to copy);
 //! - [`search`]: a search engine's template cleanup, host and built-in mapping;
 //! - [`sqlite`]: the private, read-only copy every database on disk is read from, and the
 //!   in-memory open (WAL replayed) of one the app sent;
@@ -30,6 +32,7 @@
 pub mod arc;
 pub mod chromium;
 pub mod exported;
+pub mod extension_plan;
 pub mod firefox;
 mod json;
 pub mod lz4;
@@ -44,4 +47,6 @@ pub mod time;
 pub mod upload;
 pub mod url;
 
-pub use model::{Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};
+pub use model::{
+    Bookmark, Extension, HistoryEntry, InstalledExtension, ReadError, SearchEngine, Tab,
+};
