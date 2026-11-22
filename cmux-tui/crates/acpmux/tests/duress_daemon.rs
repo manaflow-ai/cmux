@@ -96,7 +96,7 @@ const PEER_ROWS: usize = 5;
 /// The name the external session is listed under (the registry entry's `name`).
 const EXTERNAL_NAME: &str = "duress-external";
 /// How long the stub hub holds a request in `hubslow`.
-const HUB_SLOW: Duration = Duration::from_secs(30);
+const HUB_HOLD: Duration = Duration::from_secs(30);
 /// Sleeping processes of the fork leg.
 const SLEEPERS: usize = 2000;
 /// The tmpfs the disk leg puts the home on.
@@ -530,7 +530,7 @@ fn serve_hub(conn: std::net::TcpStream, mode: &AtomicU8, requests: &AtomicU64, s
         requests.fetch_add(1, Ordering::SeqCst);
         let answer = match mode.load(Ordering::SeqCst) {
             HUB_SLOW => {
-                std::thread::sleep(HUB_SLOW);
+                std::thread::sleep(HUB_HOLD);
                 return;
             }
             HUB_503 => ("503 Service Unavailable", r#"{"error":"unavailable"}"#.to_owned()),
