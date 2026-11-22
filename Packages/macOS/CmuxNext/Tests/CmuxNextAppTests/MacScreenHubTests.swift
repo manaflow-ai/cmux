@@ -1442,7 +1442,7 @@ struct MacScreenRdHostRoutingTests {
         let host = MacScreenRdHost(session: session) { signaling in
             for try await signal in signaling.messages() { received.append(signal) }
         }
-        // No bundled cmux in the test runner: the rd host fails to start instead.
+        // No Screen Sharing helper in the test runner: the host fails to start (never in the app).
         let failures = Received()
         host.onEvent = { event in if case .sourceFailed = event { failures.append(.bye) } }
         try await host.serve(FedSignaling([.offer(document.text), .bye]))

@@ -1,46 +1,61 @@
 @testable import CmuxNextMacScreen
+import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Permission snapshots use a fresh child; failed reads must not leave a prior grant visible.
+/// Permission snapshots come from a fresh helper process; failed reads must not leave a prior grant
+/// visible, and this app never reads or asks for a grant of its own.
 @MainActor @Suite
 struct MacScreenShareHostTests {
-    @Test func aFreshReadReplacesCachedDenial() async {
+    /// A host whose helper is a stand-in bundle path (nothing is spawned: `readGrants` is replaced).
+    static func hostWithHelper() -> MacScreenShareHost {
         let host = MacScreenShareHost()
-        host.readPermissions = { (false, false) }
+        let helper = MacScreenHelper(app: URL(fileURLWithPath: "/nonexistent/cmux TEST Screen Sharing.app"))
+        host.helper = { helper }
+        return host
+    }
+
+    static func grants(_ screen: Bool, _ control: Bool) -> MacScreenHelper.Permissions {
+        MacScreenHelper.Permissions(screenRecording: screen, accessibility: control)
+    }
+
+    @Test func aFreshReadReplacesCachedDenial() async {
+        let host = Self.hostWithHelper()
+        host.readGrants = { _ in Self.grants(false, false) }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
 
-        host.readPermissions = { (true, true) }
+        host.readGrants = { _ in Self.grants(true, true) }
         await host.refreshPermissions()
         #expect(host.screenRecordingGranted)
         #expect(host.accessibilityGranted)
     }
 
     @Test func aFailedProbeClearsAnEarlierGrant() async {
-        let host = MacScreenShareHost()
-        host.readPermissions = { (true, true) }
+        let host = Self.hostWithHelper()
+        host.readGrants = { _ in Self.grants(true, true) }
         await host.refreshPermissions()
-        host.readPermissions = { throw CocoaError(.fileNoSuchFile) }
+        #expect(host.grantHolderName == "cmux TEST Screen Sharing")
+        host.readGrants = { _ in nil }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
         #expect(!host.accessibilityGranted)
     }
 
     @Test func aLaterReadWinsOverAnOlderOneThatEndsAfterIt() async {
-        let host = MacScreenShareHost()
+        let host = Self.hostWithHelper()
         let (entered, enter) = AsyncStream.makeStream(of: Void.self)
         let (released, release) = AsyncStream.makeStream(of: Void.self)
-        host.readPermissions = {
+        host.readGrants = { _ in
             enter.yield()
             var waiting = released.makeAsyncIterator()
             _ = await waiting.next()
-            return (true, true)
+            return Self.grants(true, true)
         }
         let older = Task { await host.refreshPermissions() }
         var waiting = entered.makeAsyncIterator()
         _ = await waiting.next()
-        host.readPermissions = { (false, true) }
+        host.readGrants = { _ in Self.grants(false, true) }
         await host.refreshPermissions()
         #expect(!host.screenRecordingGranted)
         release.yield()
@@ -50,17 +65,38 @@ struct MacScreenShareHostTests {
         #expect(host.accessibilityGranted)
     }
 
-    /// A build without the Screen Sharing helper reads this app's own grants, and names no holder.
-    @Test func aBuildWithoutTheHelperReadsTheAppsOwnGrants() async {
+    /// A build without the Screen Sharing helper reads no grant at all (never this app's own),
+    /// shows both off and names no holder.
+    @Test func aBuildWithoutTheHelperShowsNoGrant() async {
         let host = MacScreenShareHost()
         host.helper = { nil }
-        host.readPermissions = { (true, false) }
+        let reads = CmuxNextCompat.Atomic<Int>(0)
+        host.readGrants = { _ in reads.wrappingAdd(1, ordering: .relaxed); return Self.grants(true, true) }
 
         await host.refreshPermissions()
 
-        #expect(host.screenRecordingGranted)
+        #expect(reads.load(ordering: .relaxed) == 0)
+        #expect(!host.screenRecordingGranted)
         #expect(!host.accessibilityGranted)
         #expect(host.grantHolderName == nil)
+    }
+
+    /// A build without the helper asks macOS for nothing: no prompt names cmux, no Settings pane
+    /// opens, and no wait for the person (Leo, 2026-11-22: no app restart to enable a grant).
+    @Test(arguments: [true, false])
+    func aBuildWithoutTheHelperAsksNothing(screenRecording: Bool) async {
+        let host = MacScreenShareHost()
+        host.helper = { nil }
+        var opened = 0, settles = 0, waits = 0
+        host.isAppActive = { true }
+        host.openSettingsPane = { _ in opened += 1 }
+        host.settle = { _ in settles += 1 }
+        host.nextActivation = { waits += 1 }
+
+        await host.requestAndWait(screenRecording: screenRecording)
+
+        #expect(opened == 0 && settles == 0 && waits == 0)
+        #expect(!host.screenRecordingGranted && !host.accessibilityGranted)
     }
 
     /// The helper is the one `* Screen Sharing.app` in Contents/Library with its executable;
@@ -87,11 +123,10 @@ struct MacScreenShareHostTests {
     /// Settings pane only when nothing took focus (macOS asks once per grant).
     @Test(arguments: [(true, true), (true, false), (false, true), (false, false)])
     func aRequestWaitsForMacOSsOwnSurface(granted: Bool, promptTakesFocus: Bool) async {
-        let host = MacScreenShareHost()
+        let host = Self.hostWithHelper()
         var active = true
         var asked: [Bool] = [], opened: [Bool] = [], settles = 0, waits = 0
-        host.helper = { nil }
-        host.readPermissions = { (granted, false) }
+        host.readGrants = { _ in Self.grants(granted, false) }
         host.isAppActive = { active }
         host.askMacOS = { asked.append($0); return granted }
         host.settle = { _ in settles += 1; if promptTakesFocus { active = false } }
@@ -113,10 +148,9 @@ struct MacScreenShareHostTests {
 
     /// A request started while this app is already in the background waits for the person's return.
     @Test func aRequestFromTheBackgroundWaitsForTheReturn() async {
-        let host = MacScreenShareHost()
+        let host = Self.hostWithHelper()
         var waits = 0, settles = 0, opened = 0
-        host.helper = { nil }
-        host.readPermissions = { (false, false) }
+        host.readGrants = { _ in Self.grants(false, false) }
         host.isAppActive = { waits == 0 ? false : true }
         host.askMacOS = { _ in false }
         host.settle = { _ in settles += 1 }

@@ -41,10 +41,9 @@ private nonisolated final class MacScreenRdLineSink: Sendable {
 /// One `cmux rd serve|connect` process of a Mac Screen session (plans/cmux-next/remote-desktop-mac-host.md
 /// section 7): the cmux.rd/1 host or the viewer's link bridge. The host (`serve`) runs in the Screen
 /// Sharing helper (``MacScreenHelper``, plans/cmux-next/screen-sharing-helper.md), so macOS checks its
-/// own Screen Recording and Accessibility grants, never this app's; a build without the helper runs
-/// `cmux rd serve` from the bundled cmux, as before. The viewer's bridge needs no grant and runs the
-/// bundled cmux. The app talks
-/// to it in JSON lines. Stdout lines arrive on `lines` (read on Foundation's pipe queue, never the main
+/// own Screen Recording and Accessibility grants, never this app's; a build without the helper serves
+/// nothing. The viewer's bridge needs no grant and runs the bundled cmux. The app talks to it in
+/// JSON lines. Stdout lines arrive on `lines` (read on Foundation's pipe queue, never the main
 /// actor); `send` writes one line to stdin on a serial queue, so a full pipe never blocks the caller.
 /// Closing stdin, or this app ending, ends the process (it reads end of file and stops its session).
 nonisolated final class MacScreenRdProcess: Sendable {
@@ -82,12 +81,12 @@ nonisolated final class MacScreenRdProcess: Sendable {
         return Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
     }
 
-    /// Starts the host: `serve` in the Screen Sharing helper when this build carries one, else
-    /// `cmux rd serve`. Throws when it will not launch. Off the caller's actor: staging the
-    /// helper's copy reads and may copy files.
-    @concurrent func startServe() async throws {
-        guard let helper = MacScreenHelper.bundled() else { return try start(.serve) }
-        // Never the bundled cmux once the helper is bundled: macOS would then check this app.
+    /// Starts the host: `serve` in the Screen Sharing helper. Throws when this build carries no
+    /// helper or it will not launch. Never `cmux rd serve` from the bundled cmux: macOS would then
+    /// charge Screen Recording and Accessibility to this app, and a grant would relaunch it. Off
+    /// the caller's actor: staging the helper's copy reads and may copy files.
+    @concurrent func startServe(helper: @Sendable () -> MacScreenHelper? = { MacScreenHelper.bundled() }) async throws {
+        guard let helper = helper() else { throw MacScreenHelper.Missing() }
         guard let executable = await helper.executable() else { throw MacScreenHelper.NotStaged(helper: helper.name) }
         let pid = try startSpawned { stdin, stdout, stderr in
             try MacScreenHelper.spawn(executable, [Role.serve.rawValue], stdin: stdin, stdout: stdout, stderr: stderr)
@@ -116,8 +115,14 @@ nonisolated final class MacScreenRdProcess: Sendable {
         return pid
     }
 
-    /// Starts `cmux rd <role>` from the bundled cmux. Throws when the binary is missing or will not launch.
-    func start(_ role: Role) throws {
+    /// Starts the viewer's link bridge, `cmux rd connect`, from the bundled cmux (it needs no
+    /// grant). Throws when the binary is missing or will not launch. The host never starts here
+    /// (``startServe(helper:)``).
+    func startConnect() throws {
+        try start(.connect)
+    }
+
+    private func start(_ role: Role) throws {
         // A missing or unlaunchable binary throws from run() below (no disk check on the caller's thread).
         guard let binary = Self.binary else { throw CocoaError(.fileNoSuchFile) }
         let process = Process()

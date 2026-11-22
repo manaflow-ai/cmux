@@ -148,7 +148,7 @@ public final class MacScreenSession {
         timings.connectStarted(at: Date(), .now)
         frameCounter = nil
         let process = MacScreenRdProcess()
-        do { try process.start(.connect) } catch {
+        do { try process.startConnect() } catch {
             phase = .failed(message: L.t("macScreen.rd.noBinary", "cmux could not start its screen viewer."), needsSignIn: false)
             return
         }

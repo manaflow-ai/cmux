@@ -56,4 +56,15 @@ import Testing
         #expect(read.last?.candidatesDone == true)
         #expect(read.map(\.kinds) == ["displays current", "key", "candidate", "candidates_done"])
     }
+
+    /// A build without the Screen Sharing helper never hosts in the app: the old fallback ran
+    /// `cmux rd serve` from the bundled cmux, so macOS charged Screen Recording and Accessibility
+    /// to cmux and a grant relaunched it (Leo, 2026-11-22). The start fails and nothing runs.
+    @Test func noHelperMeansNoHostAndNoAppProcess() async {
+        let process = MacScreenRdProcess()
+        await #expect(throws: MacScreenHelper.Missing.self) {
+            try await process.startServe(helper: { nil })
+        }
+        #expect(!process.started)
+    }
 }
