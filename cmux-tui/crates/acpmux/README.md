@@ -1609,8 +1609,8 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
   (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
   `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new|run`,
-  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new`, its alias
+  `cmux agent run`, `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
   its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
   never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower

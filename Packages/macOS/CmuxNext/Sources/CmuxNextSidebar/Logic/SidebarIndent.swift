@@ -7,7 +7,8 @@ import CoreGraphics
 /// level always share one x, in any group, after a drag and after a reload. A level past
 /// ``visualCap(width:)`` draws at the cap: in a narrow sidebar the labels keep their width.
 nonisolated struct SidebarIndent: Hashable, Sendable {
-    /// One level's step: the members' gutter (`SidebarStyle.groupGutter`).
+    /// One level's step: the members' gutter (`SidebarStyle.groupGutter`), or in the plain-folder look the distance
+    /// that puts a member's title under its folder's name (`SidebarStyle.folderMemberStep`).
     var step: CGFloat
     /// The label width a row keeps at its deepest drawn level: in a narrow sidebar the indent stops before a
     /// label gets narrower than this.
