@@ -639,64 +639,6 @@ const SPROUT_FADE_MS = MOTION_MS.micro;
 const DEFER_MS = MOTION_MS.large * 4;
 /// How many points of a wipe's edge each clip's keyframes sample (on the straight line between them).
 const WIPE_POINTS = 24;
-/// One stretch of the view a wipe's edge runs over: from `from` to `to` (px, in the view).
-export type WipeSpan = { from: number; to: number };
-
-/// The stretches a wipe's edge runs over: the boxes that change, merged where they touch or overlap and
-/// clipped to the view (`top`, `bottom`), top to bottom. The rows between them that did not change are
-/// left out of the run: the edge crossing them changed nothing on screen, so a fold whose changes sat
-/// apart (the summary up top, the answer below the kept steers) played as two or three motions with
-/// stills between them (the fold fuzzer: 78 of 500 seeds). Over the spans it changes something on every
-/// frame, one motion. Never empty: with nothing in the view, a 1 px run where the first box starts.
-export function wipeSpans(boxes: { top: number; height: number }[], top?: number, bottom?: number): WipeSpan[] {
-  const sorted = boxes
-    .map((box) => ({
-      from: top === undefined ? box.top : Math.max(top, box.top),
-      to: bottom === undefined ? box.top + box.height : Math.min(bottom, box.top + box.height),
-    }))
-    .filter((span) => span.to > span.from)
-    .sort((a, b) => a.from - b.from);
-  const spans: WipeSpan[] = [];
-  for (const span of sorted) {
-    const last = spans.at(-1);
-    if (last && span.from <= last.to + WIPE_SPAN_JOIN_PX) last.to = Math.max(last.to, span.to);
-    else spans.push({ ...span });
-  }
-  if (spans.length) return spans;
-  const at = Math.min(...boxes.map((box) => box.top), bottom ?? Infinity);
-  return [{ from: Number.isFinite(at) ? at : 0, to: (Number.isFinite(at) ? at : 0) + 1 }];
-}
-
-/// Rows closer than this are one stretch of a wipe's run: a gap a frame's step crosses anyway.
-const WIPE_SPAN_JOIN_PX = 8;
-
-/// Where the edge is (px, in the view) once it has run `along` (0 to 1) of the spans' length.
-export function wipeEdge(spans: WipeSpan[], along: number, up = false): number {
-  const total = spans.reduce((sum, span) => sum + span.to - span.from, 0);
-  let left = Math.min(1, Math.max(0, up ? 1 - along : along)) * total;
-  for (const span of spans) {
-    const length = span.to - span.from;
-    if (left <= length) return span.from + left;
-    left -= length;
-  }
-  return spans.at(-1)!.to;
-}
-
-/// How far along the spans (0 to 1) the edge reaches `y`; the inverse of `wipeEdge`.
-export function wipeReach(spans: WipeSpan[], y: number, up = false): number {
-  const total = spans.reduce((sum, span) => sum + span.to - span.from, 0);
-  let before = 0;
-  for (const span of spans) {
-    if (y < span.to) {
-      before += Math.max(0, y - span.from);
-      break;
-    }
-    before += span.to - span.from;
-  }
-  const along = total > 0 ? Math.min(1, before / total) : 0;
-  return up ? 1 - along : along;
-}
-
 /// A clip that hides `top` px of a box's top and nothing past its other edges.
 const clipTop = (top: number) => `inset(${top}px -4096px -4096px -4096px)`;
 /// The reader's gestures that end `defer`'s hold. Scrolls alone are not among them: the view scrolls
@@ -732,10 +674,10 @@ function playReplace(
   /// When the swap starts: the first painted frame, `defer`'s hold after it, or the reader's gesture.
   let startsAt: number | undefined;
   let hold = look === "defer" ? DEFER_MS : 0;
-  /// The edge's run, in the view: fixed at the first pass, over what changes (`spans`, the boxes that
-  /// change merged, the rows between them that stay skipped). `up`: it runs from the bottom up, when the
-  /// rows that move go down more than up, so it reaches most moved rows' new place before their old one.
-  let edge: { spans: WipeSpan[]; up: boolean } | undefined;
+  /// The edge's run, in the view: fixed at the first pass, from the top of what changes to its bottom.
+  /// `up`: it runs from the bottom up, when the rows that move go down more than up, so it reaches
+  /// most moved rows' new place before their old one.
+  let edge: { from: number; to: number; up: boolean } | undefined;
   const played = new Map<HTMLElement, { key: string; animations: Animation[] }>();
   const toStart = () => (startsAt === undefined ? hold : startsAt - now());
   const arm = () => {
@@ -820,13 +762,26 @@ function playReplace(
     if (!edge) {
       const boxes = [...fresh, ...stale];
       if (boxes.length === 0) return;
-      edge = { spans: wipeSpans(boxes, view?.top, view?.bottom), up: travel > 0 };
+      const top = Math.min(...boxes.map((box) => box.top));
+      const bottom = Math.max(...boxes.map((box) => box.top + box.height));
+      edge = {
+        from: view ? Math.max(view.top, top) : top,
+        to: view ? Math.min(view.bottom, bottom) : bottom,
+        up: travel > 0,
+      };
+      if (!(edge.to > edge.from)) edge.to = edge.from + 1;
     }
-    const { spans, up } = edge;
+    const { from, to, up } = edge;
     /// Where a box of the view crosses the edge's run, as a fraction of it (0 where it starts, 1 at its end).
-    const reach = (y: number) => wipeReach(spans, y, up);
+    const reach = (y: number) => {
+      const along = Math.min(1, Math.max(0, (y - from) / (to - from)));
+      return up ? 1 - along : along;
+    };
     /// The edge at `step` of WIPE_POINTS.
-    const edgeY = (step: number) => wipeEdge(spans, edgeAt(step / WIPE_POINTS), up);
+    const edgeY = (step: number) => {
+      const along = edgeAt(step / WIPE_POINTS);
+      return up ? to - (to - from) * along : from + (to - from) * along;
+    };
     /// A box's clip at edge `y`: the new frame shows on the side the edge has passed, the old on the other.
     const clipAt = (fresh: boolean, top: number, height: number, y: number) => {
       const above = Math.min(height, Math.max(0, y - top));
@@ -1384,13 +1339,6 @@ export function playTurnEnd(
       const height = node.offsetHeight;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
-      // A row the swap's render grew (the reply's last lines, shown as the turn ends: revealedMarkdownModel.ts
-      // `TurnEndCut`) starts as tall as it drew and opens to its full height on the fold's clock. Grown
-      // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
-      // began, a second motion (cmux#50299).
-      // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
-      if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
-        clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
       if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.

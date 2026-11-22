@@ -1,12 +1,8 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
 import { MOTION_MS } from "../../../motion/scale.generated";
-
-/// Bumped in the render that ends a turn (VirtualTranscript): a reply still revealing after its stream
-/// ended shows the rest in that commit, so it lands in the turn end's fold.
-export const TurnEndCut = createContext(0);
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -82,13 +78,6 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   // Text there when the row mounts shows at once; only what arrives after it flows in.
   reveal.current ??= new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   const [shown, setShown] = useState<Shown>(() => ({ length: displayText.length, fresh: [], now: 0 }));
-  // The turn ended (VirtualTranscript bumps TurnEndCut in the render that folds it): what is left
-  // of a reply the stream already ended shows in this commit, so it lands in the fold's own frame. Paced over the frames after it, each line grew the reply under the fold that had
-  // just settled the turn, a second motion after it (cmux#50299; Leo 2026-11-22: "false grow then
-  // collapse with the tool calls on the end of turn folding").
-  const cut = useContext(TurnEndCut);
-  const seenCut = useRef(cut);
-  const ending = cut !== seenCut.current && !streaming && shown.length < displayText.length;
   const latest = useRef({ text: displayText, streaming, shown });
   latest.current = { text: displayText, streaming, shown };
   const nextId = useRef(0);
@@ -103,17 +92,6 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     // the old prefix and animate the restored suffix as if it were new text.
     if (historicalReplacement) {
       current.replace(displayText);
-      const next = { length: displayText.length, fresh: [], now: shown.now };
-      latest.current.shown = next;
-      setShown(next);
-      return;
-    }
-    if (ending) {
-      // Drawn whole, as a finished reply; the fold opens its new lines on its own clock
-      // (turnEndFold.ts clips a row the swap grew), so nothing of it fades on a clock of its own.
-      current.replace(displayText);
-      revealFrames.cancel(loop.current.handle);
-      loop.current.handle = 0;
       const next = { length: displayText.length, fresh: [], now: shown.now };
       latest.current.shown = next;
       setShown(next);
@@ -183,10 +161,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     loop.current.handle = revealFrames.request(tick);
     // `shown` is read only to skip a loop that has nothing to do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayText, ending, historicalReplacement, shown, streaming]);
-  useLayoutEffect(() => {
-    seenCut.current = cut;
-  }, [cut]);
+  }, [displayText, historicalReplacement, shown, streaming]);
   useLayoutEffect(() => {
     // Keep the longest complete body for a reconnect snapshot that briefly goes backwards.
     setKnownText((current) => (text.length >= current.length ? text : current));
@@ -227,8 +202,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     return () => query.removeEventListener("change", changed);
   }, []);
   return {
-    visible:
-      historicalReplacement || ending ? displayText : displayText.slice(0, Math.min(shown.length, displayText.length)),
+    visible: historicalReplacement ? displayText : displayText.slice(0, Math.min(shown.length, displayText.length)),
     fresh: historicalReplacement ? [] : shown.fresh,
     now: shown.now,
   };
