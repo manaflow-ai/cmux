@@ -26,7 +26,15 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  isTemporaryFolder,
+  mostRecentProject,
+  projectLabel,
+  sessionMark,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -479,7 +487,9 @@ export function NewTabScreen(props: Props) {
     placePicked.current = true;
     setMachine({ peer: props.startMachine });
   }, [props.startMachine]);
-  const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
+  // A temporary folder (the tab beside a scratch chat or terminal in /tmp) is no project of its own
+  // either: the page starts on the last one used (cmux#49610).
+  const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd) || isTemporaryFolder(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
     () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
