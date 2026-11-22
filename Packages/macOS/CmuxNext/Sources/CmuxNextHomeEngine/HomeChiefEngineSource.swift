@@ -15,10 +15,48 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
     /// Sets (nil: clears) any of harness, model, effort, speed and the reaction classifier fields in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+    /// The Chief's automations, oldest first (`chief.automation.list`).
+    func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation]
+    /// Pauses, resumes, deletes or runs one automation (`chief.automation.update`); the list after.
+    func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation]
 }
 
 extension HomeChiefEngineSource {
     public nonisolated var choosesHarness: Bool { true }
+
+    /// The Chief's automations (issue 25573), oldest first; a brain with none to show (a hosted
+    /// cloud Chief, whose jobs are its own `chief-auto`) answers `unsupported`.
+    public nonisolated func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        throw .unsupported
+    }
+
+    /// Pauses, resumes, deletes or runs one automation; the list after the change.
+    public nonisolated func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        throw .unsupported
+    }
+}
+
+/// `chief.automation.list|update` on the daemon in front of a brain, for the local and the
+/// paired-server brain alike.
+nonisolated enum HomeChiefAutomationCalls {
+    static func list(on connection: DaemonConnection?, chief: String?) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection else { throw .unreachable }
+        do {
+            return try await ChiefControlClient(connection).chiefAutomations(chief: chief)
+        } catch {
+            throw HomeChiefEngineError(error)
+        }
+    }
+
+    static func update(_ id: String, _ action: ChiefAutomationAction, on connection: DaemonConnection?,
+                       chief: String?) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection else { throw .unreachable }
+        do {
+            return try await ChiefControlClient(connection).updateChiefAutomation(id, action, chief: chief)
+        } catch {
+            throw HomeChiefEngineError(error)
+        }
+    }
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
@@ -60,6 +98,16 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
             return snapshot
         }
         return snapshot.offering(report)
+    }
+
+    public func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection = await connection() else { throw .localUnreachable }
+        return try await HomeChiefAutomationCalls.list(on: connection, chief: chief)
+    }
+
+    public func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection = await connection() else { throw .localUnreachable }
+        return try await HomeChiefAutomationCalls.update(id, action, on: connection, chief: chief)
     }
 
     public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
@@ -123,6 +171,14 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .unreachable }
         return snapshot(try await HomeChiefEngineSet.send(fields, on: connection))
+    }
+
+    public func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        try await HomeChiefAutomationCalls.list(on: await connection(), chief: nil)
+    }
+
+    public func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        try await HomeChiefAutomationCalls.update(id, action, on: await connection(), chief: nil)
     }
 
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {

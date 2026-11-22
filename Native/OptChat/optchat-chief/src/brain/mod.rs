@@ -22,6 +22,8 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod automations;
+pub use automations::{AutomationsRequest, UPDATE_ACTIONS};
 mod background;
 mod budget_hold;
 mod chief_inbox;
@@ -367,6 +369,16 @@ pub enum Input {
     Sleep {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
+    },
+    /// `automation(action, ...)` (automations.rs): the Chief's tool.
+    Automation {
+        call: crate::automations::AutomationCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// chief.automation.list / chief.automation.update from Home.
+    Automations {
+        request: AutomationsRequest,
+        reply: Sender<serde_json::Value>,
     },
     /// `watch(...)` (watches.rs): start, cancel or list watches.
     Watch {
@@ -1078,6 +1090,10 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The running turn took an automation's note (automations.rs): what it
+    /// spawns never fires an `agent_done` automation, so one cannot start
+    /// itself again and again.
+    turn_from_automation: bool,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -1285,6 +1301,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_from_automation: false,
             last_turn_ask: false,
             turn_relay: None,
             turn_denied: Vec::new(),
@@ -1655,6 +1672,7 @@ impl Brain {
             let timer = [
                 self.next_timer(),
                 self.next_wake(),
+                self.next_automation_due(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
                 self.next_outcome_due(),
@@ -1670,6 +1688,7 @@ impl Brain {
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        self.fire_automations_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         self.fire_outcome_checks_at(now_ms());
                         self.fire_check_in();
@@ -1885,6 +1904,12 @@ impl Brain {
             }
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
+            }
+            Input::Automation { call, reply } => {
+                let _ = reply.send(self.automation(call));
+            }
+            Input::Automations { request, reply } => {
+                let _ = reply.send(self.automations_control(request));
             }
             Input::WakeTool { call, reply } => {
                 let _ = reply.send(self.wake_tool(call));
