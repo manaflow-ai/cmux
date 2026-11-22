@@ -132,11 +132,14 @@ import Testing
     func anAgentsFileOpensInItsOwnWorkspace(caller: JSONValue) async throws {
         let executor = OpenBrowserExecutor()
         let router = makeRouter(executor)
-        _ = try await router.handle(ControlRequest(id: "1", method: "file.open", params: [
+        let reply = try await router.handle(ControlRequest(id: "1", method: "file.open", params: [
             "path": "/tmp/note.md", "caller": caller,
         ])).get()
         let request = try #require(executor.all.first)
         #expect(workspace(of: request.target) == "ws_agent", "\(String(describing: request.target))")
+        // The reply says where it opened: beside its caller, never "focused_pane" (Home).
+        #expect(reply["placement"] == "caller", "\(reply)")
+        #expect(reply["pane_id"] == .string(request.target?.id ?? "?"), "\(reply)")
     }
 
     @Test func aChiefTurnStillOpensBesideTheHomeChat() async throws {

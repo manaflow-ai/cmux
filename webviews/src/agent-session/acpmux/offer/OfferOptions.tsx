@@ -111,7 +111,7 @@ export function OfferOptionRows({
       </div>
       <div className="acpmux-task-option acpmux-task-option--folder">
         <Icon name="folder" size={14} />
-        <span className="acpmux-task-folder" id={ids.folder} title={offer.cwd}>
+        <span className="acpmux-task-folder" id={ids.folder} aria-description={offer.cwd}>
           <span className="acpmux-task-folder-name">{folder.name}</span>
           {folder.parent && <span className="acpmux-task-folder-path">{folder.parent}</span>}
         </span>
