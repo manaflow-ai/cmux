@@ -227,8 +227,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
+        DebugLayoutCounters.paneSnapshots &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.paneSnapshots &+= 1
         debugSnapshotRuns += 1
         DebugLayoutCounters.note(debugSnapshotRuns > 3 ? "snapshot later" : "snapshot #\(debugSnapshotRuns)", file, line) // a new pane's runs, else another pane's
         #endif
@@ -469,6 +469,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
         if case .browser(let entry) = content {
+            (entry.tab as? CEFTab)?.willShow(inPane: BrowserPaneID(rawValue: "pane-\(state.map { String(describing: $0.id) } ?? "-")-\(paneKey)")) // its pane's Chromium window
             _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) }
         }
         DebugTabSwitch.mark(self, "content")
@@ -505,6 +506,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// was destroyed. Let the view go without pausing it; re-present when
     /// this pane shows the tab again.
     func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    func surfaceIsFree(_ key: String) { if currentTabKey == nil, stripModel.selectedID?.rawValue == key { services.presentation.setNeedsShowSelected(self) } }
     func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }
         currentTabKey = nil
