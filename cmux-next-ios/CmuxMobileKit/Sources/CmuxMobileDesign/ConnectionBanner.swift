@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxSpinner
+import Observation
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -17,22 +18,30 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
 
-    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
+    /// The banner waits out the shared quiet bound (``QuietStatusGate/threshold``) before it
+    /// shows: a link that heals by itself never draws a word (``QuietConnectionBanner``).
+    public var waitsForQuietBound = false
+
+    /// No network on the phone. Shown only once it has lasted the quiet bound.
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true,
+                                     waitsForQuietBound: true)
+    /// Presence says the Mac is offline (asleep, cmux quit): known, so it shows at once.
     public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
-    public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
     /// The account's session was revoked: nothing reconnects until the person
     /// signs in again, which the banner's one button starts.
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
                                        text: String(localized: "This device was signed out. Sign in again"),
                                        offersRetry: true, actionTitle: String(localized: "Sign in"))
     /// The Mac is connected but a list did not load (Home's last read failed): Retry reads again.
+    /// Shown only once it has lasted the quiet bound.
     public static func refreshFailed(identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
-             offersRetry: true, identity: identity)
+             offersRetry: true, identity: identity, waitsForQuietBound: true)
     }
-    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
+    /// The link to the Mac is down (dialing, redialing, waiting out a backoff). Shown only once it
+    /// has lasted the quiet bound; before that the screen keeps its cached rows and says nothing.
+    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline",
+                                              offersRetry: true, waitsForQuietBound: true)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
@@ -57,6 +66,35 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
              detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
+    }
+}
+
+/// What the connection banner slot draws: the state at once when the person can act on it now
+/// (signed out, pairing, a Mac known to be offline), else nothing until the link has been down for
+/// the shared quiet bound (``QuietStatusGate/threshold``), then one calm "Offline · Retry".
+/// Switching between held states (redialing, then a backoff) keeps the first instant.
+///
+/// Leo, 2026-11-12, on the phone: "just show the cache".
+@MainActor
+@Observable
+public final class QuietConnectionBanner {
+    /// The state as reported, before the quiet bound.
+    public private(set) var state: ConnectionBannerState?
+    @ObservationIgnored public let gate: QuietStatusGate
+
+    public init(gate: QuietStatusGate = QuietStatusGate()) {
+        self.gate = gate
+    }
+
+    public func update(_ next: ConnectionBannerState?) {
+        if state != next { state = next }
+        gate.update(down: next?.waitsForQuietBound == true)
+    }
+
+    /// The banner to draw now (nil: nothing).
+    public var shown: ConnectionBannerState? {
+        guard let state else { return nil }
+        return !state.waitsForQuietBound || gate.isShown ? state : nil
     }
 }
 

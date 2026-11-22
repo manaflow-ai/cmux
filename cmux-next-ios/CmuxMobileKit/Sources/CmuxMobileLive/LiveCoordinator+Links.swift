@@ -1014,17 +1014,44 @@ extension LiveCoordinator {
         }
     }
 
-    /// One line per linked Mac for its section header and Settings.
+    /// One line per linked Mac for its section header and Settings. "Offline" shows only once
+    /// the link has been down for the shared quiet bound (`QuietStatusGate.threshold`); a link
+    /// that heals within it never says a word.
     private func statusLines() -> [String: String] {
         var status: [String: String] = [:]
+        let now = instants.now()
         for session in sessions.values {
-            guard let target = session.link.target,
-                  let line = session.link.phase.statusLine(macName: target.name, media: session.link.media) else { continue }
+            guard let target = session.link.target else { continue }
+            let phase = session.link.phase
+            let quietOver = session.linkDownSince.map { now - $0 >= QuietStatusGate.threshold } ?? false
+            var line = phase.statusLine(macName: target.name, media: session.link.media)
+            if phase != .signedOut, !quietOver { line = nil }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
-            status[target.macID] = session.outdated ? "\(line) · Update cmux on this Mac" : line
+            if session.outdated {
+                status[target.macID] = line.map { "\($0) · Update cmux on this Mac" } ?? "Update cmux on this Mac"
+            } else if let line {
+                status[target.macID] = line
+            }
         }
         return status
+    }
+
+    /// Reads the status lines again when a down link reaches the quiet bound, so its
+    /// "Offline" appears then (nothing else changes at that instant).
+    private func scheduleQuietStatus(_ session: MacSession) {
+        session.quietStatusTask?.cancel()
+        session.quietStatusTask = nil
+        guard let since = session.linkDownSince else { return }
+        let wait = QuietStatusGate.threshold - (instants.now() - since)
+        guard wait > .zero else { return }
+        session.quietStatusTask = Task { [weak self] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self else { return }
+            let status = self.statusLines()
+            if status != self.store.macLinkStatus { self.store.macLinkStatus = status }
+        }
     }
 
     private func updateDiagnostics(_ session: MacSession) {
@@ -1045,13 +1072,13 @@ extension LiveCoordinator {
         updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
+        scheduleQuietStatus(session)
         let status = statusLines()
         if status != store.macLinkStatus { store.macLinkStatus = status }
         // The banner speaks for the focused Mac only: another Mac's link
         // shows in its own section header.
         guard session === focused else { return }
         let phase = session.link.phase
-        bannerTask?.cancel()
         let name = session.link.target?.name ?? "Mac"
         switch phase {
         case .idle:
@@ -1061,23 +1088,13 @@ extension LiveCoordinator {
         case .signedOut:
             banner = .signedOut
         case .connected:
-            if everConnected, banner != nil, banner != .connected {
-                banner = .connected
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = nil
-                }
-            } else {
-                banner = nil
-            }
-            everConnected = true
+            // Back: the banner goes, with no "Connected" toast (the rows were never gone).
+            banner = nil
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
-        case .connecting(_, let attempt):
-            if attempt == 1, !everConnected {
-                banner = .connecting(to: name, identity: session.macID)
-            } else {
-                banner = .reconnecting(to: name, identity: session.macID)
-            }
+        case .connecting:
+            // Dialing or redialing: "Offline · Retry" once it has lasted the quiet bound
+            // (`QuietConnectionBanner`), nothing before (a blip never draws a word).
+            banner = ConnectionBannerState.connectionFailed.identified(session.macID)
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
@@ -1086,24 +1103,17 @@ extension LiveCoordinator {
         }
     }
 
-    /// Redial attempts after a lost link that still read "Reconnecting"
-    /// (about the first half minute of the backoff); later ones say why.
-    nonisolated static let reconnectingAttempts = 6
-
     /// The banner while a redial waits out its backoff. An offline Mac is not
-    /// a connection failure. A Mac a link was connected to is being
-    /// reconnected (the machine keeps retrying), so a lost link reads
-    /// "Reconnecting", not "Can't reach", which reads as giving up, for the
-    /// first `reconnectingAttempts` attempts. Longer failures offer a retry;
-    /// transport and relay details stay in Settings diagnostics.
+    /// a connection failure: presence says so, and it shows at once. Any other
+    /// wait is the link redialing on its own: "Offline · Retry", held for the
+    /// shared quiet bound (`QuietConnectionBanner`), so a lost link that comes
+    /// back within it draws nothing. Transport and relay details stay in
+    /// Settings diagnostics.
     nonisolated static func waitingBanner(macName: String, transport _: CmuxMobileTransport.TransportKind, reason: String,
-                                          attempt: Int, wasConnected: Bool,
+                                          attempt _: Int, wasConnected _: Bool,
                                           relayAvailable _: Bool?, identity: String? = nil) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) {
             return .macOffline(macName, identity: identity)
-        }
-        if wasConnected, attempt <= reconnectingAttempts {
-            return .reconnecting(to: macName, identity: identity)
         }
         return .connectionFailed.identified(identity)
     }
