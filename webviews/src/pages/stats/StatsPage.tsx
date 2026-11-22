@@ -20,6 +20,7 @@ import {
 } from "./shape";
 import type { StatsStore } from "./store";
 import { RANGES, type StatsSummary, type UsagePatterns } from "./types";
+import { intl } from "../../ui/intl";
 
 export function StatsPage({ store, strings }: { store: StatsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -66,7 +67,7 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
   const duration = (ms: number) => formatDuration(ms, language);
   const empty = summary.turns === 0 && summary.workingMs === 0;
   const attention = attentionRows(summary);
-  const ratio = new Intl.NumberFormat(language, { maximumFractionDigits: 2 });
+  const ratio = intl.NumberFormat(language, { maximumFractionDigits: 2 });
   const cells = heatmap(summary.days, summary.until, summary.tzOffsetMinutes, range);
   const days = cells.filter((cell) => cell.day);
   const tiles: { key: string; value: string; detail?: string }[] = [

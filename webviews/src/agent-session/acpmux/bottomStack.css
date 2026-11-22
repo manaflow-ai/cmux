@@ -213,6 +213,43 @@
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
 }
+/* The folder trust question folding out once answered (App.tsx `trustFold`, conversation/fold.ts)
+   takes the stack's gap beside it inside the height its fold animates, and, when nothing else is left
+   in the stack (`data-leaving`), the stack's floor and foot too: the stack's top and the rows over it
+   travel the whole height on the fold's clock, and nothing is left to drop in one frame when it goes.
+   At rest the layout is the same. */
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child) {
+  margin-bottom: -8px;
+}
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child {
+  margin-top: -8px;
+}
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child)::after,
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
+  content: "";
+  display: block;
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-dock > .acpmux-asks-stack[data-leaving] {
+  min-height: 0;
+  padding-bottom: 0;
+}
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold. */
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child {
+  --acpmux-stack-foot: 10px;
+}
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
+  content: "";
+  display: block;
+  padding-top: var(--acpmux-stack-foot);
+}
+/* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
+   fold cuts it from its top, where the shipped fold slides it down under what is below it. */
+[data-trust-fold="wipe"] .acpmux-trust-fold {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
 /* The tray never scrolls as a whole: its header stays pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
    In a short pane its list gives up its height to nothing first; the header never does. Clip, not
