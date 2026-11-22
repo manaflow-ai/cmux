@@ -88,9 +88,30 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   two accent colors, a gap or padding off the spacing scale (0 2 4 6 8 12 16 20 24 32 48), a raw or
   unknown color, text below the contrast minimum, and in a widget more than four type roles or text
   with no line limit. Each names its fix (`use Caption(...) (12 pt)`, `use 8`). They warn; the load still counts.
-  `--json` carries them as `design`: `{check, message, fix, node, count}`. `cmux ext design FILE...
-  [--widget] [--system cmux-design.json]` runs the same check on recorded scenes (a gallery fixture,
-  a store preview).
+  `--json` carries them as `design`: `{check, message, fix, node, count, sizes}`. `cmux ext design
+  FILE... [--widget] [--size small|medium|large] [--system cmux-design.json]` runs the same check on
+  recorded scenes (a gallery fixture, a store preview); `--size` adds the tile checks below.
+- **Every widget size.** A widget mounts at each size its manifest declares (the default first; a
+  sidebar-only widget skips large), the reload line says `checked at small, medium, large`, and each
+  warning names the sizes it was seen at. Per size it adds:
+  - `overflow`: the content's height against the tile less its 16 pt inset (the root's own padding
+    when it sets one), and each Text's lines against its line limit. Widths and heights are
+    estimated from the type role's point size and the character count (about half an em a
+    character), not measured, so it fires only past a 10% margin, or for a Text that needs more than
+    twice its line limit.
+  - `layout-shift`: the widget's built script runs in the same app host the daemon uses, is ticked
+    once a refresh later, and a tick that only changes words is compared with the first scene. It
+    fires for a Text in a row whose length changes and that has no fixed width and no Spacer after
+    it. A tick that adds, removes or moves nodes is a new layout and is not judged, and calls are
+    answered with no value, so a widget that draws fetched data is judged on its empty state.
+  - `hidden-timer`: in that same run, a `cmux.timer.every` still armed after the render, a
+    `cmux.timer.after` that arms itself again from its callback, or a one-shot `after` of a second or
+    more still pending. cmux stops ticking a tile it does not show; an app's own timer keeps running.
+  - `dark-mode-pair`: a fixed hex icon, stroke or tint below 3:1 against cmux's light or dark surface,
+    the one that vanishes in one mode. Ink on its own opaque background, and color roles, are not judged.
+  - `corner-radius`: a widget that rounds the tile itself (a radius on the root or on a full-size
+    frame), rounds a card with a radius of 10 or more, or draws a shadow: the host draws the tile's
+    corner and clips to it.
 - **Your own design system.** A `cmux-design.json` (`"design": "cmux.design/1"`) in the folder sets
   your type roles, spacing scale, color names (each a cmux color role) and per-view limits on top of
   cmux's; `defineDesign` in the SDK reads it, and `DesignSystemView` draws it. `ext dev` then checks

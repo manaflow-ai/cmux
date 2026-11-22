@@ -10,6 +10,7 @@
 
 mod daemon;
 mod design;
+mod design_layout;
 mod design_system;
 mod dev;
 #[cfg(test)]
@@ -25,6 +26,8 @@ mod shot;
 mod source;
 #[cfg(test)]
 mod tests;
+#[cfg(unix)]
+mod ticks;
 
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
@@ -96,10 +99,11 @@ cmux ext: make a cmux extension and watch it change as you work.
                                shows, and a script that does not load names file:line while the
                                last good view stays; exit 1 when one did not load
   cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
-  cmux ext design FILE... [--widget] [--system cmux-design.json] [--json]
+  cmux ext design FILE... [--widget] [--size small|medium|large] [--system cmux-design.json] [--json]
                                the design check ext dev runs, on recorded scenes (a JSON array
                                of scene ops, or an object of them by name), against cmux's design
-                               system or yours (ext dev reads DIR/cmux-design.json); exit 1 on a warning
+                               system or yours (ext dev reads DIR/cmux-design.json); --size checks
+                               a widget scene against that tile too (overflow); exit 1 on a warning
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -165,6 +169,8 @@ pub(super) enum Request {
         widget: bool,
         /// `--system FILE`: a `cmux-design.json` to check against instead of cmux's system.
         system: Option<PathBuf>,
+        /// `--size NAME`: the widget tile the scenes were drawn in (implies `--widget`).
+        size: Option<String>,
     },
 }
 
@@ -327,10 +333,23 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut files = Vec::new();
             let mut widget = false;
             let mut system = None;
+            let mut size = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--widget" => widget = true,
+                    "--size" => {
+                        let name = words
+                            .next()
+                            .ok_or_else(|| usage("--size needs small, medium or large"))?;
+                        if design::Tile::of(name).is_none() {
+                            return Err(usage(&format!(
+                                "--size {name}: not small, medium or large"
+                            )));
+                        }
+                        widget = true;
+                        size = Some(name.clone());
+                    }
                     "--system" => {
                         system = Some(PathBuf::from(
                             words
@@ -347,7 +366,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             if files.is_empty() {
                 return Err(usage("ext design needs a scene FILE"));
             }
-            Ok(Request::Design { files, widget, system })
+            Ok(Request::Design { files, widget, system, size })
         }
         "pack" => {
             let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
@@ -563,7 +582,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
-        Request::Design { files, widget, system } => {
+        Request::Design { files, widget, system, size } => {
             let surface = if widget { design::Surface::Widget } else { design::Surface::Other };
             let system = match system {
                 None => design_system::System::cmux(),
@@ -579,7 +598,8 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                     }
                 },
             };
-            design::run(&files, surface, &system, json_out)
+            let tile = size.as_deref().and_then(design::Tile::of);
+            design::run(&files, surface, &system, tile.as_ref(), json_out)
         }
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);

@@ -13,6 +13,15 @@
 //! - `contrast`: a hex text color below the WCAG minimum on its background, or on cmux's
 //!   light or dark surface when it sits on the theme's.
 //! - `line-limit`: (widgets) a Text with no line limit, which overflows a small tile.
+//! - `dark-mode-pair`: a hex ink that is not text (an icon, a shape's fill or stroke, a border)
+//!   below 3:1 on cmux's light or dark surface: the scene has no light and dark pair for a hex,
+//!   so it draws the same in both modes and reads in only one.
+//! - `corner-radius`: a widget rounding or shadowing its own tile or card; the host draws the
+//!   tile's corner and clips to it (DESIGN.md 6.1). Small marks (a chip, a bar) keep theirs.
+//!
+//! With the tile a widget was probed at (`ext dev` probes every size the manifest declares,
+//! `ext design --size`), `design_layout.rs` adds `overflow`; with a second tick (`ticks.rs`),
+//! `layout-shift` and `hidden-timer`. Findings then carry the sizes they were seen at.
 //!
 //! The system is cmux's, or the folder's own `cmux-design.json` over it (`design_system.rs`).
 //! Findings warn; they never fail the load. `ext dev --once --json` lists them as `design`.
@@ -71,19 +80,27 @@ pub(super) struct Finding {
     pub fix: String,
     /// How many nodes had this same finding.
     pub count: usize,
+    /// The widget sizes it was seen at (`small`, `medium`, `large`); empty when the scene was not
+    /// checked as a tile of a size.
+    pub sizes: Vec<String>,
 }
 
 impl Finding {
     pub(super) fn to_json(&self) -> Value {
         json!({ "check": self.check, "node": self.node, "message": self.message,
-                "fix": self.fix, "count": self.count })
+                "fix": self.fix, "count": self.count, "sizes": self.sizes })
     }
 
-    /// `check: message (N nodes): fix`, then the node.
+    /// `check [sizes]: message (N nodes): fix`, then the node.
     pub(super) fn text(&self) -> String {
         let count = if self.count > 1 { format!(" ({} nodes)", self.count) } else { String::new() };
         let node = self.node.as_deref().map(|n| format!("\n    at {n}")).unwrap_or_default();
-        format!("{}: {}{count}\n    fix: {}{node}", self.check, self.message, self.fix)
+        let sizes = if self.sizes.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", self.sizes.join(", "))
+        };
+        format!("{}{sizes}: {}{count}\n    fix: {}{node}", self.check, self.message, self.fix)
     }
 }
 
@@ -110,9 +127,24 @@ pub(super) fn check(batches: &[&Value], surface: Surface) -> Vec<Finding> {
 /// The design findings for the scene `batches` build against `system`: node findings in
 /// outline order, then the per-view counts (`type-roles`, `accents`).
 pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) -> Vec<Finding> {
+    check_tile(batches, surface, system, None)
+}
+
+/// [`check_in`], and with `tile` (the size a widget was mounted at) the `overflow` check, each
+/// finding tagged with the tile's size.
+pub(super) fn check_tile(
+    batches: &[&Value],
+    surface: Surface,
+    system: &System,
+    tile: Option<&Tile>,
+) -> Vec<Finding> {
     let (root, nodes) = scene::apply(batches);
     let Some(root) = root else { return Vec::new() };
     let mut findings = Findings::default();
+    if let Some(tile) = tile {
+        super::design_layout::overflow(&root, &nodes, tile, &mut findings);
+    }
+    let root_id = root.clone();
     let mut styles: BTreeSet<String> = BTreeSet::new();
     let mut accents: BTreeSet<String> = BTreeSet::new();
     let mut seen = BTreeSet::new();
@@ -123,7 +155,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
     let mut stack: Vec<(String, Behind)> = vec![(root, surfaces)];
     while let Some((id, behind)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
-        if !seen.insert(id) {
+        if !seen.insert(id.clone()) {
             continue;
         }
         let background = node.props.get("background").and_then(Value::as_str);
@@ -150,6 +182,10 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
         }
         spacing(node, system, &mut findings);
         colors(node, &mut findings, &mut accents);
+        if node.kind != "Text" {
+            dark_mode_pair(node, &behind, &mut findings);
+        }
+        corner_radius(node, id == root_id, &mut findings);
         stack.extend(node.children.iter().rev().map(|child| (child.clone(), behind.clone())));
     }
     let max_roles = system.max_roles;
@@ -178,7 +214,73 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
             "use \"accent\" for the one thing to look at and \"secondary\" for the rest; keep success/warning/danger for state".into(),
         );
     }
-    findings.done()
+    let mut done = findings.done();
+    if let Some(tile) = tile {
+        for finding in &mut done {
+            finding.sizes = vec![tile.size.clone()];
+        }
+    }
+    done
+}
+
+/// One check's findings per size, merged: a finding seen at several sizes is one line naming
+/// them all, in the order the sizes were probed.
+pub(super) fn merge_sizes(per_size: Vec<Vec<Finding>>) -> Vec<Finding> {
+    let mut merged: Vec<Finding> = Vec::new();
+    for finding in per_size.into_iter().flatten() {
+        let same = merged.iter_mut().find(|m| {
+            m.check == finding.check && m.message == finding.message && m.node == finding.node
+        });
+        match same {
+            Some(m) => {
+                for size in finding.sizes {
+                    if !m.sizes.contains(&size) {
+                        m.sizes.push(size);
+                    }
+                }
+                m.count = m.count.max(finding.count);
+            }
+            None => merged.push(finding),
+        }
+    }
+    merged
+}
+
+/// A widget tile on the New Tab grid (`webviews/.../newtab/widgets.css`: a 148 pt unit, 16 pt
+/// gaps; `AppWidgetSize.swift`: small 1x1, medium 2x1, large 2x2), with the 16 pt content
+/// inset the SDK's `WidgetFrame` draws (`WIDGET_INSET`). The sidebar's tile is its own width's
+/// unit; the check holds every size to the New Tab one.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Tile {
+    pub size: String,
+    pub width: f64,
+    pub height: f64,
+    pub inset: f64,
+}
+
+/// The New Tab grid's tile unit and the gap between tiles, in points.
+const TILE_UNIT: f64 = 148.0;
+const TILE_GAP: f64 = 16.0;
+/// The tile's content inset on each side (the SDK's `WIDGET_INSET.newtab`).
+pub(super) const TILE_INSET: f64 = 16.0;
+
+impl Tile {
+    /// The tile of a `cmux.widget/1` size, `None` for a name that is not one.
+    pub(super) fn of(size: &str) -> Option<Self> {
+        let (columns, rows) = match size {
+            "small" => (1.0, 1.0),
+            "medium" => (2.0, 1.0),
+            "large" => (2.0, 2.0),
+            _ => return None,
+        };
+        let span = |n: f64| n * TILE_UNIT + (n - 1.0) * TILE_GAP;
+        Some(Self {
+            size: size.into(),
+            width: span(columns),
+            height: span(rows),
+            inset: TILE_INSET,
+        })
+    }
 }
 
 /// The text lines `ext dev` prints for `findings`, capped.
@@ -206,12 +308,13 @@ pub(super) fn scenes_in(file: &str, value: &Value) -> Vec<(String, Value)> {
     }
 }
 
-/// `ext design FILE... [--widget] [--json]`: each recorded scene's findings. Exit 0 when none
-/// warns, 1 when one does, 4 when a file does not read as scenes.
+/// `ext design FILE... [--widget] [--size NAME] [--json]`: each recorded scene's findings. Exit 0
+/// when none warns, 1 when one does, 4 when a file does not read as scenes.
 pub(super) fn run(
     files: &[std::path::PathBuf],
     surface: Surface,
     system: &System,
+    tile: Option<&Tile>,
     json_out: bool,
 ) -> i32 {
     let mut reports = Vec::new();
@@ -236,7 +339,7 @@ pub(super) fn run(
                 eprintln!("cmux: {scene}: the ops name no root, so there is no scene to check");
                 return super::exit::MANIFEST_INVALID;
             }
-            reports.push((scene, check_in(&[&ops], surface, system)));
+            reports.push((scene, check_tile(&[&ops], surface, system, tile)));
         }
     }
     let warned = reports.iter().filter(|(_, findings)| !findings.is_empty()).count();
@@ -269,13 +372,19 @@ pub(super) fn run(
 
 /// Findings, merged by check and message so one repeated mistake is one line.
 #[derive(Default)]
-struct Findings {
+pub(super) struct Findings {
     order: Vec<(&'static str, String)>,
     by_key: BTreeMap<(&'static str, String), Finding>,
 }
 
 impl Findings {
-    fn add(&mut self, check: &'static str, node: Option<&Node>, message: String, fix: String) {
+    pub(super) fn add(
+        &mut self,
+        check: &'static str,
+        node: Option<&Node>,
+        message: String,
+        fix: String,
+    ) {
         let key = (check, message.clone());
         if let Some(finding) = self.by_key.get_mut(&key) {
             finding.count += 1;
@@ -283,15 +392,15 @@ impl Findings {
         }
         self.order.push(key.clone());
         let node = node.map(scene::line);
-        self.by_key.insert(key, Finding { check, node, message, fix, count: 1 });
+        self.by_key.insert(key, Finding { check, node, message, fix, count: 1, sizes: Vec::new() });
     }
 
-    fn done(mut self) -> Vec<Finding> {
+    pub(super) fn done(mut self) -> Vec<Finding> {
         self.order.iter().filter_map(|key| self.by_key.remove(key)).collect()
     }
 }
 
-fn number(value: Option<&Value>) -> Option<f64> {
+pub(super) fn number(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).filter(|n| n.is_finite())
 }
 
@@ -430,8 +539,87 @@ fn colors(node: &Node, findings: &mut Findings, accents: &mut BTreeSet<String>) 
     }
 }
 
+/// Props that hold an ink that is not text: what `dark-mode-pair` reads (a Text's own `color` is
+/// `contrast`'s; a `background` is a surface, measured by what sits on it).
+const INK_PROPS: [&str; 5] = ["color", "fill", "stroke", "borderColor", "tint"];
+
+/// WCAG 2.1 1.4.11: a graphic or a control's edge needs 3:1 against what is next to it.
+const NON_TEXT_CONTRAST: f64 = 3.0;
+
+fn dark_mode_pair(node: &Node, behind: &Behind, findings: &mut Findings) {
+    // Only on cmux's two surfaces (each mode's): on its own opaque hex background a hex ink is
+    // fixed against a fixed surface, and on a theme color it cannot be measured here.
+    if behind.len() != SURFACES.len() {
+        return;
+    }
+    let mut inks: Vec<(String, &str)> = INK_PROPS
+        .iter()
+        .filter_map(|key| Some((key.to_string(), node.props.get(*key)?.as_str()?)))
+        .collect();
+    if let Some(colors) = node.props.get("symbolColors").and_then(Value::as_array) {
+        inks.extend(colors.iter().filter_map(Value::as_str).map(|c| ("symbolColors".into(), c)));
+    }
+    for (key, value) in inks {
+        let Some((rgb, alpha)) = hex(value) else { continue };
+        let failing: Vec<(&str, f64)> = behind
+            .iter()
+            .filter_map(|(what, bg)| {
+                let drawn = std::array::from_fn(|i| rgb[i] * alpha + bg[i] * (1.0 - alpha));
+                let ratio = contrast(drawn, *bg);
+                (ratio < NON_TEXT_CONTRAST).then_some((what.as_str(), ratio))
+            })
+            .collect();
+        let Some((what, ratio)) = failing.first().copied() else { continue };
+        let modes = if failing.len() == behind.len() {
+            "on both of cmux's surfaces".to_string()
+        } else {
+            format!("on {what} ({ratio:.1}:1)")
+        };
+        findings.add(
+            "dark-mode-pair",
+            Some(node),
+            format!(
+                "{key} {value} has no dark-mode pair: a hex draws the same in light and dark, and this one is below {NON_TEXT_CONTRAST}:1 {modes}"
+            ),
+            "use a role (primary, secondary, tertiary, accent, success, warning, danger): each has a light and a dark value".into(),
+        );
+    }
+}
+
+/// A corner radius at or above this is a card's or a tile's, not a small mark's (a chip's 4, a
+/// bar's 1.5, a swatch's 5).
+const CARD_RADIUS: f64 = 10.0;
+
+fn corner_radius(node: &Node, is_root: bool, findings: &mut Findings) {
+    if node.props.contains_key("shadow") {
+        findings.add(
+            "corner-radius",
+            Some(node),
+            format!("{} draws its own shadow", node.kind),
+            "drop the shadow: the host draws the tile's and a Panel's surface (radius, material, shadow)".into(),
+        );
+    }
+    let Some(radius) = number(node.props.get("cornerRadius")) else { return };
+    let frame = node.props.get("frame").and_then(Value::as_object);
+    let fills = frame.is_some_and(|f| {
+        ["maxWidth", "maxHeight"]
+            .iter()
+            .any(|k| f.get(*k).and_then(Value::as_str) == Some("infinity"))
+    });
+    if !(is_root || fills || radius >= CARD_RADIUS) {
+        return;
+    }
+    let what = if is_root || fills { "the tile" } else { "a card" };
+    findings.add(
+        "corner-radius",
+        Some(node),
+        format!("{} rounds {what} itself (cornerRadius {radius})", node.kind),
+        "drop .cornerRadius(...): the host draws the tile's corner and clips to it; for a card inside the tile, use Panel, which takes the host's radius".into(),
+    );
+}
+
 /// `#rrggbb` or `#rrggbbaa` as sRGB in 0..1, and its alpha.
-fn hex(text: &str) -> Option<([f64; 3], f64)> {
+pub(super) fn hex(text: &str) -> Option<([f64; 3], f64)> {
     let digits = text.strip_prefix('#')?;
     if !(digits.len() == 6 || digits.len() == 8) || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;

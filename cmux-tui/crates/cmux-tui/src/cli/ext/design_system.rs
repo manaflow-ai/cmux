@@ -256,6 +256,7 @@ fn problem_finding(problem: &str) -> Finding {
         message: format!("{FILE}: {problem}; checking against cmux's design system instead"),
         fix: format!("fix {FILE} (format {FORMAT}: type, space, colors, limits)"),
         count: 1,
+        sizes: Vec::new(),
     }
 }
 

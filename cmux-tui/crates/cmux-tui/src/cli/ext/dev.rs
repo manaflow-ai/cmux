@@ -872,12 +872,13 @@ pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<
     Ok(served)
 }
 
-/// The context the load check mounts `interface` with: a widget mounts as a tile of its default
-/// size in the first place it goes (the daemon builds the rest of its context); anything else
-/// renders with no context.
-fn probe_context(manifest: &Value, interface: &str) -> Value {
+/// The contexts the load check mounts a widget at (the daemon builds the rest of its context):
+/// the default size first (its outline is the one `ext dev` prints), then every other size the
+/// manifest declares, each in a place that takes it (New Tab unless the widget goes only in the sidebar, which holds small and medium).
+/// Any other interface mounts once, with no context.
+pub(super) fn probe_contexts(manifest: &Value, interface: &str) -> Vec<Value> {
     if interface != "cmux.widget/1" {
-        return json!({});
+        return vec![json!({})];
     }
     let options = manifest.pointer("/implements/cmux.widget~11/options");
     let sizes: Vec<&str> = options
@@ -890,19 +891,52 @@ fn probe_context(manifest: &Value, interface: &str) -> Value {
         .and_then(Value::as_str)
         .or_else(|| sizes.first().copied())
         .unwrap_or("small");
-    // The place first (New Tab unless the widget goes only in the sidebar), then a size it takes:
-    // the sidebar holds small and medium.
     let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
     let newtab = places.is_none_or(|list| list.iter().any(|p| p == "newtab"));
-    let (place, size) = if newtab {
-        ("newtab", default)
-    } else if default != "large" {
-        ("sidebar", default)
+    let place = if newtab { "newtab" } else { "sidebar" };
+    let fits = |size: &str| newtab || size != "large";
+    let first = if fits(default) {
+        default
     } else {
-        ("sidebar", sizes.iter().copied().find(|s| *s != "large").unwrap_or("small"))
+        sizes.iter().copied().find(|s| fits(s)).unwrap_or("small")
     };
-    json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
+    let mut probed = vec![first];
+    for size in sizes {
+        if fits(size) && !probed.contains(&size) {
+            probed.push(size);
+        }
+    }
+    probed
+        .into_iter()
+        .map(|size| json!({ "place": place, "size": size, "instance": "ext-dev-probe" }))
+        .collect()
 }
+
+/// The `layout-shift` and `hidden-timer` findings for a widget at `context`: its built script run
+/// in this process for a second tick (`ticks.rs`). Nothing when the script cannot be read.
+#[cfg(unix)]
+fn tick_check(
+    pkg: &Package,
+    interface: &str,
+    context: &Value,
+    tile: &super::design::Tile,
+) -> Vec<super::design::Finding> {
+    let Some(main) = pkg.manifest.pointer("/runtime/main").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    let Some(export) = pkg
+        .manifest
+        .get("implements")
+        .and_then(|i| i.get(interface))
+        .and_then(|e| e.get("export"))
+        .and_then(Value::as_str)
+    else {
+        return Vec::new();
+    };
+    let Ok(script) = std::fs::read_to_string(pkg.dir.join(main)) else { return Vec::new() };
+    super::ticks::check(&pkg.id, &script, export, context, &pkg.manifest, tile)
+}
+
 /// The interface the load check mounts: a view that renders with no context.
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
@@ -940,6 +974,8 @@ pub(super) struct Outcome {
     pub scene: Vec<String>,
     /// The design check of that scene (`design.rs`): warnings, never a failed load.
     pub design: Vec<super::design::Finding>,
+    /// The widget sizes the load check mounted, the default first (empty for other views).
+    pub sizes: Vec<String>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
@@ -968,6 +1004,7 @@ impl Outcome {
             probe: None,
             scene: Vec::new(),
             design: Vec::new(),
+            sizes: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
@@ -1010,6 +1047,7 @@ impl Outcome {
             "probe": self.probe,
             "scene": self.scene,
             "design": self.design.iter().map(super::design::Finding::to_json).collect::<Vec<_>>(),
+            "sizes": self.sizes,
             "logs": self.logs,
             "next": self.next,
             "typesUpdated": self.types_updated,
@@ -1051,6 +1089,9 @@ impl Outcome {
                 }
                 if let Some(version) = &self.types_updated {
                     line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
+                }
+                if self.sizes.len() > 1 {
+                    line.push_str(&format!("; checked at {}", self.sizes.join(", ")));
                 }
                 if !self.design.is_empty() {
                     let count = self.design.len();
@@ -1255,35 +1296,48 @@ impl Session {
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
-                let base = probe_context(&pkg.manifest, &interface);
-                match self.probe(&pkg.id, &interface, base, !installed) {
-                    Ok(Ok(ops)) => {
-                        outcome.scene = super::scene::outline(&[&ops]);
-                        let (system, problem) = super::design_system::System::load(&pkg.dir);
-                        outcome.design = problem
-                            .into_iter()
-                            .chain(super::design::check_in(
-                                &[&ops],
-                                super::design::Surface::of(&interface),
-                                &system,
-                            ))
-                            .collect();
+                let surface = super::design::Surface::of(&interface);
+                let (system, problem) = super::design_system::System::load(&pkg.dir);
+                let mut per_size = Vec::new();
+                for (i, context) in
+                    probe_contexts(&pkg.manifest, &interface).into_iter().enumerate()
+                {
+                    let size = context.field("size").as_str().map(str::to_owned);
+                    match self.probe(&pkg.id, &interface, context.clone(), !installed) {
+                        Ok(Ok(ops)) => {
+                            if i == 0 {
+                                outcome.scene = super::scene::outline(&[&ops]);
+                            }
+                            let tile = size.as_deref().and_then(super::design::Tile::of);
+                            #[cfg_attr(not(unix), allow(unused_mut))]
+                            let mut found =
+                                super::design::check_tile(&[&ops], surface, &system, tile.as_ref());
+                            #[cfg(unix)]
+                            if let Some(tile) = &tile {
+                                found.extend(tick_check(&pkg, &interface, &context, tile));
+                            }
+                            per_size.push(found);
+                            outcome.sizes.extend(size);
+                        }
+                        Ok(Err(problem)) => {
+                            outcome.logs = self.daemon.take_logs();
+                            return outcome.failed(Phase::Load, vec![problem]);
+                        }
+                        Err(Stop::Timeout) => {
+                            let at = size.map(|s| format!(" at size {s}")).unwrap_or_default();
+                            return outcome.failed(
+                                Phase::Load,
+                                vec![Problem::message(format!(
+                                    "{interface} did not render{at} within {} s",
+                                    PROBE_DEADLINE.as_secs()
+                                ))],
+                            );
+                        }
+                        Err(stop) => return gone(outcome, stop),
                     }
-                    Ok(Err(problem)) => {
-                        outcome.logs = self.daemon.take_logs();
-                        return outcome.failed(Phase::Load, vec![problem]);
-                    }
-                    Err(Stop::Timeout) => {
-                        return outcome.failed(
-                            Phase::Load,
-                            vec![Problem::message(format!(
-                                "{interface} did not render within {} s",
-                                PROBE_DEADLINE.as_secs()
-                            ))],
-                        );
-                    }
-                    Err(stop) => return gone(outcome, stop),
                 }
+                outcome.design =
+                    problem.into_iter().chain(super::design::merge_sizes(per_size)).collect();
             }
             outcome.reload_ms = Some(synced.elapsed().as_millis());
         }
