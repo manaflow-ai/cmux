@@ -1090,7 +1090,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1120,7 +1120,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.
