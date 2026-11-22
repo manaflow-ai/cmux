@@ -68,6 +68,20 @@ function ListRows({
   ));
 }
 
+/** The schema rows about spaces (Sidebar > Sidebar Buttons and Spaces). With one space the page
+ * draws none of them (Hide Spaces); search still finds them. */
+export const SPACE_ROWS: ReadonlySet<string> = new Set([
+  "sidebar.showSpaces",
+  "sidebar.spacesPosition",
+  "sidebar.spacesVisibility",
+]);
+
+/** Whether the active window has a second space: until then no Settings page names spaces. */
+export function useSeveralSpaces(): boolean {
+  const { host } = useSettingsState();
+  return (host?.rooms?.length ?? 0) > 1;
+}
+
 /**
  * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
  * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
