@@ -1511,6 +1511,15 @@ function ComposerFrame({
     window.addEventListener("blur", away);
     return () => window.removeEventListener("blur", away);
   }, []);
+  // The table loads when the prompt is first focused (idle), so a paste that is the first thing in
+  // converts its `:code:`s too; before, it loaded on the first edit.
+  useEffect(() => {
+    const node = form.current;
+    if (!node) return;
+    const focused = () => requestEmoji();
+    node.addEventListener("focusin", focused);
+    return () => node.removeEventListener("focusin", focused);
+  }, []);
   const emojiLook = experimentArm(emojiShortcodeLook);
   const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.

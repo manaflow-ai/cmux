@@ -260,14 +260,21 @@ test("never in code, a time or a URL", async () => {
     await composer(draft);
     expect(rows()).toEqual([]);
   }
-  // A code span: `:smile` typed inside it.
-  const { prompt } = await composer("run `x");
-  await type(prompt, " :smi");
+  // A code span: the caret right after `:smi` inside it.
+  const { prompt } = await composer("run `:smi` now");
+  await act(async () => prompt.setCaret("run :smi".length));
+  await settle();
   expect(rows()).toEqual([]);
 });
 
 test("a paste's known `:code:`s go in as emoji, its code and URLs as pasted", async () => {
   const { prompt } = await composer("");
+  // Focus loads the table, so a paste that is the first edit converts too.
+  const editor = host.querySelector<HTMLElement>(".acpmux-md-field [contenteditable]")!;
+  await act(async () => {
+    editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+  });
+  await settle();
   await act(async () => prompt.pasteText("ship it :tada: see https://x.com/:tada: :nope:"));
   expect(prompt.plainText()).toBe("ship it 🎉 see https://x.com/:tada: :nope:");
 });
