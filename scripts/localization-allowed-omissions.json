@@ -7092,16 +7092,6 @@
       "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
   },
-  "argument.chiefImportChief": {
-    "class": "brand",
-    "source": "Cloud Chief"
-  },
-  "argument.chiefImportSource": {
-    "source": "Source",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
   "argument.notifications.agent": {
     "source": "Agent",
     "identityLocales": {
