@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44977533220",
+  "recorded_at": "2026-11-22T03:08:23Z",
+  "reason": "cmux-tui 6b8c79ba6820 changes the image's cmux-tui (pinned 602f51e1015c)",
+  "dry_run": false,
+  "cmux_tui": "6b8c79ba6820d38a2392702828e79b94724a4915",
+  "fixes": [
+    {
+      "sha": "6b8c79ba6820d38a2392702828e79b94724a4915",
+      "mergedAt": "2026-11-22T02:20:11+00:00",
+      "subject": "Screen Sharing: Your Devices says none only after your devices loaded, and why when they could not (#49084)"
+    },
+    {
+      "sha": "ffb40551bf1c7e18668f55f5897d99a881741345",
+      "mergedAt": "2026-11-22T02:12:09+00:00",
+      "subject": "Bound remote acpmux ls for joined machines (#49336)"
+    },
+    {
+      "sha": "0cebeb607f281edaf008e8795cda1be87b0175a9",
+      "mergedAt": "2026-11-22T02:11:54+00:00",
+      "subject": "Agent chat: a turn's edited files card shows the page before and after the turn (#39163)"
+    },
+    {
+      "sha": "18d1584cb2549883e4e39e6b6a352ec7f02ded2a",
+      "mergedAt": "2026-11-22T02:04:09+00:00",
+      "subject": "acpmux: every session-to-session send ends with a Sent-by line the daemon writes (successor of #48850) (#49429)"
+    },
+    {
+      "sha": "4f0825cce040a5b9ce9be23686ec3f087a7eab80",
+      "mergedAt": "2026-11-21T19:03:15-07:00",
+      "subject": "ask-0aafc356bc: lazy-load app and web locale packs (#45928)"
+    },
+    {
+      "sha": "b626e96c82965a550961df9901562b916e7e5922",
+      "mergedAt": "2026-11-21T18:01:48-08:00",
+      "subject": "acpmux: vault egress proxy keeps its port across daemon restarts; agents on an earlier proxy start restart between turns (#49509)"
+    },
+    {
+      "sha": "ffa9d7281327061c7c2f9a8e67b121b295267620",
+      "mergedAt": "2026-11-22T02:01:23+00:00",
+      "subject": "acpmux tests: the inbox tests send actions, not classless FYIs (#49053)"
+    },
+    {
+      "sha": "047c50621304093a4b267d3544831710c49e63db",
+      "mergedAt": "2026-11-22T02:00:28+00:00",
+      "subject": "acpmux: a take-over start asks each new holder of the lock; test of repeated NIGHTLY take-overs mid tool call (#47694)"
+    },
+    {
+      "sha": "138fa92464aa368ddec5f9e83ca75b1bb9c1856c",
+      "mergedAt": "2026-11-22T01:58:20+00:00",
+      "subject": "cmux NEXT: Two-Tone toggle (appearance.twoTone) for any window style and theme (#47326)"
+    },
+    {
+      "sha": "aaf099bd4b4ab87bffbdace717e761a4d6a77503",
+      "mergedAt": "2026-11-22T01:57:47+00:00",
+      "subject": "cmux-tui: cmux tmux attach brings the pane's alternate screen and terminal modes (experiment) (#49476)"
+    },
+    {
+      "sha": "44db9dcc6eb0072e95f083de4f5a654d7d6a348f",
+      "mergedAt": "2026-11-22T01:47:51+00:00",
+      "subject": "Theme files: ship Teal, a teal look that shuffles your own picture folder (#47709)"
+    },
+    {
+      "sha": "3cf9e1405a450af3359d1acea116cc114f1845bb",
+      "mergedAt": "2026-11-22T01:38:34+00:00",
+      "subject": "customize try CODE: try a PR, branch, commit, folder or fork on for N minutes (#48181)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T03:08:23Z",
+    "snapshot_id": "sh-1276077c690249e18c26c0121e036e60",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44977533220): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3e328b774a19bf19651d94a46e3139c256d28d7e",
+    "image": "cloud-native-auto-6b8c79ba-44977533220-1",
+    "revision": "ci-44977533220-1",
+    "at": "2026-11-22T03:08:23Z"
+  },
+  "rolled_back": false
+}
