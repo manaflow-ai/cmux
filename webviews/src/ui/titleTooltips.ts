@@ -24,6 +24,9 @@ import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
 import { fitTooltipWidth } from "./tooltipFit";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
+import { onHoverSurfaceOpen, otherHoverSurfaceOpen } from "./hoverSurface";
+import { attachSeeThroughBlur } from "./glass/seeThroughBlur";
+import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
@@ -212,6 +215,17 @@ export function installTooltips(
   tip.hidden = true;
   doc.body.append(tip);
   let target: Element | undefined;
+  // What the tooltip covers, blurred in place while it shows (glass.css HOVER SURFACES), as under
+  // every hover card: the one hover material.
+  let unblur: (() => void) | undefined;
+  const blurUnder = () => {
+    unblur?.();
+    unblur = attachSeeThroughBlur(tip, hoverCardUnder, hoverCardGlass);
+  };
+  const stopBlur = () => {
+    unblur?.();
+    unblur = undefined;
+  };
 
   const textOf = (element: Element) => {
     // A title React set or changed since the last hover moves over first.
@@ -238,6 +252,7 @@ export function installTooltips(
     if (event && event.target !== tip) return;
     endFade();
     tip.hidden = true;
+    stopBlur();
   }
   /** The longest of the tooltip's transitions now, in ms (0 with no stylesheet, as in a test page). */
   const fadeMs = () => {
@@ -257,6 +272,9 @@ export function installTooltips(
     // One line: a text's second line never shows (TooltipContentView.firstLine, native).
     const text = firstLine(textOf(target));
     if (!text) return;
+    // One hover surface at a time (ui/hoverSurface.ts): a hover card or tooltip already open (the
+    // chip's card inside this row) keeps the pointer's one hover; this one does not draw beside it.
+    if (otherHoverSurfaceOpen(doc, tip)) return;
     const shortcut = target.getAttribute("data-tooltip-shortcut");
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
@@ -309,6 +327,7 @@ export function installTooltips(
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
+    blurUnder();
     if (fadeIn) {
       // The starting style is laid out (measuring did that); dropping it runs the fade in.
       void tip.offsetWidth;
@@ -467,7 +486,12 @@ export function installTooltips(
   win.addEventListener("blur", dismiss);
   // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
   const unwatchInset = onPopupInsetChange(dismiss);
+  // Another hover surface opening (a hover card, a labeled tooltip) takes this one away at once.
+  const unwatchSurfaces = onHoverSurfaceOpen(doc, (surface) => {
+    if (surface !== tip) hideTip(true);
+  });
   return () => {
+    unwatchSurfaces();
     unwatchInset();
     dismiss();
     intent.dispose();
@@ -480,6 +504,7 @@ export function installTooltips(
     if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
     endFade();
+    stopBlur();
     tip.remove();
   };
 }

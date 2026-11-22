@@ -162,7 +162,9 @@ await requireBrowserLane("group-hover-card-glass-scroll-browser.test.ts", async 
         // The tint alone (78%), never the tint over the theme surface's underlay (93%).
         expect(glass.alpha, info).toBeLessThan(0.9);
         expect(glass.over, info).toBe(true);
-        expect(glass.hostGlass, info).toBe("popover");
+        // One hover material, drawn by the page: no App glass under it (the App's glass under a card
+        // over the chat was the smear Leo called "ass-looking fucking translucency blur", 2026-11-22).
+        expect(glass.hostGlass, info).toBeNull();
         expect(glass.tint, info).toBe(glass.shared);
         expect(glass.blurred, info).toBeGreaterThan(0);
 

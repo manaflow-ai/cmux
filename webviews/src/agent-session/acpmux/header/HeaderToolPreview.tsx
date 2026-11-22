@@ -4,7 +4,11 @@
 // glyph, then the button's name, its key and what it holds (Browser's page address). An icon whose
 // panel is open draws that panel dashed: the click closes it. It stands in for the tooltip, so the
 // two never stack. No new strings: the name, key and address are the button's own.
+import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { hoverCardGlass, hoverCardUnder } from "../../../ui/glass/hoverCardGlass";
+import { attachSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { announceHoverSurface } from "../../../ui/hoverSurface";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { interfaceScale } from "../../../ui/interfaceScale";
 import { HeaderIcon } from "./HeaderIcon";
@@ -46,6 +50,15 @@ export function headerToolPreviewPlacement(
 }
 
 export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget }) {
+  // The one hover material (ui/glass/glass.css HOVER SURFACES), as every tooltip and hover card: the
+  // chat it covers blurred in place under the tooltip's veil. It drew the solid elevated surface
+  // before, a third hover look (Leo, 2026-11-22: "multiple styles for hover previews").
+  const [card, setCard] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!card) return;
+    announceHoverSurface(card);
+    return attachSeeThroughBlur(card, hoverCardUnder, hoverCardGlass);
+  }, [card]);
   const doc = typeof document === "undefined" ? undefined : document;
   if (!doc) return null;
   // Its frame follows Text Size as its name and key do (ui/interfaceScale.ts); it shows for one
@@ -55,7 +68,8 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
   const down = target.id === "splitDown";
   return createPortal(
     <div
-      className="acpmux-header-preview"
+      ref={setCard}
+      className="ui-tooltip ui-card ui-glass acpmux-header-preview"
       role="tooltip"
       data-closes={target.pressed ? "" : undefined}
       style={{ top: target.box.bottom + PREVIEW_GAP * scale, right, width }}

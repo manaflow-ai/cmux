@@ -372,16 +372,18 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. Glass, the popover level as the chat's other hover
-     cards (the link preview, a session's card; glass.css GLASS LEVELS), never an opaque fill (Leo
-     2026-10-21). Reduce Transparency turns the fill into the solid popup surface (below) and the blur
-     off (pages/shared/desktop.css). */
+  /* The one hover material (ui/glass/glass.css HOVER SURFACES), as every tooltip and hover card:
+     the tooltip's veil, its frost and its corner, a hover card's elevation 2, over the transcript blurred
+     in place (PreviewCard.tsx useSeeThroughBlur). It drew the popover level by hand before, a look of
+     its own (Leo, 2026-11-22: "multiple styles for hover previews"). The edge is an inset shadow one
+     device pixel wide (--cmux-hairline, #20713); appearance.borders none clears it through
+     --acpmux-minimap-rim. Reduce Transparency turns the fill into the solid popup surface (below)
+     and the blur off (pages/shared/desktop.css). */
   padding: var(--ds-space-2);
-  border-radius: var(--ds-radius-xl);
-  background: color-mix(in srgb, var(--glass-surface, var(--acpmux-minimap-base)) var(--ds-glass-popover-tint), transparent);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  border-radius: var(--tooltip-radius);
+  background: var(--tooltip-tint);
+  -webkit-backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+  backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
