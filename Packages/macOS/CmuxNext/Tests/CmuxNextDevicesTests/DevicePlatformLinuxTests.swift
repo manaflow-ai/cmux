@@ -22,9 +22,17 @@ import Testing
     }
 
     @Test func aPlatformThisAppDoesNotKnowStillDecodes() throws {
-        let json = #"{"id":"d1","name":"Box","platform":"windows","macScreenShared":true}"#
+        let json = #"{"id":"d1","name":"Box","platform":"freebsd","macScreenShared":true}"#
         let device = try JSONDecoder().decode(HubDevice.self, from: Data(json.utf8))
         #expect(device.platform == nil)
         #expect(device.macScreenShared)
+    }
+
+    @Test func aWindowsPCDecodesAsWindows() throws {
+        let json = #"{"id":"7a2b3c4d-0d3b-4c5a-9e7f-112233445566","name":"DESKTOP-1","platform":"windows","macScreenShared":0,"online":true}"#
+        let device = try JSONDecoder().decode(HubDevice.self, from: Data(json.utf8))
+        #expect(device.platform == .windows)
+        #expect(!device.macScreenShared)
+        #expect(device.online)
     }
 }

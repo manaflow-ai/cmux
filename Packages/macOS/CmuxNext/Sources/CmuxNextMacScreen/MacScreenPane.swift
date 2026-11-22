@@ -38,6 +38,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
+    @ObservationIgnored var quiet = MacScreenCardQuiet()
     /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
     var viewerLookOverride: MacScreenViewerLook?
     /// How the viewer is drawn: the fixed look, else the setting, read live. Reading it tracks the setting (an Observation
@@ -46,6 +48,16 @@ public final class MacScreenPaneModel {
         get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
         set { viewerLookOverride = newValue }
     }
+    /// A readout fixed for this pane (the gallery draws each); nil follows Debug Settings `macScreen.qualityReadout`.
+    var qualityReadoutOverride: MacScreenQualityReadout?
+    /// Where the stream's rate and quality show, read live like ``viewerLook``.
+    var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
+    /// The gallery's bar variant; nil reads Debug Settings.
+    var toolbarBarOverride: MacScreenToolbarBar?
+    /// How the floating bar arranges its controls, read live like ``viewerLook``.
+    var toolbarBar: MacScreenToolbarBar { toolbarBarOverride ?? MacScreenTunables.toolbarBar.value }
+    /// The toolbar's Record button: this stream copied into an MP4 as it arrives.
+    public let recording = MacScreenRecording()
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -157,7 +169,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
-            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
@@ -194,6 +206,11 @@ public final class MacScreenPane {
             session.tap(shortcut.key, modifiers: shortcut.modifiers)
         }
         actions.focusScreen = { [weak self] in self?.focus() }
+        actions.toggleRecording = { [weak self] in
+            guard let self else { return }
+            model.recording.toggle(device: model.name)
+        }
+        actions.showRecording = { [weak self] in self?.model.recording.showInFinder() }
         observePhase(session)
     }
 
@@ -201,6 +218,7 @@ public final class MacScreenPane {
     private func decode(_ transport: RemoteRdStreamTransport) {
         decodeTask?.cancel()
         model.hasFrame = false
+        model.recording.attach(transport)
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
@@ -246,6 +264,10 @@ public final class MacScreenPane {
                 } else {
                     model.hasFrame = false
                 }
+                switch session.phase {
+                case .ended, .failed: model.recording.stop()
+                default: break
+                }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
                 if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
@@ -272,14 +294,18 @@ public final class MacScreenPane {
         hideTimer.cancel()
         guard !visible else { return }
         visible = true
-        if let hub = model.hub {
-            // A device's tab asks the hub when shown with a scope waiting
-            // (opened by a person with View or Control, or hidden past its grace mid-session).
-            if hub.phase == .idle, let scope = hub.resumeScope {
-                hub.resumeScope = nil
-                hub.request(scope)
-            }
-        }
+        // A device's tab asks the hub when shown with a scope waiting
+        // (hidden past its grace mid-session, or opened unseen and not started yet).
+        start()
+    }
+
+    /// A device tab with a scope waiting asks the hub now, shown or not: a person's open (or
+    /// `macScreen.open --autoconnect`) starts its session even when its tab is not on screen.
+    /// Only the picture waits for the tab to show; the hidden grace starts once it was shown and hidden.
+    public func start() {
+        guard let hub = model.hub, hub.phase == .idle, let scope = hub.resumeScope else { return }
+        hub.resumeScope = nil
+        hub.request(scope)
     }
 
     /// The tab is hidden: the stream stays for `hiddenGrace`, then ends
@@ -297,6 +323,7 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        model.recording.stop()
         decodeTask?.cancel()
         cursorTask?.cancel()
         visible = false
@@ -471,7 +498,8 @@ public final class MacScreenPaneView: NSView {
     /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
     /// the picture is back; a released one still needs a click.
     func syncInputGate() {
-        let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+        // The live card, not the held one: no input reaches a screen that is still coming up.
+        let live = Self.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
         input.controlMode = live
         input.acceptsPointer = live
         let captures = input.hasKeyboard

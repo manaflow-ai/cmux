@@ -1,0 +1,44 @@
+// Aero sky: The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes.
+// Morning sky (#eef6ff) and the glossy blue (#2a7de1). ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Aero sky",
+  "description": "The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes.",
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#eef6ff",
+    "foreground": "#0f2740",
+    "selection": "#d3e4f7",
+    "accent": "#2a7de1"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #eef6ff",
+    "foreground = #0f2740",
+    "cursor-color = #2a7de1",
+    "cursor-text = #eef6ff",
+    "selection-background = #d3e4f7",
+    "selection-foreground = #0f2740",
+    "palette = 0=#0f2740",
+    "palette = 1=#a03f3c",
+    "palette = 2=#27762f",
+    "palette = 3=#805e00",
+    "palette = 4=#2863ab",
+    "palette = 5=#8b4486",
+    "palette = 6=#007780",
+    "palette = 7=#66696f",
+    "palette = 8=#83868c",
+    "palette = 9=#b4514c",
+    "palette = 10=#3b8841",
+    "palette = 11=#926f00",
+    "palette = 12=#3a75bf",
+    "palette = 13=#9e5598",
+    "palette = 14=#008a92",
+    "palette = 15=#8f9298"
+  ],
+  "appearance.background": "shader:aero",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.55,
+  "appearance.chromeStyle": "floating"
+}

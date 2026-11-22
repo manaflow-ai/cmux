@@ -130,11 +130,11 @@ final class NewTabSparePool {
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                AgentPaneSpareOutcome.empty.trace()
+                AgentPaneSpareOutcome.empty.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             guard spare.model.servesExistingChat else {
-                AgentPaneSpareOutcome.unready.trace()
+                AgentPaneSpareOutcome.unready.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             return take(for: window, size: nil, refill: .afterPaint)?.view
