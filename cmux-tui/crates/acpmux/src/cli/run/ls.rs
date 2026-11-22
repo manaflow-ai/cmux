@@ -86,6 +86,11 @@ pub struct LsArgs {
         "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
     ])]
     leads: bool,
+    /// Only the archived chats (the chat menu's Archive, `acpmux archive`, or the setting
+    /// `agents.chats.archiveInactive`), the newest archive first, with when each was archived and
+    /// by whom; `--json` rows carry `archivedAt` and `archivedBy` (`ls_archived.rs`).
+    #[arg(long, conflicts_with = "leads")]
+    archived: bool,
 }
 
 /// The v1 list `ls` pages when its daemon has no list surface or rows by key (`list_read.rs`).
@@ -147,6 +152,7 @@ pub(crate) async fn scoped_output(
         all,
         wide,
         leads,
+        archived,
     } = args;
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
@@ -163,7 +169,8 @@ pub(crate) async fn scoped_output(
         || tag.is_some()
         || selected
         || named
-        || cursor.is_some();
+        || cursor.is_some()
+        || archived;
     // The text view says which peers are down; read alongside the list.
     let mut peers = (!json_out && fields.is_none()).then(|| {
         let client = client.clone();
@@ -206,7 +213,8 @@ pub(crate) async fn scoped_output(
         };
         let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
         let name_ok = !named || select::name_matches(s, &patterns);
-        status_ok && (!pending || pend) && tag_ok && name_ok && rows.keeps(s)
+        let archive_ok = !archived || super::ls_archived::archived(s);
+        status_ok && (!pending || pend) && tag_ok && name_ok && archive_ok && rows.keeps(s)
     };
     let step = |s: &Value| {
         // Newest first: a row older than `--since` ends the read.
@@ -233,6 +241,7 @@ pub(crate) async fn scoped_output(
         // A filter only this side applies thins the pages: asking for just the rows still
         // wanted could then take a request per row.
         exact: !named
+            && !archived
             && tag.is_none()
             && !pending
             && (status.is_none() || daemon_status.is_some())
@@ -406,7 +415,10 @@ pub(crate) async fn scoped_output(
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
     }
-    if (selected || merged > 0) && !leads {
+    if archived {
+        sessions = super::ls_archived::rows(sessions);
+    }
+    if (selected || merged > 0) && !leads && !archived {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -459,6 +471,10 @@ pub(crate) async fn scoped_output(
     }
     if leads {
         out.push_str(&super::ls_leads::render(&sessions));
+        return Ok((out, scope));
+    }
+    if archived {
+        out.push_str(&super::ls_archived::render(&sessions, now));
         return Ok((out, scope));
     }
     let status = match (status_read, peers) {
@@ -519,7 +535,10 @@ pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
 fn outbox_line(status: &Value) -> Option<String> {
     let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
     let s = if n == 1 { "" } else { "s" };
-    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
 }
 
 #[cfg(test)]
