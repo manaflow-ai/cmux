@@ -141,8 +141,7 @@ def swift(data):
         '        case .%s: return "%s"' % (role["name"], role["reduceTransparency"]) for role in data["roles"]
     )
     looks = "\n".join(
-        "    /// Toasts share the transient material without changing the held chat appearance.\n    nonisolated public static let toast = FloatingGlassStyle.transient\n"
-        + "\n".join("\n".join(extra) for extra in data["swiftExtras"])
+        "    /// Toasts share the transient material without changing the held chat appearance.\n    nonisolated public static let toast = FloatingGlassStyle.transient"
         if role["name"] == "toast" else
         "    /// %s.\n"
         "    nonisolated public static let %s = FloatingGlassStyle(cornerDepth: %d, darkVeilAlpha: %s, lightVeilAlpha: %s,\n"
