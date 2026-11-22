@@ -7,8 +7,8 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && format('pair-e2e {0}',
 # the agent account can run it for. Both apps sign in as the staging agent test account: the
 # CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD pair in cmux-next-vm-image-dev, the pair cloud-rd-link-readback.yml
 # and cloud-chat-proof.yml's staging job read. Staging is the development Stack project, the one the DEBUG
-# Mac app and the Demo iPhone app sign in to. The pair goes to the CI auth profile file (0600, removed in
-# an always() step), as ios-e2e.yml does; it is never printed and never in an artifact.
+# Mac app and the Demo iPhone app sign in to. The pair goes to the CI auth profile file in the pair step's own HOME (0600,
+# removed in an always() step), as ios-e2e.yml does; it is never printed and never in an artifact.
 #
 # A tool, not a gate: it runs only when dispatched, or on a push to a pair-e2e/** branch (a branch made
 # to test one PR, e.g. pair-e2e/pr-49393: the PR head merged with the base it needs). No pull request,
@@ -125,12 +125,14 @@ jobs:
             echo "::error::the staging agent Stack pair is missing from cmux-next-vm-image-dev"
             exit 1
           fi
-          mkdir -p "$HOME/.secrets"
+          # In the pair step's own HOME (below), where the rig reads ~/.secrets/cmuxterm-dev.env.
+          mkdir -p "$RUNNER_TEMP/pair-home/.secrets"
+          chmod 700 "$RUNNER_TEMP/pair-home" "$RUNNER_TEMP/pair-home/.secrets"
           (
             umask 077
             printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD"
-          ) > "$HOME/.secrets/cmuxterm-dev.env"
-          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+          ) > "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
+          chmod 600 "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
 
       - name: pair-e2e (cmux-next-ios-sim.sh pair-e2e)
         id: pair
@@ -138,6 +140,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          # The rig makes its own keychain the user default for the run and refuses the account's HOME
+          # (cmux_next_pair_e2e.py: "the rig's keychain needs the step's own HOME"). Run it under a HOME
+          # of this run's own, as cmux-ci's build env does, with Rust still where the earlier steps put it.
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+          export HOME="$RUNNER_TEMP/pair-home"
           bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
 
       - name: Summarize
@@ -175,5 +182,5 @@ jobs:
       - name: Remove the CI auth profile
         if: always()
         run: |
-          rm -f "$HOME/.secrets/cmuxterm-dev.env"
-          rmdir "$HOME/.secrets" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/pair-home/.secrets/cmuxterm-dev.env"
+          rmdir "$RUNNER_TEMP/pair-home/.secrets" 2>/dev/null || true

@@ -258,7 +258,17 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond"] {
+    for look in [
+        "harbor",
+        "classic-desktop",
+        "phosphor",
+        "claude-desktop",
+        "charcoal",
+        "teal",
+        "moss",
+        "meadow",
+        "lily-pond",
+    ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
@@ -273,6 +283,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         );
         assert!(file.is_loaded, "{name}");
         assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        // A look that names a terminal theme takes the window with it, over the person's own
+        // App Theme (else a dark look sits in a light window).
+        let value = crate::jsonc::parse(&text).expect("jsonc");
+        if value.get("appearance.theme").is_some() {
+            assert_eq!(value["appearance.appTheme"], json!("followTerminal"), "{name}");
+        }
     }
 }
 
@@ -435,6 +451,26 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
+/// and its tokens apply, and a tokens object with an unknown token is refused with its key.
+#[test]
+fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
+    let file = overlay(
+        r#"{ "agentPane.display.transcriptLook": "studio",
+             "agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.transcriptLook"), Some(&json!("studio")));
+    assert_eq!(
+        at(&root, "agentPane.display.transcriptTokens"),
+        Some(&json!({"userMessage.radius": 20, "timestamps": "always"}))
+    );
+    let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
 }
 
 #[test]
