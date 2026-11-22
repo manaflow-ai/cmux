@@ -10,7 +10,10 @@ use sha2::{Digest as _, Sha256};
 use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
-use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
+use super::{
+    ChannelApply, Command, Live, Plan, Scope, apply_channel, choose, finish, parse, plan_human,
+    plan_json, try_live, undo_live,
+};
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const APP_COMMIT: &str = "89abcde";
@@ -69,6 +72,34 @@ struct Fixture {
     app: PathBuf,
     base: String,
     store: Store,
+}
+
+impl Fixture {
+    /// Exercise the command's shared channel/apply boundary with signed fixture
+    /// bytes and a fake daemon, including the forward-only state write.
+    fn run_channel_once(
+        &self,
+        channel_body: &[u8],
+        live_body: &[u8],
+        keys: &[(String, [u8; 32])],
+        daemon: &dyn Daemon,
+        now: u64,
+    ) -> Result<bool, String> {
+        let channel = live::verify_channel(channel_body, keys, now)?;
+        match apply_channel(&self.app, &self.store, &channel, false, |app_commit| {
+            let payload = live::verify(live_body, keys, &channel.commit)?;
+            let plan =
+                choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, &self.base);
+            let Plan::Live { files, .. } = plan else {
+                return Err("the signed channel has no live payload this app can take".to_owned());
+            };
+            let applied = try_live(&self.app, &files, &self.store, daemon, &mut Phases::default())?;
+            Ok(applied.changed)
+        })? {
+            ChannelApply::SkippedOlder => Ok(false),
+            ChannelApply::Applied { changed } => Ok(changed),
+        }
+    }
 }
 
 const OLD_CMUX: &[u8] = b"old cmux";
@@ -161,7 +192,7 @@ fn read(app: &Path, file: &str) -> Option<Vec<u8>> {
 
 fn live_files(fixture: &Fixture, live: &Live) -> Vec<live::Wanted> {
     match choose(COMMIT, Some(APP_COMMIT), live, None, &fixture.base) {
-        Plan::Live { files } => files,
+        Plan::Live { files, scope: Scope::Whole } => files,
         other => panic!("expected the live path, got {other:?}"),
     }
 }
@@ -179,12 +210,140 @@ fn app_try_parse_reads_try_undo_status_and_dry_run() {
     assert_eq!(parse(&words(&["undo"])).unwrap(), Command::Undo { dry_run: false });
     assert_eq!(parse(&words(&["undo", "--dry-run"])).unwrap(), Command::Undo { dry_run: true });
     assert_eq!(parse(&words(&["status"])).unwrap(), Command::Status);
+    assert_eq!(
+        parse(&words(&["channel"])).unwrap(),
+        Command::Channel { dry_run: false, app: None }
+    );
+    assert_eq!(
+        parse(&words(&["channel", "--dry-run", "--app", "/A.app"])).unwrap(),
+        Command::Channel { dry_run: true, app: Some("/A.app".into()) }
+    );
     assert_eq!(parse(&words(&["--help"])).unwrap(), Command::Help);
     assert!(parse(&words(&[])).is_err());
     assert!(parse(&words(&["a", "b"])).is_err());
     assert!(parse(&words(&["--bogus", "abc1234"])).is_err());
     assert!(parse(&words(&["a..b"])).is_err());
     assert!(parse(&words(&["status", "--dry-run"])).is_err());
+}
+
+#[test]
+fn nightly_live_channel_checks_signature_binding_expiry_and_forward_only_order() {
+    let signed = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let channel = live::verify_channel(&signed, &keys(), 1_200).unwrap();
+    assert_eq!(channel.commit, COMMIT);
+    assert!(live::channel_is_newer(None, channel.committed_at));
+    assert!(!live::channel_is_newer(Some(channel.committed_at), channel.committed_at));
+    assert!(!live::channel_is_newer(Some(channel.committed_at + 1), channel.committed_at));
+
+    let wrong_purpose = envelope(&payload("cmux-cloud-machine-update", COMMIT, good_targets()));
+    let error = live::verify_channel(&wrong_purpose, &keys(), 1_200).unwrap_err();
+    assert!(error.contains("not the nightly-live Mac channel"), "{error}");
+
+    let mut expired = payload(live::PURPOSE, COMMIT, good_targets());
+    expired["expires_at"] = json!(1_200);
+    let error = live::verify_channel(&envelope(&expired), &keys(), 1_200).unwrap_err();
+    assert!(error.contains("expired"), "{error}");
+
+    let mut unbound = payload(live::PURPOSE, COMMIT, good_targets());
+    unbound["live_from"] = json!(["89abcdef0123456789abcdef0123456789abcdef", COMMIT]);
+    let error = live::verify_channel(&envelope(&unbound), &keys(), 1_200).unwrap_err();
+    assert!(error.contains("live_from does not start"), "{error}");
+
+    let fixture = fixture();
+    assert_eq!(fixture.store.channel_last().unwrap(), None);
+    fixture.store.record_channel(1_100, COMMIT).unwrap();
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_100));
+    fs::write(fixture.store.root.join("channel.json"), b"not json").unwrap();
+    let error = fixture.store.channel_last().unwrap_err();
+    assert!(error.contains("invalid channel state"), "{error}");
+}
+
+#[test]
+fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_bad_updates() {
+    let fixture = fixture();
+    let channel_body = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let live_body = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+
+    assert!(fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_000));
+    // The same pointer is forward-only and does not re-run the daemon handoff.
+    assert!(!fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(daemon.terminated.get(), 1);
+
+    // A newer pointer whose files are already current still advances the
+    // watermark, so a later older pointer cannot move it back.
+    let mut current = payload(live::PURPOSE, COMMIT, good_targets());
+    current["committed_at"] = json!(1_200);
+    assert!(
+        !fixture
+            .run_channel_once(&envelope(&current), &live_body, &keys(), &daemon, 1_200)
+            .unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    let mut older = payload(live::PURPOSE, COMMIT, good_targets());
+    older["committed_at"] = json!(1_100);
+    assert!(
+        !fixture.run_channel_once(&envelope(&older), &live_body, &keys(), &daemon, 1_200).unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    assert_eq!(daemon.terminated.get(), 1);
+
+    // A newer pointer whose per-commit bytes fail verification leaves the
+    // already-applied files and channel receipt intact.
+    let mut newer = payload(live::PURPOSE, COMMIT, good_targets());
+    newer["committed_at"] = json!(1_300);
+    let mut bad_targets = good_targets();
+    bad_targets["cmux-tui-app-host"]["sha256"] = json!(sha(b"wrong"));
+    let bad_live = envelope(&payload(live::PURPOSE, COMMIT, bad_targets));
+    let error = fixture
+        .run_channel_once(&envelope(&newer), &bad_live, &keys(), &daemon, 1_200)
+        .unwrap_err();
+    assert!(
+        error.contains("live payload") || error.contains("sha256") || error.contains("hashes to"),
+        "{error}"
+    );
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+}
+
+#[test]
+fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
+    // CI's live_from stops at the first Swift, web or resource change (a whole-app floor); daemon_from goes
+    // on to the daemon ABI floor. The channel and `cmux app try COMMIT` both swap only the daemon then, and
+    // `app try` names the Swift it leaves out instead of claiming the app is at COMMIT.
+    let mut daemon_only = payload(live::PURPOSE, COMMIT, good_targets());
+    daemon_only["live_from"] = json!([COMMIT]);
+    daemon_only.as_object_mut().unwrap().remove("native_from");
+    daemon_only["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
+    let live = Live::Found(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap());
+    let first = fixture();
+    let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &first.base);
+    let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
+        panic!("expected daemon-only live, got {plan:?}")
+    };
+    assert!(left.iter().any(|reason| reason.contains("whole-app floor")), "{left:?}");
+    let daemon = FakeDaemon::new(first.app.join(live::BIN).join("cmux"), true);
+    let body = envelope(&daemon_only);
+    assert!(first.run_channel_once(&body, &body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(read(&first.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(daemon.terminated.get(), 1);
+
+    // An app below the daemon floor is refused before anything is locked or fetched.
+    let fixture = fixture();
+    let mut floored = daemon_only.clone();
+    floored["daemon_from"] = json!([COMMIT]);
+    floored["committed_at"] = json!(1_500);
+    let error =
+        fixture.run_channel_once(&envelope(&floored), &body, &keys(), &daemon, 1_200).unwrap_err();
+    assert!(error.contains("daemon_from"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+
+    let mut unbound = daemon_only.clone();
+    unbound["daemon_from"] = json!([APP_FULL_COMMIT, COMMIT]);
+    let error = live::verify_channel(&envelope(&unbound), &keys(), 1_200).unwrap_err();
+    assert!(error.contains("daemon_from does not start"), "{error}");
 }
 
 fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
@@ -279,7 +438,7 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
     let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |action, dry_run| -> Vec<String> {
-        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run)
+        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run, false)
             .iter()
             .map(|word| word.to_string_lossy().into_owned())
             .collect()
@@ -321,6 +480,42 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
         [engine, "stop", "--side", "try-cmux-abc123", "--remove"]
     );
     assert_eq!(copy::DEFAULT_FROM, "/Applications/cmux NIGHTLY.app");
+}
+
+#[test]
+fn app_try_copy_with_no_from_lets_the_engine_pick_a_closer_golden_copy() {
+    let tree = Path::new("/src/cmux");
+    let from = Path::new("/Applications/cmux NIGHTLY.app");
+    let argv = |dry_run| -> Vec<String> {
+        copy::engine_args(CopyAction::Run, tree, from, "try-cmux-abc123", dry_run, true)
+            .iter()
+            .map(|word| word.to_string_lossy().into_owned())
+            .collect()
+    };
+    let run = argv(false);
+    assert_eq!(run[1], "run");
+    assert_eq!(run.last().map(String::as_str), Some("--pick"));
+    let dry = argv(true);
+    assert_eq!(dry[1], "golden");
+    assert!(!dry.contains(&"--pick".to_owned()));
+}
+
+#[test]
+fn app_try_copy_names_the_golden_copy_only_when_it_is_not_the_nightly() {
+    let picked = json!({
+        "copy": "/side/cmux try.app", "socket": "/tmp/s", "applied": { "web": { "how": "dev server" } },
+        "golden": { "kind": "fleet", "why": "fleet build ahead-x at 0123456789ab takes this tree with no build" },
+    });
+    let text = copy::running(&picked, Path::new("/cache/golden/fleet-0123/cmux DEV.app"), ".");
+    assert!(text.starts_with("Golden copy: fleet build ahead-x"), "{text}");
+    assert!(text.contains("copy of /cache/golden/fleet-0123/cmux DEV.app"), "{text}");
+    let installed = json!({ "applied": {}, "golden": { "kind": "installed", "why": "w" } });
+    assert_eq!(copy::golden_line(&installed), None);
+    assert_eq!(copy::golden_line(&json!({ "applied": {} })), None);
+    let none = json!({ "plan": { "build": { "Swift": ["a.swift"] } },
+                       "golden": { "kind": "installed", "tried": [{}, {}, {}] } });
+    let text = copy::needs_build_text(&none, COMMIT, "try-cmux-abc123", "/src/cmux");
+    assert!(text.contains("(2 tried)"), "{text}");
 }
 
 #[test]
@@ -414,7 +609,7 @@ fn app_try_verify_checks_signature_purpose_and_commit() {
 }
 
 #[test]
-fn app_try_native_proof_is_required_even_when_the_daemon_is_compatible() {
+fn app_try_native_proof_is_required_for_the_whole_app_and_the_daemon_goes_alone_without_it() {
     let fixture = fixture();
     let listing = json!({"installed": "400", "switches": true, "builds": [
         {"build": "500", "commit": COMMIT, "installed": false, "switchable": true, "health": "pending"},
@@ -426,14 +621,20 @@ fn app_try_native_proof_is_required_even_when_the_daemon_is_compatible() {
             body["native_from"] = proof;
         }
         let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
-        // A Swift-only edit can retain live_from membership. It still needs the full app.
+        // Without native proof the whole app is not live: a build of the commit in the feed wins.
         let plan = choose(COMMIT, Some(APP_COMMIT), &live, Some(Ok(&listing)), &fixture.base);
         let Plan::Full { build, .. } = plan else { panic!("expected full, got {plan:?}") };
         assert_eq!(build["build"], "500");
-        // No matching full build must never report that the requested app is live.
-        let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base);
-        let Plan::None { why } = plan else { panic!("expected none, got {plan:?}") };
-        assert!(why.iter().any(|reason| reason.contains("native")), "{why:?}");
+        // With no such build the daemon goes in alone, and the plan says what the app keeps:
+        // it is never reported as the whole app at COMMIT.
+        let empty = json!({"installed": "400", "switches": true, "builds": []});
+        for builds in [None, Some(Ok(&empty)), Some(Err("no app answers"))] {
+            let plan = choose(COMMIT, Some(APP_COMMIT), &live, builds, &fixture.base);
+            let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
+                panic!("expected daemon-only live, got {plan:?}")
+            };
+            assert!(left.iter().any(|reason| reason.contains("native_from")), "{left:?}");
+        }
         assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
         assert!(fixture.store.last().is_none());
     }
@@ -465,9 +666,9 @@ fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility()
     let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
     assert!(matches!(
         choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
-        Plan::None { .. }
+        Plan::Live { scope: Scope::Daemon(_), .. }
     ));
-    // Native equality also cannot replace daemon compatibility.
+    // Native equality also cannot replace daemon compatibility (no daemon_from: live_from is the list).
     body["native_from"] = json!([APP_FULL_COMMIT]);
     body["live_from"] = json!([COMMIT]);
     let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
@@ -483,7 +684,7 @@ fn app_try_plan_picks_live_full_and_none() {
     let base = fixture.base.as_str();
     // Live: the app's short CMUXCommit is in live_from.
     let plan = choose(COMMIT, Some(APP_COMMIT), &found(good_targets()), None, base);
-    let Plan::Live { files } = plan else { panic!("expected live, got {plan:?}") };
+    let Plan::Live { files, .. } = plan else { panic!("expected live, got {plan:?}") };
     let cmux = files.iter().find(|w| w.file == "cmux").unwrap();
     assert_eq!(
         cmux.fetch_url.as_deref(),
@@ -689,4 +890,102 @@ fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
     assert!(error.contains("at fedcba9 now, not 89abcde"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(read(&fixture.app, "cmux-holder"), None);
+}
+
+/// A signed file past the app's whole-app floor: live_from stops at COMMIT, daemon_from goes on.
+fn past_floor() -> Live {
+    let mut body = payload(live::PURPOSE, COMMIT, good_targets());
+    body["live_from"] = json!([COMMIT]);
+    body.as_object_mut().unwrap().remove("native_from");
+    body["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
+    Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap())
+}
+
+#[test]
+fn app_try_sha_takes_the_daemon_past_a_web_or_swift_floor_and_never_claims_the_whole_app() {
+    // Fix list item 1: a webviews .ts or Swift change after the app's build set live_from's floor, so
+    // `cmux app try SHA` took only an app built from SHA. The daemon ABI floor (daemon_from) decides now.
+    let fixture = fixture();
+    let plan = choose(COMMIT, Some(APP_COMMIT), &past_floor(), None, &fixture.base);
+    let Plan::Live { files, scope: Scope::Daemon(left) } = &plan else {
+        panic!("expected daemon-only live, got {plan:?}")
+    };
+    assert!(files.iter().any(|w| w.file == "cmux" && w.binary.is_some()));
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left[0].contains(APP_COMMIT) && left[0].contains(&COMMIT[..12]), "{left:?}");
+    assert!(left[0].contains("Swift"), "{left:?}");
+
+    let planned = plan_json(&plan, COMMIT, &fixture.app, Some(APP_COMMIT));
+    assert_eq!(
+        (planned["path"].as_str(), planned["scope"].as_str()),
+        (Some("live"), Some("daemon"))
+    );
+    assert_eq!(planned["left_out"].as_array().map(Vec::len), Some(1));
+    let human = plan_human(&plan, COMMIT, &fixture.app, Some(APP_COMMIT));
+    assert!(human.contains("daemon only") && human.contains("Swift left out:"), "{human}");
+    assert!(human.contains("is not at"), "{human}");
+
+    // A whole-app plan says neither.
+    let whole = choose(COMMIT, Some(APP_COMMIT), &found(good_targets()), None, &fixture.base);
+    assert!(matches!(whole, Plan::Live { scope: Scope::Whole, .. }), "{whole:?}");
+    let planned = plan_json(&whole, COMMIT, &fixture.app, Some(APP_COMMIT));
+    assert_eq!(planned["scope"], "whole");
+    assert_eq!(planned["left_out"], json!([]));
+    assert!(!plan_human(&whole, COMMIT, &fixture.app, Some(APP_COMMIT)).contains("daemon only"));
+
+    // Below the daemon ABI floor it is still refused, naming daemon_from.
+    let plan = choose(COMMIT, Some("fedcba9"), &past_floor(), None, &fixture.base);
+    let Plan::None { why } = plan else { panic!("expected none, got {plan:?}") };
+    assert!(why[0].contains("daemon_from"), "{why:?}");
+}
+
+#[test]
+fn app_try_sha_daemon_only_swap_receipt_says_daemon_only_and_undo_restores() {
+    let fixture = fixture();
+    let plan = choose(COMMIT, Some(APP_COMMIT), &past_floor(), None, &fixture.base);
+    let Plan::Live { files, scope } = plan else { panic!("expected live") };
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let mut phases = Phases::default();
+    let result = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut phases);
+    let receipt = json!({
+        "schema": 1, "action": "try", "target": COMMIT, "commit": COMMIT, "path": "live",
+        "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+        "scope": scope.name(), "left_out": scope.left_out(),
+    });
+    let global =
+        super::GlobalArgs { output: super::OutputMode::Json, ..super::GlobalArgs::default() };
+    let code = finish(
+        &global,
+        &fixture.store,
+        receipt,
+        result,
+        phases,
+        std::time::Instant::now(),
+        COMMIT,
+        &fixture.app,
+        None,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    let last = fixture.store.last().unwrap();
+    assert_eq!((last["scope"].as_str(), last["ok"].as_bool()), (Some("daemon"), Some(true)));
+    assert!(last["left_out"][0].as_str().unwrap().contains("Swift"), "{last}");
+    assert_eq!(super::receipt_left_out(&last).as_deref(), last["left_out"][0].as_str());
+    // The daemon-only try undoes as any live try does.
+    undo_live(&fixture.store, &daemon).unwrap();
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+}
+
+#[test]
+fn app_try_sha_from_a_file_before_daemon_from_says_so() {
+    // An older mac-live.json has no daemon_from: live_from stands in, and the reason says so.
+    let fixture = fixture();
+    let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
+    legacy.as_object_mut().unwrap().remove("native_from");
+    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base);
+    let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
+        panic!("expected daemon-only live, got {plan:?}")
+    };
+    assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
 }

@@ -346,6 +346,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
 
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
@@ -763,6 +769,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -1678,6 +1691,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.scanOutput(data)
                 firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -2011,6 +2025,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -2596,6 +2611,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        #if DEBUG
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
