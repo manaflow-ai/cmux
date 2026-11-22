@@ -185,10 +185,15 @@ test("a refused open of the started chat logs the chat's session id", async () =
 test("a start with no connection to acpmux draws no card, keeps starting, and logs its cause", async () => {
   const { client, harnessSwitch } = await startPath();
   client.close();
-  captureLog();
+  const causeLogged = new Promise<void>((resolve) => {
+    console.error = (...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      logged.push(line);
+      if (line.includes("native.not_connected")) resolve();
+    };
+  });
   void harnessSwitch.switchTo("claude", "/tmp/project");
-  for (let i = 0; i < 50 && !logged.some((entry) => entry.includes("native.not_connected")); i++)
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  await causeLogged;
   const intent = harnessSwitch.view().intent;
   expect(intent?.phase).toBe("starting");
   expect(intent?.error).toBeUndefined();
