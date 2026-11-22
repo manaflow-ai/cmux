@@ -742,6 +742,15 @@ impl State {
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)
     }
+    /// The open turn as a read folds it: its group row and the rows its fold shows now, the
+    /// ranges its group row will carry as `out` when the turn ends. `None` outside a turn.
+    pub fn open_fold(&self) -> Option<crate::log::LiveFold> {
+        let group = self.group.as_ref()?;
+        Some(crate::log::LiveFold {
+            group: group.id,
+            out: self.fold.out().into_iter().map(|run| (run.0, run.1)).collect(),
+        })
+    }
     fn stored_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.reply
             .iter()
