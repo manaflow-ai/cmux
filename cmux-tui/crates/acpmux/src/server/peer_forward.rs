@@ -126,6 +126,13 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // peer would read as this daemon's.
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
+    // Computer Use names a machine, never a session (`computer_use_relay.rs`): its `session` is
+    // the calling agent's on the machine that sent it, and its `name` a tool. A peer that mirrors
+    // that machine's chats found the session there and sent the call back, `name` stripped, as
+    // "unknown Computer Use tool \"\"".
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -1240,6 +1247,19 @@ mod tests {
     #[test]
     fn a_registration_is_never_forwarded_to_a_peer() {
         assert!(!names_a_session(method::MUX_REGISTER));
+    }
+
+    /// A Computer Use call's `session` is the caller's on the machine that sent it: a peer that
+    /// mirrors that machine's chats runs the call itself, never sends it back with `name` gone.
+    #[test]
+    fn a_computer_use_call_is_never_forwarded_by_its_session() {
+        for m in [
+            method::MUX_COMPUTER_USE_CALL,
+            method::MUX_COMPUTER_USE_MACHINES,
+            method::MUX_COMPUTER_USE_STATE,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
     }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's

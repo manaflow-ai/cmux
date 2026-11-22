@@ -235,7 +235,7 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
             };
             let outcome = tokio::task::spawn_blocking(move || {
                 let caller =
-                    Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin);
+                    Caller::new(SocketDaemon::for_app(), session, label).with_origin(origin);
                 caller.set_cursor_tag(&call.tag);
                 caller.call(&call.name, &call.arguments, &call.call_id)
             })
@@ -264,16 +264,51 @@ pub(super) async fn state(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError
         Admission::Refused(why) => return Err(refused("computer_use_remote_denied", why)),
     }
     let data = tokio::task::spawn_blocking(|| {
-        SocketDaemon::from_env().request(crate::computer_use::client::ENDPOINT_CMD, json!({}))
+        SocketDaemon::for_app().request(crate::computer_use::client::ENDPOINT_CMD, json!({}))
     })
     .await
     .map_err(|e| RpcError::internal(format!("the state read stopped: {e}")))?;
-    Ok(match data {
-        Ok(data) => {
-            json!({"state": data.get("state").and_then(Value::as_str).unwrap_or("unavailable")})
+    Ok(state_reply(data))
+}
+
+/// The peer's answer to a state read: the endpoint's state, with why when it is not on.
+pub(super) fn state_reply(data: Result<Value, crate::computer_use::client::DaemonError>) -> Value {
+    let (state, reason) = match &data {
+        Ok(data) => (
+            data.get("state").and_then(Value::as_str).unwrap_or("unavailable"),
+            data.get("reason").and_then(Value::as_str).map(str::to_owned).unwrap_or_default(),
+        ),
+        Err(e) => ("unavailable", e.to_string()),
+    };
+    // The worker's secret and socket never leave this machine: only the state and its reason.
+    let mut reply = json!({"state": state});
+    if state != "ready" && !reason.trim().is_empty() {
+        reply["reason"] = json!(reason.chars().take(300).collect::<String>());
+    }
+    reply
+}
+
+/// One row of `computer_use_machines` for a connected peer, from its state read (None: it did
+/// not answer in time).
+pub(super) fn machine_row(name: &str, state: Option<Result<Value, RpcError>>) -> Value {
+    let (computer_use, reason) = match state {
+        Some(Ok(v)) => (
+            v.get("state").and_then(Value::as_str).unwrap_or("unknown").to_owned(),
+            v.get("reason").and_then(Value::as_str).map(str::to_owned),
+        ),
+        Some(Err(e)) if e.message.contains("not found") => {
+            ("unsupported".to_owned(), Some(format!("its cmux is too old: {}", e.message)))
         }
-        Err(_) => json!({"state": "unavailable"}),
-    })
+        Some(Err(e)) => ("refused".to_owned(), Some(e.message)),
+        None => {
+            ("unknown".to_owned(), Some(format!("it did not answer in {} s", STATE_WAIT.as_secs())))
+        }
+    };
+    let mut row = json!({"name": name, "reachable": true, "computer_use": computer_use});
+    if let Some(reason) = reason.filter(|r| !r.trim().is_empty()) {
+        row["reason"] = json!(reason);
+    }
+    row
 }
 
 /// `_acpmux/computer_use_machines` (local only): the configured peers, with
@@ -297,15 +332,7 @@ pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcEr
                         peer.request(method::MUX_COMPUTER_USE_STATE, json!({})),
                     )
                     .await;
-                    let computer_use = match state {
-                        Ok(Ok(v)) => {
-                            v.get("state").and_then(Value::as_str).unwrap_or("unknown").to_owned()
-                        }
-                        Ok(Err(e)) if e.message.contains("not found") => "unsupported".to_owned(),
-                        Ok(Err(_)) => "refused".to_owned(),
-                        Err(_) => "unknown".to_owned(),
-                    };
-                    json!({"name": name, "reachable": true, "computer_use": computer_use})
+                    machine_row(&name, state.ok())
                 });
             }
             _ => rows.push(json!({"name": name, "reachable": false, "computer_use": "unknown"})),
