@@ -21,8 +21,10 @@
 //!    An upper layer the agent wrote to since it was read stays on the machine, mounted again on
 //!    the next dial (`edited_since` in the summary), and so does this Mac's record of it.
 //!
-//!     cmux link project back --socket S --at REMOTE FOLDER [--keep]
-//!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//! ```text
+//! cmux link project back --socket S --at REMOTE FOLDER [--keep]
+//! cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//! ```
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Read as _, Seek as _, Write as _};
