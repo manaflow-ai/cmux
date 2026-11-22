@@ -22,12 +22,9 @@ export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]):
 /// beside its task list; between turns the Plan mode mark, quiet, with no time. cmux#51039 (the person,
 /// 2026-11-22, on "0 of 6 · Read prior fixes" with no spinner anywhere: "this is confusing i wasn't sure
 /// if this workspace was doing anything").
-export function planHeadMark({
-  working,
-  turnSince,
-}: {
-  working: boolean;
-  turnSince?: number;
-}): { spins: boolean; since: number | undefined } {
+export function planHeadMark({ working, turnSince }: { working: boolean; turnSince?: number }): {
+  spins: boolean;
+  since: number | undefined;
+} {
   return working ? { spins: true, since: turnSince } : { spins: false, since: undefined };
 }

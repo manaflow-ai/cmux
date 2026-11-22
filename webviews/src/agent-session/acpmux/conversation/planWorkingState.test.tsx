@@ -31,7 +31,9 @@ const selectorsWith = (css: string, declaration: string): string[] =>
 
 test("a running turn's step in progress spins", () => {
   const out = renderToStaticMarkup(<PlanList entries={plan} />);
-  expect(out).toContain('data-status="in_progress"><span class="cv-plan__mark" aria-hidden="true"><svg class="cv-spinner');
+  expect(out).toContain(
+    'data-status="in_progress"><span class="cv-plan__mark" aria-hidden="true"><svg class="cv-spinner',
+  );
   expect(out).not.toContain("data-still");
 });
 
