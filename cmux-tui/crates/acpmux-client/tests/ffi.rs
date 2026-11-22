@@ -325,7 +325,7 @@ fn one_handle_carries_a_chat_through_each_c_function() {
     use acpmux_client::wire::{BlobHead, blob_frame};
 
     assert_eq!(acpmux_client_abi_version(), ACPMUX_CLIENT_ABI_VERSION);
-    assert_eq!(ACPMUX_CLIENT_ABI_VERSION, 3);
+    assert_eq!(ACPMUX_CLIENT_ABI_VERSION, 4);
     let surfaces = br#"["list","chat"]"#;
     assert!(unsafe { acpmux_client_new_with_surfaces(b"{".as_ptr(), 1) }.is_null());
     let handle = unsafe { acpmux_client_new_with_surfaces(surfaces.as_ptr(), surfaces.len()) };

@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
+import CmuxNextTestSupport
 import Testing
 
 /// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): `flush`, no goo, by default, and the card's wedge on
 /// the sidebar's side goes while the selected first tab rises from that corner.
-@MainActor @Suite(.serialized) struct CornerFlushTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CornerFlushTests {
     /// Leo, 2026-11-13: "lawrence wanted no goo by default". The flush frame stays; goo is a Debug Settings choice.
     @Test func flushWithoutGooIsTheDefault() {
         #expect(CornerFlush.tunable.defaultValue == .flush)
@@ -158,7 +159,7 @@ import Testing
 /// Lawrence, 2026-11-13: "get rid of border between tabs and omnibar, at all density levels." The tab row's divider
 /// leaves out a pane whose content starts with a toolbar row (a browser's omnibar), so its tabs and its omnibar read as
 /// one surface, and still runs under a pane whose content starts right under its tabs (a terminal).
-@MainActor @Suite(.serialized) struct TabRowDividerOverToolbarTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabRowDividerOverToolbarTests {
     @Test(arguments: DensityPreset.allCases, [false, true])
     func noDividerBetweenTabsAndOmnibar(density: DensityPreset, isDark: Bool) throws {
         let design = DesignSettings.shared
@@ -231,7 +232,7 @@ import Testing
 /// Lawrence, 2026-11-15: "we still have the line below tabs which is very bad." No tab row line by default: none under
 /// a terminal's tabs, a browser's, a chat's or a Markdown page's, and none past the strips (under the docked Home's
 /// header), at every density, light and dark, under either title area tone and any contrast.
-@MainActor @Suite(.serialized) struct NoLineUnderTabsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NoLineUnderTabsTests {
     @Test(arguments: DensityPreset.allCases, [false, true])
     func noLineUnderAnyTabStrip(density: DensityPreset, isDark: Bool) throws {
         let design = DesignSettings.shared
@@ -308,7 +309,7 @@ import Testing
 }
 
 /// The goo value's fillets: only `flush-goo` draws them.
-@MainActor @Suite struct CornerFlushGooTests {
+@MainActor @Suite(.closesItsWindows) struct CornerFlushGooTests {
     @Test func onlyGooHasFeet() {
         #expect(CornerFlush.goo.feetRadius > 0)
         for value in [CornerFlush.off, .flush, .tight] { #expect(value.feetRadius == 0) }

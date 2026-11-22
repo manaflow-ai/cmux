@@ -1,6 +1,16 @@
 use super::*;
 use serde_json::json;
 
+impl Hub {
+    /// Tells chat `id`'s row changed, as a change no record carries does: the order's next read
+    /// patches it. Panics when no chat has that id: a renamed fixture row would otherwise take
+    /// the patch out of a gate's timed samples unseen.
+    pub(crate) fn tell_row_for_test(&self, id: &str) {
+        let session = self.session_by_id(id).unwrap_or_else(|| panic!("no chat {id} to tell"));
+        self.events.row_changed(&session);
+    }
+}
+
 fn meta(id: &str, updated: u64) -> crate::store::SessionMeta {
     serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",

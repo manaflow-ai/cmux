@@ -211,6 +211,7 @@ pub(super) fn listing(entries: &[Entry]) -> Listing {
                 files: entry.profile.files.keys().cloned().collect(),
                 added_ms: entry.added_ms,
                 overridden,
+                until_ms: entry.until_ms.filter(|_| entry.on),
                 code: entry.code.clone(),
             }
         })

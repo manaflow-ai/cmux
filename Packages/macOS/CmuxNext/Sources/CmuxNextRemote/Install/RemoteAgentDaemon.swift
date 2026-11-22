@@ -1,5 +1,6 @@
 public import CmuxNextCloud
 public import Foundation
+import os
 
 /// What `cmux-tui acp --json daemon status` says about a machine's agent daemon (acpmux), read
 /// over ssh. The app's keyed restart, its handoff after an install and its update check read it
@@ -165,13 +166,32 @@ public actor RemoteApprovalPreparations {
     /// shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
                         restart: @escaping @Sendable () async -> Bool) async -> Bool {
-        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, restart) }
+        let keyed = Self.timed("approvals.key", restart), idleNow = Self.timed("approvals.status", idle)
+        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, keyed) }
         if held { return true }
         return await run(machine: machine, keepBusy: true) {
-            guard await idle() else { return false }
-            return await restart()
+            guard await idleNow() else { return false }
+            return await keyed()
         }
     }
+
+    /// `work`, marked as its own step `name` (its span from its own start) of the Cloud start whose
+    /// ``CloudStartStepRecord`` is current in the task that runs it (`cloud start-session`'s `stages_detail_ms`):
+    /// the preparation runs beside the start's other steps, so its parts are timed on a clock of their own.
+    /// Outside a recorded start (a pane's Allow) it marks and logs nothing.
+    static func timed(_ name: String, _ work: @escaping @Sendable () async -> Bool) -> @Sendable () async -> Bool {
+        {
+            let steps = await clock()
+            let value = await work()
+            await steps?.done(name)
+            return value
+        }
+    }
+
+    /// A clock of the recorded start this task runs for; nil outside one.
+    @MainActor private static func clock() -> CloudStartSteps? { CloudStartStepRecord.current == nil ? nil : CloudStartSteps(logger: logger) }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// Runs `body` while `prep` (a start's keyed-restart prep) runs beside it. The prep belongs to the caller: it is awaited
     /// before this returns, and cancelled first on an error exit, so no restart outlives the start that asked (#39069's review).

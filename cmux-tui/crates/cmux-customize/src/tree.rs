@@ -123,7 +123,8 @@ pub fn is_manifest(path: &str) -> bool {
 /// The settings file's logical path, whatever the file is called on disk.
 pub const SETTINGS: &str = "settings.json";
 /// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`).
-const STYLE_SURFACES: &[&str] = &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
+pub(crate) const STYLE_SURFACES: &[&str] =
+    &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
 
 /// One file of a tree, by content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

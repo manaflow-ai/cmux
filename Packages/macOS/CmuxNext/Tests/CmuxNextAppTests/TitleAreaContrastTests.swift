@@ -260,10 +260,27 @@ import Testing
     /// titlebar band and its hover and drag glow went dark. Leo, 2026-11-12: "slightly regressed the border thing,
     /// the border divider. And then there's, like, no more drag divider highlight". The default flush corner (not
     /// picked in Debug Settings) on a style that draws no curved card keeps the full-height line and the glow.
+    ///
+    /// It pins the stock chrome (`flat`, what cmux.json's missing `appearance.chromeStyle` gives) and clears the
+    /// overrides instead of skipping when the run's state differs: `chromeStyle`, the flush corner and the curved pane
+    /// are process-wide, and suites in parallel hold other values across their awaits (`.default` reads the curved
+    /// pane's default, a card). Synchronous, so the pin holds for the whole test.
     @Test func theDefaultFlushCornerKeepsTheSidebarEdgeLineAndItsGlow() {
         let design = DesignSettings.shared
-        guard ChromeTunables.mainPaneCurved.override == nil, !CornerFlush.isChosen,
-              design.chromeStyle.curvedMainPane != true else { return }
+        let (style, density) = (design.chromeStyle, design.densityTokens)
+        design.chromeStyle = .flat
+        design.densityTokens = DensityPreset.cozy.tokens
+        let store = TunableStore.shared
+        store.register([CornerFlush.tunable.descriptor, ChromeTunables.mainPaneCurved.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let flush = store.set(CornerFlush.tunable.key, nil)
+        let curved = store.set(ChromeTunables.mainPaneCurved.key, nil)
+        defer {
+            _ = store.set(CornerFlush.tunable.key, flush)
+            _ = store.set(ChromeTunables.mainPaneCurved.key, curved)
+            (design.chromeStyle, design.densityTokens) = (style, density)
+        }
+        #expect(!CornerFlush.isChosen && ChromeTunables.mainPaneCurved.override == nil, "the pins did not take")
         #expect(!Metrics.cardEdgeIsSidebarSeam)
         if CornerFlush.current.isOn { #expect(Metrics.mainPaneCurved, "the flush corner still draws the card") }
     }

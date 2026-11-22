@@ -26,7 +26,13 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
+            .map(|entry| Entry {
+                added_ms: None,
+                generation: None,
+                on_ms: None,
+                until_ms: None,
+                ..entry
+            })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -97,6 +103,8 @@ impl Customize {
                     profile,
                     added_ms: Some(now_ms),
                     generation: None,
+                    on_ms: (turn_on && entry.on).then_some(now_ms),
+                    until_ms: None,
                     code: entry.code.clone(),
                 });
             }
@@ -144,6 +152,8 @@ impl Customize {
                     profile,
                     added_ms: None,
                     generation: None,
+                    on_ms: None,
+                    until_ms: None,
                     code: None,
                 }],
             });
@@ -165,7 +175,7 @@ impl Customize {
 
     /// Every entry of `collection` is one `use` would take, and the set is
     /// one a library can hold.
-    fn check_collection(&self, collection: &Collection) -> Result<(), Error> {
+    pub(super) fn check_collection(&self, collection: &Collection) -> Result<(), Error> {
         if collection.version != COLLECTION_VERSION {
             return Err(Error::Library(format!(
                 "this collection is format {}; this cmux reads format {COLLECTION_VERSION}",

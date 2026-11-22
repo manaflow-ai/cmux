@@ -90,7 +90,7 @@ final class PaneTypeMenuButton: NSView {
         let side = min(bounds.width, bounds.height)
         if style == .split {
             fillLayer.frame = bounds
-            fillLayer.cornerRadius = NewTabButtonView.splitCornerRadius
+            fillLayer.cornerRadius = PlusButtonLook.splitCornerRadius // the +'s corner: one control, a tab's roundness
             fillLayer.cornerCurve = Metrics.tabCornerCurve
             fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         } else {
