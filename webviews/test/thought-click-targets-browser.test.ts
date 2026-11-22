@@ -362,7 +362,8 @@ await requireBrowserLane("thought-click-targets-browser.test.ts", async () => {
             brain: node.querySelectorAll(".cv-tool__icon svg").length,
             label: node.querySelectorAll(".cv-thought__label").length,
             cut: line.scrollHeight > line.clientHeight + 1,
-            body: body ? body.getBoundingClientRect().height : 0,
+            // The fold sizes the body's wrapper, so the wrapper's height is what is drawn midway.
+            body: body ? body.parentElement!.getBoundingClientRect().height : 0,
             rest: body?.textContent ?? "",
             below: body ? body.getBoundingClientRect().top >= letter.bottom - 1 : true,
           };
