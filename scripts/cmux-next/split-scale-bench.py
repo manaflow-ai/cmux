@@ -703,38 +703,35 @@ def pane_layout(run, workspace):
         if panes:
             sidebar = window.get("sidebar") if not (window.get("window_controls") or {}).get("sidebar_hidden") else None
             rows = [{"id": p["pane"], "cell": p["cell"], "strip": p.get("strip"), "slots": p.get("tab_slots") or [],
-                     "pill": p.get("pill"), "toolbar": (p.get("toolbar") or {}).get("frame")} for p in panes]
+                     "pill": p.get("pill"), "toolbar": (p.get("toolbar") or {}).get("frame"),
+                     "empty": p.get("strip_empty")} for p in panes]
             return sorted(rows, key=lambda r: (round(r["cell"][0]), round(r["cell"][1]))), sidebar, len(report["windows"])
     return [], None, len(report.get("windows") or [])
 
 
-# The + and new-tab-menu buttons right of the last tab, and the margin kept from the tab bar's trailing buttons.
-NEW_TAB_ROOM, TRAILING_MARGIN, SIDEBAR_MARGIN = 60, 8, 24
+# Points kept from the empty space's ends: the + buttons on its left, the bar's trailing buttons and the sidebar's edge.
+EDGE_MARGIN, SIDEBAR_MARGIN = 6, 24
 
 
 def strip_press(pane, sidebar):
-    """(x, y, why): a press point on the empty space of `pane`'s tab bar, right of its last tab and its + buttons, left
-    of its trailing buttons, read from the strip's own layout (tab slots, first pill, toolbar); x None with the reason
-    when the bar has no such space or it lies on the sidebar's edge."""
-    strip = pane.get("strip")
-    if not isinstance(strip, list) or strip[2] < 1:
-        return None, None, "the pane reports no tab bar"
-    slots = [s for s in pane.get("slots") or [] if isinstance(s, list) and len(s) == 2]
-    # Slots are in the strip's content points; the first pill puts them in the window.
-    origin = strip[0]
-    if slots and isinstance(pane.get("pill"), list):
-        origin = pane["pill"][0] - min(s[0] for s in slots)
-    tabs_end = origin + max((s[0] + s[1] for s in slots), default=0)
-    right = strip[0] + strip[2]
+    """(x, y, why): a press point on the empty space of `pane`'s tab bar, as the strip itself reports it
+    (`debug.pane_chrome` `strip_empty`: right of the tabs, chips and + buttons, the space a press there drags the pane
+    from), left of the bar's trailing buttons and clear of the sidebar's edge; x None with the reason when there is
+    none (a narrow pane whose tabs fill its bar has nowhere to drag it from)."""
+    empty = pane.get("empty")
+    if not isinstance(empty, list) or len(empty) != 4:
+        strip = pane.get("strip") or [0, 0, 0, 0]
+        return None, None, f"the tab bar has no empty space (bar {strip[0]:.0f}..{strip[0] + strip[2]:.0f})"
+    left, right = empty[0] + EDGE_MARGIN, empty[0] + empty[2]
     toolbar = pane.get("toolbar")
-    if isinstance(toolbar, list) and toolbar[2] > 0 and tabs_end < toolbar[0] < right:
+    if isinstance(toolbar, list) and toolbar[2] > 0 and left < toolbar[0] < right:
         right = toolbar[0]
-    left, right = tabs_end + NEW_TAB_ROOM, right - TRAILING_MARGIN
+    right -= EDGE_MARGIN
     if sidebar and isinstance(sidebar, list):
         left = max(left, sidebar[0] + sidebar[2] + SIDEBAR_MARGIN)
-    if right - left < 8:
-        return None, None, f"no empty tab-bar space (tabs end {tabs_end:.0f}, bar ends {right:.0f})"
-    return round((left + right) / 2, 1), round(strip[1] + strip[3] / 2, 1), None
+    if right - left < 4:
+        return None, None, f"the tab bar's empty space is {empty[2]:.0f} pt ({empty[0]:.0f}..{empty[0] + empty[2]:.0f}), under the bar's buttons"
+    return round((left + right) / 2, 1), round(empty[1] + empty[3] / 2, 1), None
 
 
 def order(run, workspace):
@@ -834,26 +831,46 @@ def run_move_cell(run, workspace, panes, results, cell, content):
 
     def pane_drag_pair(rnd):
         """The first pane dragged by its tab bar onto the last pane's right edge, then back onto the first pane's left
-        edge. Each drag must leave the row with the same panes in one row, the dragged one last (first)."""
+        edge. A pane drag lands as a new pane (TabMoves.movePane makes the destination pane and moves the tabs into it),
+        so the dragged pane is followed by its tabs: each drag must leave the row with as many panes, in one row, and
+        every tab of the dragged pane in the last (first) pane, alone."""
         time.sleep(opts.settle)  # test script: the last move's motion ends before the layout is read
         start, _ = order(run, workspace)
         if len(start) < 2:
             for name in ("pane_drag", "pane_drag_back"):
                 add(name, {"error": f"the layout showed {len(start)} of the cell's panes"})
             return
-        dragged = start[0]
+        carried = {t for t, p in workspace_tabs(run, workspace).items() if p == start[0]}
+
+        def holder():
+            """The pane holding every carried tab and no other, or None."""
+            tabs = workspace_tabs(run, workspace)
+            panes = {tabs.get(t) for t in carried}
+            if len(panes) != 1 or None in panes:
+                return None
+            pane = panes.pop()
+            return pane if all(t in carried for t, p in tabs.items() if p == pane) else None
+
+        def layout_after():
+            tabs = workspace_tabs(run, workspace)
+            now, one_row = order(run, workspace)
+            return (f"panes after: {len(now)}, one row: {one_row}, carried tabs in panes "
+                    f"{[now.index(tabs[t]) if tabs.get(t) in now else None for t in sorted(carried)]}, tabs per pane "
+                    f"{[sum(1 for p in tabs.values() if p == pane) for pane in now]}")
+
         for name, edge, home in (("pane_drag", "right", -1), ("pane_drag_back", "left", 0)):
             if name == "pane_drag_back":
                 time.sleep(opts.settle)  # test script: the forward drag's motion ends before the layout is read
             panes_now, sidebar, windows = pane_layout(run, workspace)
             ids = [p["id"] for p in panes_now]
+            dragged = holder()
             source = next((p for p in panes_now if p["id"] == dragged), None)
             target = (panes_now[-1] if edge == "right" else panes_now[0]) if panes_now else {"cell": [0, 0, 0, 0]}
             ready = None
             if name == "pane_drag_back" and (not ids or ids[-1] != dragged):
                 ready = "the forward pane_drag did not happen"
             elif source is None or len(ids) != len(start):
-                ready = f"the layout showed {len(ids)} of {len(start)} panes ({windows} windows)"
+                ready = f"the layout showed {len(ids)} of {len(start)} panes ({windows} windows), the dragged pane {'found' if source else 'not found'}"
             press = strip_press(source, sidebar) if source else (None, None, "no source pane")
             if not ready and press[0] is None:
                 ready = f"no press point: {press[2]}"
@@ -868,14 +885,15 @@ def run_move_cell(run, workspace, panes, results, cell, content):
 
             def landed(home=home, n=len(start)):
                 now, one_row = order(run, workspace)
-                return len(now) == n and one_row and now[home] == dragged
+                pane = holder()
+                return len(now) == n and one_row and pane is not None and now[home] == pane
             row = move_row(run, workspace, drag(press[:2], cell_rect, edge) if not ready else None,
                            f"{cell}-{name}-{rnd}", static, landed, ready=ready)
             if not ready:
                 row["drag_at"] = list(press[:2])
+                row["drag_layout"] = layout_after()
             if row.get("error") and not ready:
-                now, one_row = order(run, workspace)
-                row["error"] += f" (panes after: {len(now)}, one row: {one_row}, dragged at {now.index(dragged) if dragged in now else None})"
+                row["error"] += f" ({row['drag_layout']})"
                 run.rpc("debug.mouse", {"action": "up", "x": press[0], "y": press[1]})  # untimed: no press stays down
                 time.sleep(opts.settle)  # test script: a drag that took nothing ends
             add(name, row)
@@ -904,6 +922,9 @@ def run_move_cell(run, workspace, panes, results, cell, content):
                                       lambda: order(run, workspace)[0] == start,
                                       ready=None if order(run, workspace)[0] == swapped and len(start) >= 2
                                       else "the forward swap did not happen"))
+    # Pane drags last: a pane drag lands as a new pane, so the cell's pane ids (which the moves above aim at) are gone
+    # after the first one.
+    for rnd in range(opts.rounds):
         if "pane_drag" in WANTED_MOVES:
             pane_drag_pair(rnd)
 
