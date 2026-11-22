@@ -23,6 +23,10 @@ pub enum Cause {
         ms: u64,
     },
     PageCrashed,
+    /// Its document is loading: a navigation the host started (`navigationStarted`).
+    PageLoading {
+        ms: u64,
+    },
     RendererUnresponsive {
         ms: u64,
     },
@@ -100,6 +104,7 @@ pub fn cause(cause: Cause) -> String {
             duration(ms)
         ),
         Cause::PageCrashed | Cause::RendererCrashed => "Stopped unexpectedly.".into(),
+        Cause::PageLoading { ms } => format!("Loading for {}.", duration(ms)),
         Cause::RendererUnresponsive { ms } => format!("Not responding for {}.", duration(ms)),
         Cause::AcpmuxDisconnected => "Agent sessions are disconnected.".into(),
         Cause::AcpmuxSilent { ms } => {
