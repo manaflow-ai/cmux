@@ -186,15 +186,28 @@ impl Hub {
         let start = self.start_view(cfg, name, profile);
         let field = |key: &str| start.as_ref().and_then(|s| text(s, key));
         let start_effort = field("effort");
+        // The model the harness itself starts on (its live list marks it), which runs when
+        // acpmux names none: an account that lacks the catalog default.
+        let own_default =
+            || self.live_models_for(name).into_iter().flatten().find(|m| m.is_default);
         // The model the chat runs: the one acpmux sets, else the one the profile sets itself,
         // by the id its catalog entry lists it under.
         let saved = cfg.defaults_for(name);
         let start_model = field("model")
             .or_else(|| super::start_defaults::profile_model(profile, &saved.env))
+            .or_else(|| own_default().map(|m| m.id))
             .map(|model| {
                 super::start_defaults::catalog_model(curated.as_ref(), &model)
                     .map_or(model, |listed| listed.id.clone())
             });
+        // No effort set: the chat runs at the start model's own default.
+        let start_effort = start_effort.or_else(|| {
+            let id = start_model.as_deref()?;
+            own_default()
+                .filter(|m| m.id == id)
+                .and_then(|m| m.default_effort)
+                .or_else(|| models.iter().find(|m| m.id == id)?.default_effort.clone())
+        });
         // A start model the list lacks (a profile's own, a saved one the catalog dropped) still
         // runs: it is listed, with the effort it starts on.
         if let Some(id) = &start_model

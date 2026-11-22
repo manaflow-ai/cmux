@@ -1945,8 +1945,20 @@ async fn the_composer_selection_is_what_the_next_chat_runs() {
             let shown = composer(&mut app, &dir, harness, json!({})).await;
             let selection = &shown["selection"];
             assert_eq!(selection["harness"], harness, "{level:?}: {shown}");
-            let (_, ran) = app.chat(&dir, harness).await;
+            let (id, ran) = app.chat(&dir, harness).await;
             assert_eq!(selection["mode"], ran, "{level:?} {harness}: {shown}");
+            // The model too, where the chat names the one it runs.
+            let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+            let options = info["result"]["configOptions"].as_array().cloned().unwrap_or_default();
+            let ran_model = options
+                .iter()
+                .find(|o| o["id"] == "model")
+                .map(|o| o["currentValue"].clone())
+                .filter(|m| m.is_string())
+                .unwrap_or_else(|| info["result"]["models"]["currentModelId"].clone());
+            if ran_model.is_string() {
+                assert_eq!(selection["model"], ran_model, "{level:?} {harness}: {shown}");
+            }
             assert_eq!(shown["offer"]["startMode"], ran, "{level:?} {harness}: {shown}");
             assert!(shown["flaw"].is_null(), "{level:?} {harness}: {shown}");
             // The same selection sent back settles to itself.
