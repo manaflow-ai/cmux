@@ -251,6 +251,7 @@ one by being started with acpmux):
 ```bash
 cmux agent register desktop-zoe            # in its Bash tool; then run the --code line it receives
 cmux agent register --auto desktop-zoe     # the same from a UserPromptSubmit hook: silent once registered
+cmux agent register --renew                # a SessionStart/Stop hook: a registered chat stays reachable after a --resume restart
 cmux agent send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 cmux agent whoami                          # this shell's name, handle, tags, and the send that reaches it
 ```
