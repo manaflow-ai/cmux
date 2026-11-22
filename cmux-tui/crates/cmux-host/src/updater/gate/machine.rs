@@ -508,3 +508,6 @@ pub fn table() -> Value {
         "transitions": rows,
     })
 }
+
+#[cfg(test)]
+mod tests;
