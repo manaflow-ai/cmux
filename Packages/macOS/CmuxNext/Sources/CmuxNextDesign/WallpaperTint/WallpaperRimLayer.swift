@@ -12,14 +12,17 @@ public import QuartzCore
 /// layer?.addSublayer(rim)
 /// rim.place(contentRect, cornerRadius: 10, lineWidth: 1)
 /// ```
-@MainActor
-public final class WallpaperRimLayer: CAGradientLayer {
+/// Nonisolated, as Core Animation makes its presentation copy (`init(layer:)`) off the main actor; what
+/// reads the host or the light is main-actor.
+nonisolated public final class WallpaperRimLayer: CAGradientLayer {
     private weak var host: NSView?
-    private let light: WallpaperLight
+    /// Nil only in a presentation copy of a layer that had none.
+    private let light: WallpaperLight?
     private let stroke = CAShapeLayer()
     private var shape: (rect: CGRect, radius: CGFloat, width: CGFloat)?
 
     /// A rim drawn in `host`'s coordinates (its layer's sublayer), lit by `light` (the app's by default).
+    @MainActor
     public init(host: NSView, light: WallpaperLight = BackdropImageStore.shared.light) {
         self.host = host
         self.light = light
@@ -34,7 +37,7 @@ public final class WallpaperRimLayer: CAGradientLayer {
 
     /// Core Animation's copy for the presentation layer.
     override public init(layer: Any) {
-        light = (layer as? WallpaperRimLayer)?.light ?? BackdropImageStore.shared.light
+        light = (layer as? WallpaperRimLayer)?.light
         super.init(layer: layer)
     }
 
@@ -42,29 +45,31 @@ public final class WallpaperRimLayer: CAGradientLayer {
     public required init?(coder: NSCoder) { nil }
 
     /// The host hides its content frame (a chat on the window glass): no rim.
-    public var suppressed = false {
+    @MainActor public var suppressed = false {
         didSet { if suppressed != oldValue { apply() } }
     }
 
     /// Traces `rect` (the host's coordinates) with `cornerRadius`, `lineWidth` points wide. A host may call it
     /// on every layout pass: an unchanged shape, or any shape while lighting is off, costs a comparison.
+    @MainActor
     public func place(_ rect: CGRect, cornerRadius: CGFloat, lineWidth: CGFloat) {
         let next = (rect, cornerRadius, lineWidth)
         if let shape, shape == next { return }
         shape = next
-        guard light.enabled || !isHidden else { return }
+        guard light?.enabled == true || !isHidden else { return }
         apply()
     }
 
     /// The light or the host's place on screen changed.
-    func lightDidChange() { apply() }
+    @MainActor func lightDidChange() { apply() }
 
+    @MainActor
     private func apply() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         guard !suppressed, let host, let window = host.window, let shape, shape.rect.width > 0, shape.rect.height > 0,
-              let lit = light.field(for: window)
+              let light, let lit = light.field(for: window)
         else {
             isHidden = true
             return

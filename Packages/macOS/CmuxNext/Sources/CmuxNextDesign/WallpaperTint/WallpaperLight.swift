@@ -1,5 +1,6 @@
 public import AppKit
 import CCmuxMotionFFI
+import CmuxNextWakeups
 
 /// The wallpaper as a light source (`appearance.wallpaperLighting`; Leo 2026-11-17: "what if you
 /// almost treat the background wallpaper like a light source? lighting inside cmux!?").
@@ -61,7 +62,7 @@ public nonisolated struct WallpaperLightField: Equatable, Sendable {
     /// picture fills the window itself (a theme's art).
     public func style(window: CGRect, screen: CGRect?) -> Style? {
         guard let geometry = Geometry(rect: window, container: screen ?? window, field: self) else { return nil }
-        var rect = [geometry.rect.minX, geometry.rect.minY, geometry.rect.width, geometry.rect.height]
+        var rect = [geometry.rect.minX, geometry.rect.minY, geometry.rect.width, geometry.rect.height].map(Double.init)
         var out = CmuxLightStyle()
         var raw = parts.raw
         guard cmux_motion_light_style(&raw, geometry.light.x, geometry.light.y, &rect, geometry.diagonal, &out) else { return nil }
@@ -72,7 +73,7 @@ public nonisolated struct WallpaperLightField: Equatable, Sendable {
     /// window or, for the desktop picture, the screen; all in screen coordinates).
     public func rim(rect: CGRect, container: CGRect) -> Rim? {
         guard let geometry = Geometry(rect: rect, container: container, field: self) else { return nil }
-        var flat = [geometry.rect.minX, geometry.rect.minY, geometry.rect.width, geometry.rect.height]
+        var flat = [geometry.rect.minX, geometry.rect.minY, geometry.rect.width, geometry.rect.height].map(Double.init)
         var out = CmuxLightRim()
         var raw = parts.raw
         guard cmux_motion_light_rim(&raw, geometry.light.x, geometry.light.y, &flat, geometry.diagonal, &out) else { return nil }
