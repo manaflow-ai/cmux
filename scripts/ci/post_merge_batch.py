@@ -53,10 +53,20 @@ PROBE = "probe"
 RUNS_PAGE = 60
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
-# A probe run with no verdict (cancelled, runner lost) is tried again this many times.
-MAX_PROBE_RETRIES = 1
+# A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
+# runners within the hour (runs 44966393364 and 44980687386).
+MAX_PROBE_RETRIES = 2
+# A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
+# until this many batch runs sit on that tip.
+MAX_TIP_BATCHES = 2
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+# Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
+# under). A revert of their merge opens held: no agent lands, labels or closes a teammate's PR, so the revert is
+# theirs to land or close (hq#16262).
+TEAMMATES = frozenset({"austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b"})
+TEAMMATE_HOLD = ("HOLD: {login}'s merge. This revert is ready for {login} to land or close; no agent merges it "
+                 "(a teammate's PR is never merged, labelled or closed by an agent).")
 
 
 # ---------------------------------------------------------------------------- GitHub and git
@@ -128,6 +138,46 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     if out.returncode:
         raise RuntimeError(f"git {' '.join(argv[:3])}: {(out.stderr or out.stdout).strip()[-400:]}")
     return out.stdout
+
+
+def push_token() -> str:
+    """The token that creates and pushes the revert branch: PUSH_TOKEN, minted with workflows write, else GH_TOKEN.
+    A branch based on feat-cmux-next differs from main in its workflow files, and GitHub refuses or times out a
+    token with no workflows permission that creates one (cmux-next-batch.yml's push token says the same)."""
+    return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45)) -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
+    then reaches it as an update. With the job token, a git push that creates the branch timed out every time
+    (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
+    44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    for wait in (*waits, None):
+        try:
+            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[push_token()])
+            return
+        except RuntimeError as error:
+            text = str(error)
+            if "already exists" in text:
+                return
+            if wait is None or not re.search(r"HTTP 5\d\d", text):
+                raise
+            sleep(wait)
+
+
+def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
+    """Pushes refspec, retrying GitHub's own timeout. A token with no `workflows` scope makes GitHub check
+    whether the push changes a workflow file, and that check can time out on this repository ("Unable to
+    determine if workflow can be created or updated due to timeout"; drill-5's revert, run 44897813534).
+    Any other refusal raises at once."""
+    for wait in (*waits, None):
+        try:
+            run("push", "--quiet", url, refspec)
+            return
+        except RuntimeError as error:
+            if wait is None or "due to timeout" not in str(error):
+                raise
+            sleep(wait)
 
 
 def first_parent_range(good: str, bad: str, *, cwd: Path | None = None) -> list[str]:
@@ -222,8 +272,9 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int) -> tuple[str, str]:
-    """(action, reason): action is 'dispatch' or 'skip'."""
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True) -> tuple[str, str]:
+    """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it."""
     batches = [r for r in runs if is_batch(r)]
     live = [r for r in batches if r.get("status") != "completed"]
     if live:
@@ -232,6 +283,9 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         return "dispatch", "no batch run yet"
     newest = batches[0]
     if newest.get("head_sha") == tip:
+        on_tip = [r for r in batches if r.get("head_sha") == tip]
+        if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
+            return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
@@ -258,9 +312,14 @@ def cmd_tick(args: argparse.Namespace) -> int:
 
 
 def tick(args: argparse.Namespace) -> int:
+    # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
+    # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
+    def judged(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+
+    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged)
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(
@@ -427,6 +486,35 @@ def commits_between(commits: list[str], good: str, bad: str) -> list[str]:
     return commits[start:end]
 
 
+def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tuple[str, str, str]], covered) -> str:
+    """Why a probe's inputs are not a bisect this workflow started, or "" when they are. A dispatch can name
+    any sha, good and bad, so they are checked against the batch run that found the red (origin): it is a
+    finished batch run of this workflow on branch; the job is a new red there (red on that run, green on
+    the newest earlier batch run where it finished: found, from new_reds); and the probe's sha, good and
+    bad lie in the commits that run covered, last green (exclusive) to its own commit. covered(good, head)
+    gives first_parent_range."""
+    if not origin:
+        return f"origin run {probe.origin or '(none)'} is unreadable"
+    if not is_batch(origin) or not str(origin.get("path") or "").endswith(WORKFLOW) or origin.get("head_branch") != branch:
+        return f"origin run {origin.get('id')} is not a batch run of {WORKFLOW} on {branch}"
+    head = origin.get("head_sha") or ""
+    green = next((good for name, suite, good in found if name == probe.job and suite == probe.suite), None)
+    if green is None:
+        return f"`{probe.job}` is not a new red on origin run {origin.get('id')} (`{head[:11]}`)"
+    try:
+        span = covered(green, head)
+    except (RuntimeError, subprocess.CalledProcessError):
+        span = []
+    for label, sha in (("sha", probe.sha), ("bad", probe.bad)):
+        if (sha or label == "sha") and sha not in span:
+            return f"{label} `{sha[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
+    if probe.good != green and probe.good not in span:
+        return f"good `{probe.good[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
+    if not probe.bad and probe.sha != head:
+        return f"the confirming probe's sha `{probe.sha[:11]}` is not origin run {origin.get('id')}'s commit `{head[:11]}`"
+    return ""
+
+
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
     api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()})
 
@@ -436,13 +524,13 @@ def cmd_judge(args: argparse.Namespace) -> int:
     jobs = run_jobs(args.repo, args.run_id)
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": ""}
+    def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
+        earlier = run_jobs(args.repo, rid)
+        judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
+        return suite_verdicts(earlier, suites), judged
+
     if args.mode != PROBE:
         runs = list_runs(args.repo, args.branch)
-        def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
-            earlier = run_jobs(args.repo, rid)
-            judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
-            return suite_verdicts(earlier, suites), judged
-
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
         for note in notes:
             summary(args.summary, f"- {note}")
@@ -460,6 +548,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0))
+    try:
+        origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
+    except RuntimeError:
+        origin = None
+    found: list[tuple[str, str, str]] = []
+    if origin and is_batch(origin):
+        before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
+        found, _ = new_reds(origin.get("head_sha") or "", jobs_of(origin["id"])[0], before, jobs_of)
+    refusal = probe_refusal(probe, args.branch, origin, found, first_parent_range)
+    if refusal:
+        summary(args.summary, f"Probe refused: {refusal}. No next probe and no culprit.")
+        write_outputs(args.github_output, out)
+        return 1
     # The probe ran one suite job (or the whole suite when the red job had no manifest id):
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
@@ -491,6 +592,19 @@ def revert_title(subject: str, job: str, branch: str) -> str:
     return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
 
 
+def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
+    """The culprit PR's author when a core teammate wrote it (their revert opens held), else "". An
+    unreadable author counts as a teammate: a held revert costs a human glance, an agent landing a
+    teammate's revert breaks the rule."""
+    if not pr:
+        return ""
+    try:
+        login = ((api(f"repos/{repo}/pulls/{pr}") or {}).get("user") or {}).get("login") or ""
+    except RuntimeError:
+        return "the culprit's author (unread)"
+    return login if login in TEAMMATES else ""
+
+
 def cmd_revert(args: argparse.Namespace) -> int:
     """Commits the revert of the culprit on the branch tip and opens its pull request. Never
     merges it. Exits 0 with a note when a revert is already open or the revert conflicts."""
@@ -516,16 +630,23 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        git("push", "--quiet", args.push_url, f"HEAD:refs/heads/{branch}")
+        start_branch(args.repo, branch, git("rev-parse", "HEAD^").strip())
+        push_branch(args.push_url, f"+HEAD:refs/heads/{branch}")
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"
+    author = merged_by_teammate(args.repo, pr)
+    land = (
+        f"This revert is {author}'s to land or close; no agent lands it."
+        if author
+        else "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix."
+    )
     body = "\n\n".join(
-        [
+        ([TEAMMATE_HOLD.format(login=author)] if author else [])
+        + [
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
-            "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix. "
-            "If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
+            f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
             "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
         ]
     )

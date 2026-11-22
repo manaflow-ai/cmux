@@ -96,7 +96,7 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
-        // On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.
+        // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
         "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
@@ -181,6 +181,8 @@ extension SettingsSchema {
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,
+        // Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.
+        "remote.screenSharingProfile": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
