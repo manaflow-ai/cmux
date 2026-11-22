@@ -89,7 +89,7 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
+                         }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -259,18 +259,18 @@ enum AgentHandlers {
             guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
-        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s
-        // side-question composer or a composer bar control (AgentComposerControl). The gate is published live from Debug Settings.
-        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView) -> Void)] = [
-            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { $0.showModelPicker() }),
-            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { $0.showFileSearch() }),
-            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { $0.askSideQuestion() }),
-        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control) }) }
+        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s side-question composer or a composer
+        // bar control (AgentComposerControl; the person's own Toggle Plan Mode key is its mode switch's gesture). The gate is published live from Debug Settings.
+        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { view, _ in view.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { view, _ in view.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { view, _ in view.askSideQuestion() }),
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun, event: context.services.inputDispatch.event) }) }
         for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
                 guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
-                run(view)
+                run(view, invocation)
             })
         }
         registry.bind("agentPane.createCheckpoint", run: { invocation in
@@ -567,8 +567,6 @@ enum AgentHandlers {
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            context.services.editorApps.open(opening.url, withApplicationAt: editor)
-        }
+        context.services.editorApps.open(opening, line: invocation.editorLine)
     }
 }

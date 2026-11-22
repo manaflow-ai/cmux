@@ -383,3 +383,34 @@ fn an_unreachable_registered_chat_says_why_in_stuck() {
     assert_eq!(stuck(&row, NOW, &BTreeMap::new()), "registration stale");
     assert_eq!(stuck(&lane("d"), NOW, &BTreeMap::new()), "");
 }
+
+#[test]
+fn spoken_handles_show_alongside_the_task_host_and_harness() {
+    let row =
+        with(lane("hb/ci-fleet"), json!({"handle": "Mango", "sessionId": "one", "peer": "hb"}));
+    let output = compact(&[row]);
+    let columns: Vec<_> = output.lines().nth(1).unwrap().split_whitespace().collect();
+    assert_eq!(&columns[..5], &["Mango", "·", "ci-fleet", "hb", "claude"], "{output}");
+}
+
+/// Leo, 2026-11-21: "ruby dot startup-speedups" -- the alias is the name `cmux agent ls` shows.
+#[test]
+fn an_alias_is_the_name_ls_shows() {
+    let tagged = |alias: &str| {
+        with(
+            lane("hb/startup-speedups"),
+            json!({"handle": "Mango", "sessionId": "one", "peer": "hb", "tags": {"session.alias": alias}}),
+        )
+    };
+    let first = |row| compact(&[row]).lines().nth(1).unwrap().to_owned();
+    // an alias that says the task stands alone
+    assert!(first(tagged("Ruby dot startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // the broker's `+` spelling reads with spaces
+    assert!(first(tagged("Ruby+dot+startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // a bare call name keeps the task beside it
+    assert!(
+        first(tagged("Mochi")).starts_with("Mochi · startup-speedups "),
+        "{}",
+        first(tagged("Mochi"))
+    );
+}

@@ -29,7 +29,7 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// nil while live and when the transport gives none. Read by tools, never shown in the pane.
     public var endReason: String?
     /// What the connect waits on, in the transport's words (a Cloud desktop dial's step and how long is
-    /// left); nil when the transport gives none. The connecting card shows it as its detail.
+    /// left); nil when the transport gives none. Read by tools, never shown in the pane.
     public var connectingReason: String?
     /// The stream's width and height in pixels from the host's welcome (a `cmux.rd/1` transport);
     /// nil before the welcome and from transports that give none. Pointer input is in these
