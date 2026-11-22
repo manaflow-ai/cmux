@@ -405,9 +405,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         )
                         .await?;
                     // The daemon read the name as its catalog id (`hub/model_alias.rs`).
-                    if let (Some(from), Some(to)) =
-                        (v["modelRewrite"]["from"].as_str(), v["modelRewrite"]["to"].as_str())
-                    {
+                    if let (Some(from), Some(to)) = (
+                        v.pointer("/modelRewrite/from").and_then(Value::as_str),
+                        v.pointer("/modelRewrite/to").and_then(Value::as_str),
+                    ) {
                         eprintln!("model {from} -> {to}");
                     }
                     v

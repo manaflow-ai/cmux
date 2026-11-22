@@ -107,6 +107,6 @@ pub(super) fn option_lists(session: &Session, model: &str) -> bool {
     meta.config_options
         .as_deref()
         .and_then(Value::as_array)
-        .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
+        .and_then(|opts| opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")))
         .is_some_and(|o| model_catalog::choices(o).iter().any(|(id, _)| id == model))
 }

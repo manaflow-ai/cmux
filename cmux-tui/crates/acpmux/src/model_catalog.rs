@@ -117,8 +117,8 @@ impl std::fmt::Display for Ambiguous {
 /// space, `_` and `-` as one `-`, no `-` at either end.
 pub fn fold(name: &str) -> String {
     let mut text = name.trim().to_lowercase();
-    if let Some(head) = HEADS.iter().find(|h| text.starts_with(*h)) {
-        text = text[head.len()..].to_owned();
+    if let Some(rest) = HEADS.iter().find_map(|h| text.strip_prefix(*h)) {
+        text = rest.to_owned();
     }
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -135,14 +135,14 @@ pub fn fold(name: &str) -> String {
 
 /// `text` with each `from` between two digits as `to` (`5.2` -> `5-2`, or back).
 fn between_digits(text: &str, from: char, to: char) -> String {
-    let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
-    for (i, &c) in chars.iter().enumerate() {
-        let flanked = i > 0
-            && i + 1 < chars.len()
-            && chars[i - 1].is_ascii_digit()
-            && chars[i + 1].is_ascii_digit();
+    let mut prev: Option<char> = None;
+    let mut rest = text.chars().peekable();
+    while let Some(c) = rest.next() {
+        let flanked = prev.is_some_and(|p| p.is_ascii_digit())
+            && rest.peek().is_some_and(char::is_ascii_digit);
         out.push(if c == from && flanked { to } else { c });
+        prev = Some(c);
     }
     out
 }
@@ -184,8 +184,9 @@ pub fn keys(text: &str) -> Vec<String> {
 fn split_suffix(name: &str) -> (&str, &str) {
     if name.ends_with(']')
         && let Some(at) = name.rfind('[')
+        && let (Some(base), Some(suffix)) = (name.get(..at), name.get(at..))
     {
-        return (name[..at].trim_end(), &name[at..]);
+        return (base.trim_end(), suffix);
     }
     (name, "")
 }
@@ -299,8 +300,11 @@ where
     };
     let wanted = keys(base);
     for tier in [&listed, &derived] {
-        if let Some(id) = wanted.iter().find_map(|k| tier.0.get(k).filter(|ids| ids.len() == 1)) {
-            return Ok(found(id[0]));
+        if let Some(id) = wanted.iter().find_map(|k| match tier.0.get(k).map(Vec::as_slice) {
+            Some([id]) => Some(*id),
+            _ => None,
+        }) {
+            return Ok(found(id));
         }
         if let Some(ids) = tier.find(&wanted) {
             return Err(ambiguous(ids));
@@ -384,9 +388,9 @@ pub fn is_model_error(error: &str) -> bool {
 pub fn model_named_in(error: &str) -> Option<String> {
     let after = |marker: &str, end: &[char]| {
         let at = error.find(marker)? + marker.len();
-        let rest = &error[at..];
+        let rest = error.get(at..)?;
         let stop = rest.find(|c: char| end.contains(&c)).unwrap_or(rest.len());
-        let name = rest[..stop].trim();
+        let name = rest.get(..stop)?.trim();
         (!name.is_empty()).then(|| name.to_owned())
     };
     after("selected model (", &[')', ' '])
