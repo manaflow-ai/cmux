@@ -67,15 +67,19 @@ struct SwitchSaveCostTests {
         var kept = WindowListMembership(window: window, machines: machines, localID: "local", key: WorkspaceKey.init(rawValue:))
         #expect(kept.ownedKeys.map(\.rawValue) == ["a", "b"])
         #expect(kept.workspaceMachines == ["b": "cloud-1"])
-        #expect(kept.matches(window, machines: machines))
+        let hit1 = kept.matches(window, machines: machines)
+        #expect(hit1)
         window.workspaceIDs.append("c")
-        #expect(!kept.matches(window, machines: machines), "a workspace joined the window")
+        let hit2 = kept.matches(window, machines: machines)
+        #expect(!hit2, "a workspace joined the window")
         kept = WindowListMembership(window: window, machines: machines, localID: "local", key: WorkspaceKey.init(rawValue:))
         window.guests = ["c"]
-        #expect(!kept.matches(window, machines: machines), "a workspace became a guest")
+        let hit3 = kept.matches(window, machines: machines)
+        #expect(!hit3, "a workspace became a guest")
         kept = WindowListMembership(window: window, machines: machines, localID: "local", key: WorkspaceKey.init(rawValue:))
         #expect(kept.ownedKeys.map(\.rawValue) == ["a", "b"], "a guest is its owner's to save")
         machines["a"] = "cloud-2"
-        #expect(!kept.matches(window, machines: machines), "a workspace was seen on another machine")
+        let hit4 = kept.matches(window, machines: machines)
+        #expect(!hit4, "a workspace was seen on another machine")
     }
 }
