@@ -42,7 +42,7 @@ use tokio::sync::{Notify, watch};
 pub(super) const BULK_WINDOW: usize = 256 << 10;
 
 /// Whether the answer to `method` goes in the read lane ([module docs](self)).
-pub(super) fn is_cheap_read(method: &str) -> bool {
+pub(crate) fn is_cheap_read(method: &str) -> bool {
     use crate::rpc::method;
     matches!(
         method,
@@ -164,6 +164,8 @@ struct State {
     capacity: usize,
     /// Every handle is gone: the pump sends what is left and ends.
     finished: bool,
+    /// The sum [`State::held`] counts toward: [`TOTAL_HELD`], or a test's own.
+    pool: &'static AtomicUsize,
     overrun: Option<Overrun>,
     /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
     /// or it overran): nothing queued now would ever be sent.
@@ -177,12 +179,12 @@ impl Drop for State {
 }
 
 impl State {
-    /// Sets [`State::held`], keeping [`TOTAL_HELD`] its sum over every queue.
+    /// Sets [`State::held`], keeping its pool ([`TOTAL_HELD`]) the sum over every queue.
     fn set_held(&mut self, held: usize) {
         if held >= self.held {
-            TOTAL_HELD.fetch_add(held - self.held, Ordering::Relaxed);
+            self.pool.fetch_add(held - self.held, Ordering::Relaxed);
         } else {
-            TOTAL_HELD.fetch_sub(self.held - held, Ordering::Relaxed);
+            self.pool.fetch_sub(self.held - held, Ordering::Relaxed);
         }
         self.held = held;
     }
@@ -274,7 +276,7 @@ impl Shared {
         }
         let over_total = |state: &State| {
             state.held + size > self.fair_share
-                && TOTAL_HELD.load(Ordering::Relaxed) + size > self.total_bound
+                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
                 && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
@@ -287,7 +289,7 @@ impl Shared {
                 held = state.held,
                 line = size,
                 bound = self.bound,
-                total = TOTAL_HELD.load(Ordering::Relaxed),
+                total = state.pool.load(Ordering::Relaxed),
                 total_bound = self.total_bound,
                 "{}",
                 if own {
@@ -557,20 +559,34 @@ pub(super) fn start_bounded(
     transport: mpsc::Sender<String>,
     bound: usize,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
-    start_limited(scope, durability, transport, bound, TOTAL_BYTE_BOUND, FAIR_SHARE, READER_STALL)
+    let limits = Limits {
+        pool: &TOTAL_HELD,
+        total_bound: TOTAL_BYTE_BOUND,
+        fair_share: FAIR_SHARE,
+        reader_stall: READER_STALL,
+    };
+    start_limited(scope, durability, transport, bound, limits)
 }
 
-/// [`start_bounded`] with the daemon-wide limits given: [`TOTAL_BYTE_BOUND`], [`FAIR_SHARE`] and
-/// [`READER_STALL`].
+/// The daemon-wide limits of a queue: the sum it counts toward ([`TOTAL_HELD`]), its bound
+/// ([`TOTAL_BYTE_BOUND`]), [`FAIR_SHARE`] and [`READER_STALL`]. A test gives its own pool, so other
+/// tests' queues, filling and draining beside it, never move its bound.
+pub(super) struct Limits {
+    pub(super) pool: &'static AtomicUsize,
+    pub(super) total_bound: usize,
+    pub(super) fair_share: usize,
+    pub(super) reader_stall: Duration,
+}
+
+/// [`start_bounded`] with the daemon-wide [`Limits`] given.
 pub(super) fn start_limited(
     scope: &cmux_scope::Scope,
     durability: Option<crate::store::Durability>,
     transport: mpsc::Sender<String>,
     bound: usize,
-    total_bound: usize,
-    fair_share: usize,
-    reader_stall: Duration,
+    limits: Limits,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
+    let Limits { pool, total_bound, fair_share, reader_stall } = limits;
     let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
         state: StdMutex::new(State {
@@ -584,6 +600,7 @@ pub(super) fn start_limited(
             transport: transport.downgrade(),
             capacity: transport.max_capacity(),
             finished: false,
+            pool,
             overrun: None,
             ended: false,
         }),
