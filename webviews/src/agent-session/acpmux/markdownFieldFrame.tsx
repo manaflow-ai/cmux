@@ -15,6 +15,9 @@ export function MarkdownFieldFrame({
   placeholderRef,
   rootRef,
   onPointerDown,
+  waiting,
+  onFocus,
+  onBlur,
 }: {
   className?: string;
   placeholder?: string;
@@ -23,6 +26,10 @@ export function MarkdownFieldFrame({
   placeholderRef?: React.Ref<HTMLSpanElement>;
   rootRef?: React.Ref<HTMLDivElement>;
   onPointerDown?: React.PointerEventHandler<HTMLDivElement>;
+  /** LazyPromptEditor's wait: the box takes the keyboard (a press, a focus asked for) until the editor is made. */
+  waiting?: boolean;
+  onFocus?: React.FocusEventHandler<HTMLDivElement>;
+  onBlur?: React.FocusEventHandler<HTMLDivElement>;
 }) {
   return (
     <div
@@ -33,6 +40,10 @@ export function MarkdownFieldFrame({
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={frameRef}
       onPointerDown={onPointerDown}
+      tabIndex={waiting ? -1 : undefined}
+      data-prompt-waiting={waiting ? "" : undefined}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
       <span
         ref={placeholderRef}

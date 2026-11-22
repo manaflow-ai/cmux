@@ -561,6 +561,11 @@ body,
 .hc-composer-field > .acpmux-md-root:empty {
   min-height: max(var(--text-content--line-height), 1lh);
 }
+/* The waiting box takes the keyboard for the editor; it draws no ring of its own, as the editor's
+   field draws none. */
+.hc-composer-field[data-prompt-waiting]:focus {
+  outline: none;
+}
 .hc-composer-bar {
   display: flex;
   align-items: center;
