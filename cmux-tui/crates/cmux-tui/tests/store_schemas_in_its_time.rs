@@ -9,15 +9,14 @@
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
 //!
-//! No row here measures a time. 5 rows call the check's functions of
-//! cmux-tui-core directly. 2 of them use an end time that is past or far
-//! ahead and the text of `--within-ms`: the executable cannot show those
-//! with no wait. 3 of them use a first call that started 1 hour ahead of the
-//! clock: for the executable each file that a row made is a file that
-//! changed a moment ago, so it cannot show which session a call does not
-//! read again. One row through the executable waits 3 seconds for the clock
-//! for the same cause: its stores must be older than the 2 seconds before a
-//! call's start that the check counts as after it.
+//! No row here measures a time, and no row waits. 9 rows call the check's
+//! functions of cmux-tui-core directly. 2 of them use an end time that is
+//! past or far ahead and the text of `--within-ms`: the executable cannot
+//! show those with no wait. 7 of them use a first call that started 1 hour
+//! ahead of the clock: for the executable each file that a row made is a
+//! file that changed a moment ago, so it cannot show which session a call
+//! does not read again. Where such a row needs a file that changed after
+//! that start, it sets the file's time of the last write to 2 hours ahead.
 //!
 //! A call that starts at zero each time gains only what the file cache
 //! keeps. So a caller can ask for a place (`--place ""`): the `not_ready`
@@ -35,12 +34,17 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_tui_core::store_schemas::{Place, Stored, stored_from, stored_until, within_of};
+use cmux_tui_core::store_schemas::{
+    Pass, Place, Stored, root_part, stored_from, stored_until, within_of,
+};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 /// The registry's file in a session folder.
 const REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+/// The file of the conversation store in a session folder.
+const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 
 /// The state root of a test folder.
 fn sessions_of(folder: &Path) -> std::path::PathBuf {
@@ -443,7 +447,7 @@ fn a_place_whose_start_time_is_after_this_call_is_no_place() {
     assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
 }
 
-/// The clock of the 3 rows below: 1 hour ahead of the wall clock, in
+/// The clock of the 7 rows below: 1 hour ahead of the wall clock, in
 /// milliseconds since 1970. For a first call that started then, each file
 /// that a row made is a file that did not change after it.
 fn an_hour_ahead_ms() -> u64 {
@@ -458,12 +462,21 @@ fn set_written_after_the_start(path: &Path) {
     file.set_modified(SystemTime::now() + Duration::from_secs(7200)).unwrap();
 }
 
-/// The place after the session `after` of a check whose first call started
-/// at `since_ms` and found `number` in the registry (`None`: no number).
-fn place_at(after: &str, number: Option<i64>, since_ms: u64) -> Place {
+/// [`set_written_after_the_start`] for a folder, which cannot be opened for
+/// a write.
+fn set_folder_written_after_the_start(folder: &Path) {
+    let folder = fs::File::open(folder).unwrap();
+    folder.set_modified(SystemTime::now() + Duration::from_secs(7200)).unwrap();
+}
+
+/// The place after the session `after` of a check of the state root
+/// `sessions` whose first call started at `since_ms` and found `number` in
+/// the registry (`None`: no number). No pass stopped yet.
+fn place_at(sessions: &Path, after: &str, number: Option<i64>, since_ms: u64) -> Place {
     let found =
         number.map(|number| ("workspace_registry".to_string(), number)).into_iter().collect();
-    Place { after: after.to_string(), found, since_ms }
+    let root = root_part(sessions).unwrap();
+    Place { root, after: after.to_string(), found, since_ms, pass: None }
 }
 
 /// What a call that read each session gives when the registry's newest
@@ -483,9 +496,9 @@ fn a_folder_at_or_before_the_place_that_did_not_change_is_not_read_again() {
     let sessions = sessions_of(root.path());
     fs::write(sessions.join("session-0").join(REGISTRY_FILE), vec![b'x'; 8192]).unwrap();
     let now_ms = an_hour_ahead_ms();
-    let from = place_at("session-0", Some(16), now_ms);
+    let from = place_at(&sessions, "session-0", Some(16), now_ms);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(16));
-    let from = place_at("session-0", Some(16), 0);
+    let from = place_at(&sessions, "session-0", Some(16), 0);
     assert!(stored_from(&sessions, None, Some(&from), now_ms).is_err());
 }
 
@@ -497,10 +510,41 @@ fn a_store_whose_file_time_is_after_the_start_time_is_read_again() {
     let root = state_root_of(&[17, 14]);
     let sessions = sessions_of(root.path());
     let now_ms = an_hour_ahead_ms();
-    let from = place_at("session-0", None, now_ms);
+    let from = place_at(&sessions, "session-0", None, now_ms);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
     set_written_after_the_start(&sessions.join("session-0").join(REGISTRY_FILE));
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
+}
+
+/// A session can get its second store after the check read its folder. The
+/// check looks at the times of each store file that a folder at or before
+/// the place has now, so a store file that is new there makes the check
+/// read the folder again: the number 9 of the new store is in the answer.
+#[test]
+fn a_store_file_that_is_new_in_a_folder_at_or_before_the_place_is_read() {
+    let root = state_root_of(&[13, 14]);
+    let sessions = sessions_of(root.path());
+    let now_ms = an_hour_ahead_ms();
+    let from = place_at(&sessions, "session-0", None, now_ms);
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
+    let new_store = sessions.join("session-0").join(CONVERSATIONS_FILE);
+    let store = Connection::open(&new_store).unwrap();
+    store
+        .execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta (key, value) VALUES ('schema_version', '9');",
+        )
+        .unwrap();
+    drop(store);
+    set_written_after_the_start(&new_store);
+    let numbers = BTreeMap::from([
+        ("conversation_store".to_string(), 9),
+        ("workspace_registry".to_string(), 14),
+    ]);
+    assert_eq!(
+        stored_from(&sessions, None, Some(&from), now_ms).unwrap(),
+        (Stored::Schemas(numbers), None)
+    );
 }
 
 /// Each store of the daemon is in WAL mode: a write goes to the store's
@@ -512,15 +556,14 @@ fn a_store_whose_file_time_is_after_the_start_time_is_read_again() {
 fn a_change_that_is_in_the_wal_file_is_seen() {
     let root = state_root_of(&[13, 14]);
     let sessions = sessions_of(root.path());
-    let store_file = sessions.join("session-0").join(REGISTRY_FILE);
-    let store = Connection::open(&store_file).unwrap();
+    let store = Connection::open(sessions.join("session-0").join(REGISTRY_FILE)).unwrap();
     let mode: String = store.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0)).unwrap();
     assert_eq!(mode, "wal");
     store.execute("UPDATE meta SET value = '17' WHERE key = 'schema_version'", []).unwrap();
     let wal = sessions.join("session-0").join(format!("{REGISTRY_FILE}-wal"));
     assert!(wal.is_file(), "the store has no -wal file");
     let now_ms = an_hour_ahead_ms();
-    let from = place_at("session-0", None, now_ms);
+    let from = place_at(&sessions, "session-0", None, now_ms);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
     set_written_after_the_start(&wal);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
@@ -562,12 +605,15 @@ fn side_files(folder: &Path, names: &[&str]) -> Vec<(bool, bool)> {
 
 /// What the check's own read does to the file times that a later call looks
 /// at. The daemon's stores are in WAL mode, and a store that was closed has
-/// no `-wal` file. The 3 stores here are such stores, and they are older
-/// than the 2 seconds before its start that the check counts as after it.
-/// Each call has a limit of 0 ms, so it stops before the second store that
-/// it reads, in each of its 2 parts: the count of calls to the last answer
-/// is the count of store reads. 3 calls for 3 stores = each store was read
-/// one time. One call more = a call read again a store that nothing but the
+/// no `-wal` file: the check's read of it makes one, and that changes the
+/// time of the session folder. The first call here started 1 hour ahead of
+/// the clock. After each call the row sets the time of each session folder,
+/// and of each `-wal` file that is there, to 2 hours ahead: for the call
+/// after it, that is what a read does to a store that was closed long
+/// before. Each call has an end time that is past, so it stops before the
+/// second store that it reads: the count of calls to the numbers is the
+/// count of store reads. 3 calls for 3 stores = each store was read one
+/// time. One call more = a call read again a store that nothing but the
 /// check itself touched.
 #[test]
 fn a_check_of_closed_wal_stores_reads_each_store_one_time() {
@@ -581,30 +627,147 @@ fn a_check_of_closed_wal_stores_reads_each_store_one_time() {
         vec![(false, false); 3],
         "a closed store has a -wal file or a -shm file before the first call"
     );
-    // The stores must be older than the 2 seconds, so that only what the
-    // calls do themselves can make a store look changed. This is a wait for
-    // the clock, not for the check.
-    let old_enough = SystemTime::now() + Duration::from_millis(3_000);
-    while SystemTime::now() < old_enough {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let mut place = String::new();
+    let sessions = sessions_of(root.path());
+    let now_ms = an_hour_ahead_ms();
+    let past = Instant::now();
+    let mut place: Option<Place> = None;
     let mut calls = 0;
-    let mut last = Value::Null;
+    let mut last = None;
     while calls < 9 {
         calls += 1;
-        let (code, answer, stderr) = check(root.path(), &["--within-ms", "0", "--place", &place]);
-        assert_eq!(code, Some(0), "call {calls}, stderr: {stderr}");
-        last = answer;
-        if last.get("not_ready").is_none() {
+        let (stored, next) = stored_from(&sessions, Some(past), place.as_ref(), now_ms).unwrap();
+        for name in NAMES {
+            let session = sessions.join(name);
+            set_folder_written_after_the_start(&session);
+            let wal = session.join(format!("{REGISTRY_FILE}-wal"));
+            if wal.is_file() {
+                set_written_after_the_start(&wal);
+            }
+        }
+        let at_the_numbers = matches!(stored, Stored::Schemas(_));
+        last = Some(stored);
+        if at_the_numbers {
             break;
         }
-        place = place_of(&last);
+        place = next;
     }
     let side = side_files(root.path(), &NAMES);
+    let wal_bytes: Vec<u64> = NAMES
+        .iter()
+        .map(|name| {
+            let wal = sessions.join(name).join(format!("{REGISTRY_FILE}-wal"));
+            fs::metadata(wal).map_or(0, |wal| wal.len())
+        })
+        .collect();
+    let numbers = BTreeMap::from([("workspace_registry".to_string(), 15)]);
     assert_eq!(
         (calls, last),
-        (3, json!({ "workspace_registry": 15 })),
-        "not 3 store reads to the numbers; -wal and -shm of each store after the calls: {side:?}"
+        (3, Some(Stored::Schemas(numbers))),
+        "not 3 store reads to the numbers; -wal and -shm of each store after the calls: \
+         {side:?}; bytes of each -wal: {wal_bytes:?}"
     );
+}
+
+/// A pass over the sessions read before that stops keeps its place. Each of
+/// the 3 stores here was written after the first call started (1 hour
+/// ahead: the row sets each file's time to 2 hours ahead), and each call
+/// starts 3 hours ahead with an end time that is past. So the first pass
+/// reads one store in each call, and the place that a call gives names the
+/// folder that the pass is at. After its read, the row puts bytes that are
+/// no store in a store file, with the time of now: a later read of that
+/// file is an error. The third call reads the last store, and its pass that
+/// follows compares the times with the start of the first pass: nothing was
+/// written since, it reads no store, and the call gives the numbers.
+#[test]
+fn a_pass_that_stops_gives_a_place_that_moved_and_the_calls_end() {
+    let root = state_root_of(&[13, 15, 14]);
+    let sessions = sessions_of(root.path());
+    let since_ms = an_hour_ahead_ms();
+    for name in ["session-0", "session-1", "session-2"] {
+        set_written_after_the_start(&sessions.join(name).join(REGISTRY_FILE));
+    }
+    let now_ms = since_ms + 2 * 3_600_000;
+    let past = Instant::now();
+    let all_read = Stored::NotReady { sessions: 3, sessions_read: 3 };
+    let first = place_at(&sessions, "session-2", None, since_ms);
+
+    let (stored, second) = stored_from(&sessions, Some(past), Some(&first), now_ms).unwrap();
+    assert_eq!(stored, all_read);
+    let second = second.unwrap();
+    assert_ne!(second, first, "the pass stopped and the place did not move");
+    assert_eq!(second.pass, Some(Pass { after: "session-0".to_string(), began_ms: now_ms }));
+    fs::write(sessions.join("session-0").join(REGISTRY_FILE), vec![b'x'; 8192]).unwrap();
+
+    let (stored, third) = stored_from(&sessions, Some(past), Some(&second), now_ms).unwrap();
+    assert_eq!(stored, all_read);
+    let third = third.unwrap();
+    assert_ne!(third, second, "the pass stopped and the place did not move");
+    assert_eq!(third.pass, Some(Pass { after: "session-1".to_string(), began_ms: now_ms }));
+    fs::write(sessions.join("session-1").join(REGISTRY_FILE), vec![b'x'; 8192]).unwrap();
+
+    assert_eq!(stored_from(&sessions, Some(past), Some(&third), now_ms).unwrap(), the_number(15));
+}
+
+/// A pass that reads no store reads the clock too: after each 64 folders
+/// that it looked at. Each of the 66 store files here is no store, so a read
+/// of one is an error, and none changed after the first call started (1
+/// hour ahead). With an end time that is past, the pass stops after 64
+/// folders, and its place names the folder 64. A call with that place and an
+/// end time far ahead looks at the 2 folders that are left, then makes the
+/// pass that follows, and gives the number that the place carries.
+#[test]
+fn a_pass_that_only_looks_reads_the_clock_after_each_64_folders() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = sessions_of(root.path());
+    for index in 0..66 {
+        let session = sessions.join(format!("session-{index:02}"));
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join(REGISTRY_FILE), b"this is no store").unwrap();
+    }
+    let now_ms = an_hour_ahead_ms();
+    let first = place_at(&sessions, "session-65", Some(16), now_ms);
+    let past = Instant::now();
+    let (stored, second) = stored_from(&sessions, Some(past), Some(&first), now_ms).unwrap();
+    assert_eq!(stored, Stored::NotReady { sessions: 66, sessions_read: 66 });
+    let second = second.unwrap();
+    assert_eq!(second.pass, Some(Pass { after: "session-63".to_string(), began_ms: now_ms }));
+    let far = Instant::now() + Duration::from_secs(3600);
+    assert_eq!(stored_from(&sessions, Some(far), Some(&second), now_ms).unwrap(), the_number(16));
+}
+
+/// A place is a place of one state root, and the app's check has more than
+/// one root. A place of root A that comes to a call for root B is no place:
+/// the call is a first call and no error, and the call with no end time
+/// gives the numbers of root B whole (15, not the 17 of root A that the
+/// place carries). A place with no `root` part is no place too. The place
+/// names its root with no path in it.
+#[test]
+fn a_place_of_another_state_root_is_no_place() {
+    let root_a = state_root(3, 17);
+    let root_b = state_root_of(&[13, 15, 14]);
+    let (code, first, stderr) = check(root_a.path(), &["--within-ms", "0", "--place", ""]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let place_a = place_of(&first);
+    let folder_a = root_a.path().file_name().unwrap().to_str().unwrap();
+    assert!(
+        !place_a.contains('/') && !place_a.contains(folder_a),
+        "the place holds a part of a path: {place_a}"
+    );
+
+    let (code, answer, stderr) = check(root_b.path(), &["--within-ms", "0", "--place", &place_a]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&answer), Some((3, 1)), "{answer}");
+    let (code, answer, stderr) = check(root_b.path(), &["--place", &place_a]);
+    assert_eq!((code, answer), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+
+    let mut no_root: Value = serde_json::from_str(&place_a).unwrap();
+    no_root.as_object_mut().unwrap().remove("root").unwrap();
+    let no_root = no_root.to_string();
+    let (code, answer, stderr) = check(root_a.path(), &["--within-ms", "0", "--place", &no_root]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&answer), Some((3, 1)), "{answer}");
+    // The control: the place with its root goes on in root A.
+    let (code, answer, stderr) = check(root_a.path(), &["--within-ms", "0", "--place", &place_a]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&answer), Some((3, 2)), "{answer}");
 }
