@@ -1039,7 +1039,6 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
-          bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
