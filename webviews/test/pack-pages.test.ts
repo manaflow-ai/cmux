@@ -15,11 +15,11 @@ function tree() {
     mkdirSync(path.dirname(path.join(out, name)), { recursive: true });
     writeFileSync(path.join(out, name), text);
   };
-  const html = (page: string) =>
+  const html = () =>
     `<!doctype html><link rel="modulepreload" href="../__shared/chunk-common.js"><script type="module">import "./app.js";</script>`;
-  file("home/index.html", html("home"));
+  file("home/index.html", html());
   file("home/app.js", `import "../__shared/chunk-common.js"; import("../__shared/chunk-lazy.js"); // ${BIG}`);
-  file("settings/index.html", html("settings"));
+  file("settings/index.html", html());
   file("settings/app.js", `import "../__shared/chunk-common.js"; import "../__shared/chunk-settings.js"; // ${BIG}`);
   file("__shared/chunk-common.js", `export const common = 1; // ${BIG}`);
   file("__shared/chunk-lazy.js", `export const lazy = 1; // ${BIG}`);
