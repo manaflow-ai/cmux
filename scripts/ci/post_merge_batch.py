@@ -44,6 +44,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
+WEB_WORKFLOW = "cmux-next-web.yml"  # its coalescing tick (web_tick)
+WEB_TICK_BRANCH = "feat-cmux-next"
 DEFAULT_WINDOW_MINUTES = 120
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
@@ -134,6 +136,18 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     if out.returncode:
         raise RuntimeError(f"git {' '.join(argv[:3])}: {(out.stderr or out.stdout).strip()[-400:]}")
     return out.stdout
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api) -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API. The revert then reaches it as an
+    update, which GitHub checks for workflow changes over that one commit; a git push that creates the branch is
+    checked against the whole branch and timed out every time on this repository (drill-5 run 44897813534,
+    drill-6 run 44906887225, four tries each). A branch left by an earlier try is reused."""
+    try:
+        api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha})
+    except RuntimeError as error:
+        if "already exists" not in str(error):
+            raise
 
 
 def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
@@ -278,7 +292,23 @@ def cmd_tick(args: argparse.Namespace) -> int:
         return 0
 
 
+def web_tick(args: argparse.Namespace) -> None:
+    """Dispatches cmux-next-web.yml's coalescing tick on the branch tip: its coalesce job decides in seconds, running
+    the web checks only when their 120-minute window has passed and the tip is not covered, so a quiet tail's pushes
+    (which yielded inside the window) are checked without any job sleeping on a runner (web_coalesce.py wait)."""
+    if args.branch != WEB_TICK_BRANCH:
+        return
+    print(f"web tick: dispatching {WEB_WORKFLOW} on {args.branch}")
+    if not args.dry_run:
+        gh_api(f"repos/{args.repo}/actions/workflows/{WEB_WORKFLOW}/dispatches", method="POST",
+               fields={"ref": args.branch, "inputs": {"tick": "true"}})
+
+
 def tick(args: argparse.Namespace) -> int:
+    try:
+        web_tick(args)
+    except RuntimeError as err:  # its own failure never skips the batch tick below
+        print(f"::warning::web tick skipped: {err}")
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
     action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
@@ -592,7 +622,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        push_branch(args.push_url, f"HEAD:refs/heads/{branch}")
+        start_branch(args.repo, branch, git("rev-parse", "HEAD^").strip())
+        push_branch(args.push_url, f"+HEAD:refs/heads/{branch}")
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"
