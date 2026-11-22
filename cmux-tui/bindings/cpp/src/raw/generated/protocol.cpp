@@ -176,6 +176,11 @@ Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
+    if (value.terminal_id) {
+        auto encoded = encode_value(*value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     auto encoded_updated_at_ms = encode_value(value.updated_at_ms);
     if (!encoded_updated_at_ms) return std::move(encoded_updated_at_ms).error();
     object.emplace("updated_at_ms", std::move(encoded_updated_at_ms).value());
@@ -271,6 +276,12 @@ Result<AgentRecord> Codec<AgentRecord>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
     }
     const Json* field_updated_at_ms = value.find("updated_at_ms");
     if (!field_updated_at_ms) {
@@ -35727,6 +35738,11 @@ Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& v
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
+    if (value.if_idle) {
+        auto encoded = encode_value(*value.if_idle);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("if_idle", std::move(encoded).value());
+    }
     if (value.keep_layout) {
         auto encoded = encode_value(*value.keep_layout);
         if (!encoded) return std::move(encoded).error();
@@ -35767,6 +35783,12 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_generation);
         if (!decoded) return std::move(decoded).error();
         result.generation = std::move(decoded).value();
+    }
+    const Json* field_if_idle = value.find("if_idle");
+    if (field_if_idle) {
+        auto decoded = decode_value<bool>(*field_if_idle);
+        if (!decoded) return std::move(decoded).error();
+        result.if_idle = std::move(decoded).value();
     }
     const Json* field_keep_layout = value.find("keep_layout");
     if (field_keep_layout) {
@@ -38187,6 +38209,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
+    if (value.terminal_id) {
+        auto encoded = encode_value(*value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     auto encoded_updated_at_ms = encode_value(value.updated_at_ms);
     if (!encoded_updated_at_ms) return std::move(encoded_updated_at_ms).error();
     object.emplace("updated_at_ms", std::move(encoded_updated_at_ms).value());
@@ -38272,6 +38299,12 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
     }
     const Json* field_updated_at_ms = value.find("updated_at_ms");
     if (!field_updated_at_ms) {
@@ -47735,9 +47768,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand263FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand267FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand267FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
+    {"if_idle", 12U, "daemon-stop-if-idle-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
     {"restart", 12U, ""},
 }};

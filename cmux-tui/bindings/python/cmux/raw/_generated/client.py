@@ -813,8 +813,8 @@ class GeneratedClientMixin:
     def shell_stop(self, run: str) -> JsonValue:
         return self._invoke_command('shell-stop', ShellStopRequest(run=run))
 
-    def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, keep_layout: Union[bool, MissingType] = MISSING, restart: Union[bool, None, MissingType] = MISSING) -> ShutdownDaemonResult:
-        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force, end_terminals=end_terminals, keep_layout=keep_layout, restart=restart))
+    def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, if_idle: Union[bool, MissingType] = MISSING, keep_layout: Union[bool, MissingType] = MISSING, restart: Union[bool, None, MissingType] = MISSING) -> ShutdownDaemonResult:
+        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force, end_terminals=end_terminals, if_idle=if_idle, keep_layout=keep_layout, restart=restart))
 
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))

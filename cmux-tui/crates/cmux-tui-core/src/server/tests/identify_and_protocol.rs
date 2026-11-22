@@ -427,6 +427,10 @@ fn identify_advertises_additive_capabilities() {
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }
+    #[cfg(unix)]
+    assert!(
+        capabilities.iter().any(|value| value.as_str() == Some(crate::language_packs::CAPABILITY))
+    );
 }
 
 #[test]
