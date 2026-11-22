@@ -340,7 +340,7 @@ class PullRequestShardsTest(unittest.TestCase):
 
     def test_build_and_runner_inputs_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
-        self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
+        self.assertIsNone(self.touched("scripts/ci/run-webviews-tests.sh"))
 
     def test_a_deleted_source_touches_the_tests_that_still_name_it(self) -> None:
         self.assertEqual(self.touched("webviews/src/leaf.ts", delete=True), ["webviews/test/leaf.test.ts"])
@@ -393,6 +393,65 @@ class PullRequestShardsTest(unittest.TestCase):
             ps.shard_files = real
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[2], {})  # every shard runs its whole split
+
+    def test_a_ci_web_or_selection_edit_alone_runs_shard_1_and_two_sampled_shards(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, count, selected: {"webviews/test/leaf.test.ts"} if shard == 5 else set()
+        try:
+            for path in (".github/workflows/ci-web.yml", "scripts/ci/webviews_affected.py",
+                         "scripts/ci/focused_tests.py", "scripts/ci/webviews_pr_shards.py"):
+                self.touched(path)
+                head = git(self.root, "rev-parse", "HEAD").strip()
+                shards, why, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
+                sample = ps.sampled_shards(head, 12)
+                self.assertEqual(len(sample), 2)
+                self.assertTrue(set(sample) <= set(range(2, 13)))
+                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertIn(ps.SAMPLE_WHY, why)
+            # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
+            self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
+            sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
+            if 5 in sample:
+                self.assertEqual((shards, own), ([1, *sample], {}))
+            else:
+                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {5: ["test/leaf.test.ts"]}))
+        finally:
+            ps.shard_files = real
+        # A build input beside it still runs every shard.
+        self.touched(".github/workflows/ci-web.yml", "webviews/package.json")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12)[0], list(range(1, 13)))
+
+    def test_the_sample_is_fixed_per_head_and_rotates_across_heads(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        heads = [f"{n:040x}" for n in range(200)]
+        self.assertEqual(ps.sampled_shards(heads[0], 12), ps.sampled_shards(heads[0], 12))
+        seen = {shard for h in heads for shard in ps.sampled_shards(h, 12)}
+        self.assertEqual(seen, set(range(2, 13)))
+        self.assertEqual(ps.sampled_shards(heads[0], 2), [2])
+
+    def test_the_sample_off_switch_and_the_summary(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched(".github/workflows/ci-web.yml")
+        summary = self.root / "summary.md"
+        script = str(ROOT / "scripts/ci/webviews_pr_shards.py")
+        run = subprocess.run([sys.executable, script, "--base", "HEAD^1", "--count", "12", "--repo", str(self.root),
+                              "--summary", str(summary)], capture_output=True, text=True, check=True)
+        self.assertEqual(len(__import__("json").loads(run.stdout)), 3, run.stderr)
+        text = summary.read_text()
+        self.assertIn("sampled shards", text)
+        self.assertIn("`full-ci` label", text)
+        self.assertIn("CI_WEBVIEWS_CI_EDIT_SAMPLE", text)
+        old = os.environ.get("CI_WEBVIEWS_CI_EDIT_SAMPLE")
+        os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"] = "0"
+        try:
+            self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12)[0], list(range(1, 13)))
+        finally:
+            if old is None:
+                del os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"]
+            else:
+                os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"] = old
 
     def test_files_of_refuses_shards_outside_the_count(self) -> None:
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--base", "HEAD^1",
