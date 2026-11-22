@@ -2461,7 +2461,8 @@ pre.cv-math-source {
   right: auto;
   left: auto;
   /* The tuck in flow: the thread's padding is the column, so 100% here is the column's width. */
-  margin-left: calc(var(--cv-lead) - clamp(0px, calc((297.5px - 100%) * 1000), 8px));
+  --cv-lead-flow-outset: clamp(0px, calc((297.5px - 100%) * 1000), 8px);
+  margin-left: calc(var(--cv-lead) - var(--cv-lead-flow-outset));
   margin-top: 0 !important;
   margin-bottom: var(--acpmux-flow-gap);
 }
