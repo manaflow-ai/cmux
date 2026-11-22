@@ -138,7 +138,24 @@ extension BrowserHibernation {
 
     /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailURLs[key].map { $0 == tab.state.url?.absoluteString } == true ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its leave picture of the URL it has now (its title, load state aside)
+        guard let image = await capture(tab) ?? leavePicture(tab, key: key) else { return nil }
         return await HibernationSnapshots.compress(image)
+    }
+
+    /// Chromium: its leave picture of the URL it has now (its title, load state aside). A page that gets none is
+    /// counted by why (`debug.surfaces` `snapshot_missing`), so a bench tells a page never pictured from a picture
+    /// of an earlier URL and from one the 16 MB leave-picture budget dropped.
+    private func leavePicture(_ tab: any BrowserTab, key: String) -> CGImage? {
+        guard let cache else { return nil }
+        let reason: String
+        if let url = cache.pageThumbnailURLs[key], url == tab.state.url?.absoluteString {
+            if let image = cache.pageThumbnails.image(for: key) { return image }
+            reason = "leave_picture_evicted"
+        } else {
+            // Never shown, left before its capture answered or blank (no URL), or of an earlier URL.
+            reason = cache.pageThumbnailURLs[key] == nil ? "no_leave_picture" : "url_moved"
+        }
+        missingSnapshots[reason, default: 0] += 1
+        return nil
     }
 }

@@ -15,6 +15,9 @@ package final class HibernationSnapshots {
     /// A page picture at 2x is about 0.2 to 1.5 MB as JPEG, so this holds 40 to 300 of them.
     package let capacityBytes: Int
     package private(set) var totalBytes = 0
+    /// Pictures dropped to stay within `capacityBytes` (`debug.surfaces` `snapshot_evicted`): a hibernated page that
+    /// had a picture and lost it to the budget, told apart from one that never had one.
+    package private(set) var evicted = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.
     private var order: [String] = []
@@ -50,7 +53,7 @@ package final class HibernationSnapshots {
         pictures[key] = picture
         order.append(key)
         totalBytes += cost
-        while totalBytes > capacityBytes, let oldest = order.first { remove(oldest) }
+        while totalBytes > capacityBytes, let oldest = order.first { remove(oldest); evicted += 1 }
     }
 
     package func remove(_ key: String) {

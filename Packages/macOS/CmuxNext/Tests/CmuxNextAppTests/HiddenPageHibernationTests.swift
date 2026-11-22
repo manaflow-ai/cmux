@@ -182,10 +182,12 @@ import CmuxNextTestSupport
     /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
     /// back to its leave picture, but only one of the URL it has now: a page that navigated while hidden must not wake
     /// behind a picture of its earlier URL, and one whose title or load state moved while hidden keeps its picture
-    /// (a mail tab counting unread kept none, so every such page woke blank).
-    @Test(arguments: ["current", "retitled", "stale"])
+    /// (a mail tab counting unread kept none, so every such page woke blank). A page that sleeps with no picture is
+    /// counted by why (`snapshot_missing`): the infinite-tabs bench's 137 of 500 blank sleeps could not tell an
+    /// earlier URL from a dropped leave picture (`evicted`: the 16 MB leave-picture budget dropped it).
+    @Test(arguments: ["current", "retitled", "stale", "evicted"])
     func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(state: String) async throws {
-        let current = state != "stale"
+        let current = state == "current" || state == "retitled"
         let rig = try Rig()
         defer { rig.close() }
         rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
@@ -197,7 +199,8 @@ import CmuxNextTestSupport
         let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
         cache.pageThumbnails.insert(leave, for: key)
         cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
-        cache.pageThumbnailURLs[key] = current ? page.state.url?.absoluteString : "https://earlier.example/"
+        cache.pageThumbnailURLs[key] = state == "stale" ? "https://earlier.example/" : page.state.url?.absoluteString
+        if state == "evicted" { cache.pageThumbnails.remove(key) }
         rig.hibernation.pressureDidChange(.critical)
         rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
         rig.hibernation.replan()
@@ -206,8 +209,11 @@ import CmuxNextTestSupport
         let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
         if current {
             #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
+            #expect(rig.hibernation.missingSnapshots.isEmpty, "a page that kept its picture was counted as missing one")
         } else {
-            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL")
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL or one no longer kept")
+            let reason = state == "stale" ? "url_moved" : "leave_picture_evicted"
+            #expect(Set(rig.hibernation.missingSnapshots.keys) == [reason], "a blank sleep was not counted by its cause")
         }
     }
 
@@ -287,6 +293,7 @@ import CmuxNextTestSupport
         #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a recently used picture was dropped")
         #expect(store.image(for: "b") == nil, "the least recently used picture stayed past the budget")
         #expect(store.totalBytes <= store.capacityBytes)
+        #expect(store.evicted == 1, "a picture dropped for the budget was not counted (`snapshot_evicted`)")
     }
 
     /// Each wake is timed for `debug.surfaces` and the bench: shown with its snapshot, back, then loaded.
