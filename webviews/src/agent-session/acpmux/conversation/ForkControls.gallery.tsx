@@ -18,12 +18,21 @@ import type { AcpmuxRow } from "../model";
 type Theme = "light" | "dark";
 type Props = { forkAny: boolean; theme: Theme };
 
-// Apple System Colors, the app's default theme pair (gallery/theme/ghostty DEFAULT_*_THEME).
+// Apple System Colors, the app's default theme pair (gallery/theme/ghostty DEFAULT_*_THEME). The transcript's
+// own inks (conversation.css `--cv-text`, `--cv-text-muted`, `--cv-fg`) resolve on :root from the page's theme,
+// so the stage names them again on its shell: else a dark stage drew its icons in the light page's ink (under
+// Increase Contrast, black on #1c1c1e at 1.23:1, control-contrast-2).
+const TRANSCRIPT_INKS = {
+  "--cv-text": "var(--agent-text)",
+  "--cv-text-muted": "var(--agent-muted)",
+  "--cv-fg": "var(--agent-text)",
+} as React.CSSProperties;
 const THEMES: Record<Theme, React.CSSProperties> = {
   light: {
     "--agent-text": "#1d1d1f",
     "--agent-muted": "rgba(29, 29, 31, 0.6)",
     "--agent-page-bg": "#ffffff",
+    ...TRANSCRIPT_INKS,
     colorScheme: "light",
     background: "#ffffff",
   } as React.CSSProperties,
@@ -31,6 +40,7 @@ const THEMES: Record<Theme, React.CSSProperties> = {
     "--agent-text": "#f2f2f7",
     "--agent-muted": "rgba(242, 242, 247, 0.62)",
     "--agent-page-bg": "#1c1c1e",
+    ...TRANSCRIPT_INKS,
     colorScheme: "dark",
     background: "#1c1c1e",
   } as React.CSSProperties,

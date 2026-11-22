@@ -4,14 +4,18 @@
 //   generated/scopes.json    op name -> scope (the host's scope check and the consent UI)
 //   generated/ops.json       op names
 //   generated/signals.json   signal sources for cmux.watch (from schema/v2/signals.json)
+//   schema/merged/            index, per-family op rows and type digests of the four op sources (drift check; no second copy)
+//   generated/REFERENCE.md   the docs reference: ops, event streams and signal sources in tables
 // Sources until the merged D7 catalog exists: cmux-tui resource ops, cloud ops,
 // app actions, and every first-party app's catalog fragment (app-catalogs.ts).
 // `--check` exits 1 when a generated file is stale.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { dirname, join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { referenceMarkdown } from "./gen-reference.ts"
 import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
@@ -138,6 +142,35 @@ export function loadCatalog(): { ops: Record<string, Op>; types: Record<string, 
     ops[op.name] = { class: op.class, risk: op.risk, docs: op.docs, source: "app", owner: op.owner, input: op.input, output: op.output }
   }
   return { ops, types: { ...cloud.types, ...local.types }, generics: { ...(cloud.generics ?? {}), ...(local.generics ?? {}) }, actions: actions.filter((a) => a.cli === "offered").map((a) => a.id).sort() }
+}
+
+/** The merged schema directory, relative to generated/. */
+export const MERGED_DIR = "../schema/merged"
+
+const digest = (v: unknown): string => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16)
+
+/**
+ * The merged schema directory: one small file per op family (ops/<family>.json: each op's source, owner,
+ * class, risk and a digest of its whole definition), types.json (a digest per type and generic) and
+ * index.json (version, families, offered actions). The definitions stay in their four sources, so no
+ * clone carries a second copy; a change to any of them changes a digest, and `--check` fails until the
+ * directory is regenerated.
+ */
+function mergedFiles(ops: Record<string, Op>, types: Record<string, TypeIR>, generics: Record<string, unknown>, actions: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n"
+  const byFamily: Record<string, Record<string, unknown>> = {}
+  for (const name of Object.keys(ops).sort()) {
+    const op = ops[name]!
+    const family = name.split(".")[0]!
+    ;(byFamily[family] ??= {})[name] = { source: op.source, ...(op.owner ? { owner: op.owner } : {}), class: op.class, ...(op.risk ? { risk: op.risk } : {}), digest: digest(op) }
+  }
+  const families = Object.keys(byFamily).sort()
+  for (const f of families) out[`${MERGED_DIR}/ops/${f}.json`] = json({ family: f, ops: byFamily[f] })
+  const digests = (o: Record<string, unknown>) => Object.fromEntries(Object.keys(o).sort().map((k) => [k, digest(o[k])]))
+  out[`${MERGED_DIR}/types.json`] = json({ types: digests(types), generics: digests(generics) })
+  out[`${MERGED_DIR}/index.json`] = json({ apiVersion: API_VERSION, families, offeredActions: actions })
+  return out
 }
 
 const ident = (s: string) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(s) ? s : JSON.stringify(s))
@@ -274,7 +307,7 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
 }
 
 export function generate(): Record<string, string> {
-  const { ops, types, generics } = loadCatalog()
+  const { ops, types, generics, actions } = loadCatalog()
   const names = Object.keys(ops).sort()
   const scopes: Record<string, { scope: string; class: string }> = {}
   const never: string[] = []
@@ -591,9 +624,18 @@ declare function radialGradient(colors: readonly string[]): CmuxGradient
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
   // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
-  loadEvents(scopes)
+  const events = loadEvents(scopes)
+  const reference = referenceMarkdown({
+    apiVersion: API_VERSION,
+    ops: Object.fromEntries(Object.entries(scopes).map(([n, o]) => [n, { ...o, docs: ops[n]?.docs }])),
+    never,
+    events,
+    signals: JSON.parse(signals.json).signals
+  })
   return {
-    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json, "REFERENCE.md": reference,
+    // The merged schema directory (schema/merged), so drift in any of the four op sources fails --check.
+    ...mergedFiles(ops, types, generics, actions)
   }
 }
 
@@ -608,7 +650,7 @@ if (import.meta.main) {
     if (check) {
       console.error(`generated/${name} is stale: run bun tools/gen-cmux-global.ts`)
       stale = true
-    } else writeFileSync(path, content)
+    } else { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content) }
   }
   if (stale) process.exit(1)
   console.log(check ? "generated files up to date" : "generated files written")

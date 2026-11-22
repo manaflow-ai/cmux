@@ -540,7 +540,13 @@ def render(rows: list[Row], unchanged: dict[str, int], largest_same: float, base
                f"{CHANNEL_TOLERANCE}/255 in a channel; the largest unchanged screen moved {_pct(largest_same)}.")
     out.append("")
     unjustified = [row for row in rows if row.why is None]
-    if not rows:
+    # A family is compared exactly when main measured it, which records its unchanged count.
+    skipped = [family for family in baselines if family not in unchanged]
+    if not rows and not unchanged:
+        out.append("Nothing was compared (no baseline for any family).")
+    elif not rows and skipped:
+        out.append(f"No compared screen differs from feat-cmux-next (not compared: {', '.join(skipped)}).")
+    elif not rows:
         out.append("No screen differs from feat-cmux-next.")
     elif pull_request and unjustified:
         out.append(f"**{len(unjustified)} iOS screens differ from feat-cmux-next with no Visual-change line: "
