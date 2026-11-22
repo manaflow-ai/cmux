@@ -52,8 +52,7 @@ ALWAYS = (
     f"{WORKSPACE}/rust-toolchain", f"{WORKSPACE}/.cargo/", ".github/workflows/cmux-tui-spec.yml",
     ".github/actions/setup-cmux-tui-rust/", ".github/actions/runner-cargo-home/",
     "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-    "tests/test_cargo_test_verdict.py", "scripts/ci/cargo-lib-tests-at-once.sh",
-    "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+    "tests/test_cargo_test_verdict.py",
 )
 # Files a crate's tests read at test time, not with include_str! (a path ending in / is a
 # directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines.
