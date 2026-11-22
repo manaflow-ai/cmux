@@ -13,6 +13,7 @@ import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -93,9 +94,9 @@ test("the run sheet labels its dollar figure as API prices and says what it is",
   const cost = [...container.querySelectorAll(".lg-sheet-meta span")].find((span) => span.textContent?.includes("$"));
   expect(cost?.textContent).toBe(strings.format("run.cost", "$0.04"));
   expect(cost?.textContent).not.toBe("$0.04");
-  // The figure shows its words, so the hint is for screen readers, not a tooltip.
+  // The figure shows its words, so it has no tooltip; what it is shows on its hover card.
   expect(cost?.getAttribute("title")).toBeNull();
-  expect(cost?.getAttribute("aria-description")).toBe(strings.t("run.cost.hint"));
+  expect(await factsCardText(cost!)).toBe(strings.t("run.cost.hint"));
 });
 
 // Messages remain reachable when the run is folded and after unrelated tool steps.

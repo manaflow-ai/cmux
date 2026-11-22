@@ -20,6 +20,8 @@ pub struct Cmd {
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub env: Vec<(String, OsString)>,
+    /// Variables of this process the command must not get.
+    pub env_remove: Vec<String>,
     pub stdin: Option<Vec<u8>>,
     pub cwd: Option<PathBuf>,
 }
@@ -45,6 +47,11 @@ impl Cmd {
 
     pub fn env(mut self, key: &str, value: impl Into<OsString>) -> Cmd {
         self.env.push((key.to_owned(), value.into()));
+        self
+    }
+
+    pub fn env_remove(mut self, key: &str) -> Cmd {
+        self.env_remove.push(key.to_owned());
         self
     }
 
@@ -123,6 +130,9 @@ impl Runner for SystemRunner {
         command.args(&cmd.args);
         // The re-exec loop guard belongs to this process only.
         command.env_remove(cmux_server_core::reexec::GUARD_ENV);
+        for k in &cmd.env_remove {
+            command.env_remove(k);
+        }
         for (k, v) in &cmd.env {
             command.env(k, v);
         }
