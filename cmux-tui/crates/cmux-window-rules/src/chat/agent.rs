@@ -56,6 +56,8 @@ pub struct Tables {
     pub permission_commands: Vec<PermissionCommand>,
     pub copy_files: Vec<CopyFile>,
     pub teams: Vec<TeamsLaunch>,
+    /// Native file-location URL scheme, by the selected editor's lowercased macOS bundle ID.
+    pub editor_schemes: BTreeMap<&'static str, &'static str>,
     /// The protocol's effort names, the palette's suggestions for Set Effort.
     pub efforts: Vec<&'static str>,
     /// The protocol's mode names, the palette's suggestions for Set Mode.
@@ -92,6 +94,13 @@ pub fn tables() -> Tables {
             copy("agentChat.copyHarnessSettingsFile", &["claude_settings"]),
             copy("agentChat.copyAcpmuxSessionFile", &["acpmux_session"]),
         ],
+        editor_schemes: BTreeMap::from([
+            ("com.microsoft.vscode", "vscode"),
+            ("com.microsoft.vscodeinsiders", "vscode-insiders"),
+            ("com.todesktop.230313mzl4w4u92", "cursor"),
+            ("com.exafunction.windsurf", "windsurf"),
+            ("dev.zed.zed", "zed"),
+        ]),
         teams: vec![
             TeamsLaunch {
                 action: "palette.launchClaudeTeams",

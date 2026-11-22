@@ -664,6 +664,31 @@ test("reload shim skips an app pointer whose dev build is no longer running", ()
   }
 });
 
+test("reload shim with no dev CLI and no stable app runs NIGHTLY's CLI and says so on stderr", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-nightly-"));
+  try {
+    const shim = path.join(root, "cmux");
+    const pointer = path.join(root, "last-cli-path");
+    const deadCLI = makeTaggedBundle(root, `shim-gone-${crypto.randomUUID()}`, "dead");
+    fs.writeFileSync(pointer, `${deadCLI}\n`, { mode: 0o600 });
+    // No stable app at the fallback path: the case an agent host with only NIGHTLY hits.
+    generateShim(shim, path.join(root, "no-such-stable-cmux"), pointer);
+
+    const missing = runShim(shim, cleanEnvironment(root));
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /no reload-selected dev cmux CLI found/);
+
+    fs.mkdirSync(path.join(root, "Applications"));
+    const nightlyCLI = makeBundle(path.join(root, "Applications"), "cmux NIGHTLY", "nightly");
+    const result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "nightly");
+    assert.equal(result.stderr.trim(), `cmux: no reload-selected dev cmux CLI found; using ${nightlyCLI}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // The Tag Opener and reload-cloud.sh refresh a user's shim from the build
 // they open, through the installer the build carries; a file that is not a
 // managed shim is never touched.

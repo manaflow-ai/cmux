@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use base64::Engine;
 use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
 use cmux_customize::library::fold::FOLDED;
-use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
+use cmux_customize::library::{Changed, Collection, Listing, NoLongerApplies, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -195,7 +195,9 @@ pub(super) fn execute(
             human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
-        Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
+        Request::Refresh => {
+            with_no_longer_applies(customize, super::pr::refresh(customize, origin, now_ms)?)
+        }
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
         Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
             let path = customize.renew_overlay(now_ms)?;
@@ -266,7 +268,10 @@ pub(super) fn execute(
                 );
             }
             human.push_str(&expired_lines(&layers.expired, expiring.as_ref()));
-            Answer::Library { json: json!({ "layers": layers }), human }
+            with_no_longer_applies(
+                customize,
+                Answer::Library { json: json!({ "layers": layers }), human },
+            )
         }
         Request::Order { name, position } => {
             changed(customize.library_order(&name, position, origin, now_ms)?)
@@ -312,6 +317,30 @@ pub(super) fn execute(
             answer
         }
     })
+}
+
+/// `answer` with one line for each entry that is on with keys this app no
+/// longer reads as written (`no_longer_apply` in its JSON); unchanged when
+/// everything applies. Only says: nothing is turned off or rewritten.
+fn with_no_longer_applies(customize: &Customize, answer: Answer) -> Answer {
+    let stale = customize.library_no_longer_applies();
+    no_longer_applies_into(answer, &stale)
+}
+
+fn no_longer_applies_into(answer: Answer, stale: &[NoLongerApplies]) -> Answer {
+    match answer {
+        Answer::Library { mut json, mut human } if !stale.is_empty() => {
+            for entry in stale {
+                human.push_str(&entry.line());
+                human.push('\n');
+            }
+            if let Some(object) = json.as_object_mut() {
+                object.insert("no_longer_apply".to_owned(), json!(stale));
+            }
+            Answer::Library { json, human }
+        }
+        other => other,
+    }
 }
 
 /// The scopes the customize folder's views app asks for (`scopes` in its
