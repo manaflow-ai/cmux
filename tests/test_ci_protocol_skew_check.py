@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """protocol_skew_check.py over a scratch repository: each skew it must fail, and what it must let through.
 
-python3 -m unittest scripts/ci/test_protocol_skew_check.py
+python3 -m unittest tests/test_ci_protocol_skew_check.py
 """
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/protocol_skew_check.py"
+sys.path.insert(0, str(SCRIPT.parent))
 import protocol_skew_check as skew  # noqa: E402
 
 BASE_POLICY = {
