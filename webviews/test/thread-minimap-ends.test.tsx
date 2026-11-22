@@ -148,6 +148,9 @@ const mount = async (count: number, id: string) => {
       roomAbove: Math.min(...lit) * pitch - list.scrollTop,
       roomBelow: height - ((Math.max(...lit) + 1) * pitch - list.scrollTop),
       listAtEnd: list.scrollTop >= listRoom(list) - 0.5,
+      listTop: list.scrollTop,
+      chatTop: host.querySelector(".acpmux-scroll")!.hasAttribute("data-fade-top"),
+      chatBottom: host.querySelector(".acpmux-scroll")!.hasAttribute("data-fade-bottom"),
     };
   };
   const unmount = async () => {
@@ -180,22 +183,24 @@ test("each end of a long chat's rail fades while the chat has more past it, hard
     ]) {
       await scrollTo(at);
       const state = ends();
-      const top = at > 0.5 && state.roomAbove > 0;
-      // The bottom's end is follow's 4 px deadband (scrollAnchor.ts), as the transcript's own fade has it.
-      const bottom = at < end - 4 && state.roomBelow > 0;
+      // More past an end: the transcript's own soft edge there (its fade, with follow's deadband at
+      // the bottom), or rows of the rail's list past that edge.
+      const top = (state.chatTop || state.listTop > 0.5) && state.roomAbove > 0;
+      const bottom = (state.chatBottom || !state.listAtEnd) && state.roomBelow > 0;
       if (state.top !== top || state.bottom !== bottom)
         wrong.push(`at ${at} px: fades ${state.top}/${state.bottom}, want ${top}/${bottom} (${JSON.stringify(state)})`);
       // Leo's case: the rail's own list at its end, the chat scrolled up from the bottom.
-      if (state.listAtEnd && at < end - 200 && state.bottom) footFadedAtListEnd = true;
+      if (state.listAtEnd && state.chatBottom && state.bottom) footFadedAtListEnd = true;
       if (wrong.length > 5) break;
     }
     expect(wrong).toEqual([]);
     expect(footFadedAtListEnd).toBe(true);
-    // Back at the very ends: hard at each.
-    await scrollTo(end);
-    expect(ends()).toMatchObject({ bottom: false });
+    // Straight to the very top from mid-thread: the chat has nothing above, the list follows to its top,
+    // and the head is hard (the gallery's agent-pane.thread-minimap-ends plays check both ends in a
+    // browser, whose scroller clamps at its real end).
+    await scrollTo(Math.round(end / 2));
     await scrollTo(0);
-    expect(ends()).toMatchObject({ top: false });
+    expect(ends()).toMatchObject({ chatTop: false, listTop: 0, top: false, bottom: true });
   } finally {
     await chatView.unmount();
   }

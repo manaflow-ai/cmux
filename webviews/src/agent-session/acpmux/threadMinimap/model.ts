@@ -474,7 +474,8 @@ export function railEdgeFades(
   const list = railFadeReach(count, height, top, pitch);
   // The room between each edge and the band, as a share of the fade.
   const room = (gap: number) => (fade > 0 ? Math.max(0, Math.min(1, gap / fade)) : 0);
-  const round = (value: number) => Math.round(value * 100) / 100;
+  // Down to whole hundredths: a depth rounded up could reach a fraction of a pixel over the band.
+  const round = (value: number) => Math.floor(value * 100 + 1e-9) / 100;
   const reach = {
     top: round(Math.min(Math.max(list.top, chat.top), room(band.first * pitch - top))),
     bottom: round(Math.min(Math.max(list.bottom, chat.bottom), room(height - ((band.last + 1) * pitch - top)))),
