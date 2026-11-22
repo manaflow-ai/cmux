@@ -5923,6 +5923,14 @@ def receipt_grammar():
     return risk_tier
 
 
+def actions_check_runs(runs, name: str) -> list[dict]:
+    """The GitHub Actions check runs called NAME in a check-runs answer: a check of the same name from another app
+    (a status bot, a third-party CI) is not the job's verdict, so its red excuses nothing."""
+    return [run for run in (runs or {}).get("check_runs") or []
+            if isinstance(run, dict) and run.get("name") == name
+            and (run.get("app") or {}).get("slug") == "github-actions"]
+
+
 def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: str, github) -> str:
     """The pull request whose head is SHA, when (1)-(4) above hold for the red job NAME; raises Refused otherwise."""
     pulls = [p for p in github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") or []
@@ -5947,7 +5955,7 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
     if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
         raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")
     runs = github.json(f"repos/{repo}/commits/{merge_base}/check-runs?check_name={urllib.parse.quote(name, safe='')}&filter=latest&per_page=100")
-    seen = [run for run in (runs or {}).get("check_runs") or [] if isinstance(run, dict) and run.get("name") == name]
+    seen = actions_check_runs(runs, name)
     if not any(run.get("status") == "completed" and run.get("conclusion") in ("failure", "timed_out") for run in seen):
         raise Refused(f"'{name}' has no red verdict at the merge-base {merge_base[:12]} "
                       f"({', '.join(sorted({str(r.get('conclusion') or r.get('status')) for r in seen})) or 'none'}): "

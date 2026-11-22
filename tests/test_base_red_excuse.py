@@ -6199,7 +6199,8 @@ class FixedOnBaseGitHub(FakeGitHub):
             self.routes.append(route)
             name = urllib.parse.unquote(route.split("check_name=", 1)[1].split("&", 1)[0])
             return {"check_runs": [] if self.at_merge_base is None else
-                    [{"name": name, "status": "completed", "conclusion": self.at_merge_base}]}
+                    [{"name": name, "status": "completed", "conclusion": self.at_merge_base,
+                      "app": {"slug": "github-actions"}}]}
         return super().json(route, paginate=paginate)
 
 
@@ -16212,7 +16213,8 @@ class SpawnOwnerGitHub:
             return [[]] if paginate else []
         if f"/commits/{SPAWN_MERGE_BASE}/check-runs" in path:
             name = urllib.parse.unquote(query.split("check_name=", 1)[1].split("&", 1)[0])
-            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"]}
+            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"],
+                                    "app": {"slug": "github-actions"}}
                                    for job in self.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN
                                    and job["name"] == name]}
         raise AssertionError(route)
@@ -17822,6 +17824,20 @@ class BaseVerdictInASiblingRepo(unittest.TestCase):
             said.append(str(refused.exception))
         self.assertEqual(said[0], said[1])
         self.assertNotIn("BASE_VERDICT_REPO", said[0])
+
+
+class ActionsCheckRunsOnly(unittest.TestCase):
+    def test_a_same_name_red_from_another_app_is_not_the_jobs_verdict(self):
+        runs = {"check_runs": [
+            {"name": "Web status", "status": "completed", "conclusion": "failure", "app": {"slug": "some-status-bot"}},
+            {"name": "Web status", "status": "completed", "conclusion": "failure"},
+            {"name": "Web status", "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"}},
+            {"name": "Other", "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"}},
+        ]}
+        seen = excuse.actions_check_runs(runs, "Web status")
+        self.assertEqual([run["app"]["slug"] for run in seen], ["github-actions"])
+        self.assertEqual(excuse.actions_check_runs({"check_runs": runs["check_runs"][:2]}, "Web status"), [])
+        self.assertEqual(excuse.actions_check_runs(None, "Web status"), [])
 
 
 if __name__ == "__main__":
