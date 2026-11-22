@@ -10,7 +10,10 @@ import {
   type CloudFolderTooBig,
   type CloudStartAsk as Ask,
   type CloudStartProgress,
+  type CloudStartReadiness,
 } from "./cloudStartProgress";
+import { openCloudEnvironment } from "./cloudEnvironment";
+import type { EnvironmentSection } from "../../pages/cloud/environmentModel";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
 import { Thinking } from "./conversation/Thinking";
@@ -442,6 +445,65 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
   );
 }
 
+/// What a failed start is missing, said over the kept draft, with the one repair for it (cloudStartProgress
+/// `readiness`, decided in cmux-cloud-start-core `readiness`). The repair opens a place the person acts in and
+/// buys nothing; the card's Retry (WayOnActions) then runs this same start, its key kept, so no second machine.
+function ReadinessSummary({
+  readiness,
+  onOpenEnvironment,
+  githubStore,
+}: {
+  readiness: CloudStartReadiness;
+  onOpenEnvironment: (section: EnvironmentSection) => void;
+  githubStore?: GitHubPickerStore;
+}) {
+  const t = useT();
+  const summary =
+    readiness.need === "git_access"
+      ? t("cloudReadiness.gitAccess")
+      : readiness.need === "personal_secret"
+        ? readiness.secret
+          ? t("cloudReadiness.secretNamed", { name: readiness.secret })
+          : t("cloudReadiness.secret")
+        : readiness.need === "dependency"
+          ? t("cloudReadiness.dependency")
+          : t("cloudReadiness.image");
+  const section: EnvironmentSection | undefined =
+    readiness.repair === "environment_secrets"
+      ? "secrets"
+      : readiness.repair === "environment_script"
+        ? "script"
+        : readiness.repair === "environment_image"
+          ? "overview"
+          : undefined;
+  const label =
+    readiness.repair === "environment_secrets"
+      ? t("cloudReadiness.addSecret")
+      : readiness.repair === "environment_script"
+        ? t("cloudReadiness.editSetup")
+        : t("cloudReadiness.chooseImage");
+  return (
+    <div className="acpmux-cloud-start__readiness" data-need={readiness.need}>
+      <output className="acpmux-cloud-start__status">{summary}</output>
+      <span className="acpmux-cloud-ask__actions">
+        {readiness.repair === "connect_github" ? (
+          <ConnectGitHubAction {...(githubStore ? { store: githubStore } : {})} />
+        ) : section ? (
+          <button
+            type="button"
+            className="acpmux-cloud-ask__button"
+            data-role="default"
+            data-action={readiness.repair}
+            onClick={() => onOpenEnvironment(section)}
+          >
+            {label}
+          </button>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
 /// A failed start's way on when it has no recovery of its own (cloudStartProgress `cloudStartWayOn`): each button only
 /// where App passes its handler, the first filled. Never Retry for a refusal that fails the same way again.
 function WayOnActions({
@@ -526,7 +588,7 @@ export function CloudStartView({
   /// The startup steps while the start is on its way (galleries and tests); off, the start reads as a
   /// local first turn and only a failure shows them.
   showSteps?: boolean;
-  onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: EnvironmentSection }) => void;
   /// The person's click on the start's question: its id and the button's (`cloud.answerStart`).
   onAnswer?: (id: string, button: string) => Promise<boolean> | void;
   /// Sends the same prompt again, a retry of this start (its key is kept): offered on a retryable failure.
@@ -582,14 +644,24 @@ export function CloudStartView({
   const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
-  const openEnvironment = () => {
+  const openEnvironment = (section: EnvironmentSection = "script") => {
     const options = {
       ...(start.environmentId ? { environmentId: start.environmentId } : {}),
       ...(start.repository ? { repository: start.repository } : {}),
-      section: "script" as const,
+      section,
     };
     if (onOpenEnvironment) onOpenEnvironment(options);
-    else window.dispatchEvent(new CustomEvent("cmux:open-cloud-environment", { detail: options }));
+    else {
+      // The page's one environment editor (App's CloudEnvironmentEditor), as the composer's chip opens it. The event
+      // stays for the ergonomics harness (cloudErgonomics/measure.tsx); nothing else listened to it, so the setup
+      // link opened nothing.
+      window.dispatchEvent(new window.CustomEvent("cmux:open-cloud-environment", { detail: options }));
+      openCloudEnvironment({
+        ...(start.environmentId ? { environmentId: start.environmentId } : {}),
+        ...(start.repository ? { repo: start.repository } : {}),
+        section,
+      });
+    }
   };
   const signIn = () => {
     if (!onSignIn || signingIn) return;
@@ -736,7 +808,7 @@ export function CloudStartView({
                   {step.id === "setup" && step.action ? (
                     <span className="acpmux-cloud-start__detail">
                       {onOpenEnvironment ? (
-                        <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
+                        <button type="button" className="acpmux-cloud-start__link" onClick={() => openEnvironment()}>
                           {t("cloudStartup.setupHint")}
                         </button>
                       ) : (
@@ -806,6 +878,13 @@ export function CloudStartView({
             </button>
           )}
         </div>
+      )}
+      {failed && start.readiness && !(needsGitHub && start.readiness.need === "git_access") && (
+        <ReadinessSummary
+          readiness={start.readiness}
+          onOpenEnvironment={openEnvironment}
+          {...(githubStore ? { githubStore } : {})}
+        />
       )}
       {sizeLocked && (
         <SizeLockedActions

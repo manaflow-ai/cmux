@@ -10,6 +10,7 @@ import {
   cloudStartPushed,
   cloudStartSignedIn,
   cloudStartWayOn,
+  readCloudStartReadiness,
   cloudFolderTooBig,
   folderSizeText,
 } from "./cloudStartProgress";
@@ -481,4 +482,40 @@ test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac;
     expect(cloudStartWayOn(failed(code)), code).toEqual([]);
   expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
+});
+
+test("a failed start's readiness is read only when its need and repair agree", () => {
+  expect(readCloudStartReadiness({ readiness: { need: "git_access", repair: "connect_github" } })).toEqual({
+    need: "git_access",
+    repair: "connect_github",
+  });
+  expect(
+    readCloudStartReadiness({
+      readiness: { need: "personal_secret", repair: "environment_secrets", secret: "NPM_TOKEN" },
+    }),
+  ).toEqual({ need: "personal_secret", repair: "environment_secrets", secret: "NPM_TOKEN" });
+  expect(
+    readCloudStartReadiness({ readiness: { need: "personal_secret", repair: "environment_secrets", secret: "<b>x" } }),
+  ).toEqual({ need: "personal_secret", repair: "environment_secrets" });
+  expect(
+    readCloudStartReadiness({ readiness: { need: "dependency", repair: "environment_script", secret: "NPM_TOKEN" } }),
+  ).toEqual({ need: "dependency", repair: "environment_script" });
+  expect(readCloudStartReadiness({ readiness: { need: "dependency", repair: "connect_github" } })).toBeUndefined();
+  expect(readCloudStartReadiness({ readiness: { need: "billing", repair: "connect_github" } })).toBeUndefined();
+  expect(readCloudStartReadiness({ readiness: null })).toBeUndefined();
+  expect(readCloudStartReadiness(undefined)).toBeUndefined();
+});
+
+test("a failure that names what it is missing keeps the draft's card with its repair, Retry and Run here", () => {
+  const failed = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "unsupported image",
+    details: { readiness: { need: "unsupported_image", repair: "environment_image" } },
+  });
+  expect(failed?.readiness).toEqual({ need: "unsupported_image", repair: "environment_image" });
+  expect(failed?.task).toBe("fix the build");
+  expect(cloudStartWayOn(failed!)).toEqual(["retry", "run-here"]);
+  const plain = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" });
+  expect(plain?.readiness).toBeUndefined();
 });

@@ -178,4 +178,22 @@ public nonisolated struct CloudStartCore: Sendable {
         struct Request: Encodable { var vmKind: String? }
         return call("cloud_vm_kind", Request(vmKind: vmKind), as: VmKind.self) ?? VmKind(ownsVm: false, teammate: false, linkArguments: [])
     }
+
+    // MARK: A failed start's readiness (`readiness`)
+
+    /// What a start that failed with `code` and the host's `message` is missing, and its one repair, as the page's
+    /// start card reads it (`{need, repair, secret?}`; cmux-cloud-start-core `readiness`). Nil for a failure that says
+    /// neither, or an FFI that does not answer: the card keeps its own words and ways on.
+    public func readiness(code: String, message: String?) -> [String: Any]? {
+        struct Request: Encodable { var code: String, message: String? }
+        guard let request = try? JSONEncoder().encode(Request(code: code, message: message)),
+              let reply = callData("cloud_start_readiness", request),
+              let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return nil }
+        return object["readiness"] as? [String: Any]
+    }
+
+    /// [`readiness`] as a failure reply's `details` (`{readiness: {...}}`), or nil.
+    public func readinessDetails(code: String, message: String?) -> [String: Any]? {
+        readiness(code: code, message: message).map { ["readiness": $0] }
+    }
 }
