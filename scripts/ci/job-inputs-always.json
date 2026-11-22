@@ -476,6 +476,10 @@
         "suggested_inputs": [
           ".github/workflows/pr-red-checks-comment.yml"
         ]
+      },
+      "security-holes": {
+        "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
+        "suggested_inputs": []
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {
