@@ -51,7 +51,8 @@ export function popupSurfaceAttributes(
   hostGlass = true,
   yields = false,
 ): SurfaceAttributes {
-  if (solid) return yields ? { [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" } : { [SOLID_POPUP_ATTRIBUTE]: "" };
+  if (solid)
+    return yields ? { [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" } : { [SOLID_POPUP_ATTRIBUTE]: "" };
   return hostGlass ? { "data-host-glass": level, "data-host-glass-cover": "" } : {};
 }
 
@@ -59,7 +60,9 @@ export function popupSurfaceAttributes(
 export function useSolidPopupAttributes(options?: { yields?: boolean }): Record<string, string> {
   const solid = useSolidPopups();
   if (!solid) return {};
-  return options?.yields ? { [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" } : { [SOLID_POPUP_ATTRIBUTE]: "" };
+  return options?.yields
+    ? { [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" }
+    : { [SOLID_POPUP_ATTRIBUTE]: "" };
 }
 
 const OTHER_POPUP = `[${SOLID_POPUP_ATTRIBUTE}]:not([${YIELDING_POPUP_ATTRIBUTE}], [data-ending-style], [hidden])`;

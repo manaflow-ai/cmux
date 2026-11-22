@@ -158,7 +158,9 @@ test("a yielding list counts no popup; a closing one counts none either", () => 
 test("a list that follows the field hides while a chip's menu is open, and comes back as it closes", async () => {
   function List() {
     const yielded = useYieldsToPopup(true, document);
-    return yielded ? null : <div className="the-list" {...{ [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" }} />;
+    return yielded ? null : (
+      <div className="the-list" {...{ [SOLID_POPUP_ATTRIBUTE]: "", [YIELDING_POPUP_ATTRIBUTE]: "" }} />
+    );
   }
   await act(async () => root!.render(<List />));
   expect(document.querySelector(".the-list")).toBeTruthy();
