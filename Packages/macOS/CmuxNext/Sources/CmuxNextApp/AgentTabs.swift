@@ -35,7 +35,7 @@ enum AgentSessionBindOutcome: Equatable {
 
 extension AgentTabStore {
     func shareScreen(of key: AgentTabKey, session: String?) -> AgentPaneActionRun { guard let registry = actionRegistry, let session, let (record, _) = record(for: key), let daemon = daemon(for: key) else { return .refused(Self.screenShareUnavailable) }; let host = hostKind(record, listedHere: daemon.isLocal); let lanes = AgentLaneStore.shared; let links = lanes.links(session); let kind = host == .local ? "local" : host == .chief ? "unsupported" : daemon.isLocal ? "remote" : MachineRegistry.isCloudMachineID(daemon.machineID) ? "cloud" : "remote"; return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).run(registry: registry, session: session, actualSession: sessions[key] ?? record.session ?? "", machineID: daemon.machineID, kind: kind, host: record.host, hostKind: host == .local ? "local" : host == .chief ? "chief" : "remote", peer: links?.peer, registryHost: Self.registryHost(of: daemon), localSummaryCurrent: lanes.live && links != nil, unavailable: Self.screenShareUnavailable) }
-    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module) }
+    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static let showcaseMachineName = MacName.captureName
 
     static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
@@ -191,7 +191,7 @@ final class AgentTabStore {
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: AgentTabMap<AgentTabElsewhereView> = .init()
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
-    var aliases: AgentTabMap<String> = .init()
+    var aliases: AgentTabMap<String> = .init(); let frontedChats = CloudFrontedChats() // and the Cloud chats Mac tabs show in place (cmux#47677)
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<AgentTabKey> = []
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
@@ -474,10 +474,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
-    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep` (key, listing machine), the first it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (_ key: String, _ machine: String) -> Bool = { _, _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key) }?.key
+        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key, $0.machine) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -516,7 +516,7 @@ final class AgentTabStore {
     /// pane then shows the "runs on" notice).
     func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let tabKey = tabKey(key, machine: machine)
-        if let view = views[tabKey] { return view }
+        if let view = views[tabKey] { return view }; if let front = frontedChats.front(of: tabKey) { return CloudFrontedChats.view(of: tabKey, front, in: self) } // a Mac tab that shows a Cloud chat draws its page (CloudFrontedChats)
         let key = tabKey.key
         guard let (record, store) = known ?? record(for: tabKey) else { return nil }
         let kind = hostKind(record, listedHere: daemon(for: tabKey)?.isLocal != false)
@@ -579,7 +579,7 @@ final class AgentTabStore {
         // spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
-                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
+                                                wake: wakeStates[tabKey].map { !$0.holdsOnlyPlace } ?? false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)
@@ -766,7 +766,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { if !frontedChats.isEmpty, let front = frontedChats.front(of: tabKey(key, machine: machine)) { return views[front.tab] }; return machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
         let scoped = tabKey(key, machine: machine)
