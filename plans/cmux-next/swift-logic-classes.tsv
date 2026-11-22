@@ -12239,7 +12239,7 @@ CmuxNextMacScreen	extension	MacScreenHomeView	0	PLATFORM	0	0	Packages/macOS/Cmux
 CmuxNextPages	extension	PageWebView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+DebugProbe.swift	extension of NSView subclass PageWebView: debug state probe of view geometry
 CmuxNextPages	extension	PageWebView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+DrawnAway.swift	extension of NSView subclass PageWebView: page visibility plumbing
 CmuxNextPages	extension	PageWebView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Language.swift	extension of NSView subclass PageWebView: page language script push
-CmuxNextPages	extension	PageWebView	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebViewContainer.swift	extension of NSView subclass PageWebView: Chromium frame clip constraint
+CmuxNextPages	extension	PageWebView	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebViewContainer.swift	extension of NSView subclass PageWebView: engine frame clip constraint
 CmuxNextSidebar	extension	SidebarRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/NSView+HoverReveal.swift	extension of NSView subclass SidebarRowView: hover control opacity painting
 CmuxNextSidebar	extension	WorkspaceRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowControlSlot.swift	extension of NSView subclass WorkspaceRowView: hover control show and hide
 CmuxNextSidebar	extension	SidebarContainerView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView+Float.swift	extension of NSView subclass SidebarContainerView: float card look, shadow, glass layout
