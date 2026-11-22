@@ -129,8 +129,81 @@ pub enum DownCause {
     Auth,
 }
 
+/// What a dial writes first in its error when it could get no relay ticket (`hub_carrier.rs`):
+/// the platform's ticket mint refused or did not answer. `credential-unavailable`.
+pub const CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable:";
+
+/// Why a down link is `offline` and what a person does about it (`reason`): a terminal named
+/// state, so a link that cannot heal on its own never reads as still connecting (design
+/// `remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).
+/// Attempts go on behind it (`nextRetryAt`, hourly once parked); the reason only makes the
+/// reported state true. Each has one [`OfflineAction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OfflineReason {
+    /// No relay ticket or credential can be had: the ticket mint is down, or renewing an
+    /// expiring ticket failed.
+    CredentialUnavailable,
+    /// The machine (or its Cloud VM) is stopped on purpose, not crashed.
+    MachineStopped,
+    /// The peer refused this daemon's token: a person must sign in again (`authFailed`).
+    LoginNeeded,
+    /// The machine's daemon stopped restarting after more stops than its budget allows.
+    RestartBudgetExceeded,
+    /// The machine's disk is full.
+    DiskFull,
+}
+
+/// The one thing a person does about an [`OfflineReason`] (`action`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OfflineAction {
+    /// Ask for a fresh ticket now (`_acpmux/peer_reconnect`).
+    Reconnect,
+    /// Start the machine.
+    StartMachine,
+    /// Sign in again.
+    SignIn,
+    /// Restart the machine's daemon by hand (its budget then starts over).
+    RestartDaemon,
+    /// Free space on the machine's disk.
+    FreeDisk,
+}
+
+impl OfflineReason {
+    /// Every reason, in the order of the enum: a renderer's table test walks it.
+    pub const ALL: [Self; 5] = [
+        Self::CredentialUnavailable,
+        Self::MachineStopped,
+        Self::LoginNeeded,
+        Self::RestartBudgetExceeded,
+        Self::DiskFull,
+    ];
+
+    pub fn action(self) -> OfflineAction {
+        match self {
+            Self::CredentialUnavailable => OfflineAction::Reconnect,
+            Self::MachineStopped => OfflineAction::StartMachine,
+            Self::LoginNeeded => OfflineAction::SignIn,
+            Self::RestartBudgetExceeded => OfflineAction::RestartDaemon,
+            Self::DiskFull => OfflineAction::FreeDisk,
+        }
+    }
+
+    /// Its wire word (`reason`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CredentialUnavailable => "credential-unavailable",
+            Self::MachineStopped => "machine-stopped",
+            Self::LoginNeeded => "login-needed",
+            Self::RestartBudgetExceeded => "restart-budget-exceeded",
+            Self::DiskFull => "disk-full",
+        }
+    }
+}
+
 /// `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
-/// link changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a
+/// link changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a
 /// peer that is added sends its first state, and one that is removed a last `offline` with
 /// `error: "removed"`. Listed as the `peerStateEvents` feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -151,6 +224,13 @@ pub struct PeerStateChanged {
     pub since: u64,
     /// When acpmux dials again on its own, ms since the epoch; null while it is not waiting.
     pub next_retry_at: Option<u64>,
+    /// Why a down link is `offline` (or `authFailed`) and will not heal by retrying alone;
+    /// null otherwise. Attempts still go on (`nextRetryAt`).
+    #[serde(default)]
+    pub reason: Option<OfflineReason>,
+    /// What a person does about `reason`; null when there is none.
+    #[serde(default)]
+    pub action: Option<OfflineAction>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
     /// Why the link is down, when it is.
@@ -175,5 +255,21 @@ mod tests {
         }
         assert_eq!(MachineLink::Restarting.folded(), PeerLinkState::Reconnecting);
         assert_eq!(MachineLink::AuthFailed.folded(), PeerLinkState::Offline);
+    }
+
+    /// Every reason has one wire word (the design's kebab-case words) and its own action.
+    #[test]
+    fn every_offline_reason_has_one_wire_word_and_an_action() {
+        let mut actions = std::collections::HashSet::new();
+        for reason in OfflineReason::ALL {
+            let word = serde_json::to_value(reason).unwrap();
+            assert_eq!(word, serde_json::json!(reason.as_str()));
+            assert_eq!(serde_json::from_value::<OfflineReason>(word).unwrap(), reason);
+            assert!(actions.insert(reason.action()), "{reason:?} shares its action");
+        }
+        assert_eq!(
+            serde_json::to_value(OfflineReason::CredentialUnavailable.action()).unwrap(),
+            serde_json::json!("reconnect")
+        );
     }
 }

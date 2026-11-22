@@ -169,12 +169,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::SessionInboxCmd(crate::cli::command::SessionInboxTarget {
             session,
+            search,
+            before,
+            subscribe,
+            unsubscribe,
+            subscriptions,
             thread,
             unread,
         }) => {
             let client = connect(true).await?;
-            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
-                .await
+            crate::cli::session_inbox::run(
+                &client,
+                &session,
+                thread.as_deref(),
+                unread,
+                search.as_deref(),
+                before,
+                subscribe.as_deref(),
+                unsubscribe.as_deref(),
+                subscriptions,
+                json_out,
+            )
+            .await
         }
         Command::TurnCapCmd { session, minutes, off, clear } => {
             use crate::cli::session_turn_cap::Change;
@@ -281,7 +297,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&v)
             } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
                 println!(
-                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `{} register {name} --code ...` it gives to finish",
+                    crate::cli::entry::program()
                 );
             } else {
                 let field =
@@ -480,22 +497,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::MoveSessions {
+        Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
             all_idle,
             interrupt,
+            after_turn,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
-        } => {
+        }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
                 leave_dirty,
                 carry_changes,
                 cwd,
@@ -505,8 +524,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             };
             super::session_move::run(args, json_out).await
         }
-        Command::Transfer { session, to, cwd, name, interrupt } => {
-            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
         }
         Command::Import { path, name } => {
             let client = connect(true).await?;
@@ -1229,6 +1248,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
                     let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    if !json_out
+                        && let Some(note) = crate::cli::host_enroll::hub_route_note(&list, &name)
+                    {
+                        println!("{note}");
+                    }
                     let plan = crate::cli::host_enroll::Plan {
                         name,
                         host,
