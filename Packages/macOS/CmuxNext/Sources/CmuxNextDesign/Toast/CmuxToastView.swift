@@ -78,7 +78,7 @@ public final class CmuxToastView: NSView {
     /// Whether the pointer is on the toast now (as of the last refresh).
     public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
-    private let reduceTransparency: ReduceTransparency
+    let reduceTransparency: ReduceTransparency
     /// The look this toast was built with (Debug Settings > Toasts, else the defaults).
     public let tuning: CmuxToastTuning
 
@@ -146,8 +146,9 @@ public final class CmuxToastView: NSView {
         // the scope it draws in, again on every theme change (GlassTextEveryThemeTests).
         let ground = self.reduceTransparency
         label.themeColor = { Palette.toastText(.primary, reduceTransparency: ground) }
-        // The details stay out of the toast until Details shows them: the pointer on the message shows them.
-        label.themedToolTip = twoLines ? nil : toast.detail
+        // The details stay out of the toast until Details shows them; VoiceOver hears them on the message. No tooltip:
+        // the message shows its own text (a1315's cut 2).
+        label.setAccessibilityHelp(twoLines ? nil : toast.detail)
         messageLabel = label
         // The message, with the detail under it in a style that shows it as a second line.
         var text: NSView = label
@@ -217,11 +218,10 @@ public final class CmuxToastView: NSView {
             row.addArrangedSubview(button)
             if toast.action == nil { row.setCustomSpacing(Metrics.space5, after: text) }
         }
+        separateButtons(in: row, after: text)
         closeButton.target = self
         closeButton.action = #selector(close)
-        for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) {
-            button.concentricRadius = geometry.childRadius
-        }
+        for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) { button.concentricRadius = geometry.childRadius }
         row.addArrangedSubview(closeButton)
         // Hidden until the pointer is on the toast; still in the row, so VoiceOver and Full Keyboard Access reach it.
         if look.closeOnHover { closeButton.alphaValue = 0 }
@@ -332,8 +332,8 @@ public final class CmuxToastView: NSView {
             line.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
             line.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
             line.themeColor = { Palette.toastText(.tertiary, reduceTransparency: ground) }
-            // The raw reason, word for word, for a bug report.
-            line.themedToolTip = detail
+            // The raw reason, word for word, for a bug report (VoiceOver's; the line shows its own text).
+            line.setAccessibilityHelp(detail)
             document.addSubview(line)
             codeLabel = line
             bottom = line.bottomAnchor.constraint(equalTo: document.bottomAnchor)
@@ -391,8 +391,8 @@ public final class CmuxToastView: NSView {
         // narrower than an expanded toast.
         let width = max(bounds.width, fittingSize.width, shows ? Self.expandedMinWidth : 0)
         messageLabel?.maximumNumberOfLines = shows ? Self.expandedMessageLines : 3
-        // Shown, the detail is there; a message past its lines keeps the whole of it in the tooltip.
-        messageLabel?.themedToolTip = shows ? toast.message : toast.detail
+        // Shown, the detail is there; a message past its lines keeps the whole of it for VoiceOver.
+        messageLabel?.setAccessibilityHelp(shows ? toast.message : toast.detail)
         if let detailLabel {
             // Inside the scroll view, short of its scroller's width.
             detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * geometry.textInset - Metrics.space4)
