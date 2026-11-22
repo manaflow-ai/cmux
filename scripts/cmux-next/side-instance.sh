@@ -23,7 +23,10 @@
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
-#                                   open it (behind the front app unless --front); records its pid
+#                                   open it (behind the front app unless --front); records its pid. Where
+#                                   `mac-budget` is on PATH (Leo's laptop), an agent's launch first waits for
+#                                   room in the Mac's memory budget (SIDE_INSTANCE_BUDGET_WAIT_S, default 1800)
+#                                   and is recorded with its owner and a deadline for the budget's reaper
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
 #                                   (its terminal daemon and helpers outlive the app otherwise)
 #   side-instance.sh env NAME       the exports that point web-overlay.sh at it (eval "$(... env NAME)")
@@ -350,6 +353,16 @@ PY
     done
     app="$(app_of)"
     if running; then echo "$name already runs (pid $(pid_of))"; exit 0; fi
+    # On a Mac with a memory budget for agents' apps (leo-workspace tools/mac_budget.py, linked as mac-budget on
+    # Leo's laptop), an agent's copy waits its turn while agents already hold the budget or the Mac is short of
+    # memory, and is recorded with its owner and a deadline so the budget's reaper quits it once its owner ends.
+    # A Mac without it, and a person's own shell, launch at once. Leo, 2026-11-22, after three agent copies ran his
+    # laptop out of memory: "you guys simply need to be less stupid about [his laptop]".
+    budget="$(command -v mac-budget 2>/dev/null || true)"
+    if [[ -n "$budget" ]]; then
+      "$budget" admit --kind side --name "$name" --wait "${SIDE_INSTANCE_BUDGET_WAIT_S:-1800}" --holder-pid $$ \
+        || die "$name did not start: the Mac's memory budget for agent apps stayed full (mac-budget status names who holds it)"
+    fi
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
     open_args=(-n); [[ -z "$front" ]] && open_args+=(-g)
     open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}
@@ -365,6 +378,11 @@ PY
     done
     [[ -n "$launched" ]] || die "$name did not start"
     echo "$launched" >"$dir/pid"
+    if [[ -n "$budget" ]]; then
+      "$budget" record --name "$name" --kind side --app "$app" --pid "$launched" \
+        --stop-argv "[\"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")\", \"stop\", \"$name\"]" \
+        --stop-env "{\"CMUX_SIDE_ROOT\": \"$root\"}" || true
+    fi
     echo "$name: pid $launched"
     ;;
   stop)
@@ -384,6 +402,7 @@ PY
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
       if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
     fi
+    if command -v mac-budget >/dev/null 2>&1; then mac-budget release --name "$name" || true; fi
     echo "$name stopped"
     ;;
   env)

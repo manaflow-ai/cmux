@@ -306,7 +306,12 @@ impl Customize {
             return Ok(());
         }
         let (now, _) = read_object(&self.roots().config_dir.join(super::code::WEB_DEV))?;
-        let keep = WebBase { overlay: None, enabled: now.get("enabled").cloned(), no_file: false };
+        let keep = WebBase {
+            overlay: None,
+            enabled: now.get("enabled").cloned(),
+            no_file: false,
+            text: None,
+        };
         self.write_web_dev(&WebTarget::Base, &keep)?;
         notes.push(format!(
             "web-dev.json still served layer {}; its overlay is removed",
