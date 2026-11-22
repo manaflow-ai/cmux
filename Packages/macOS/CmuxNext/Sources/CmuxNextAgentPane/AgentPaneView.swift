@@ -180,7 +180,10 @@ public final class AgentPaneView: NSView {
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
-    var holdsPageAway = false
+    /// Held away, the page keeps drawing there until it shows (``PageWebView/drawsWhileAway``).
+    var holdsPageAway = false {
+        didSet { page?.drawsWhileAway = holdsPageAway }
+    }
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
