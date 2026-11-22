@@ -4765,7 +4765,9 @@ function TranscriptView({
     sessionSwitched,
     followedRoom,
     prompt: keptPrompt,
-    tail: () => measured.layout.totalHeight - (keptAt >= 0 ? (measured.layout.tops?.[keptAt] ?? 0) : 0) + tailGap,
+    // From the prompt's top, so a page of older history landing above it takes none of the room.
+    tail: () =>
+      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
   });
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
