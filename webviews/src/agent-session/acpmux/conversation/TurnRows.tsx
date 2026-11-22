@@ -348,7 +348,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
-    <span className="cv-turn-stopped" title={forced ?? workedLabel(t, row)}>
+    <span className="cv-turn-stopped" aria-description={forced ?? workedLabel(t, row)}>
       {t("turn.stoppedMark")}
     </span>
   );
@@ -816,7 +816,6 @@ function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
       aria-label={label}
-      title={label}
       aria-busy={state === "pending"}
       data-try-state={state}
       disabled={state === "pending"}

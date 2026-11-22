@@ -40,6 +40,8 @@ mod apps_run;
 #[cfg(unix)]
 mod attention;
 #[cfg(unix)]
+mod auth_handoff;
+#[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
 mod automation;
@@ -66,6 +68,8 @@ mod chief_target;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
+mod cloud_auth_handoff_relay;
+#[cfg(unix)]
 mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
@@ -82,6 +86,8 @@ mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
@@ -959,6 +965,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
+        .or_else(|| cloud_pause_all::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_auth::run_if_requested(args))
@@ -966,6 +973,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))

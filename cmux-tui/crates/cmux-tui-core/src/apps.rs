@@ -104,7 +104,7 @@ mod sidebar_integration_tests;
 #[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
-mod storage;
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]

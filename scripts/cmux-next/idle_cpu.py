@@ -145,12 +145,17 @@ PAGE_PROBE = """(() => {
     active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
     animation_count: anims.length});
 })()"""
+IDLE_PROBE = """(async () => {
+  const debug = window.cmuxAcpmuxDebug;
+  if (!debug || typeof debug.idleProbe !== "function") return JSON.stringify({error: "no cmuxAcpmuxDebug.idleProbe"});
+  return JSON.stringify(await debug.idleProbe({ms: 3500}));
+})()"""
 PAGE_METRICS = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
                 "RecalcStyleCount")
 
 
 def page_activity(call, seconds: float = 10.0) -> list[dict]:
-    """After the measured windows (its DevTools calls wake the pages): per shown cmux page (`debug.cef_pages`), the
+    """After the measured windows (its DevTools calls wake the pages): per cmux page, shown or hidden (`debug.cef_pages`), the
     PAGE_PROBE reply and Chromium's page metrics per second over `seconds`. `call(method, params)` is the app's
     control socket. A page whose DevTools call fails keeps its error."""
     def devtools(browser, method, params=None):
@@ -166,18 +171,30 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         reply = devtools(browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
 
+    # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
     pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
-             if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+             if str(page.get("origin", "")).startswith("cmux-page://")]
     out = []
     for page in pages:
         devtools(page["browser"], "Performance.enable")
-        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path")}
+        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
+                 "hidden": bool(page.get("hidden")), "renderer_clients": page.get("renderer_clients")}
         probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
         try:
             entry.update(json.loads(probe["result"]["value"]))
         except (KeyError, TypeError, ValueError):
             entry["probe_error"] = probe
         out.append(entry)
+    # An agent page's own probe (idleProbe.ts): every timer, frame and mutation it asks for in 3.5 s, by call site.
+    for entry in out:
+        if "cmux.agent" not in str(entry.get("origin")):
+            continue
+        reply = devtools(entry["browser"], "Runtime.evaluate", {
+            "expression": IDLE_PROBE, "awaitPromise": True, "returnByValue": True, "timeout": 4500})
+        try:
+            entry["idle_probe"] = json.loads(reply["result"]["value"])
+        except (KeyError, TypeError, ValueError):
+            entry["idle_probe"] = {"error": reply}
     before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
     time.sleep(seconds)  # the probed window: the pages run with no call into them
     for entry in out:
