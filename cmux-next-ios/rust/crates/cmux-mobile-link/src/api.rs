@@ -320,6 +320,10 @@ pub struct MyDevice {
 #[derive(Debug, Default)]
 pub struct IceCache {
     entry: std::sync::Mutex<Option<(Vec<IceServer>, std::time::Instant)>>,
+    /// The last servers fetched, kept past their expiry and through
+    /// [`IceCache::mark_stale`] (a wake or a network change), so an answer
+    /// can use them while a refresh runs in the background.
+    last: std::sync::Mutex<Option<Vec<IceServer>>>,
 }
 
 impl IceCache {
@@ -356,10 +360,25 @@ impl IceCache {
         let expires = std::time::Instant::now() + Self::lifetime(config);
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some((config.ice_servers.clone(), expires));
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(config.ice_servers.clone());
     }
 
+    /// Forget everything, the last servers too.
     pub fn clear(&self) {
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// No longer fresh (a wake can outlast the credentials), but kept as
+    /// [`IceCache::last`]: the next caller answers with them and refreshes.
+    pub fn mark_stale(&self) {
+        *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// The last servers fetched, fresh or not.
+    pub fn last(&self) -> Option<Vec<IceServer>> {
+        self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The cached servers when fresh (`true`), else `GET /v1/ice` within
@@ -433,8 +452,12 @@ mod tests {
         cache.store(&config(&["turn:t"], Some(1)));
         assert!(cache.fresh().is_none());
         cache.store(&turn);
+        cache.mark_stale();
+        assert!(cache.fresh().is_none());
+        assert_eq!(cache.last().unwrap(), turn.ice_servers, "stale servers stay as the last ones");
         cache.clear();
         assert!(cache.fresh().is_none());
+        assert!(cache.last().is_none());
     }
 
     #[test]
