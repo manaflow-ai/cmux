@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
+  cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
+  rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
+  presence dots and drive indicator say theirs in the row's hover card and to VoiceOver. The hover card gains a line per
+  usage warning (`usageWarning`) and "Notifications muted" (`muted`), in every layout. A folder header, the sidebar
+  card's text button and a favorite tile show their words and have no tooltip; a Cloud header's status and cost join
+  on one line. Calm mode, which opens no hover card, keeps a clipped name's tooltip. Nothing moves or redraws.
+  Regression: `SidebarUsageWarningTests`, `SidebarIconMeaningTests`, `SidebarRowBadgeStackCapTests`,
+  `SidebarStatusSimpleTests`, `CloudMachineCostTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
@@ -77,6 +86,7 @@
   Its title is the Home item's own name, Chief (`SidebarBuiltIn.home`), never the separate item's Chief Activity
   (cmux#48416). Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
 
+- 2026-11-21 (a1301 folders-align): Sidebar-Look: Chief 2026-11-21, after the groups-as-folders shots showed iconless members starting left of their folder's name: "align members under the name". In the Folders look a folder's members step in `SidebarStyle.folderMemberStep` (the folder name's column less an iconless workspace title's start, from the same `SidebarStyle.columns` both rows lay out from), not one `groupGutter`: an iconless member's title starts on its folder name's column, as in a file list, and a nested folder's members on the nested name's. Still one `SidebarIndent` for rows, lifted cards, drop gaps and the outliner's drag-out. Other group looks keep `groupGutter` and the no-indent rule. Regression: `SidebarGroupsAsFoldersTests.membersStartOnTheFolderNamesColumn`.
 - 2026-11-20 (a1301 groups-as-folders): Sidebar-Look: David Beyer, Nov 20 call (launch Mon Nov 23): sidebar groups should be plain folders, with all threads in one place. `sidebar.groupHeader.background` gains Folders (`folder`), now the default: a group header is a plain row, the icon pack's folder glyph on the rows' icon column (in the group's color where it has one, held to 3:1 on the sidebar), its name in the primary ink on the rows' text column, the chevron as before, no band, rim, dot, block or members' line; hover and a drop take a workspace row's fills. With no line to mark them, a folder's members sit one indent step (`SidebarStyle.groupGutter`) in under a header flush with the loose rows (`SidebarIndent.indentsTopLevel`, the one rule rows, lifted cards, drop gaps and the outliner's drag-out share). Automatic, Glass, Solid and Sections keep their looks and the no-indent rule (#23975). Folding, double-click rename, drag in and out and the + and more on hover are unchanged. Spaces (a1283) are separate. Regression: `SidebarGroupsAsFoldersTests`. Capture tour: `sidebar-groups-as-folders`.
 - 2026-11-20 (a-rolling-summaries): Sidebar-Look: user, 2026-11-20, from David Beyer's notes: "rolling summaries of every chat
   with a next action for each"; "each rolling chat summary should also show a next action for that chat". Compact rows
