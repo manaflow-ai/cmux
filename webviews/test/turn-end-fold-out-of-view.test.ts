@@ -8,9 +8,12 @@
 //
 // Mounted is not seen: the transcript's overscan holds viewports of rows above and below the view, so
 // a turn whose running line and folded work are all up there swaps its rows with no motion
-// (`captureTurnEnd` returns nothing and the swap applies at once). And once a fold does play, a
-// wheel, a touch drag or a press on the scrollbar ends it where its rows land, instead of the fold's
-// passes turning the reader's scroll into motion.
+// (`captureTurnEnd` captures it `silent` and nothing plays, while the turn's end still settles the
+// fold before it, the follow motion and the tail glide's clip). And once a fold does play, an input
+// the reader scrolls with -- a wheel, a touch drag, a press, PageDown -- arms it, and the view's own
+// scroll from it ends the fold where its rows land, instead of the fold's passes turning the
+// reader's scroll into motion. An input the view does not answer (a wheel over a code block's own
+// scroller, one at a bottom that cannot move) is not his scroll and leaves the fold playing.
 //
 // jsdom has no layout: each row's box is its inline `top` and `height`, and the scroller's is the
 // view, as fold-exit-before-move.test.ts lays its rows out. Every animation is recorded, never timed.
@@ -88,6 +91,22 @@ function page(view: { top: number; height: number }) {
   const scroller = window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
   scroller.style.top = `${view.top}px`;
   scroller.style.height = `${view.height}px`;
+  // jsdom never scrolls, so the view's offset is the test's to move: what the fold reads to tell a
+  // reader's scroll from an input the view did not answer.
+  let offset = 0;
+  Object.defineProperty(scroller, "scrollTop", {
+    configurable: true,
+    get: () => offset,
+    set: (value: number) => {
+      offset = value;
+    },
+  });
+  /// The view's own `scroll`, at `to` (the same offset: an input a bottom that cannot move, or a code
+  /// block's own scroller, swallowed).
+  const scrolls = (to = offset) => {
+    offset = to;
+    scroller.dispatchEvent(new window.Event("scroll"));
+  };
   const thread = window.document.querySelector<HTMLElement>(".acpmux-thread")!;
   const draw = (id: string, kind: string, top: number, height: number) => {
     const node = window.document.createElement("article");
@@ -113,7 +132,17 @@ function page(view: { top: number; height: number }) {
     draw("worked-u", "worked", 100, 34);
     draw("answer", "assistant", 134, 50);
   };
-  return { dom, window, scroller, thread, draw, running, swapped, played };
+  return {
+    dom,
+    window,
+    scroller,
+    thread,
+    draw,
+    running,
+    swapped,
+    played,
+    scrolls,
+  };
 }
 
 test("a turn ending in the view folds: the work it takes away leaves a copy", () => {
@@ -128,7 +157,7 @@ test("a turn ending in the view folds: the work it takes away leaves a copy", ()
   }
 });
 
-test("a turn ending below or above the view plays nothing: the swap applies at once", () => {
+test("a turn ending below or above the view is captured silent: the swap applies at once", () => {
   for (const [name, view, top] of [
     ["below", { top: 0, height: 300 }, 1000],
     ["above", { top: 600, height: 300 }, 0],
@@ -137,7 +166,15 @@ test("a turn ending below or above the view plays nothing: the swap applies at o
     try {
       sheet.running(top);
       // Mounted in the overscan is not seen (Leo's "some bullshit ABOVE folds ... and plays an animation").
-      expect(captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat"), name).toBeUndefined();
+      // The capture is taken all the same: its caller settles the fold before it, the follow motion and
+      // the tail glide's held clip on it, and a missing capture left that clip hiding the reply's lines.
+      const capture = captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat");
+      expect(capture?.silent, name).toBe(true);
+      expect(capture!.rows, name).toEqual([]);
+      sheet.swapped();
+      expect(playTurnEnd(sheet.thread, capture!, "chat", sheet.scroller), name).toBeUndefined();
+      expect(sheet.thread.hasAttribute(TURN_END_ATTR), name).toBe(false);
+      expect(sheet.played, name).toEqual([]);
     } finally {
       sheet.dom.window.close();
     }
@@ -149,7 +186,7 @@ test("the work in view folds though the running line sits below the view", () =>
   try {
     // The header and the work are in the view; the answer's tail and the running line are under it.
     sheet.running(200);
-    expect(captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat")).toBeDefined();
+    expect(captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat")?.silent).toBeUndefined();
   } finally {
     sheet.dom.window.close();
   }
@@ -161,7 +198,7 @@ test("an empty running line at the view's bottom edge is where the reader is loo
     // A turn of words alone keeps its running line's row at no height, right at the edge.
     sheet.draw(LIVE_THINKING, "thinking", 300, 0);
     sheet.draw("work", "activity", 310, 60);
-    expect(captureTurnEnd(sheet.thread, sheet.scroller, [row("worked-u", "worked")], "chat")).toBeDefined();
+    expect(captureTurnEnd(sheet.thread, sheet.scroller, [row("worked-u", "worked")], "chat")?.silent).toBeUndefined();
   } finally {
     sheet.dom.window.close();
   }
@@ -169,10 +206,10 @@ test("an empty running line at the view's bottom edge is where the reader is loo
 
 test("a held Worked for closes with no motion out of the view, and folds in it", () => {
   for (const [name, view, held, want] of [
-    ["out of view", { top: 900, height: 300 }, true, false],
-    ["in view", { top: 0, height: 300 }, true, true],
-    // With no running line and nothing held, there is no turn end to play.
-    ["no live line", { top: 0, height: 300 }, false, false],
+    ["out of view", { top: 900, height: 300 }, true, "silent"],
+    ["in view", { top: 0, height: 300 }, true, "folds"],
+    // With no running line and nothing held, there is no turn end at all: nothing to settle either.
+    ["no live line", { top: 0, height: 300 }, false, "none"],
   ] as const) {
     const sheet = page(view);
     try {
@@ -180,7 +217,8 @@ test("a held Worked for closes with no motion out of the view, and folds in it",
       sheet.draw("work", "activity", 34, 60);
       sheet.draw("answer", "assistant", 94, 50);
       const capture = captureTurnEnd(sheet.thread, sheet.scroller, ENDED, "chat", held);
-      expect(capture !== undefined, name).toBe(want);
+      const got = capture === undefined ? "none" : capture.silent ? "silent" : "folds";
+      expect(got, name).toBe(want);
     } finally {
       sheet.dom.window.close();
     }
@@ -202,6 +240,8 @@ function folding() {
   expect(fold.copies.size).toBe(copies.length);
   const send = (name: string, target: HTMLElement) =>
     target.dispatchEvent(new sheet.window.Event(name, { bubbles: true }));
+  const key = (which: string, target: HTMLElement) =>
+    target.dispatchEvent(new sheet.window.KeyboardEvent("keydown", { key: which, bubbles: true }));
   /// Whether the fold is still playing: its attribute, its copies in the thread, and its animations.
   const playing = () => ({
     marked: sheet.thread.hasAttribute(TURN_END_ATTR),
@@ -209,14 +249,17 @@ function folding() {
     drawn: copies.filter((copy) => copy.isConnected).length,
     unfinished: sheet.played.filter((entry) => entry.finished === 0).length,
   });
-  return { ...sheet, fold, copies, send, playing };
+  return { ...sheet, fold, copies, send, key, playing };
 }
 
-test("the reader's wheel settles the fold at once: its rows land and its copies go", () => {
+test("a wheel the view answers settles the fold: its rows land and its copies go", () => {
   const sheet = folding();
   try {
     expect(sheet.playing().unfinished).toBeGreaterThan(0);
     sheet.send("wheel", sheet.scroller);
+    // The input alone is not the scroll: the view's own `scroll`, at a new offset, is.
+    expect(sheet.playing().marked).toBe(true);
+    sheet.scrolls(120);
     expect(sheet.playing()).toEqual({
       marked: false,
       copies: 0,
@@ -229,10 +272,26 @@ test("the reader's wheel settles the fold at once: its rows land and its copies 
   }
 });
 
-test("a touch drag over the rows settles the fold", () => {
+test("an input the view does not answer leaves the fold playing", () => {
+  // A wheel over a code block's own scroller, or at a bottom that cannot move: the input bubbles
+  // here and the view stays where it was, so the reader never scrolled.
+  const sheet = folding();
+  try {
+    sheet.send("wheel", sheet.thread.querySelector<HTMLElement>(".acpmux-row")!);
+    sheet.scrolls();
+    expect(sheet.playing().marked).toBe(true);
+    expect(sheet.playing().copies).toBe(sheet.copies.length);
+  } finally {
+    settleTurnEnd(sheet.thread, sheet.fold);
+    sheet.dom.window.close();
+  }
+});
+
+test("a touch drag the view answers settles the fold", () => {
   const sheet = folding();
   try {
     sheet.send("touchmove", sheet.thread.querySelector<HTMLElement>(".acpmux-row")!);
+    sheet.scrolls(40);
     expect(sheet.playing()).toEqual({
       marked: false,
       copies: 0,
@@ -245,37 +304,55 @@ test("a touch drag over the rows settles the fold", () => {
   }
 });
 
-test("a press on the scrollbar settles the fold; a press on a row leaves it playing", () => {
-  const onRow = folding();
-  try {
-    // A press inside the transcript is the reader reading (a selection, a button), not a scroll.
-    onRow.send("pointerdown", onRow.thread.querySelector<HTMLElement>(".acpmux-row")!);
-    expect(onRow.playing().marked).toBe(true);
-    expect(onRow.playing().copies).toBe(onRow.copies.length);
-  } finally {
-    settleTurnEnd(onRow.thread, onRow.fold);
-    onRow.dom.window.close();
-  }
-  const onBar = folding();
-  try {
-    // A press on the scroller itself is its scrollbar: the rows and their parts are its children.
-    onBar.send("pointerdown", onBar.scroller);
-    expect(onBar.playing()).toEqual({
-      marked: false,
-      copies: 0,
-      drawn: 0,
-      unfinished: 0,
-    });
-  } finally {
-    settleTurnEnd(onBar.thread, onBar.fold);
-    onBar.dom.window.close();
+test("a press anywhere in the view arms it: the drag that follows settles the fold", () => {
+  // The space under a chat shorter than the view targets the scroller, and a press on a row can be
+  // the start of a scrollbar drag or a selection: either way only a moved view ends the fold.
+  for (const where of ["scroller", "row"] as const) {
+    const sheet = folding();
+    try {
+      sheet.send(
+        "pointerdown",
+        where === "scroller" ? sheet.scroller : sheet.thread.querySelector<HTMLElement>(".acpmux-row")!,
+      );
+      expect(sheet.playing().marked, where).toBe(true);
+      sheet.scrolls(80);
+      expect(sheet.playing(), where).toEqual({
+        marked: false,
+        copies: 0,
+        drawn: 0,
+        unfinished: 0,
+      });
+    } finally {
+      settleTurnEnd(sheet.thread, sheet.fold);
+      sheet.dom.window.close();
+    }
   }
 });
 
-test("the view's own scroll keeps the fold: it is the pinned bottom following, not the reader", () => {
+test("a reader who scrolls by keyboard ends the fold; another key does not", () => {
+  for (const [key, want] of [
+    ["PageDown", false],
+    ["ArrowUp", false],
+    [" ", false],
+    ["Home", false],
+    ["k", true],
+  ] as const) {
+    const sheet = folding();
+    try {
+      sheet.key(key, sheet.thread.querySelector<HTMLElement>(".acpmux-row")!);
+      sheet.scrolls(60);
+      expect(sheet.playing().marked, key).toBe(want);
+    } finally {
+      settleTurnEnd(sheet.thread, sheet.fold);
+      sheet.dom.window.close();
+    }
+  }
+});
+
+test("the view's own scroll with no input before it keeps the fold: the pinned bottom following", () => {
   const sheet = folding();
   try {
-    sheet.send("scroll", sheet.scroller);
+    sheet.scrolls(200);
     expect(sheet.playing().marked).toBe(true);
     expect(sheet.playing().copies).toBe(sheet.copies.length);
   } finally {
