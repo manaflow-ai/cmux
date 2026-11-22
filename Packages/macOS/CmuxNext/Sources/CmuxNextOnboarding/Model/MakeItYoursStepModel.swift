@@ -117,8 +117,11 @@ public final class MakeItYoursStepModel {
             loaded = true
             return
         }
-        choices = source.currentChoices()
-        opened = choices
+        // The step shown again in the same window keeps its first baseline: Skip still puts back what was set before.
+        if opened == nil {
+            choices = source.currentChoices()
+            opened = choices
+        }
         densities = source.densities()
         read?.cancel()
         // task-owner: one read of the built-in backgrounds' previews; stop() cancels it.
