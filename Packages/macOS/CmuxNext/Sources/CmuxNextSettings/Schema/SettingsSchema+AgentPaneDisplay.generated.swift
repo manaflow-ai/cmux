@@ -137,6 +137,9 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+    /// `experiments.chat_render_pipeline`.
+    nonisolated static let chatRenderPipelinePath = ["experiments", "chat_render_pipeline"]
+    nonisolated static let chatRenderPipelineDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
