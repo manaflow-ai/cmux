@@ -25,7 +25,7 @@ import XCTest
 ///
 /// Run on the fleet (or through `scripts/measure/ios-network-conditions.sh leg=sim`):
 ///     cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
-///       --arg test --arg ui=ReadFirstUITests,ReadFirstColdUITests --arg coldruns=20 \
+///       --arg test --arg ui=ReadFirstUITests,ReadFirstColdUITests \
 ///       --artifact artifacts/ios-sim/evidence.zip
 class ReadFirstUITests: XCTestCase {
     enum Tap: String { case coldLaunch = "cold_launch", warmForeground = "warm_foreground", openChat = "open_chat",
@@ -155,6 +155,8 @@ class ReadFirstUITests: XCTestCase {
 
 /// The cold half: each test is one launch, the first since the simulator booted.
 final class ReadFirstColdUITests: ReadFirstUITests {
+    /// Fresh boots per test that `cmux-next-ios-sim.sh` runs (read from this line; `coldruns=` overrides).
+    static let coldRuns = 20
     override var phase: String { "cold" }
 
     @MainActor override func testColdLaunchWarm() throws { throw XCTSkip("warm runs in ReadFirstUITests") }

@@ -1277,8 +1277,14 @@ ui_cold_tests() {
     if [[ ${#tests[@]} -eq 0 ]]; then
       note "- cold UI suite $suite: no test*Cold methods found"; ui_status=1; continue
     fi
+    # A suite may name its own run count (`static let coldRuns = N`, 1-30), which coldruns= or
+    # CMUX_LAUNCH_COLD_RUNS overrides: the fleet controller passes neither arguments it does not
+    # know nor any env, so this is how ReadFirstColdUITests gets its n=20.
+    local suite_runs=$runs declared
+    declared="$(grep -oE 'static let coldRuns = [0-9]+' "$file" 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
+    if [[ -z "${CMUX_LAUNCH_COLD_RUNS:-}" && -n "$declared" ]] && (( declared >= 1 && declared <= 30 )); then suite_runs=$declared; fi
     for test in "${tests[@]}"; do
-      for ((run = 1; run <= runs; run++)); do
+      for ((run = 1; run <= suite_runs; run++)); do
         xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
         # A run counts as cold only after a confirmed fresh boot; a failed transition is no sample.
         if ! { xcrun simctl boot "$ui_udid" && xcrun simctl bootstatus "$ui_udid" -b >/dev/null; }; then
@@ -1294,7 +1300,7 @@ ui_cold_tests() {
       done
     done
   done
-  note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
+  note "- cold UI suites ${ui_cold[*]}: $runs runs per test (or the suite's coldRuns), one fresh boot each"
 }
 
 # ui_duress_runs: the warm UI suites once per duress= SPEC (cmux-next-ios/design/duress-sim.md), after

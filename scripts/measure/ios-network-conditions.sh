@@ -38,7 +38,7 @@
 #   The fleet controller runs only scripts/ci/cmux-next-ios-sim.sh on --class simulator, so the
 #   route from a lane VM is two commands:
 #     cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test \
-#       --arg ui=ReadFirstUITests,ReadFirstColdUITests --arg coldruns=20 --artifact artifacts/ios-sim/evidence.zip
+#       --arg ui=ReadFirstUITests,ReadFirstColdUITests --artifact artifacts/ios-sim/evidence.zip
 #     cmux-ci artifact STEP_ID /tmp/rf/evidence.zip
 #     scripts/measure/ios-network-conditions.sh leg=sim evidence=/tmp/rf/evidence.zip
 set -euo pipefail
