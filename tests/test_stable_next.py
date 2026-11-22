@@ -116,12 +116,12 @@ class Pick(unittest.TestCase):
         import urllib.error
         from unittest import mock
         boom = urllib.error.HTTPError("u", 503, "unavailable", {}, None)
-        with mock.patch.object(stable_next.urllib.request, "urlopen", side_effect=boom), \
+        with mock.patch.object(stable_next.deadline_http, "request", side_effect=boom), \
              mock.patch.object(stable_next.time, "sleep"):
             with self.assertRaises(stable_next.Refused):
                 stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
         forbidden = urllib.error.HTTPError("u", 403, "forbidden", {}, None)
-        with mock.patch.object(stable_next.urllib.request, "urlopen", side_effect=forbidden):
+        with mock.patch.object(stable_next.deadline_http, "request", side_effect=forbidden):
             with self.assertRaises(stable_next.Refused):
                 stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
 

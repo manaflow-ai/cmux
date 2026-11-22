@@ -128,8 +128,15 @@ fn launch_times_shows_the_bare_launch_fields() {
     for cell in ["231", "512.9", "yes"] {
         assert!(lines[2].contains(cell), "{cell} missing from {text}");
     }
-    let old: Vec<&str> = lines[1].split_whitespace().collect();
-    assert_eq!(old.iter().filter(|cell| **cell == "-").count(), 3, "{text}");
+    // The older record shows `-` in the three bare-launch columns (other columns it lacks, such as
+    // prior_chat_*, show `-` too, so count by column, not across the row).
+    // The table is aligned and a cell may hold a space ("1.0.0 (200)"): read each cell at its
+    // header's offset.
+    for column in ["window_usable_ms", "first_shell_live_ms", "no_snapshot"] {
+        let at = lines[0].find(column).expect(column);
+        let cell = lines[1].get(at..).and_then(|rest| rest.split_whitespace().next());
+        assert_eq!(cell, Some("-"), "{column} of the older record: {text}");
+    }
 }
 
 /// A relaunch into a chat (CMUX-119) prints the prior chat's columns; a launch with another tab in
