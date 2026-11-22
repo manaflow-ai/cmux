@@ -139,6 +139,13 @@
     },
     {
       "agent": "settable",
+      "why": "The language cmux's own text is in; ends no work.",
+      "keys": [
+        "app.language"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "tabs.overflow"
       ]
@@ -294,6 +301,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.twoTone",
         "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
@@ -423,6 +431,9 @@
         "notifications.sources.agent.dismissal",
         "notifications.sources.terminal.dismissal",
         "notifications.sources.cli.dismissal",
+        "notifications.delivery.permissionRequest",
+        "notifications.delivery.question",
+        "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
         "notifications.quietHours",
@@ -473,7 +484,9 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
-        "experiments.composerV2"
+        "experiments.composerV2",
+        "experiments.agentBadges",
+        "experiments.agentBadgesBeam"
       ]
     },
     {
@@ -512,7 +525,8 @@
       "agent": "settable",
       "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
       "keys": [
-        "agentPane.newChatsIn"
+        "agentPane.newChatsIn",
+        "agentPane.sessionWorktrees"
       ]
     },
     {
@@ -780,6 +794,8 @@
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
+        "agentPane.display.rail.show",
+        "agentPane.display.rail.control",
         "agentPane.display.commandLabels"
       ]
     },
@@ -995,6 +1011,13 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {
@@ -1589,6 +1612,13 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
       ]
     },
     {

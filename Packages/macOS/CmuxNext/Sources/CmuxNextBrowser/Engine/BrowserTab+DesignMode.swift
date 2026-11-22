@@ -57,6 +57,7 @@ extension BrowserTab {
 
 /// `text` as a JavaScript string literal (JSON's quoting, which JavaScript reads the same way).
 private func jsString(_ text: String) -> String {
+    // main-actor-ok: one design-mode comment draft the person typed into the bubble, a line or two.
     let data = (try? JSONSerialization.data(withJSONObject: [text])) ?? Data("[\"\"]".utf8)
     return String(decoding: data.dropFirst().dropLast(), as: UTF8.self)
 }

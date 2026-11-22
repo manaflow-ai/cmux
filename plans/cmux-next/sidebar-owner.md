@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
+  cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
+  rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
+  presence dots and drive indicator say theirs in the row's hover card and to VoiceOver. The hover card gains a line per
+  usage warning (`usageWarning`) and "Notifications muted" (`muted`), in every layout. A folder header, the sidebar
+  card's text button and a favorite tile show their words and have no tooltip; a Cloud header's status and cost join
+  on one line. Calm mode, which opens no hover card, keeps a clipped name's tooltip. Nothing moves or redraws.
+  Regression: `SidebarUsageWarningTests`, `SidebarIconMeaningTests`, `SidebarRowBadgeStackCapTests`,
+  `SidebarStatusSimpleTests`, `CloudMachineCostTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
@@ -77,6 +86,7 @@
   Its title is the Home item's own name, Chief (`SidebarBuiltIn.home`), never the separate item's Chief Activity
   (cmux#48416). Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
 
+- 2026-11-21 (a1301 folders-align): Sidebar-Look: Chief 2026-11-21, after the groups-as-folders shots showed iconless members starting left of their folder's name: "align members under the name". In the Folders look a folder's members step in `SidebarStyle.folderMemberStep` (the folder name's column less an iconless workspace title's start, from the same `SidebarStyle.columns` both rows lay out from), not one `groupGutter`: an iconless member's title starts on its folder name's column, as in a file list, and a nested folder's members on the nested name's. Still one `SidebarIndent` for rows, lifted cards, drop gaps and the outliner's drag-out. Other group looks keep `groupGutter` and the no-indent rule. Regression: `SidebarGroupsAsFoldersTests.membersStartOnTheFolderNamesColumn`.
 - 2026-11-20 (a1301 groups-as-folders): Sidebar-Look: David Beyer, Nov 20 call (launch Mon Nov 23): sidebar groups should be plain folders, with all threads in one place. `sidebar.groupHeader.background` gains Folders (`folder`), now the default: a group header is a plain row, the icon pack's folder glyph on the rows' icon column (in the group's color where it has one, held to 3:1 on the sidebar), its name in the primary ink on the rows' text column, the chevron as before, no band, rim, dot, block or members' line; hover and a drop take a workspace row's fills. With no line to mark them, a folder's members sit one indent step (`SidebarStyle.groupGutter`) in under a header flush with the loose rows (`SidebarIndent.indentsTopLevel`, the one rule rows, lifted cards, drop gaps and the outliner's drag-out share). Automatic, Glass, Solid and Sections keep their looks and the no-indent rule (#23975). Folding, double-click rename, drag in and out and the + and more on hover are unchanged. Spaces (a1283) are separate. Regression: `SidebarGroupsAsFoldersTests`. Capture tour: `sidebar-groups-as-folders`.
 - 2026-11-20 (a-rolling-summaries): Sidebar-Look: user, 2026-11-20, from David Beyer's notes: "rolling summaries of every chat
   with a next action for each"; "each rolling chat summary should also show a next action for that chat". Compact rows
@@ -125,6 +135,15 @@
   Regression: `PinnedRowShownTabIconTests`; stills `AAPinnedShownTabIconGalleryTests` (`pinned-tab-icon-gallery.tar`).
 
 - 2026-11-19 (tip-card-padding): Sidebar-Look: Lawrence, 2026-11-19 (msg 40504), on the "Did you know?" tip card: "need more padding here". Every notice card (tips, announcements, asks, the star prompt, the update notice) holds its rows, buttons and shortcut `Metrics.cardPadding` in from each edge (`space5`: 12 pt at the default density, was `space3`, 6 pt) and keeps its button row `Metrics.cardRowGap` under the text (`space4`, 8 pt, was `space2`, 4 pt). Its corner still rounds from its buttons (`Metrics.buttonContainer(padding: Metrics.cardPadding)`: 8 + 12 = 20 pt, was 14), and the x stays concentric with it (`Metrics.cornerControl`). Both scale with the density and the interface scale. The Update Ready card keeps its compact 5 pt (Leo 2026-10-19), and toasts keep their own tuned padding. Regression: `SidebarTipCardPaddingTests` (every density).
+- 2026-11-19 (lane/taste-agent-badges, taste build 5): Sidebar-Look: the desktop coordinator's taste build list,
+  relaying Leo's "just build out a bunch that are really promising": "sidebar rows get one tinted status pill
+  (Running, Needs approval, Done); variant: a thin light beam travels along the row edge while an agent runs."
+  Only behind Settings > Advanced > Experiments > Agent Badges (`experiments.agentBadges`, off by default; nothing changes
+  off). On: one pill on the shared trailing column in place of the status mark (`SidebarAgentPill.of`), every row
+  reserving the widest label's width so titles never move; Pills and Beam adds a Motion-gated Core Animation light
+  on a running row's edge, removed when it stops running or leaves the screen. It puts status words on rows, which
+  design/sidebar.md otherwise forbids; that rule stands for the default. `SidebarAgentPillTests`; gallery
+  `sidebar.agent-badges`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
@@ -2082,6 +2101,32 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 - 2026-10-29: reviewed owner record for 772dcf241d6 (parent title-column invalidation) and 10b29e5f793 (shared visible/virtualized geometry and mark decisions): corrections keep the intended 16 pt disclosed-child column stable through icon changes and realization; no additional look change.
 - 2026-10-29: all three disclosed-tab gallery treatments use the same 280 x 360 pt viewport; the typography-only fixture restores the full text room after rewinding the child inset and leaves status/close controls fixed.
 - 2026-10-29: model-patched and reloaded offscreen parents invalidate only their realized child geometry; the shared agent-mark watcher covers a tab-only viewport. Regressions hold the parent unrealized across icon and mark transitions, assert the literal 16 pt anchor and clipped text room, and verify late realization stays put. Status-only patches add no child layout.
+
+## Lineage nesting with the Done fold (2026-10-30)
+
+- PR [#28103](https://github.com/manaflow-ai/cmux/pull/28103) (carry of #24287), Leo 2026-10-21 (ask-18a79e54a3), verbatim:
+  "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE SIDE BY DEFAULT". Lineage nesting is on
+  by default (`design/sidebar.md`): an agent-started workspace lists under the workspace whose agent started it, and a
+  parent below the top level starts folded behind its count. The "Done (N)" fold now runs with the tree and moves
+  whole runs: a Done top-level row takes its subtree into the fold, a Done nested row stays under its parent.
+- A drag with the tree unfolds the lists when it carries a row the fold would move (`SidebarLayout.dragUnfolds`): a
+  Done row, a row under a Done ancestor, or the parent of a Done row (the drag's base rows lack the parent, so that
+  row would draw as a Done top-level row the fold takes). Before, any drag with the tree kept the folds, so a dragged
+  Done row left its slot and the drop gap opened where the row would not show (Astra review on #28103). Behavior only;
+  no row, fill or text changes. Test: `SidebarLineageNestingTests.aDragOfADoneRowUnfoldsWithTheTree`.
+- f0803b4cbb4 (a group's members draw in `treeRows`' order instead of the unfolded `treeOrder`, so a collapsed or
+  deep-folded parent's descendants stay out of the drawn rows, as they already did for a section's loose rows) carries
+  no `Sidebar-Look:` trailer. No look change beyond the nesting above, which the group's rows now follow; reviewed
+  and logged here. Test: `SidebarLineageNestingTests.groupMembersNestAtDepth`.
+- The selection reveal opens folds above the selected row only when the selection changes, when its own ancestor
+  chain changes (a reparent or a move to another list), or when lineage first arrives. An agent started or closed
+  elsewhere changes `parents` but leaves a fold the person made alone (router review on #28103). Tests:
+  `SidebarLineageNestingTests.anUnrelatedSpawnOrCloseKeepsAFoldAboveTheSelection`,
+  `reparentingTheSelectionUnderAFoldRevealsIt`, `theFirstLineageRevealsTheSelection`.
+- With lineage nesting on by default the session tree is set for everyone, so the Archive section, the per-list
+  "Archived (N)" fold and their drag unfold no longer switch off with it (merge of feat-cmux-next into #28103): an
+  archived root takes its nested run into the fold as a Done root does, and a row whose parent moved to the Archive
+  section draws as a root of its list. Test: `SidebarArchiveSectionTests.theSessionTreeKeepsTheArchiveRow`.
 
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
