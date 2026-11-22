@@ -10,6 +10,7 @@
 
 mod daemon;
 mod design;
+mod design_components;
 mod design_system;
 mod dev;
 #[cfg(test)]

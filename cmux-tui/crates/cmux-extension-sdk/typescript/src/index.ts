@@ -48,6 +48,23 @@ export const {
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line
 } = g
 
+/** A stat the host draws: a big value (the numeral role), a label caption under it and an optional
+ * delta marked by its trend. On a cmux older than the `Stat` node it is built from Text here. */
+export const Stat: typeof g.Stat =
+  g.Stat ??
+  ((value, options = {}) =>
+    g.VStack({ spacing: 2, alignment: "leading" }, [
+      g.Text(value).font(34).weight("semibold").lineLimit(1),
+      options.label === undefined ? null : g.Text(options.label).font(12).color("secondary").lineLimit(1),
+    ]))
+/** A small chart the host draws from numbers (a sparkline or bars). On a cmux older than the
+ * `Chart` node it is an empty 32-point row. */
+export const Chart: typeof g.Chart = g.Chart ?? (() => g.VStack([]).frame({ height: 32, maxWidth: "infinity" }))
+/** A finished component's emphasis (`.variant(...)`). */
+export type ComponentVariant = CmuxComponentVariant
+/** What a finished component shows in place of its content (`.state(...)`). */
+export type ComponentState = CmuxComponentState
+
 /** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
  * `#RRGGBB[AA]`); the runtime's builders refuse a bad stop or angle. On a cmux older than them the
  * value is built here and an older renderer draws no fill. */
