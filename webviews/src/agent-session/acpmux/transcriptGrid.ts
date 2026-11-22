@@ -36,7 +36,7 @@ export const ROW_AIR_LOOKS = {
 } as const;
 export type RowAirLook = keyof typeof ROW_AIR_LOOKS;
 export function rowAirLook(): RowAirLook {
-  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.rowAir;
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset?.rowAir;
   return set !== undefined && set in ROW_AIR_LOOKS ? (set as RowAirLook) : "shipped";
 }
 /// A one-line row's words: the 22 line they had before any air (#29965).
