@@ -35,6 +35,12 @@
 # be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
 # retry is cut at it, so the step stays inside its job's timeout-minutes however many files
 # timed out.
+# CMUX_WEB_TEST_STOP_AT: optional epoch second after which no file starts; a file still running then is stopped at it
+# and, like a file that never started, left out of the results (named NOT RUN, and the run fails). For a job whose
+# timeout-minutes are shorter than its files can take: react-apps-base-early runs files red on the base, which fail at
+# their long limits (accent-glass-invariants 7.7 min, control-contrast 9.9 min) one at a time while each Vite config
+# warms, and 41 of 73 of its runs (11-21 09:30-16:50Z) were cancelled at the job limit still testing, with no verdict
+# at all (jobs 136500566506, 136741984962, 136800345011). With it the step ends in time and keeps what it finished.
 # CMUX_WEB_TEST_BASE_REDS: optional JSON (webviews_test_history.py known-reds: the names red on the base's
 # newest recorded push). A pull request's shard sets it: a failed or timed-out file whose every first-run red
 # is in it gets no alone retry, and its first run goes to react-apps-base-check, which judges every red as
@@ -165,6 +171,18 @@ if [ "${1:-}" = --one ]; then
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
   started=$SECONDS
+  # CMUX_WEB_TEST_STOP_AT: past it the file does not start; before it, its limit is cut to what is left, and a file the
+  # cut stopped gets no verdict (a TIMEOUT there would be the deadline's, not the file's).
+  stop_at="${CMUX_WEB_TEST_STOP_AT:-}" cut=0
+  if [[ "$stop_at" =~ ^[1-9][0-9]*$ ]]; then
+    left=$((stop_at - $(date +%s)))
+    if [ "$left" -lt 1 ]; then
+      echo "NOT RUN $file: past CMUX_WEB_TEST_STOP_AT"
+      printf '%s\n' "$file" >> "$results/not-run"
+      exit 0
+    fi
+    if [ "$left" -lt "$timeout_seconds" ]; then timeout_seconds="$left" cut=1; fi
+  fi
   echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
@@ -185,6 +203,11 @@ if [ "${1:-}" = --one ]; then
     124 | 137) result=TIMEOUT ;;
     *) result=FAIL ;;
   esac
+  if [ "$result" = TIMEOUT ] && [ "$cut" -eq 1 ]; then
+    echo "NOT RUN $file: stopped at CMUX_WEB_TEST_STOP_AT after $((SECONDS - started))s"
+    printf '%s\n' "$file" >> "$results/not-run"
+    exit 0
+  fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
@@ -405,6 +428,7 @@ if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $brows
 else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
+: > "$results/not-run"
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -414,7 +438,13 @@ warm_transforms() {
   : > "$results/transforms-warmed"
   [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
   { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
-  if run_with_timeout 300 bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
+  local limit=300
+  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+    limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
+    if [ "$limit" -lt 1 ]; then return 0; fi
+    if [ "$limit" -gt 300 ]; then limit=300; fi
+  fi
+  if run_with_timeout "$limit" bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
     grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
   else
     echo "warm-react-compiler-cache failed (exit $?); each file compiles its own modules"
@@ -690,6 +720,10 @@ if [ "${TAP_CI_ENABLED:-1}" != 0 ]; then
 fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+if [ -s "$results/not-run" ]; then
+  echo "not run by CMUX_WEB_TEST_STOP_AT (no verdict, so the run fails): $(grep -c . "$results/not-run")"
+  sed 's/^/  NOT RUN /' "$results/not-run"
+fi
 if [ "$base_red_skipped" -gt 0 ]; then
   echo "red on the base's push too, so not retried (react-apps-base-check judges them): $base_red_skipped"
 fi
@@ -700,4 +734,4 @@ fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
-[ "$failed" -eq 0 ]
+[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ]

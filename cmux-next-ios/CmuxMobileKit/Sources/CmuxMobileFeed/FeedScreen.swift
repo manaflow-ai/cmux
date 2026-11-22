@@ -169,12 +169,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                         .padding(.vertical, 6)
                         // Grows with Dynamic Type: at AX sizes the text and badge stay inside the capsule.
                         .frame(minHeight: 36)
-                        .background(store.filter == filter ? Color.cmuxMobileFillSelected : Color.clear, in: .capsule)
+                        .cmuxMobilePressBackground(store.filter == filter ? Color.cmuxMobileFillSelected : Color.clear, in: .capsule)
                         // 44 pt target around the 36 pt capsule.
                         .frame(minHeight: 44)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
                 }
             }
@@ -225,7 +225,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     // so a tap on the glass around the text fell through to the row under the pill.
                     .contentShape(.capsule)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressGlass)
             .glassEffect(.regular.interactive(), in: .capsule)
             .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)

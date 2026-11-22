@@ -46,6 +46,7 @@ import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayo
 import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
 import { shownPreview, previewText } from "./questionCardModel";
 import { focusRoute } from "../../../ui/focusRoute";
+import { intl } from "../../../ui/intl";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -216,7 +217,7 @@ function PendingQuestion({
   const previewId = useId();
   const hintId = useId();
   const language = usePaneLanguage();
-  const listFormat = new Intl.ListFormat(language, { type: "conjunction" });
+  const listFormat = intl.ListFormat(language, { type: "conjunction" });
   const group = useRef<HTMLFieldSetElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
