@@ -66,13 +66,13 @@ extension TabContentCache {
     }
 
     /// Asks the engine for `entry`'s picture in this turn, at most one per page at a time (`version`, `url`: the page's then).
-    private func beginPageCapture(_ entry: BrowserEntry, key: String) -> (request: BrowserPictureRequest, version: Int, url: URL?)? {
+    private func beginPageCapture(_ entry: BrowserEntry, key: String) -> (request: BrowserPictureRequest, version: Int, url: String?)? {
         guard pageCapturesInFlight.insert(key).inserted else { return nil }
-        return (entry.tab.beginThumbnail(), entry.tab.state.pictureVersion, entry.tab.state.url)
+        return (entry.tab.beginThumbnail(), entry.tab.state.pictureVersion, entry.tab.state.url?.absoluteString)
     }
 
     /// Awaits a capture ``beginPageCapture(_:key:)`` started, under the capture deadline, and keeps it when `accepts`.
-    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int, url: URL?), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
+    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int, url: String?), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
         let version = capture.version, budget = pageCaptureDeadline
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in

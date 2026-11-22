@@ -55,7 +55,7 @@ final class TabContentCache {
     /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
-    var pageThumbnailVersions: [String: Int] = [:], pageThumbnailURLs: [String: URL] = [:] // URLs: hibernation's (none for a blank one)
+    var pageThumbnailVersions: [String: Int] = [:], pageThumbnailURLs: [String: String] = [:] // URLs: hibernation's (none for a blank one)
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this

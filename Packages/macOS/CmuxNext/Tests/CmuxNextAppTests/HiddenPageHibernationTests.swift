@@ -197,7 +197,7 @@ import CmuxNextTestSupport
         let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
         cache.pageThumbnails.insert(leave, for: key)
         cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
-        cache.pageThumbnailURLs[key] = current ? page.state.url : URL(string: "https://earlier.example/")
+        cache.pageThumbnailURLs[key] = current ? page.state.url?.absoluteString : "https://earlier.example/"
         rig.hibernation.pressureDidChange(.critical)
         rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
         rig.hibernation.replan()
