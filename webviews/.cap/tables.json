@@ -1,0 +1,113 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ],
+  [
+   "dark",
+   "busy"
+  ],
+  [
+   "light",
+   "light"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "narrow-leo",
+   "entry": "agent-pane.table-block",
+   "variant": "centered",
+   "widthName": "normal",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "narrow-labeled",
+   "entry": "agent-pane.table-block",
+   "variant": "rest",
+   "widthName": "normal",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "medium",
+   "entry": "agent-pane.table-block",
+   "variant": "aligned",
+   "widthName": "normal",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "wide-prose",
+   "entry": "agent-pane.table-block",
+   "variant": "status",
+   "widthName": "normal",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "too-wide",
+   "entry": "agent-pane.table-block",
+   "variant": "too-wide",
+   "widthName": "normal",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "narrow-pane",
+   "entry": "agent-pane.table-block",
+   "variant": "centered",
+   "widthName": "narrow",
+   "width": 420,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  },
+  {
+   "name": "wide-pane",
+   "entry": "agent-pane.table-block",
+   "variant": "centered",
+   "widthName": "wide",
+   "width": 1200,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "arms": {
+    "before (left)": ".cv-table-block{margin-inline:0 !important}",
+    "after (centered)": ""
+   }
+  }
+ ]
+}
