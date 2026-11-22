@@ -168,7 +168,7 @@ concurrency:
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
-  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   plan:
@@ -562,6 +562,10 @@ jobs:
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           xcrun simctl boot "$udid" 2>/dev/null || true
           xcrun simctl bootstatus "$udid" -b
+          # A fixed status bar: the clock and battery are not the app, and the
+          # report's screen diff against feat-cmux-next counted them as changes.
+          xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 --wifiBars 3 || true
           # iPad runs in dark mode, iPhone and Duo in light, so both
           # appearances are walked every run.
           if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
@@ -744,6 +748,11 @@ jobs:
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
+    # actions: read lets the screen diff download the newest feat-cmux-next
+    # push run's review-gate-path-* stills (scripts/ci/ios_gate_screen_diff.py).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
@@ -754,6 +763,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
+            scripts/ci
       # A pull request is judged on its base's known blockers, never on a list
       # it could edit to pin its own regression.
       - name: Checkout the base's known blockers
@@ -774,6 +784,9 @@ jobs:
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+          # The screen diff reads feat-cmux-next's push runs with it.
+          GH_TOKEN: ${{ github.token }}
+          GATE_LANE: ${{ needs.plan.outputs.lane }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
           # submission (dispatch, or a call from the production pipeline)
@@ -825,6 +838,22 @@ jobs:
               echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
             code=1
           done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
+          # Each family's stills against the newest feat-cmux-next push run's,
+          # by attachment name: changed, new and removed screens, each
+          # justified by a `Visual-change: <screen or *>: <why>` line in the
+          # pull request body or not. It warns only and never sets $code.
+          if [ -f scripts/ci/ios_gate_screen_diff.py ]; then
+            timeout 420 python3 -I scripts/ci/ios_gate_screen_diff.py --head-root in \
+              --family iphone --family ipad --family duo --fetch-baseline --lane "$GATE_LANE" \
+              --work "$RUNNER_TEMP/screen-baseline" --out "$RUNNER_TEMP/screens.md" \
+              || echo "::warning::the iOS screen diff did not finish"
+            if [ -f "$RUNNER_TEMP/screens.md" ]; then
+              # Also into the log: a step summary has no API to read it back with.
+              tee -a review-gate.md "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/screens.md"
+              unjustified="$(grep -m1 -oE '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" || true)"
+              if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
+            fi
+          fi
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
