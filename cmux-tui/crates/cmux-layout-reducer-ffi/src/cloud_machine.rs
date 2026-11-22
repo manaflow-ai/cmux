@@ -425,6 +425,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({"stale": vm_host::stale(request.known, request.failed_age_ms)})
         }
+        // The machine list a team last answered, kept for a cold start (`cloud_last_seen`).
+        b"cloud_machine_last_seen_save" => crate::cloud_last_seen::save(&read(request)?),
+        b"cloud_machine_last_seen_load" => crate::cloud_last_seen::load(&read(request)?),
+        b"cloud_machine_last_seen_forget" => crate::cloud_last_seen::forget(&read(request)?),
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)

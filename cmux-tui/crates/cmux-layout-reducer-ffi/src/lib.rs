@@ -76,6 +76,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_last_seen;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
