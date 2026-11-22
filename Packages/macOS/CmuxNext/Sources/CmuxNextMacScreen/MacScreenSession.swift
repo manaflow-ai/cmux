@@ -273,6 +273,7 @@ public final class MacScreenSession {
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
+                offer.customize(preferences)
                 offer.encodeProfile = encodeProfile
                 offer.displayID = wantedDisplay == nil ? linkedDisplay : nil
                 stats.targetFps = wish.maxFps

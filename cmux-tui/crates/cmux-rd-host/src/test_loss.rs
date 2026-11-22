@@ -5,7 +5,7 @@
 //! `CMUX_RD_TEST_LOSS_SEED` picks the drop sequence (default 1). Control,
 //! feedback, input acks and cursor datagrams are never dropped.
 
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming};
 use crate::wire::Control;
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
 use std::io;
@@ -103,15 +103,33 @@ impl Carrier for LossyCarrier<'_> {
         self.inner.send_datagram(datagram)
     }
 
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        // The frame path loses media as send_datagram does, one datagram at a time; what is left goes out as one frame.
+        let kept: Vec<Vec<u8>> = datagrams.into_iter().filter(|d| !self.loss.drops(d)).collect();
+        if kept.is_empty() {
+            return Ok(());
+        }
+        self.inner.send_datagram_frame(kept, droppable)
+    }
+
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
         self.inner.send_control(control)
+    }
+
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>) {
+        self.inner.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.inner.departure_overflows()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TestLoss;
+    use super::{Carrier, Control, DatagramDeparture, Incoming, LossyCarrier, RawFd, TestLoss};
     use cmux_rd_proto::{DatagramHeader, DatagramKind};
+    use std::io;
 
     fn datagram(kind: DatagramKind) -> Vec<u8> {
         let mut d = DatagramHeader {
@@ -128,6 +146,59 @@ mod tests {
         .to_vec();
         d.extend_from_slice(&[0; 32]);
         d
+    }
+
+    /// The carrier it wraps: what reached it, frame by frame.
+    #[derive(Default)]
+    struct Sink {
+        frames: Vec<Vec<Vec<u8>>>,
+    }
+
+    impl Carrier for Sink {
+        fn drain_departures(&mut self, _out: &mut Vec<DatagramDeparture>) {}
+        fn departure_overflows(&self) -> u64 {
+            7
+        }
+        fn fds(&self) -> Vec<RawFd> {
+            Vec::new()
+        }
+        fn receive(&mut self, _out: &mut Vec<Incoming>) -> Result<(), String> {
+            Ok(())
+        }
+        fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
+            self.frames.push(vec![datagram.to_vec()]);
+            Ok(())
+        }
+        fn send_datagram_frame(
+            &mut self,
+            datagrams: Vec<Vec<u8>>,
+            _droppable: bool,
+        ) -> io::Result<()> {
+            self.frames.push(datagrams);
+            Ok(())
+        }
+        fn send_control(&mut self, _control: &Control) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_frame_loses_its_media_and_keeps_the_rest_as_one_frame() {
+        let (video, feedback) = (datagram(DatagramKind::Video), datagram(DatagramKind::Feedback));
+        let mut sink = Sink::default();
+        let mut lossy =
+            LossyCarrier { inner: &mut sink, loss: TestLoss::new(100.0, 1).expect("on") };
+        lossy
+            .send_datagram_frame(vec![video.clone(), feedback.clone(), video.clone()], true)
+            .unwrap();
+        lossy.send_datagram_frame(vec![video.clone()], true).unwrap();
+        assert_eq!(lossy.departure_overflows(), 7, "the wrapped carrier's count");
+        drop(lossy);
+        assert_eq!(
+            sink.frames,
+            vec![vec![feedback]],
+            "media gone, feedback kept, an all-media frame sends nothing"
+        );
     }
 
     #[test]

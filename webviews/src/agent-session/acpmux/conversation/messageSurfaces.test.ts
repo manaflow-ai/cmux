@@ -78,7 +78,11 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
   const bubble = rules(css).filter(({ selector }) => /(^|\s)\.cv-user__bubble$/.test(selector));
   const selected = bubble.filter(({ selector }) => !selector.includes("data-message-surfaces"));
   expect(selected.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
-  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual(["transparent"]);
+  // Clear unless a look names a hairline (--cv-user-bubble-edge, style-tokens.json): the default
+  // stays transparent, and a look's edge is the only rim the bubble can get.
+  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual([
+    "var(--cv-user-bubble-edge, transparent)",
+  ]);
   // The bubble never sets a rim shadow or a rim term of its own past the zeroed vars.
   for (const prop of ["--glass-rim-shadow", ...scaled])
     expect(
