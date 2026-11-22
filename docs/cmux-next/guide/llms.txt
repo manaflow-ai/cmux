@@ -22,6 +22,7 @@
 - [Secrets and the vault](vault.md): Where cmux keeps API keys and other secrets, and how agents use a key without seeing it.
 - [Machines](machines.md): This Mac, computers you add, and Cloud machines: what runs on each, and how they join.
 - [Remote machines and Tailscale](remote.md): Run workspaces and agents on your own machines over SSH or Tailscale.
+- [cmux server](server.md): Keep cmux sessions running on a Linux box or Mac, and install it there with one command.
 - [Plans and credits](plans.md): What is free, what costs money, and how cmux credits work.
 - [Keyboard shortcuts](keyboard-shortcuts.md): Default keyboard shortcuts in cmux-next.
 - [CLI and MCP reference](cli.md): Every cmux CLI command and which are also MCP tools.

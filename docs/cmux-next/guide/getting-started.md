@@ -6,6 +6,16 @@ cmux-next is the rewrite of cmux: a Swift app shell, a Rust core, and web views 
 
 > cmux-next is in preview. It changes every day. This page is built from the main branch, so it may be ahead of the build you run.
 
+## Paste this into your agent
+
+Copy this into Claude Code, Codex or any coding agent on your Mac. It installs cmux NEXT DEV, signs you in, makes a Cloud machine if you have none, and starts an agent there on the folder you are in. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
+
+```text
+Set up cmux NEXT on this Mac and get me working in cmux Cloud. If ~/Applications/cmux NEXT DEV.app is missing, download https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh to /tmp, run it with bash, then open the app. Run every cmux command below with the CLI inside that app, "$HOME/Applications/cmux NEXT DEV.app/Contents/Resources/bin/cmux", not another cmux on PATH. Run `cmux setup local` and `cmux setup harness`, and start any sign-in they name. Run `cmux cloud diagnostics`; if I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent claude --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. A chat I already have moves over with `cmux cloud move` and comes back with `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess. Tell me only what I must do myself.
+```
+
+Already have cmux? Run cmux setup list in a cmux terminal: it lists every setup task, each with a prompt to paste.
+
 ## Install
 
 Two builds exist. Pick one.

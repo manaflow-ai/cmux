@@ -4,7 +4,7 @@ Default keyboard shortcuts in cmux-next.
 
 These are the default shortcuts. The list is generated from the action catalog, so it matches the app. Your own bindings are in Settings > Keyboard Shortcuts.
 
-Rebind any action by id in cmux-next.json under shortcuts.bindings:
+Rebind any action by id in ~/.config/cmux/cmux-next.json under shortcuts.bindings:
 
 ```json
 {

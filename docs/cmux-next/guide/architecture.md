@@ -54,8 +54,8 @@ A machine is any computer that runs cmux-tui and acpmux: this Mac, a computer yo
 
 | Where | What |
 | --- | --- |
-| [`cmux-tui/crates/acpmux/src/cli/host_enroll.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/host_enroll.rs) | Add Machine over SSH: reach, install, start, link |
-| [`cmux-tui/crates/cmux-tui/src/cli/machine_join.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join.rs) | cmux machine add: join with a pasted line |
+| [`cmux-tui/crates/acpmux/src/cli/host_enroll.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/host_enroll.rs) | Add Machine over SSH: reach, install, start, link |
+| [`cmux-tui/crates/cmux-tui/src/cli/machine_join.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join.rs) | cmux machine add: join with a pasted line |
 | [`cmux-tui/crates/cmux-remote`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-remote) | The remote daemon, its clients and connection |
 
 ## cmux Cloud
@@ -68,7 +68,7 @@ A repository describes the machine it needs in .cmux/machine.toml: environment v
 | --- | --- |
 | [`cmux-tui/crates/cmux-cloud-api`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-cloud-api) | The Cloud API client |
 | [`cmux-tui/crates/cmux-cloud-start-core`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-cloud-start-core) | How a Cloud chat starts, spares included |
-| [`cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs) | The .cmux/machine.toml format |
+| [`cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs) | The .cmux/machine.toml format |
 | [`web/services/vms`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/web/services/vms) | Cloud machine drivers |
 | [`web/services/vms/images/devbox`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/web/services/vms/images/devbox) | The Cloud machine image |
 
@@ -79,9 +79,9 @@ Keys never go on a command line. A key for an agent you added stays in this Mac'
 | Where | What |
 | --- | --- |
 | [`cmux-tui/crates/cmux-vault-egress`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-vault-egress) | The proxy that puts a vault value into allowed requests |
-| [`cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs) | cmux machine vault |
-| [`cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs) | cmux cloud secret |
-| [`cmux-tui/crates/acpmux/src/cli/harness_secret.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/harness_secret.rs) | cmux harness secret |
+| [`cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs) | cmux machine vault |
+| [`cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs) | cmux cloud secret |
+| [`cmux-tui/crates/acpmux/src/cli/harness_secret.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/harness_secret.rs) | cmux harness secret |
 
 ## GitHub
 
@@ -94,9 +94,9 @@ cmux cloud setup-github
 
 | Where | What |
 | --- | --- |
-| [`cmux-tui/crates/acpmux/src/github_status.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/github_status.rs) | Which GitHub account an agent can use, never a token |
-| [`cmux-tui/crates/acpmux/src/github_broker.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/github_broker.rs) | The GitHub actions a machine you added may borrow |
-| [`cmux-tui/crates/cmux-host/src/github_cli.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-host/src/github_cli.rs) | cmux github: credentials and gh for agents |
+| [`cmux-tui/crates/acpmux/src/github_status.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/github_status.rs) | Which GitHub account an agent can use, never a token |
+| [`cmux-tui/crates/acpmux/src/github_broker.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/github_broker.rs) | The GitHub actions a machine you added may borrow |
+| [`cmux-tui/crates/cmux-host/src/github_cli.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-host/src/github_cli.rs) | cmux github: credentials and gh for agents |
 
 ## MCP and connectors
 
@@ -116,8 +116,8 @@ nightly-next updates itself from the update feed; cmux NEXT DEV updates with its
 | Where | What |
 | --- | --- |
 | [`Packages/macOS/CmuxUpdater`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/Packages/macOS/CmuxUpdater) | The app updater and its channels |
-| [`scripts/cmux-next/update-dev-daily.sh`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh) | The cmux NEXT DEV install and update script |
-| [`cmux-tui/crates/cmux-tui/src/cli/older_daemon.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/older_daemon.rs) | How the CLI notices a daemon on an older version |
+| [`scripts/cmux-next/update-dev-daily.sh`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh) | The cmux NEXT DEV install and update script |
+| [`cmux-tui/crates/cmux-tui/src/cli/older_daemon.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/older_daemon.rs) | How the CLI notices a daemon on an older version |
 
 ## Design docs
 
@@ -127,7 +127,7 @@ Longer docs live next to the code. Design notes for each feature are in plans/cm
 | --- | --- |
 | [`plans/cmux-next`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/plans/cmux-next) | Design notes, one per feature |
 | [`docs/cmux-next`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/docs/cmux-next) | Guides: install, dev builds, hot reload, dotfiles |
-| [`plans/cmux-next/docs-DESIGN.md`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/plans/cmux-next/docs-DESIGN.md) | How these docs are built |
+| [`plans/cmux-next/docs-DESIGN.md`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/plans/cmux-next/docs-DESIGN.md) | How these docs are built |
 
 ## Read more
 

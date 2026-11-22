@@ -4,6 +4,14 @@ Run workspaces on cloud machines.
 
 A cloud machine is a remote computer that cmux sets up for you. Run a workspace there, or move one over and bring it back.
 
+## Paste this into your agent
+
+Copy this into any agent chat in cmux, opened on the folder you want to work on. It signs you in, makes a machine if you have none, and starts an agent there. New to cmux? The prompt on Getting started installs it first.
+
+```text
+Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent claude --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.
+```
+
 ```bash
 cmux cloud new-machine
 cmux cloud new-workspace

@@ -51,11 +51,11 @@ The daemon also keeps the cost ledger: when a turn ends, it adds the turn's cost
 | Where | What |
 | --- | --- |
 | [`cmux-tui/crates/acpmux`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux) | The agent daemon and its CLI |
-| [`cmux-tui/crates/acpmux/docs/cli-sessions.md`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-sessions.md) | Every session command |
-| [`cmux-tui/crates/acpmux/docs/cli-harnesses.md`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-harnesses.md) | Harness profiles and how to add one |
-| [`cmux-tui/crates/acpmux/docs/cli-hosts.md`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-hosts.md) | Machine commands |
+| [`cmux-tui/crates/acpmux/docs/cli-sessions.md`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-sessions.md) | Every session command |
+| [`cmux-tui/crates/acpmux/docs/cli-harnesses.md`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-harnesses.md) | Harness profiles and how to add one |
+| [`cmux-tui/crates/acpmux/docs/cli-hosts.md`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/docs/cli-hosts.md) | Machine commands |
 | [`cmux-tui/crates/acpmux/harnesses`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/harnesses) | The harness profiles cmux ships |
-| [`cmux-tui/crates/acpmux/src/mesh.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/mesh.rs) | Messages between sessions through the team hub |
+| [`cmux-tui/crates/acpmux/src/mesh.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/mesh.rs) | Messages between sessions through the team hub |
 
 - [How cmux NEXT fits together](architecture.md)
 - [Agents and subagents](agents.md)

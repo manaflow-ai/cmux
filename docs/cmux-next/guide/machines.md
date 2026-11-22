@@ -51,11 +51,11 @@ cmux acp new --machine auto -m codex -d "Fix the flaky test"
 
 | Where | What |
 | --- | --- |
-| [`cmux-tui/crates/cmux-tui/src/cli/machine_join.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join.rs) | cmux machine add: join with a pasted line |
-| [`cmux-tui/crates/cmux-tui/src/cli/machine_doctor.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_doctor.rs) | cmux machine doctor |
+| [`cmux-tui/crates/cmux-tui/src/cli/machine_join.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join.rs) | cmux machine add: join with a pasted line |
+| [`cmux-tui/crates/cmux-tui/src/cli/machine_doctor.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_doctor.rs) | cmux machine doctor |
 | [`cmux-tui/crates/cmux-tui/src/devices`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/devices) | cmux device: every device that can reach yours |
-| [`cmux-tui/crates/acpmux/src/cli/host_enroll.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/host_enroll.rs) | Add Machine over SSH: reach, install, start, link |
-| [`cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs) | The .cmux/machine.toml format |
+| [`cmux-tui/crates/acpmux/src/cli/host_enroll.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/host_enroll.rs) | Add Machine over SSH: reach, install, start, link |
+| [`cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs) | The .cmux/machine.toml format |
 | [`cmux-tui/crates/cmux-cloud-machine`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-cloud-machine) | A Cloud machine's record and its pause and resume rules |
 
 - [Remote machines and Tailscale](remote.md)

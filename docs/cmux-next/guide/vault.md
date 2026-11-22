@@ -41,9 +41,9 @@ The vault never holds a Claude or Codex sign-in. Sign in on each machine through
 
 | Where | What |
 | --- | --- |
-| [`cmux-tui/crates/acpmux/src/cli/harness_secret.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/harness_secret.rs) | cmux harness secret |
-| [`cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs) | cmux cloud secret |
-| [`cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs) | cmux machine vault |
+| [`cmux-tui/crates/acpmux/src/cli/harness_secret.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/acpmux/src/cli/harness_secret.rs) | cmux harness secret |
+| [`cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs) | cmux cloud secret |
+| [`cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs`](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/crates/cmux-tui/src/cli/machine_join/vault.rs) | cmux machine vault |
 | [`cmux-tui/crates/cmux-vault-egress`](https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/crates/cmux-vault-egress) | The proxy that puts a vault value into allowed requests |
 
 - [Run agents on your own API keys](own-keys.md)
