@@ -912,6 +912,7 @@
     "workspace.archiveIdle",
     "workspace.archiveOtherWorkspaces",
     "workspace.archiveOthersInGroup",
+    "workspace.archiveSettled",
     "workspace.archiveWorkspacesAbove",
     "workspace.archiveWorkspacesBelow",
     "workspace.clearIcon",
