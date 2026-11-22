@@ -107,7 +107,7 @@ fn hex_text_reads_against_its_background_or_both_cmux_surfaces() {
         .filter(|f| f.check == "contrast")
         .collect();
     assert_eq!(contrast_checks.len(), 1);
-    assert!(contrast_checks[0].message.contains("light surface"));
+    assert!(contrast_checks[0].message.contains("light background"));
     let on_dark = json!([
         {"op": "create", "id": "bg", "type": "VStack", "props": {"background": "#101010"}},
         {"op": "create", "id": "t", "type": "Text", "props": {"text": "a", "color": "#dddddd", "lineLimit": 1}},
@@ -148,7 +148,9 @@ fn a_translucent_tint_is_blended_over_the_surface_not_read_as_solid() {
     let contrast: Vec<_> = findings.iter().filter(|f| f.check == "contrast").collect();
     assert!(contrast.iter().all(|f| !f.message.starts_with("text contrast 1.0")), "{contrast:?}");
     assert!(
-        contrast.iter().any(|f| f.message.contains("tinted background over cmux's light surface")),
+        contrast
+            .iter()
+            .any(|f| f.message.contains("tinted background over cmux's light background")),
         "{contrast:?}"
     );
 }
@@ -171,5 +173,5 @@ fn a_translucent_text_color_is_measured_as_drawn() {
     let ops = scene(&[("Text", json!({"text": "a", "color": "#00000033", "lineLimit": 1}))]);
     let contrast: Vec<_> =
         check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
-    assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
+    assert!(contrast.iter().any(|f| f.message.contains("light background")), "{contrast:?}");
 }
