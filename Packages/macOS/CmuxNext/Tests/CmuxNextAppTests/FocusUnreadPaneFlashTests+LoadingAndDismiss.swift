@@ -43,7 +43,8 @@ extension FocusUnreadPaneFlashTests {
         try await PinnedPageTests.until({ fixture.content.layoutModel.attention[pane] == nil },
                                         report: { "Dismiss left the ring" })
         #expect(fixture.unread.tabs.first?.showsUnread == false, "Dismiss left the tab's blue dot")
-        #expect(!workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: \.showsUnread), "Dismiss left the workspace's dot")
+        let workspaceShowsUnread = workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.showsUnread }
+        #expect(!workspaceShowsUnread, "Dismiss left the workspace's dot")
         #expect(fixture.content.layoutModel.attentionReadByEntry.contains(pane), "Dismiss faded the ring without the dismiss flash")
     }
 }

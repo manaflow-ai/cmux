@@ -17,7 +17,12 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// Whether the title shows the key hint at all (a keyed button whose style shows no key for its role does not).
     private let drawsHint: Bool
     private var tracking: NSTrackingArea?
-    private var hasFocus = false { didSet { refresh() } }
+    /// Whether the focus ring shows: this button has keyboard focus, or the SwiftUI button it draws for has
+    /// (``isFace``).
+    var hasFocus = false { didSet { if hasFocus != oldValue { refresh() } } }
+    /// Draws a SwiftUI `Button` (``CmuxDialogButtonStyle``): SwiftUI takes the clicks, the keys and the focus, so
+    /// this view never does.
+    var isFace = false
     /// The keyboard focus ring, just outside the button.
     private let focusRing = CALayer()
     /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
@@ -66,6 +71,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         wantsLayer = true
         self.target = target
         self.action = action
+        isEnabled = button.isEnabled
         identifier = NSUserInterfaceItemIdentifier("cmux.dialog.button.\(button.id)")
         setAccessibilityLabel(button.title)
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
@@ -97,6 +103,11 @@ public final class CmuxDialogButtonView: ClickableButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    public override class var cellClass: AnyClass? {
+        get { OwnInkButtonCell.self }
+        set {}
+    }
+
     public override var isEnabled: Bool { didSet { refresh() } }
 
     /// Shows a new title in place (Copy Link turning into "Copied").
@@ -107,8 +118,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         refresh()
     }
 
-    public override var acceptsFirstResponder: Bool { true }
-    public override var canBecomeKeyView: Bool { true }
+    public override var acceptsFirstResponder: Bool { !isFace }
+    public override var canBecomeKeyView: Bool { !isFace }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? { isFace ? nil : super.hitTest(point) }
     public override var isHighlighted: Bool { didSet { refresh() } }
 
     public override func becomeFirstResponder() -> Bool {
@@ -177,16 +190,6 @@ public final class CmuxDialogButtonView: ClickableButton {
         }
     }
 
-    /// The overlay surface (the dialog's card) this button draws on, if any.
-    private var enclosingSurface: OverlaySurfaceView? {
-        var view = superview
-        while let current = view {
-            if let surface = current as? OverlaySurfaceView { return surface }
-            view = current.superview
-        }
-        return nil
-    }
-
     /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
     /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
     /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
@@ -211,8 +214,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
+            // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
+            // Outside any card the button sits on the window, see-through or not.
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
+                                        isEnabled: isEnabled, card: buttonGround(tokens))
         }
     }
 
@@ -228,10 +233,9 @@ public final class CmuxDialogButtonView: ClickableButton {
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
             // The card's own color: the opaque surface under Reduce Transparency, else the glass.
-            let onOpaqueCard = enclosingSurface?.material == .opaque
+            let onOpaqueCard = enclosingOverlaySurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)

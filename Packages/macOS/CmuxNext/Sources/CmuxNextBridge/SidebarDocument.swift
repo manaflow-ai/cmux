@@ -11,6 +11,9 @@ public final class SidebarDocument {
     public var store: SidebarDocStore?
     /// The document's machine nodes as the daemon-level sections the sidebar maps (one group model per document group).
     public private(set) lazy var docSections = SidebarDocSections(document: { [weak self] in self?.store })
+    /// The app's one table of the favicon addresses that open tabs show: the document's link items store them, and the
+    /// app's icon questions (a bookmark, a recent page, an omnibar row) read the same table. The app starts it.
+    public let openTabFavicons = OpenTabFavicons()
     private let stores: @MainActor () -> [DaemonStore]
     private let machine: @MainActor (String) -> DaemonStore?
 

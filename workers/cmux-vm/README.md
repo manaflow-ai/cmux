@@ -31,6 +31,21 @@ the only way to build its principal; audit rows and `created_by` name it as
 secret that does not parse disables service keys only. A team member can label
 a VM `role=chief` to hand it to the service.
 
+A team key (`src/auth/team-keys.ts`) is a long-lived `cmuxvm_sk_` key a team's
+own agents use headless (a lane VM's `cmux vm new` with `CMUX_VM_API_KEY`, a
+demand scaler), with no person signed in and no confirm per call. Rows come from
+the plain var `CMUX_VM_TEAM_KEYS` (JSON array of `id` `tk-...`, `team`, one or
+two `sha256`, VM `scopes`, `labels`, `maxVms` up to 500, `maxUsdPerHour` up to
+500; hashes only). It authenticates as the service `tk-...` acting for its one
+team (`X-Cmux-Team-Id` optional, another team 403), reaches only VMs carrying its
+labels, gets those labels on every create, and every create is held to its
+caps: over `maxVms` live VMs, or over `maxUsdPerHour` estimated (the agent-key
+estimate, every live VM counted), is 429 naming the cap. It cannot resize, fork
+or mint keys. It never expires and nothing deletes its VMs; rotating keeps them
+(second hash, move holders, drop the first). Mint with `bun scripts/team-key.ts
+mint --out FILE ...` (the key only to FILE, the row to stdout); revoke by
+removing the row and deploying. An invalid var disables team keys only.
+
 VM and snapshot lists accept `createdBy=caller` to recover resources created
 by the authenticated caller, using the persisted creation actor rather than
 caller-supplied labels. The filter intersects tenant, live rows, service labels,
@@ -474,6 +489,24 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+### Joining a mesh at creation
+
+`POST /v1/vms` accepts optional `meshId` (`"meshId": "mesh_..."`). The VM is
+then created on that mesh's private network, instead of being moved onto it by
+a second provider call after it booted. It requires `mesh:write` besides
+`vm:write`, and a mesh of the caller's team: a missing scope is 403, and a mesh
+that is not the caller's (or the mesh experiment being off for the team) is
+404, both before anything is created. Omit it and nothing changes.
+
+`PUT /v1/meshes/{meshId}/vms/{vmId}` is still required: it applies the mesh's
+access rules, and the VM is reachable only after it. For a VM created with
+`meshId` it finds the membership already recorded, makes no provider attach
+call and only applies the rules. The membership is recorded only when the
+provider's create answer shows the VM on exactly that network with an address;
+otherwise the `PUT` attaches as before, which the provider treats as setting
+the same network again. A retry with a different `meshId` (or none) under the
+same Idempotency-Key is 409. Forks do not take a `meshId`.
+
 `GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
 VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
 `vm:network` and ownership of the VM. It counts only a rule that allows the
@@ -588,6 +621,25 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## Operations
 
+Where a create or a wake spends its time is one JSON log line each, in the
+shape of the mesh handler's `mesh_vm_attach` line (`wrangler tail`, or the
+`tail-production` action). Durations are milliseconds; a line carries the
+public VM id (and mesh id) and no tenant, provider id or request body.
+
+- `vm_create`: one per `POST /v1/vms` (or fork) that reached the provider,
+  success or failure (`ok`). `recoverMs` (the exact-slug read), `verifyImageMs`
+  (the boot image read, in flight with it; null without an approved image),
+  `createMs` (the provider create; null when the VM was recovered),
+  `recoverAfterMs` (the read after a failed create; null otherwise),
+  `resizeMs` (null without a grow), `recordMs` (the ownership write),
+  `preMs` (handler entry to the first provider call: validation, idempotency,
+  quota), `totalMs`, `recovered`, `meshAtCreate` (with `meshId`, `meshJoined`
+  and `memberMs` when a mesh was named), and the provider's own
+  `providerTotalMs` and `providerTimingsMs` when its create answer has them.
+- `vm_start`: one per start or resume whose provider start was called.
+  `route` (`start` or `resume`), `stateBefore` (resume reads it; start does
+  not, so null), `stateAfter`, `readMs` (resume only), `startMs`, `totalMs`.
+
 Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
 production every tenant may create; in production a tenant may create when it is
 listed in `DEV_TEST_TENANT_IDS` (dev/test: idle timeout at most 300 s) or in
@@ -610,3 +662,12 @@ staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or
 update the environment's Hyperdrive config before deploying; the workflow header
 lists the GitHub environments and the secrets each needs.
+
+The staging database fault switch (`src/db/fault.ts`) holds a share of queries
+for a set time inside a window of at most an hour: `latency` then runs them,
+`stall` then fails them as a database that stopped answering. It is the Worker
+secret `CMUX_VM_DB_FAULT`, off unless set, read only where `ENVIRONMENT` is
+`staging`, and it turns itself off at the window's end. Set it with
+`cmux-vm.yml` action `db-fault-staging` (`db_fault`: the JSON, or `off`); the
+Cloud chaos suite's database-stall scenario does. Each held query logs
+`cmux-vm database fault` with its operation.
