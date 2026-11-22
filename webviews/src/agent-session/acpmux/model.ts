@@ -2079,7 +2079,7 @@ function openEditsBody(
 /// with (conversation/editDiffBox.ts, at the chat's text and code size and the Interface Size): the room above and
 /// below it, its head, and its body: the edits' rows, with the separator Pierre draws before a hunk that skips
 /// lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is drawn at the rendered diff's height),
-/// and the scrollbar lane under unwrapped rows (`diffLane`). Past PREVIEW_LINES rows the body is cut to that many
+/// and the scrollbar lane under unwrapped rows (`--cv-edit-diff-lane`, padded in every engine). Past PREVIEW_LINES rows the body is cut to that many
 /// and the lane (`--cv-block-cut`). An edit with no line changes is its note. Wrapped (a prose file, by default), a
 /// row takes as many lines as its text needs at the card's width.
 function editDiffHeight(file: TurnFile, width: number): number {
@@ -2111,7 +2111,7 @@ function editDiffHeight(file: TurnFile, width: number): number {
     }
   }
   if (rows > PREVIEW_LINES) body = PREVIEW_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
-  else if (!wrap && rows) body += diffLane();
+  else if (!wrap && rows) body += EDIT_DIFF_LANE;
   return box.margins + box.head + body;
 }
 
@@ -2154,34 +2154,6 @@ function wrappedRows(text: string, first: number, rest: number): number {
     used = left;
   }
   return rows;
-}
-
-/// The scrollbar lane under an unwrapped diff's rows (conversation.css `.cv-edit-diff__body` `--cv-lane`,
-/// highlightedCodeModel.ts): 6px where scrollbars take room (WebKit, the app's engine), none where they
-/// overlay. Read once from a probe the transcript's own CSS styles, so it is the engine's; 6px where
-/// nothing lays out or the CSS is not loaded yet (not kept then).
-let diffLaneRead: number | undefined;
-function diffLane(): number {
-  if (diffLaneRead !== undefined) return diffLaneRead;
-  if (typeof document === "undefined" || !document.body) return EDIT_DIFF_LANE;
-  // The card's own lengths (EditDiff.tsx `EDIT_DIFF_VARS`) around its body, as it draws.
-  const card = document.createElement("div");
-  card.className = "cv-edit-diff";
-  card.style.cssText = "position:absolute;left:-1000px;top:0;width:100px;visibility:hidden";
-  for (const [name, value] of Object.entries(EDIT_DIFF_VARS)) card.style.setProperty(name, value);
-  const body = document.createElement("div");
-  body.className = "cv-edit-diff__body";
-  const lines = document.createElement("div");
-  lines.className = "cv-edit-diff__loading-lines";
-  body.append(lines);
-  card.append(body);
-  document.body.append(card);
-  const styled = (document.defaultView?.getComputedStyle(body).getPropertyValue("--cv-lane").trim() ?? "") !== "";
-  const laid = lines.offsetWidth > 0;
-  const lane = lines.offsetHeight - lines.clientHeight;
-  card.remove();
-  if (!styled || !laid) return EDIT_DIFF_LANE;
-  return (diffLaneRead = lane);
 }
 
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
@@ -4338,7 +4310,7 @@ import {
   drawnFontSize,
   promptCoachEnabled,
 } from "./chatDisplay";
-import { EDIT_DIFF_LANE, EDIT_DIFF_VARS, editDiffBox } from "./conversation/editDiffBox";
+import { EDIT_DIFF_LANE, editDiffBox } from "./conversation/editDiffBox";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

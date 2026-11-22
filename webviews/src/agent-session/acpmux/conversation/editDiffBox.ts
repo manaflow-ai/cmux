@@ -27,7 +27,7 @@ const ABOVE = space("1");
 const BELOW = space("2");
 /// Pierre's line-info separator before a hunk that skips lines of the file, and the placeholder's.
 const SEPARATOR = 24;
-/// The scrollbar lane under unwrapped rows where scrollbars take room (model.ts `diffLane` reads the engine's).
+/// The lane kept under unwrapped rows for their sideways scrollbar: bottom padding in every engine, scrollbar or not.
 export const EDIT_DIFF_LANE = 6;
 /// The page's code rows when the chat sets no code size of its own: the type scale's detail size on its body
 /// line (styles.css `--cmux-diff-font-size` / `--cmux-diff-line-height`), at the Interface Size.
