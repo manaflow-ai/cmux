@@ -102,6 +102,49 @@ test("the sub-session store and its name index read only the changed session", (
   ).toBeLessThan(2);
 });
 
+/// The reads one chat starting (a new entry at the list's end, the list otherwise the same) costs
+/// the sub-session store at `size` listed sessions.
+function readsForOneStart(size: number): number {
+  const store = new SubsessionStore();
+  const sessions = Array.from({ length: size }, (_, index) => counted(index));
+  store.set(sessions);
+  const started = [...sessions, counted(size, { name: `helper-${size}`, startedBy: "s1" })];
+  reads = 0;
+  store.set(started);
+  return reads;
+}
+
+test("a chat starting costs the name index that chat, not every listed one", () => {
+  // Leo's Mac lists about 3,000 chats while agents start sub-sessions all the time: the index was
+  // rebuilt, sorted and serialized whole on each one, most of a shown chat's script time under load.
+  expect(readsForOneStart(20_000) / Math.max(1, readsForOneStart(200))).toBeLessThan(2);
+});
+
+test("the name index after chats start, change and leave is the one a fresh store builds", () => {
+  const list = (n: number, fields: (i: number) => Record<string, unknown> = () => ({})) =>
+    Array.from({ length: n }, (_, index) => counted(index, fields(index)));
+  const kept = new SubsessionStore();
+  kept.set(list(30));
+  // s3 renamed to a name s4 has (neither then resolves it), s29 archived, s30 and s31 started, s0 left.
+  const next = [
+    ...list(32, (i) => (i === 3 ? { name: "chat-4" } : i === 29 ? { archived: true } : {})).slice(1),
+    counted(5, { name: "chat-5-copy", host: "huge", hostKind: "peer" }),
+  ];
+  kept.set(next);
+  const fresh = new SubsessionStore();
+  fresh.set(next);
+  for (const name of ["chat-0", "chat-3", "chat-4", "chat-5", "chat-5-copy", "chat-29", "chat-30", "chat-31"])
+    expect([name, kept.find(name)]).toEqual([name, fresh.find(name)]);
+  for (const id of ["s0", "s3", "s5", "s29", "s31"]) {
+    expect(kept.has(id)).toBe(fresh.has(id));
+    expect(kept.harness(id)).toBe(fresh.harness(id));
+    expect(kept.place(id)).toEqual(fresh.place(id));
+    expect(kept.host(id)).toBe(fresh.host(id));
+  }
+  expect(kept.chatsOn("huge")).toEqual(fresh.chatsOn("huge"));
+  expect([...kept.senderEntries().keys()].sort()).toEqual([...fresh.senderEntries().keys()].sort());
+});
+
 test("the folder lists keep their input while no folder, place or activity changed", () => {
   let runs = 0;
   const project = () => {

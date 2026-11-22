@@ -12,7 +12,7 @@
 // input and frame work, coalesced to the newest list, never while the page is hidden. A list that waited `STALE_MS` while the page is shown goes in
 // then anyway, so a card's state is never more than that behind under a stream that keeps the frame
 // lane busy.
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useState } from "react";
 import { pageLanes, type Lanes } from "./schedule";
 import type { AcpmuxSessionEntry } from "./sessionList";
 
@@ -91,10 +91,9 @@ export function listStoreFeed(
 
 /// Feeds `store` each `sessions` the page renders, off the frame path after the first (``listStoreFeed``).
 export function useListStoreFeed(store: ListStore, sessions: readonly AcpmuxSessionEntry[]): void {
-  const feed = useRef<ReturnType<typeof listStoreFeed> | null>(null);
-  feed.current ??= listStoreFeed(store);
+  const [feed] = useState(() => listStoreFeed(store));
   useLayoutEffect(() => {
-    feed.current!.give(sessions);
-  }, [sessions]);
-  useLayoutEffect(() => () => feed.current?.dispose(), []);
+    feed.give(sessions);
+  }, [feed, sessions]);
+  useLayoutEffect(() => () => feed.dispose(), [feed]);
 }
