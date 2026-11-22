@@ -349,11 +349,14 @@
     },
     "agentPane.display.width" : {
       "default" : 800,
-      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
-      "maximum" : 4000,
-      "minimum" : 480,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile.",
+      "enum" : [
+        "narrow",
+        "medium",
+        "wide"
+      ],
       "title" : "Chat Text Width",
-      "type" : "number"
+      "type" : "string"
     },
     "agentPane.editedFiles.maxRows" : {
       "default" : 3,

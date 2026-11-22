@@ -935,6 +935,16 @@ try:
                             listing.append(f"? {os.path.relpath(q, home)}: {e}")
                 for l in listing[:60]:
                     log(f"BRAIN diag brain home: {l}")
+                # The whole of the brain's small logs: errors.log held 334 bytes and no line the
+                # scan above matched (cmux-ci step 7bbe8c84fdd9).
+                for n in ("errors.log", "agent.log"):
+                    q = os.path.join(home, "logs", n)
+                    try:
+                        text = open(q, errors="replace").read()
+                    except OSError:
+                        continue
+                    for l in text.splitlines()[-40:]:
+                        log(f"BRAIN diag brain logs/{n}: {l[:400]}")
                 env = dict(os.environ, HERMES_HOME=home)
                 cwd = os.path.join(MUX, "optchat", "session")
                 try:
@@ -943,13 +953,15 @@ try:
                     msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {}}},
                             {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": cwd, "mcpServers": []}}]
                     try:
-                        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=90)
+                        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=240)
                     except subprocess.TimeoutExpired:
                         p.kill()
                         out, err = p.communicate()
                     for l in [l for l in out.splitlines() if '"id": 2' in l or '"id":2' in l][:3]:
                         log(f"BRAIN diag hermes probe reply: {l[:600]}")
-                    for l in err.splitlines()[-40:]:
+                    if not any('"id": 2' in l or '"id":2' in l for l in out.splitlines()):
+                        log(f"BRAIN diag hermes probe: no session/new reply (exit {p.returncode}); stdout tail: {out[-400:]!r}")
+                    for l in [l for l in err.splitlines() if "registered" not in l][-40:]:
                         log(f"BRAIN diag hermes probe stderr: {l[:400]}")
                 except OSError as e:
                     log(f"BRAIN diag hermes probe failed to start: {e}")

@@ -249,6 +249,19 @@ const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =
   value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
+function transcriptWidth(value: unknown): number {
+  switch (value) {
+    case "narrow":
+      return 640;
+    case "medium":
+      return CHAT_DISPLAY.width.fallback;
+    case "wide":
+      return 960;
+    default:
+      return number(value, CHAT_DISPLAY.width) ?? CHAT_DISPLAY.width.fallback;
+  }
+}
+
 /// A font family name safe to put in a CSS value: no quotes, braces or semicolons.
 const family = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -280,7 +293,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
-    width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
+    width: transcriptWidth(values[CHAT_DISPLAY.width.key]),
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,

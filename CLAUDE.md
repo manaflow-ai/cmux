@@ -55,7 +55,7 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 - **macOS and iOS parity.** Every new cmux-next macOS feature also works in the iPhone app (`cmux-next-ios/`),
   with a row in [cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md); the exceptions
   (Mac-only chrome, what [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded
-  there. A phone path that needs new trust policy goes to https://github.com/manaflow-ai/cmux/issues/13742 first.
+  there. A phone path that needs new trust policy goes to Leo as one decision first (`tbd-leo add`, with a recommendation).
 - **Dev builds are separate.** A tagged dev build (Mac and iPhone) never sees or changes another build's
   backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
   gate's "Build spaces" and "Dev build state is its own" checks enforce it:

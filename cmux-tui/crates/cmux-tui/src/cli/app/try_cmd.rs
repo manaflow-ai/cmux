@@ -50,9 +50,25 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(35);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
     Help,
-    Try { target: String, dry_run: bool, app: Option<PathBuf> },
-    Copy { tree: PathBuf, from: Option<PathBuf>, action: copy::Action, dry_run: bool },
-    Undo { dry_run: bool },
+    Try {
+        target: String,
+        dry_run: bool,
+        app: Option<PathBuf>,
+    },
+    /// Explicit opt-in experiment: follow the signed nightly-live pointer once.
+    Channel {
+        dry_run: bool,
+        app: Option<PathBuf>,
+    },
+    Copy {
+        tree: PathBuf,
+        from: Option<PathBuf>,
+        action: copy::Action,
+        dry_run: bool,
+    },
+    Undo {
+        dry_run: bool,
+    },
     Status,
 }
 
@@ -130,6 +146,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         return Err(unexpected(flag));
     }
     match words.as_slice() {
+        [word] if word == "channel" => Ok(Command::Channel { dry_run, app }),
         [verb] if verb == "status" => {
             if dry_run || app.is_some() {
                 return Err(UsageError::new(messages().usage));
@@ -161,7 +178,10 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         return 0;
     }
     if let Command::Try { target, dry_run, app } = command {
-        return run_try(global, target, *dry_run, app.as_deref());
+        return run_try(global, target, *dry_run, app.as_deref(), false, false, None);
+    }
+    if let Command::Channel { dry_run, app } = command {
+        return run_channel(global, *dry_run, app.as_deref());
     }
     if let Command::Copy { tree, from, action, dry_run } = command {
         return copy::run(global, tree, from.as_deref(), *action, *dry_run);
@@ -173,9 +193,11 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     };
     match command {
         Command::Undo { dry_run } => undo(global, &store, *dry_run),
-        Command::Help | Command::Try { .. } | Command::Copy { .. } | Command::Status => {
-            status(global, &store)
-        }
+        Command::Help
+        | Command::Try { .. }
+        | Command::Channel { .. }
+        | Command::Copy { .. }
+        | Command::Status => status(global, &store),
     }
 }
 
@@ -220,6 +242,7 @@ fn choose(
     live: &Live,
     builds: Option<Result<&Value, &str>>,
     base: &str,
+    daemon_only: bool,
 ) -> Plan {
     let messages = messages();
     let mut why = Vec::new();
@@ -228,9 +251,15 @@ fn choose(
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            if !live::takes(&payload.live_from, app_commit) {
+            // The nightly-live channel (daemon_only) swaps the daemon alone: daemon_from, no native check.
+            let from = if daemon_only {
+                live::daemon_list(&payload.daemon_from, &payload.live_from)
+            } else {
+                &payload.live_from
+            };
+            if !live::takes(from, app_commit) {
                 why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
-            } else if !live::native_matches(payload, app_commit) {
+            } else if !daemon_only && !live::native_matches(payload, app_commit) {
                 why.push(messages.why_native_unproven.to_owned());
             } else {
                 match live::wanted(payload, base) {
@@ -406,7 +435,109 @@ fn read_builds(stream: Option<&mut std::os::unix::net::UnixStream>) -> Result<Va
     }
 }
 
-fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path>) -> i32 {
+/// Follows the signed nightly-live pointer once. This is deliberately a
+/// command, rather than a background setting: no existing NIGHTLY changes
+/// until a person explicitly runs `cmux app try channel`.
+fn run_channel(global: &GlobalArgs, dry_run: bool, named: Option<&Path>) -> i32 {
+    let url = live::channel_url();
+    let body = match live::get_small(&url, live::LIVE_MAX_BYTES) {
+        Ok(Some(body)) => body,
+        Ok(None) => {
+            return failure(
+                "try.channel_missing",
+                "the nightly-live channel is missing",
+                global.output,
+            );
+        }
+        Err(error) => return failure("try.channel_read", &error, global.output),
+    };
+    let payload =
+        match live::verify_channel(&body, &cmux_host::updater::channel::trusted_keys(), now()) {
+            Ok(payload) => payload,
+            Err(error) => return failure("try.channel_refused", &error, global.output),
+        };
+    let (app, _) = find_app(global, named);
+    let Some(app) = app else {
+        return failure("try.no_app", messages().no_app, global.output);
+    };
+    let Some(store) = store_for(Some(&app)) else {
+        return failure("try.no_state", messages().no_state, global.output);
+    };
+    let result = apply_channel(&app, &store, &payload, dry_run, |_| {
+        let mut changed = false;
+        let code =
+            run_try(global, &payload.commit, dry_run, Some(&app), true, true, Some(&mut changed));
+        if code == 0 {
+            Ok(changed)
+        } else {
+            Err("the nightly-live channel apply failed".to_owned())
+        }
+    });
+    match result {
+        Ok(ChannelApply::SkippedOlder) => {
+            let value = json!({
+                "path": "channel", "channel": payload.channel, "commit": payload.commit,
+                "committed_at": payload.committed_at, "applied": false, "reason": "older-or-equal",
+            });
+            if global.output == OutputMode::Human {
+                println!(
+                    "nightly-live {} is not newer than the last applied pointer; nothing changed",
+                    short(&payload.commit)
+                );
+                0
+            } else {
+                super::super::wire::print_local_success(&value, global.output)
+            }
+        }
+        Ok(ChannelApply::Applied { .. }) => 0,
+        Err(error) => failure("try.channel_state", &error, global.output),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ChannelApply {
+    SkippedOlder,
+    Applied { changed: bool },
+}
+
+/// Applies a signed channel pointer through an injected live-update operation.
+/// The lock covers the forward-only check, all file work, and the sidecar write.
+fn apply_channel<F>(
+    app: &Path,
+    store: &Store,
+    payload: &live::ChannelPayload,
+    dry_run: bool,
+    apply: F,
+) -> Result<ChannelApply, String>
+where
+    F: FnOnce(&str) -> Result<bool, String>,
+{
+    let app_commit = app_commit(app).ok_or(
+        "this app has no CMUXCommit; the nightly-live channel requires a stamped compatible app",
+    )?;
+    if !live::takes(live::daemon_list(&payload.daemon_from, &payload.live_from), &app_commit) {
+        return Err("this app's commit is not in the nightly-live pointer's daemon_from".to_owned());
+    }
+    let _lock = store.lock()?;
+    if !live::channel_is_newer(store.channel_last()?, payload.committed_at) {
+        return Ok(ChannelApply::SkippedOlder);
+    }
+    let changed = apply(&app_commit)?;
+    if !dry_run {
+        store.record_channel(payload.committed_at, &payload.commit)?;
+    }
+    Ok(ChannelApply::Applied { changed })
+}
+
+fn run_try(
+    global: &GlobalArgs,
+    target: &str,
+    dry_run: bool,
+    named: Option<&Path>,
+    store_locked: bool,
+    live_only: bool,
+    changed_out: Option<&mut bool>,
+) -> i32 {
     let messages = messages();
     let started = Instant::now();
     let mut phases = Phases::default();
@@ -450,8 +581,15 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
     let t = Instant::now();
     let live = read_live(&commit, &base);
     phases.add("plan", t);
-    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base);
-    if !matches!(plan, Plan::Live { .. }) {
+    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base, live_only);
+    if live_only && !matches!(plan, Plan::Live { .. }) {
+        return failure(
+            "try.channel_incompatible",
+            "the signed channel has no live payload this app can take",
+            global.output,
+        );
+    }
+    if !live_only && !matches!(plan, Plan::Live { .. }) {
         let t = Instant::now();
         let builds = read_builds(stream.as_mut());
         plan = choose(
@@ -460,6 +598,7 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
             &live,
             Some(builds.as_ref().map_err(String::as_str)),
             &base,
+            false,
         );
         phases.add("plan", t);
     }
@@ -497,9 +636,13 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         }
         return super::super::wire::print_local_success(&planned, global.output);
     }
-    let _lock = match store.lock() {
-        Ok(lock) => lock,
-        Err(error) => return failure("try.state", &error, global.output),
+    let _lock = if store_locked {
+        None
+    } else {
+        match store.lock() {
+            Ok(lock) => Some(lock),
+            Err(error) => return failure("try.state", &error, global.output),
+        }
     };
     match plan {
         Plan::None { .. } => 1,
@@ -539,7 +682,7 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         Plan::Live { files } => {
             let daemon = app_daemon(&app);
             let result = try_live(&app, &files, store, &daemon, &mut phases);
-            finish(global, store, receipt, result, phases, started, &commit, &app)
+            finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
         }
     }
 }
@@ -574,6 +717,7 @@ fn finish(
     started: Instant,
     commit: &str,
     app: &Path,
+    changed_out: Option<&mut bool>,
 ) -> i32 {
     let messages = messages();
     let undo = receipt.get("action").and_then(Value::as_str) == Some("undo");
@@ -599,6 +743,9 @@ fn finish(
     set(&mut receipt, "changed", json!(applied.changed));
     set(&mut receipt, "steps", applied.steps);
     set(&mut receipt, "undo", json!({ "files": applied.prior }));
+    if let Some(changed_out) = changed_out {
+        *changed_out = applied.changed;
+    }
     if applied.changed
         && let Err(error) = store.record(&receipt)
     {
@@ -753,7 +900,7 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     let daemon = app_daemon(&app);
     let result = live::apply(&app, &changes, store, &daemon, &mut phases);
     let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
-    finish(global, store, receipt, result, phases, started, &commit, &app)
+    finish(global, store, receipt, result, phases, started, &commit, &app, None)
 }
 
 /// Undoes the last live try into `app` with `daemon` (the testable core of `undo`).

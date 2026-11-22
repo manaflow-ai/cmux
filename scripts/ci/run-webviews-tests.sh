@@ -209,6 +209,9 @@ if [ "${1:-}" = --one ]; then
     exit 0
   fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+  # CMUX_WEB_TEST_PASSED_OUT: each file that passes, as it passes, so a run a newer head cancels still leaves its passes
+  # to that head's shard (ci-web.yml reuses those its change cannot reach).
+  if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
@@ -392,7 +395,36 @@ if [ -n "$shard" ] || [ -n "$shard_count" ]; then
     ${split_widths:+"$split_widths"} > "$results/shard-files"
   mv "$results/shard-files" "$results/files"
 fi
+# CMUX_WEB_TEST_REUSED: a file of test files (one a line) that passed at the pull request's previous head and that no
+# change since can reach (ci-web.yml reads them with webviews_affected.py). This run drops them as passed, after the
+# split, so every shard still picks the same files, and lists them in CMUX_WEB_TEST_PASSED_OUT for the head after it.
+: > "$results/reused"
+if [ -n "${CMUX_WEB_TEST_REUSED:-}" ] && [ -s "$CMUX_WEB_TEST_REUSED" ]; then
+  python3 - "$results/files" "$CMUX_WEB_TEST_REUSED" "$results/reused" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+reusable = {line.strip() for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()}
+path.write_bytes(b"".join(name.encode() + b"\0" for name in listed if name not in reusable))
+pathlib.Path(sys.argv[3]).write_text("".join(name + "\n" for name in listed if name in reusable))
+PY
+  if [ -s "$results/reused" ]; then
+    echo "passed at the previous head, and no change since reaches them, so not run again: $(grep -c . "$results/reused")"
+    sed 's/^/  REUSED /' "$results/reused"
+    if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ] && [ -s "$results/reused" ] && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
+  echo "### webviews tests: 0 files; all $(grep -c . "$results/reused") of this shard passed at the previous head"
+  if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+    : > "$results/summary"
+    python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+  fi
+  exit 0
+fi
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1

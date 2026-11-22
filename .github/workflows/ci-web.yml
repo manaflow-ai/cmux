@@ -557,6 +557,10 @@ jobs:
     # 44258208231 hit the limit on small runners, still testing. A fork's run reads no variables, so
     # its arms come first. The anchor hands these minutes to Test webviews, whose retry deadline is
     # measured from them.
+    # actions: read: a pull request's shard downloads the files that passed at its previous head (an artifact).
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 40 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -750,6 +754,22 @@ jobs:
           python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
             "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
+      # A newer head cancels this run (ci.yml's concurrency) while its shards are still testing: over 11-22 03-05Z
+      # react-apps-check shards lost about 19,000 runner minutes a day that way, cancelled at a median 46 of their
+      # 65 min. Each shard keeps the files that passed at its head, as they pass (Upload the files that passed, below),
+      # and the same shard at the pull request's next head downloads the newest list (two requests) and skips the
+      # files the change between the two heads cannot reach (Test webviews). Best effort: no list runs every file.
+      - name: Download the files that passed at the previous head
+        id: passed-before
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          SHARD: ${{ matrix.shard }}
+        run: python3 scripts/ci/webviews_test_history.py passed-before "$RUNNER_TEMP/webviews-passed-before" --repo "$GITHUB_REPOSITORY" --branch "$HEAD_REF" --shard "$SHARD" --run-id "$GITHUB_RUN_ID"
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -791,6 +811,7 @@ jobs:
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
           # Every failed or timed-out file gets its alone retry before it counts
           # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
           # its job. A fixed budget left contention reds unretried, and the base
@@ -859,6 +880,27 @@ jobs:
             fi
             export CMUX_WEB_TEST_FILES
           fi
+          # A pull request's passes, as they come, for its next head (Upload the files that passed): the merge commit
+          # they passed at, then the files. The files that passed at the previous head and that the change since
+          # (webviews_affected.py from that merge commit to this one) cannot reach are not run again; a list without
+          # its commit, a commit that does not fetch, or a change that reaches every file reuses nothing.
+          if [ -n "$BASE_REF" ]; then
+            passed="$RUNNER_TEMP/webviews-passed"
+            mkdir -p "$passed"
+            git rev-parse HEAD > "$passed/commit"
+            export CMUX_WEB_TEST_PASSED_OUT="$passed/files"
+            : > "$CMUX_WEB_TEST_PASSED_OUT"
+            before="$(cat "$PASSED_BEFORE/commit" 2> /dev/null || true)"
+            if [ "$FULL_CI" != true ] && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
+              { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-tags --depth=1 origin "$before"; }; then
+              reach="$(python3 ../scripts/ci/webviews_affected.py --base "$before" --head HEAD)" || reach=""
+              if [ -n "$reach" ]; then
+                grep -vxF -f <(printf '%s\n' "$reach") "$PASSED_BEFORE/files" > "$RUNNER_TEMP/webviews-reused" || true
+                export CMUX_WEB_TEST_REUSED="$RUNNER_TEMP/webviews-reused"
+                echo "passed at ${before:0:12}: $(grep -c . "$PASSED_BEFORE/files"); the change since reaches $(grep -c . <<< "$reach") test files"
+              fi
+            fi
+          fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
@@ -872,6 +914,23 @@ jobs:
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
           retention-days: 7
+
+      # Also when a newer head cancels the run: what passed before the cancel is what that head's shard reuses
+      # (webviews_test_history.py passed-before).
+      - name: Upload the files that passed
+        id: passed-upload
+        if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.webview-tests.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-apps-passed-shard${{ matrix.shard }}
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/webviews-passed/commit
+            ${{ runner.temp }}/webviews-passed/files
+          if-no-files-found: ignore
+          retention-days: 1
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.
@@ -924,6 +983,9 @@ jobs:
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
+          # Warn-only: what the pull request's next head reuses, never this run's verdict.
+          PASSED_BEFORE: ${{ steps.passed-before.outcome }}
+          PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
           # Warn-only: the fixup patch for the hq reconciler; the type check's own red is WEBVIEWS_CHECK.
           FIXIT_UPLOAD: ${{ steps.fixit-upload.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
@@ -937,6 +999,9 @@ jobs:
           fi
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
+          fi
+          if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
+            echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
           fi
           if [ "$FIXIT_UPLOAD" = failure ]; then
             echo "::warning::The fixit-compile patch did not upload; the hq reconciler has no fixup to push."

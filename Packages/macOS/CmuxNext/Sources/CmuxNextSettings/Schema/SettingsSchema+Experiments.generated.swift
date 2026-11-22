@@ -14,6 +14,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.agentBadgesBeam`: Taste build 5's variant: with Agent Badges on, a running sidebar row's edge carries a thin light that laps it (Core Animation, Motion.indicators; still under Reduce Motion), removed when the row stops running or leaves the screen. No effect while Agent Badges is off.
     public nonisolated static let agentBadgesBeamPath = ["experiments", "agentBadgesBeam"]
     public nonisolated static let agentBadgesBeamDefault = false
+    /// `experiments.toastsV2`: Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch("toastsV2")). Off by default; off keeps today's toasts.
+    public nonisolated static let toastsV2Path = ["experiments", "toastsV2"]
+    public nonisolated static let toastsV2Default = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -61,6 +64,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentBadgesBeamDefault),
                 keywords: ["experiments", "experimental", "prototype", "agent", "badges", "beam", "light", "running", "border", "edge"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.toastsV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.toastsV2", "Toasts v2"),
+                help: SettingsText.keyed("settings.experiments.toastsV2.help", "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.toastsV2Default),
+                keywords: ["labs", "experiments", "experimental", "toasts", "toast", "undo", "spinner"]
             ),
         ]
     }

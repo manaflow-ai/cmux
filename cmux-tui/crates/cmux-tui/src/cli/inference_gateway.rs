@@ -77,12 +77,15 @@ const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// An access token this close to its expiry is refreshed before a call.
 const REFRESH_SKEW_S: u64 = 300;
-/// Request headers a call carries upstream; the backend already dropped the guest's.
+/// Request headers a call carries upstream; the backend already dropped the guest's. Each harness's own session
+/// header (Codex's `session_id`, Claude Code's `x-claude-code-session-id`) lets the proxy keep one chat on one
+/// account, so its prompt cache keeps hitting.
 const PASS_HEADERS: &[&str] = &[
     "accept",
     "content-type",
     "openai-beta",
     "session_id",
+    "x-claude-code-session-id",
     "user-agent",
     "anthropic-version",
     "anthropic-beta",
@@ -1460,6 +1463,35 @@ mod tests {
         // The backend's routing header stays here.
         assert!(!lower.contains("x-cmux-machine"));
         assert!(request.ends_with(r#"{"model":"m"}"#));
+    }
+
+    /// Claude Code's own session header reaches the proxy, as Codex's `session_id` does: the proxy keeps one chat
+    /// on one account with it, so its prompt cache keeps hitting. Without it sr2 keyed every call of the Freestyle
+    /// machines behind one team gateway on a hash of the conversation's opening (`fallback:`), which a compaction
+    /// changes (sr2 audit, 2026-11-22: 430 of 528 calls from gcp-agent-lane-13 in 90 minutes).
+    #[tokio::test]
+    async fn claude_codes_session_header_reaches_the_proxy() {
+        let (base, upstream) =
+            fake_upstream("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
+                .await;
+        let provider = Provider::new(
+            Upstream::Proxy { base: format!("{base}/v1"), key_file: None },
+            test_client(),
+        );
+        let mut call = pending("/v1/messages", r#"{"model":"m"}"#);
+        call.headers.push((
+            "x-claude-code-session-id".into(),
+            "01a20179-9d24-7071-82aa-7b1b4f55d76f".into(),
+        ));
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "c1", call, &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["status"], 200, "{got:?}");
+        let request = upstream.await.unwrap().to_ascii_lowercase();
+        assert!(
+            request.contains("x-claude-code-session-id: 01a20179-9d24-7071-82aa-7b1b4f55d76f"),
+            "{request}"
+        );
     }
 
     #[tokio::test]

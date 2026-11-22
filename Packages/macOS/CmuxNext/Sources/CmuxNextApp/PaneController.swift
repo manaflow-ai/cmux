@@ -227,8 +227,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
+        DebugLayoutCounters.paneSnapshots &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.paneSnapshots &+= 1
         debugSnapshotRuns += 1
         DebugLayoutCounters.note(debugSnapshotRuns > 3 ? "snapshot later" : "snapshot #\(debugSnapshotRuns)", file, line) // a new pane's runs, else another pane's
         #endif
