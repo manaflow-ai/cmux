@@ -188,6 +188,25 @@ import Testing
         #expect(rings[0].z > rings[3].z, "the newest ring is not in the oldest slot")
     }
 
+    @Test func itDrawsAtTheCalmRateUntilThePointerOrAClickMovesIt() {
+        let h = make(.shader(.currents))
+        defer { h.close() }
+        let view = h.shader
+        view.pointerOverride = CGPoint(x: 40, y: 40)
+        for _ in 0..<120 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "a resting pointer keeps the full rate")
+        view.pointerOverride = CGPoint(x: 300, y: 180)
+        view.advance(by: 1 / 60)
+        #expect(view.framesPerSecond == BackdropShaderView.maximumFramesPerSecond, "a moving pointer stays at the calm rate")
+        for _ in 0..<240 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "the rate never falls back once the pointer rests")
+        view.ring(at: CGPoint(x: 100, y: 100))
+        for _ in 0..<120 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.maximumFramesPerSecond, "a spreading ring is drawn at the calm rate")
+        for _ in 0..<300 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "a faded ring keeps the full rate")
+    }
+
     /// The darkest, brightest and mean lightness (0...1) of `image`.
     static func lightness(_ image: CGImage) -> (min: Double, max: Double, mean: Double) {
         let width = image.width, height = image.height
