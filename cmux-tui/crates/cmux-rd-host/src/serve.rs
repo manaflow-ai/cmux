@@ -39,7 +39,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -351,11 +350,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = setup
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&setup.stun, setup.relay_only);
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
@@ -407,6 +402,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
         libc::fcntl(
@@ -510,6 +508,9 @@ fn serve_session(
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    if crate::desktop::scales_pictures() {
+        host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
+    }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it
@@ -590,6 +591,10 @@ fn serve_session(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
+        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
+        resolution_ladder: opts.flag_or("resolution-ladder", false),
+        max_qp: crate::host::ladder_max_qp(opts)?,
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier
