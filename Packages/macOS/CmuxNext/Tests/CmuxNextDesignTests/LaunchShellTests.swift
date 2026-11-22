@@ -44,22 +44,22 @@ struct LaunchShellTests {
                             backing: .buffered, defer: false)
         real.isReleasedWhenClosed = false // close() must not release what ARC releases too (signal 11)
         defer { stage0.close(); real.close() }
-        let moved = try #require(LaunchShellReplay.event(try key("é", window: stage0), to: real))
+        let moved = try #require(try key("é", window: stage0).replayed(in: real))
         #expect(moved.windowNumber == real.windowNumber)
         #expect(moved.characters == "é" && moved.type == .keyDown)
         let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 40, y: 30), modifierFlags: [],
                                                     timestamp: 0, windowNumber: stage0.windowNumber, context: nil,
                                                     eventNumber: 1, clickCount: 1, pressure: 1))
-        let movedClick = try #require(LaunchShellReplay.event(click, to: real))
+        let movedClick = try #require(click.replayed(in: real))
         #expect(movedClick.windowNumber == real.windowNumber && movedClick.locationInWindow == CGPoint(x: 40, y: 30))
     }
 
     @Test func eventKindsMatchTheRustInputKinds() {
-        #expect(LaunchShellReplay.kind(.keyDown) == 1 && LaunchShellReplay.kind(.keyUp) == 2)
-        #expect(LaunchShellReplay.kind(.flagsChanged) == 3)
-        #expect(LaunchShellReplay.kind(.rightMouseDown) == 4 && LaunchShellReplay.kind(.otherMouseUp) == 5)
-        #expect(LaunchShellReplay.kind(.leftMouseDragged) == 6 && LaunchShellReplay.kind(.scrollWheel) == 7)
-        #expect(LaunchShellReplay.kind(.mouseMoved) == 8 && LaunchShellReplay.kind(.appKitDefined) == 0)
+        #expect(NSEvent.EventType.keyDown.launchShellKind == 1 && NSEvent.EventType.keyUp.launchShellKind == 2)
+        #expect(NSEvent.EventType.flagsChanged.launchShellKind == 3)
+        #expect(NSEvent.EventType.rightMouseDown.launchShellKind == 4 && NSEvent.EventType.otherMouseUp.launchShellKind == 5)
+        #expect(NSEvent.EventType.leftMouseDragged.launchShellKind == 6 && NSEvent.EventType.scrollWheel.launchShellKind == 7)
+        #expect(NSEvent.EventType.mouseMoved.launchShellKind == 8 && NSEvent.EventType.appKitDefined.launchShellKind == 0)
     }
 
     @Test func theBuildKeyKeepsOnlyKeyCharacters() {
@@ -73,12 +73,12 @@ struct LaunchShellTests {
     @Test func optInFileFollowsTheSetting() async throws {
         let folder = FileManager().temporaryDirectory.appending(path: "launch-shell-optin-\(UUID().uuidString)/com.example.app", directoryHint: .isDirectory)
         defer { try? FileManager().removeItem(at: folder.deletingLastPathComponent()) }
-        #expect(!LaunchShellPaths.isOptedIn(support: folder))
-        #expect(await LaunchShellPaths.setOptedIn(true, support: folder))
-        #expect(await LaunchShellPaths.setOptedIn(true, support: folder))
-        #expect(LaunchShellPaths.isOptedIn(support: folder))
-        #expect(await LaunchShellPaths.setOptedIn(false, support: folder))
-        #expect(await LaunchShellPaths.setOptedIn(false, support: folder))
-        #expect(!LaunchShellPaths.isOptedIn(support: folder))
+        #expect(!LaunchShellPaths(support: folder).isOptedIn)
+        #expect(await LaunchShellPaths(support: folder).setOptedIn(true))
+        #expect(await LaunchShellPaths(support: folder).setOptedIn(true))
+        #expect(LaunchShellPaths(support: folder).isOptedIn)
+        #expect(await LaunchShellPaths(support: folder).setOptedIn(false))
+        #expect(await LaunchShellPaths(support: folder).setOptedIn(false))
+        #expect(!LaunchShellPaths(support: folder).isOptedIn)
     }
 }

@@ -54,7 +54,7 @@ public final class LaunchShell {
         guard let bundleID else { return LaunchShell(prepared: nil, mark: mark) }
         let support = NextSupport.applicationSupportDirectory(), folder = support.appending(path: bundleID, directoryHint: .isDirectory)
         // Labs > Show Window Shell at Launch (`labs.launchShellFirst`, off by default): one stat, no settings read.
-        guard LaunchShellPaths.isOptedIn(support: folder) else { mark("launch_shell.off"); return LaunchShell(prepared: nil, mark: mark) }
+        guard LaunchShellPaths(support: folder).isOptedIn else { mark("launch_shell.off"); return LaunchShell(prepared: nil, mark: mark) }
         return prepare(support: folder, appSupport: support, session: session,
                        build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]), mark: mark)
     }
@@ -79,7 +79,7 @@ public final class LaunchShell {
                 displays.withUnsafeBufferPointer { displays in
                     var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count,
                                                  support_dir: supportDir, app_support: appSupport, daemon_session: session)
-                    return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
+                    return cmux_launch_shell_plan(LaunchShellPaths(support: support).record.path, LaunchShellPaths(support: support).images.path, &now, &plan)
                 }
             } }
         } }
@@ -202,8 +202,8 @@ public final class LaunchShell {
         guard !heldForReal.isEmpty else { return }
         let held = heldForReal
         heldForReal.removeAll()
-        for event in held where cmux_launch_shell_replays(LaunchShellReplay.kind(event), showedImage, mismatched) {
-            if let moved = LaunchShellReplay.event(event, to: real) { NSApp.postEvent(moved, atStart: false) }
+        for event in held where cmux_launch_shell_replays(event.launchShellKind, showedImage, mismatched) {
+            if let moved = event.replayed(in: real) { NSApp.postEvent(moved, atStart: false) }
         }
     }
 
@@ -246,42 +246,45 @@ public struct LaunchShellLook {
     public let dark: Bool
 }
 
-/// The launch record's and the image store's paths in the app's Application Support folder.
-public enum LaunchShellPaths {
-    public nonisolated static func record(in support: URL) -> URL { support.appending(path: "launch-record.bin", directoryHint: .notDirectory) }
-    public nonisolated static func images(in support: URL) -> URL { support.appending(path: "launch-images", directoryHint: .isDirectory) }
+/// The launch record's, the image store's and the opt-in file's paths in the app's Application Support folder.
+public nonisolated struct LaunchShellPaths: Sendable {
+    public let support: URL
+    public init(support: URL) { self.support = support }
+
+    public var record: URL { support.appending(path: "launch-record.bin", directoryHint: .notDirectory) }
+    public var images: URL { support.appending(path: "launch-images", directoryHint: .isDirectory) }
     /// Present while Labs > Show Window Shell at Launch (`labs.launchShellFirst`) is on: stage 0 checks
     /// this one file at launch instead of reading the settings, which it may not.
-    public nonisolated static func optIn(in support: URL) -> URL { support.appending(path: "launch-shell-first.on", directoryHint: .notDirectory) }
-    public nonisolated static func isOptedIn(support: URL) -> Bool { FileManager().fileExists(atPath: optIn(in: support).path) }
+    public var optIn: URL { support.appending(path: "launch-shell-first.on", directoryHint: .notDirectory) }
+    public var isOptedIn: Bool { FileManager().fileExists(atPath: optIn.path) }
 
     /// Makes or removes the opt-in file to match the setting, for the next launch. Off the main
     /// thread; a failed write leaves the next launch as it was (logged by the caller's mark).
-    public nonisolated static func setOptedIn(_ on: Bool, support folder: URL) async -> Bool {
-        await Task.detached(priority: .utility) {
-            let file = optIn(in: folder), files = FileManager()
-            if !on { return (try? files.removeItem(at: file)) != nil || !files.fileExists(atPath: file.path) }
-            if files.fileExists(atPath: file.path) { return true }
-            try? files.createDirectory(at: folder, withIntermediateDirectories: true)
-            return files.createFile(atPath: file.path, contents: Data())
+    public func setOptedIn(_ on: Bool) async -> Bool {
+        await Task.detached(priority: .utility) { [support, optIn] in
+            let files = FileManager()
+            if !on { return (try? files.removeItem(at: optIn)) != nil || !files.fileExists(atPath: optIn.path) }
+            if files.fileExists(atPath: optIn.path) { return true }
+            try? files.createDirectory(at: support, withIntermediateDirectories: true)
+            return files.createFile(atPath: optIn.path, contents: Data())
         }.value
     }
 
     /// Keeps the opt-in file matching `isOn` (Labs > Show Window Shell at Launch) for the next launch:
     /// event-driven, one file write per change; ends when `isOn` gives nil (its owner went).
-    public static func follow(support: URL, isOn: @escaping @MainActor @Sendable () -> Bool?) {
+    @MainActor public func follow(isOn: @escaping @MainActor @Sendable () -> Bool?) {
         // task-owner: ends when isOn gives nil (the app's services went); otherwise lives as long as the app
         Task {
             for await on in ObservationStream(isOn) {
                 guard let on else { return }
-                _ = await setOptedIn(on, support: support)
+                _ = await setOptedIn(on)
             }
         }
     }
 
     /// The first part of every image key, from the bundle's version and commit: a new build never
     /// draws an old build's image. Only characters a key component allows (cmux-launch-shell `ImageKey`).
-    public nonisolated static func build(info: [String: Any]) -> String {
+    public static func build(info: [String: Any]) -> String {
         let raw = [info["CFBundleVersion"] as? String, info["CMUXCommit"] as? String].compactMap { $0 }.joined(separator: "+")
         let kept = raw.unicodeScalars.filter { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".+_-".unicodeScalars.contains($0)) }
         return kept.isEmpty ? "unknown" : String(String.UnicodeScalarView(kept.prefix(128)))
@@ -362,7 +365,7 @@ public final class LaunchShellWindow: NSWindow {
 
     override public func sendEvent(_ event: NSEvent) {
         guard holdsInput else { return super.sendEvent(event) }
-        switch cmux_launch_shell_input_disposition(LaunchShellReplay.kind(event), held.count) {
+        switch cmux_launch_shell_input_disposition(event.launchShellKind, held.count) {
         case 1: held.append(event)
         case 2: held.append(event); onSwapNeeded?()
         default: super.sendEvent(event)
@@ -389,11 +392,10 @@ private final class LaunchShellImageView: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }
 
-/// Held events, rebuilt for the real window (same frame, so the same window location).
-public enum LaunchShellReplay {
+extension NSEvent.EventType {
     /// The Rust `InputKind` of an event type.
-    public static func kind(_ type: NSEvent.EventType) -> UInt8 {
-        switch type {
+    public var launchShellKind: UInt8 {
+        switch self {
         case .keyDown: 1
         case .keyUp: 2
         case .flagsChanged: 3
@@ -406,10 +408,15 @@ public enum LaunchShellReplay {
         }
     }
 
-    static func kind(_ event: NSEvent) -> UInt8 { kind(event.type) }
+}
 
-    /// `event` as if it had arrived in `window`, or nil for a kind that is never held.
-    public static func event(_ event: NSEvent, to window: NSWindow) -> NSEvent? {
+/// Held events, rebuilt for the real window (same frame, so the same window location).
+extension NSEvent {
+    var launchShellKind: UInt8 { type.launchShellKind }
+
+    /// This event as if it had arrived in `window`, or nil for a kind that is never held.
+    public func replayed(in window: NSWindow) -> NSEvent? {
+        let event = self
         switch event.type {
         case .keyDown, .keyUp:
             return NSEvent.keyEvent(with: event.type, location: event.locationInWindow, modifierFlags: event.modifierFlags,
