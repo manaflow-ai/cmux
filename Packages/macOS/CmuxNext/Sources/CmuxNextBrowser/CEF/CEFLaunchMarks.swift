@@ -5,7 +5,7 @@
 /// first time per name, so each is once per launch). scripts/ci/launch_tti_check.py reads them beside the terminal's
 /// `first_terminal_frame` and `terminal_echo` and the chat's `agent_pane.painted` and `agent_pane.input_echoed`.
 ///
-/// Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our motherfucking agent
+/// Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our [...] agent
 /// pane."
 public enum CEFLaunchMarks {
     public static let firstPaint = "browser_pane.first_paint"
