@@ -608,16 +608,12 @@ class CiWebWorkflowTest(unittest.TestCase):
         test = next(s for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "webview-tests")
         self.assertEqual(test["env"]["REACT_APPS_CLASS"], "${{ needs.web-subarea-scope.outputs.react_class }}")
         self.assertIn('"$REACT_APPS_CLASS" = fast', test["run"])
-        self.assertIn("webviews-test-history", jobs["webviews-culprit-targets"]["needs"])
-        bisect = jobs["webviews-culprit-bisect"]
-        self.assertEqual(bisect["strategy"]["matrix"]["include"],
-                         "${{ fromJSON(needs.webviews-culprit-targets.outputs.matrix) }}")
-        self.assertIn("webviews_bisect.py\" run", str(bisect["steps"]).replace("'", '"'))
-        report = jobs["webviews-culprit-report"]
-        self.assertIn("--expect", str(report["steps"]))
-        upload = next(s for s in report["steps"] if s.get("name") == "Upload the culprits")
-        self.assertEqual(upload["with"]["name"], "webviews-culprits")
-
+        # The base batch's culprit bisect is cmux-next-web.yml's web-bisect (scripts/ci/web_coalesce.py): its
+        # report names each culprit commit for the auto-revert, with this run's URL.
+        web = yaml.load((ROOT / ".github/workflows/cmux-next-web.yml").read_text(), Loader=Strict)  # noqa: S506
+        step = next(s for s in web["jobs"]["web-bisect"]["steps"] if s.get("name") == "Bisect the new webview reds")
+        self.assertIn("--run-url", step["run"])
+        self.assertNotIn("webviews-culprit-bisect", jobs)
 
 if __name__ == "__main__":
     unittest.main()

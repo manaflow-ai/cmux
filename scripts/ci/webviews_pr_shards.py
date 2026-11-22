@@ -247,8 +247,14 @@ def full_rule(files: list[str]) -> str:
 
 
 def git_show(repo: Path, ref: str, path: str) -> str | None:
-    out = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True)
-    return out.stdout if out.returncode == 0 else None
+    """PATH's text at REF, or None when it is absent or not text (a font or an image is never a comment-only edit)."""
+    out = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True)
+    if out.returncode != 0:
+        return None
+    try:
+        return out.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def strip_comments(text: str, path: str) -> str:
