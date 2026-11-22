@@ -53,11 +53,14 @@ A deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (
 into the project (for example `slides/<topic>.html`), then change only the slides between
 `<main class="deck">` and `</main>`, the `<title>`, and if needed a `--cmux-*` or `--deck-*` value
 at the top of the `<style>`. Keep the `<script>` last and unchanged: it draws the slide strip, the
-arrow keys, Present (F, Esc exits), Export PDF and Export .pptx.
+arrow keys, Present (F, Esc exits), Present with speaker notes (S: a presenter window with the
+notes, a clock, the time spoken and the next slide), Export PDF and Export .pptx.
 
 - A slide is 1280 x 720 pixels. One idea per slide, about 40 words at most, text 24px or larger.
 - `<section class="title">` for a title slide, `class="center"` for a quote or one number,
-  `<div class="cols">` for two columns, `<aside class="notes">` for speaker notes.
+  `<div class="cols">` for two columns, `<aside class="notes">` for speaker notes (write them as the
+  script the person will say: Present with speaker notes shows them large), `<section data-skip>`
+  for a backup slide Present and the exports pass over (`<!-- skip -->` in a Markdown deck).
 - Pictures: inline `<svg>` (draw a chart's bars yourself; `currentColor` follows the theme), or an
   image file beside the deck. Export .pptx carries inline SVG and `data:` images; it leaves out an
   image file the browser will not read, and says so.
