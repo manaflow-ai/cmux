@@ -181,11 +181,13 @@ impl Observation {
         Observation::Unknown,
     ];
 
-    /// A record status read as an observation. An in-between status proves no end state.
+    /// A record status read as an observation. An in-between status proves no end state. A
+    /// stopped VM is powered off and comes back only through a start, which `cmux-lifeline` types
+    /// as `Stopped -> Starting` like `Paused -> Starting`: it reads as paused here.
     pub fn from_status(status: Status) -> Observation {
         match status {
             Status::Running => Observation::Running,
-            Status::Paused => Observation::Paused,
+            Status::Paused | Status::Stopped => Observation::Paused,
             Status::Failed => Observation::Failed,
             Status::Destroyed => Observation::Destroyed,
             Status::Provisioning
@@ -675,3 +677,6 @@ pub fn table() -> Value {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod lifeline_tests;
