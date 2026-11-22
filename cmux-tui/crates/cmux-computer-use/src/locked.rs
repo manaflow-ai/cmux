@@ -80,7 +80,7 @@ fn foreground(args: &Value) -> bool {
 /// placed here.
 pub fn kind_of(tool: &str, args: &Value) -> Kind {
     match tool {
-        "status" | "list_machines" => Kind::Engine,
+        "status" | "list_machines" | "list_displays" => Kind::Engine,
         "list_apps" | "list_windows" => Kind::Inventory,
         // Without a window id a screenshot or a wait captures the display.
         "screenshot" | "wait" if has(args, "window_id") => Kind::WindowLook,

@@ -25,6 +25,7 @@
 pub mod client;
 pub mod cursor;
 pub mod desktop;
+pub mod displays;
 pub mod engine;
 pub mod frame;
 pub mod keys;

@@ -344,6 +344,12 @@ pub static TOOLS: &[Tool] = &[
             )
         },
     },
+    Tool {
+        name: "list_displays",
+        access: Access::Discover,
+        description: "The displays: id (what screenshot's display takes), frame (points), scale (pixels per point), main, and builtin and virtual where the OS says. Main first.",
+        schema: || obj(json!({}), &[]),
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static Tool> {
