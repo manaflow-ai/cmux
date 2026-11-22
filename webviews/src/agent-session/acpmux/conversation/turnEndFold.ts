@@ -884,8 +884,16 @@ function playReplace(
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => {
               const y = edgeY(step, top, height);
               // On the last step the row is drawn in its new place, wherever that is: the old copy goes.
+              // A row that lands where its copy is drawn is drawn once either side of the edge, and one
+              // that lands wholly past the run's far end (out of view) is not drawn in view either way:
+              // both copies go with the edge. Held whole to the last step, such a copy (14 px in view)
+              // went in one frame 60 ms after the edge stopped (wipe seed 193 on cmux#50751).
               const drawnThere =
-                !lands || step === WIPE_POINTS || (up ? y <= lands.top : y >= lands.top + lands.height);
+                !lands ||
+                step === WIPE_POINTS ||
+                (Math.abs(lands.top - top) < 0.5 && Math.abs(lands.height - height) < 0.5) ||
+                (up ? lands.top + lands.height <= spans[0]!.from : lands.top >= spans.at(-1)!.to) ||
+                (up ? y <= lands.top : y >= lands.top + lands.height);
               return { clipPath: drawnThere ? clipAt(false, top, height, y) : clipTop(0) };
             }),
             { easing: "linear", fill: "both" },
