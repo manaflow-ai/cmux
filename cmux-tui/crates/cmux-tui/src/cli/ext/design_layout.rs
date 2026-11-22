@@ -1,8 +1,8 @@
 //! The `overflow` check: whether a widget's scene fits the tile it was mounted at.
 //!
 //! There is no layout engine here, so the sizes are estimates from the scene alone: a Text is
-//! its character count times a width per character for its size and weight (about 0.55 of the
-//! size, 0.58 semibold or bolder, 0.6 monospaced), one line is 1.2 times the size; stacks add
+//! its character count times a width per character for its size and weight (about 0.5 of the
+//! size, 0.53 semibold or bolder, 0.6 monospaced), one line is 1.2 times the size; stacks add
 //! their children and spacing (8 by default), a fixed `frame` wins, and the controls take the
 //! heights the host draws them at. The estimate errs short, so a finding means a real overflow
 //! is likely; a scene that passes can still be cut by a long word or a wide glyph.
@@ -10,8 +10,12 @@
 //! The content box is the tile ([`Tile`]: the New Tab grid's 148 pt unit) less the 16 pt inset
 //! the SDK's `WidgetFrame` draws on each side, or less the root's own `padding` when it sets one.
 //!
-//! - A Text with a line limit whose words need more lines than the limit at this size: cut.
-//! - The root's content taller than the content box: the bottom is clipped by the tile.
+//! - A Text with a line limit whose words need more than twice the lines it has at this size:
+//!   most of it is cut (an ellipsis on a long row is the limit doing its job).
+//! - The root's content more than 10% taller than the content box: the bottom is clipped.
+//!
+//! A `Group` or `ForEach` with no layout props of its own is transparent, as in SwiftUI: its
+//! children stand in the parent stack, and an empty one takes no room and no gap.
 
 use std::collections::BTreeMap;
 
@@ -21,31 +25,37 @@ use super::design::{Findings, Tile, number};
 use super::scene::Node;
 
 /// Width per character, as a fraction of the font size.
-const REGULAR_EM: f64 = 0.55;
-const BOLD_EM: f64 = 0.58;
+const REGULAR_EM: f64 = 0.5;
+const BOLD_EM: f64 = 0.53;
 const MONO_EM: f64 = 0.6;
 /// One line's height, as a multiple of the font size.
 const LINE_HEIGHT: f64 = 1.2;
 /// A stack's spacing when it sets none (SwiftUI's default).
 const STACK_SPACING: f64 = 8.0;
-/// Points the content may run past the box before it counts (rounding in the estimate).
-const TOLERANCE: f64 = 4.0;
+/// How far the content may run past the box before it counts: the estimate's own error (line
+/// heights and the host's controls differ a little between renderers).
+const TOLERANCE: f64 = 1.1;
+/// A Text cut by its line limit counts when it needs more than this many times the lines it
+/// has: an ellipsis on a long row is the line limit doing its job, losing most of it is not.
+const CUT: f64 = 2.0;
 /// Depth past which the estimate stops descending (the runtime's own cap).
 const MAX_DEPTH: usize = 64;
 
-/// Apple's text styles, in points, for a `font` given by name.
+/// A `font` given by a text style's name, in points: macOS's sizes for the style (AppKit's,
+/// smaller than iOS's), or the web renderer's where it draws smaller (`DRIFTING_STYLES`), so the
+/// estimate errs short.
 const STYLES: [(&str, f64); 11] = [
-    ("largeTitle", 34.0),
-    ("title", 28.0),
-    ("title2", 22.0),
-    ("title3", 20.0),
-    ("headline", 17.0),
-    ("body", 17.0),
-    ("callout", 16.0),
-    ("subheadline", 15.0),
-    ("footnote", 13.0),
-    ("caption", 12.0),
-    ("caption2", 11.0),
+    ("largeTitle", 15.0),
+    ("title", 15.0),
+    ("title2", 17.0),
+    ("title3", 15.0),
+    ("headline", 13.0),
+    ("body", 13.0),
+    ("callout", 12.0),
+    ("subheadline", 11.0),
+    ("footnote", 10.0),
+    ("caption", 10.0),
+    ("caption2", 10.0),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,7 +82,7 @@ pub(super) fn overflow(
     let height = tile.height - top - bottom;
     let mut layout = Layout { nodes, findings, size: &tile.size };
     let content = layout.content(node, width, 0, true);
-    if content.height > height + TOLERANCE {
+    if content.height > height * TOLERANCE {
         layout.findings.add(
             "overflow",
             Some(node),
@@ -133,7 +143,7 @@ impl Layout<'_> {
             "ZStack" => {
                 let mut size = ZERO;
                 let nodes = self.nodes;
-                for child in node.children.iter().filter_map(|id| nodes.get(id)) {
+                for child in flat(nodes, &node.children, 0) {
                     // A positioned child does not size the stack.
                     if child.props.contains_key("position") {
                         continue;
@@ -147,7 +157,9 @@ impl Layout<'_> {
             "Spacer" => ZERO,
             "Divider" | "Line" => Size { width, height: 1.0 },
             "Icon" | "Image" => {
-                let side = number(node.props.get("size")).unwrap_or(16.0);
+                let side = number(node.props.get("size"))
+                    .or_else(|| font_size(node.props.get("font")))
+                    .unwrap_or(16.0);
                 Size { width: side, height: side }
             }
             "Badge" => {
@@ -179,7 +191,7 @@ impl Layout<'_> {
 
     fn column(&mut self, ids: &[String], width: f64, gap: f64, depth: usize) -> Size {
         let nodes = self.nodes;
-        let children: Vec<&Node> = ids.iter().filter_map(|id| nodes.get(id)).collect();
+        let children = flat(nodes, ids, 0);
         let mut size = ZERO;
         for (i, child) in children.iter().enumerate() {
             let s = self.measure(child, width, depth + 1);
@@ -193,7 +205,7 @@ impl Layout<'_> {
     /// left, each in proportion to the width it wants.
     fn row(&mut self, ids: &[String], width: f64, gap: f64, depth: usize) -> Size {
         let nodes = self.nodes;
-        let children: Vec<&Node> = ids.iter().filter_map(|id| nodes.get(id)).collect();
+        let children = flat(nodes, ids, 0);
         let gaps = gap * children.len().saturating_sub(1) as f64;
         let mut fixed = 0.0;
         let mut wanted = 0.0;
@@ -237,7 +249,7 @@ impl Layout<'_> {
         let needs = (wants / width).ceil().max(1.0);
         let limit = number(node.props.get("lineLimit"));
         if let Some(limit) = limit
-            && needs > limit
+            && needs > limit * CUT
         {
             let text = words(node);
             self.findings.add(
@@ -258,13 +270,7 @@ impl Layout<'_> {
 
 /// A Text's width on one line and its font size, in points.
 fn natural(node: &Node) -> (f64, f64) {
-    let points = match node.props.get("font") {
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(13.0),
-        Some(Value::String(name)) => {
-            STYLES.iter().find(|(n, _)| n == name).map_or(13.0, |(_, size)| *size)
-        }
-        _ => 13.0,
-    };
+    let points = font_size(node.props.get("font")).unwrap_or(13.0);
     let weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
     let em = if node.props.get("monospaced").and_then(Value::as_bool) == Some(true) {
         MONO_EM
@@ -274,6 +280,15 @@ fn natural(node: &Node) -> (f64, f64) {
         REGULAR_EM
     };
     (words(node).chars().count() as f64 * points * em, points)
+}
+
+/// A `font` prop's size in points: a number, or a text style's name.
+fn font_size(font: Option<&Value>) -> Option<f64> {
+    match font? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(name) => STYLES.iter().find(|(n, _)| n == name).map(|(_, size)| *size),
+        _ => None,
+    }
 }
 
 /// The words a node draws.
@@ -291,6 +306,23 @@ fn cut(text: &str) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// The stack items `ids` stand for: a bare `Group` or `ForEach` replaced by its children.
+fn flat<'a>(nodes: &'a BTreeMap<String, Node>, ids: &[String], depth: usize) -> Vec<&'a Node> {
+    let mut out = Vec::new();
+    for node in ids.iter().filter_map(|id| nodes.get(id)) {
+        let bare = matches!(node.kind.as_str(), "Group" | "ForEach")
+            && !["padding", "paddingHorizontal", "paddingVertical", "frame", "background"]
+                .iter()
+                .any(|key| node.props.contains_key(*key));
+        if bare && depth < MAX_DEPTH {
+            out.extend(flat(nodes, &node.children, depth + 1));
+        } else {
+            out.push(node);
+        }
+    }
+    out
 }
 
 fn frame_of<'a>(node: &'a Node, key: &str) -> Option<&'a Value> {
@@ -316,4 +348,63 @@ fn padding(node: &Node) -> [f64; 4] {
         edges[2] = v;
     }
     edges
+}
+
+/// Adds the `layout-shift` findings for a tick that sent `tick` after the scene `first` built
+/// (`ticks.rs`): a Text in a row whose words change length and push what follows it. A tick that
+/// creates, removes or reorders nodes is a new layout, not a shift, and is not judged: the scene
+/// has no laid-out boxes to compare, only the tree and its words.
+pub(super) fn layout_shift(first: &[Value], tick: &[Value], findings: &mut Findings) {
+    let only_updates = tick.iter().all(|op| op.get("op").and_then(Value::as_str) == Some("update"));
+    if tick.is_empty() || !only_updates {
+        return;
+    }
+    let before = Value::Array(first.to_vec());
+    let (_, nodes) = super::scene::apply(&[&before]);
+    let mut parents: BTreeMap<&str, &str> = BTreeMap::new();
+    for (id, node) in &nodes {
+        for child in &node.children {
+            parents.insert(child.as_str(), id.as_str());
+        }
+    }
+    for op in tick {
+        let Some(id) = op.get("id").and_then(Value::as_str) else { continue };
+        let Some(new) = op.get("props").and_then(|p| p.get("text")).and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(node) = nodes.get(id) else { continue };
+        let old = words(node);
+        if node.kind != "Text" || old.chars().count() == new.chars().count() {
+            continue;
+        }
+        if number(frame_of(node, "width")).is_some() || number(frame_of(node, "minWidth")).is_some()
+        {
+            continue;
+        }
+        let Some(row) = parents.get(id).and_then(|p| nodes.get(*p)) else { continue };
+        if row.kind != "HStack" {
+            continue;
+        }
+        let at = row.children.iter().position(|c| c == id).unwrap_or(0);
+        // What comes after it in the row, up to a Spacer (which takes up the change).
+        let moved = row.children[at + 1..]
+            .iter()
+            .filter_map(|c| nodes.get(c))
+            .take_while(|n| n.kind != "Spacer")
+            .next();
+        let Some(moved) = moved else { continue };
+        findings.add(
+            "layout-shift",
+            Some(node),
+            format!(
+                "\"{}\" becomes \"{}\" on a tick ({} to {} characters) and moves the {} after it",
+                cut(&old),
+                cut(new),
+                old.chars().count(),
+                new.chars().count(),
+                moved.kind
+            ),
+            "give the text a fixed width for its longest value (.frame({ width: N })), put a Spacer() after it, or keep its length constant (pad numbers)".into(),
+        );
+    }
 }

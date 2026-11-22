@@ -173,3 +173,207 @@ fn a_translucent_text_color_is_measured_as_drawn() {
         check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
     assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
 }
+
+// Slice 3: the checks a widget's size and second tick add.
+
+use super::System;
+use super::{Tile, check_tile, merge_sizes};
+
+fn at(ops: &Value, size: &str) -> Vec<super::Finding> {
+    check_tile(&[ops], Surface::Widget, &System::cmux(), Tile::of(size).as_ref())
+}
+
+fn named<'a>(findings: &'a [super::Finding], check: &str) -> Vec<&'a super::Finding> {
+    findings.iter().filter(|f| f.check == check).collect()
+}
+
+#[test]
+fn tiles_are_the_new_tab_grid_sizes() {
+    let size = |name: &str| Tile::of(name).map(|t| (t.width, t.height));
+    assert_eq!(size("small"), Some((148.0, 148.0)));
+    assert_eq!(size("medium"), Some((312.0, 148.0)));
+    assert_eq!(size("large"), Some((312.0, 312.0)));
+    assert_eq!(size("huge"), None);
+}
+
+#[test]
+fn a_long_title_cut_by_its_line_limit_overflows_a_small_tile_and_not_a_medium_one() {
+    let ops = scene(&[(
+        "Text",
+        json!({"text": "Quarterly planning review with the design team", "font": 15, "weight": "semibold", "lineLimit": 1}),
+    )]);
+    let small = at(&ops, "small");
+    let overflow = named(&small, "overflow");
+    assert_eq!(overflow.len(), 1, "{small:?}");
+    assert!(overflow[0].message.contains("small tile"), "{}", overflow[0].message);
+    assert!(overflow[0].fix.contains("ctx.size"), "{}", overflow[0].fix);
+    assert_eq!(overflow[0].sizes, vec!["small".to_string()]);
+    assert!(named(&at(&ops, "medium"), "overflow").is_empty());
+}
+
+#[test]
+fn rows_taller_than_the_tile_overflow_at_the_sizes_they_do_not_fit() {
+    let rows: Vec<(&str, Value)> = (0..8)
+        .map(|i| ("Text", json!({"text": format!("Item {i}"), "font": 13, "lineLimit": 1})))
+        .collect();
+    let ops = scene(&rows);
+    let small = at(&ops, "small");
+    assert!(named(&small, "overflow").iter().any(|f| f.message.contains("tall")), "{small:?}");
+    assert!(named(&at(&ops, "large"), "overflow").is_empty());
+}
+
+#[test]
+fn the_roots_own_padding_is_its_inset() {
+    // Edge to edge with no padding: the 16 pt inset is assumed; a root padding of 4 gives room.
+    let text =
+        json!({"text": "Standup with the design team at ten thirty", "font": 13, "lineLimit": 1});
+    let tight = json!([
+        {"op": "create", "id": "root", "type": "VStack", "props": {"padding": 4}},
+        {"op": "create", "id": "t", "type": "Text", "props": text},
+        {"op": "children", "id": "root", "children": ["t"]},
+        {"op": "root", "id": "root"}
+    ]);
+    assert!(named(&at(&tight, "small"), "overflow").is_empty(), "{:?}", at(&tight, "small"));
+    let ops = scene(&[("Text", text)]);
+    assert_eq!(named(&at(&ops, "small"), "overflow").len(), 1);
+}
+
+#[test]
+fn findings_seen_at_several_sizes_merge_into_one_naming_them() {
+    let ops = scene(&[("Text", json!({"text": "x", "font": 40, "lineLimit": 1}))]);
+    let merged = merge_sizes(vec![at(&ops, "small"), at(&ops, "medium"), at(&ops, "large")]);
+    let size = named(&merged, "type-size");
+    assert_eq!(size.len(), 1, "{merged:?}");
+    assert_eq!(size[0].sizes, ["small", "medium", "large"].map(String::from).to_vec());
+    assert!(size[0].text().starts_with("type-size [small, medium, large]: "), "{}", size[0].text());
+    assert_eq!(size[0].to_json()["sizes"], json!(["small", "medium", "large"]));
+}
+
+#[test]
+fn a_hex_icon_that_vanishes_in_one_mode_has_no_dark_mode_pair() {
+    let ops = scene(&[
+        ("Icon", json!({"name": "star.fill", "color": "#f5f5f5"})),
+        ("Circle", json!({"fill": "#1a1a1a"})),
+        ("Icon", json!({"name": "bolt", "color": "#ff3b30"})),
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let pairs = named(&findings, "dark-mode-pair");
+    assert_eq!(pairs.len(), 2, "{findings:?}");
+    assert!(pairs[0].message.contains("#f5f5f5") && pairs[0].message.contains("light surface"));
+    assert!(pairs[1].message.contains("#1a1a1a") && pairs[1].message.contains("dark surface"));
+    assert!(pairs[0].fix.contains("role"), "{}", pairs[0].fix);
+}
+
+#[test]
+fn a_hex_ink_on_its_own_opaque_background_and_roles_are_not_judged_by_mode() {
+    let ops = json!([
+        {"op": "create", "id": "root", "type": "VStack", "props": {"background": "#000000"}},
+        {"op": "create", "id": "i", "type": "Icon", "props": {"name": "star", "color": "#1a1a1a"}},
+        {"op": "create", "id": "j", "type": "Icon", "props": {"name": "star", "color": "secondary"}},
+        {"op": "children", "id": "root", "children": ["i", "j"]},
+        {"op": "root", "id": "root"}
+    ]);
+    assert!(named(&check(&[&ops], Surface::Widget), "dark-mode-pair").is_empty());
+}
+
+#[test]
+fn a_widget_rounding_its_own_tile_or_a_card_is_told_the_host_draws_it() {
+    let ops = json!([
+        {"op": "create", "id": "root", "type": "VStack", "props": {"cornerRadius": 22, "background": "selected"}},
+        {"op": "create", "id": "card", "type": "VStack", "props": {"cornerRadius": 12}},
+        {"op": "create", "id": "chip", "type": "Text", "props": {"text": "9:00", "cornerRadius": 4, "lineLimit": 1}},
+        {"op": "create", "id": "glow", "type": "Rectangle", "props": {"shadow": {"radius": 8}}},
+        {"op": "children", "id": "root", "children": ["card", "glow"]},
+        {"op": "children", "id": "card", "children": ["chip"]},
+        {"op": "root", "id": "root"}
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let radius = named(&findings, "corner-radius");
+    let messages: Vec<&str> = radius.iter().map(|f| f.message.as_str()).collect();
+    assert_eq!(radius.len(), 3, "{messages:?}");
+    assert!(messages[0].contains("rounds the tile"), "{messages:?}");
+    assert!(messages[1].contains("rounds a card"), "{messages:?}");
+    assert!(messages[2].contains("shadow"), "{messages:?}");
+    assert!(radius[0].fix.contains("host draws the tile's corner"), "{}", radius[0].fix);
+}
+
+#[test]
+fn a_tick_that_changes_a_texts_length_moves_what_follows_it() {
+    use super::super::design_layout::layout_shift;
+    let first: Vec<Value> = serde_json::from_value(json!([
+        {"op": "create", "id": "row", "type": "HStack", "props": {}},
+        {"op": "create", "id": "n", "type": "Text", "props": {"text": "9", "lineLimit": 1}},
+        {"op": "create", "id": "u", "type": "Text", "props": {"text": "steps", "lineLimit": 1}},
+        {"op": "create", "id": "row2", "type": "HStack", "props": {}},
+        {"op": "create", "id": "m", "type": "Text", "props": {"text": "9", "lineLimit": 1}},
+        {"op": "create", "id": "s", "type": "Spacer", "props": {}},
+        {"op": "create", "id": "v", "type": "Text", "props": {"text": "min", "lineLimit": 1}},
+        {"op": "children", "id": "row", "children": ["n", "u"]},
+        {"op": "children", "id": "row2", "children": ["m", "s", "v"]},
+        {"op": "root", "id": "row"}
+    ]))
+    .unwrap();
+    let tick: Vec<Value> = serde_json::from_value(json!([
+        {"op": "update", "id": "n", "props": {"text": "10"}},
+        {"op": "update", "id": "m", "props": {"text": "10"}},
+        {"op": "update", "id": "u", "props": {"text": "steps"}}
+    ]))
+    .unwrap();
+    let mut findings = super::Findings::default();
+    layout_shift(&first, &tick, &mut findings);
+    let found = findings.done();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].check, "layout-shift");
+    assert!(found[0].message.contains("\"9\" becomes \"10\""), "{}", found[0].message);
+    assert!(found[0].fix.contains(".frame({ width: N })"), "{}", found[0].fix);
+
+    // A tick that rebuilds part of the tree is a new layout, not a shift.
+    let mut rebuilt = tick.clone();
+    rebuilt.push(json!({"op": "remove", "id": "u"}));
+    let mut findings = super::Findings::default();
+    layout_shift(&first, &rebuilt, &mut findings);
+    assert!(findings.done().is_empty());
+}
+
+/// The fixed widgets slice 1 recorded (`design-check-scenes.json`, `after`) and the shipped
+/// examples (`widget-scenes.json`) at each size: what the size checks say about them. The
+/// overflows are the estimator's, pinned so a change to it shows here.
+#[test]
+fn the_recorded_widgets_at_their_sizes() {
+    let report = |file: &str| -> Vec<String> {
+        let tag = if file.contains("\"before\"") { "design-check" } else { "widget" };
+        let value: Value = serde_json::from_str(file).unwrap();
+        let mut lines = Vec::new();
+        for (name, scene) in value.as_object().unwrap() {
+            let ops = scene.get("after").unwrap_or(scene);
+            let ops = ops.get("ops").unwrap_or(ops);
+            let size = name.rsplit('.').next().unwrap();
+            for f in at(ops, size) {
+                if ["overflow", "dark-mode-pair", "corner-radius"].contains(&f.check) {
+                    lines.push(format!("{tag} {name}: {}: {}", f.check, f.message));
+                }
+            }
+        }
+        lines
+    };
+    let fixed = report(include_str!(
+        "../../../../../../webviews/src/apps/scene/fixtures/design-check-scenes.json"
+    ));
+    // Estimated, not seen in a tile: slice 1's fixed clock lists six two-line cities under a
+    // 34 pt time, and its fixed to-do keeps four rows, a header and a field at medium.
+    assert_eq!(
+        fixed,
+        vec![
+            "design-check clock.large: overflow: the content is about 317 pt tall and a large tile has 280 pt inside its inset: the bottom is cut off".to_string(),
+            "design-check todo.medium: overflow: the content is about 173 pt tall and a medium tile has 116 pt inside its inset: the bottom is cut off".to_string(),
+        ]
+    );
+    let shipped = report(include_str!(
+        "../../../../../../webviews/src/apps/scene/fixtures/widget-scenes.json"
+    ));
+    // The shipped to-do keeps four rows, a header, "1 more" and its field at medium too.
+    assert_eq!(
+        shipped,
+        vec!["widget todo.medium: overflow: the content is about 155 pt tall and a medium tile has 116 pt inside its inset: the bottom is cut off".to_string()]
+    );
+}
