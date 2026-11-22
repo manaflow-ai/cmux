@@ -3,11 +3,13 @@
 #   cmux-ci test --setup rust --timeout 7200 --artifact DIR -- bash cmux-tui/crates/coord-sim/src/fanin/ci.sh [RAMPS] [WINDOW_S] [HOSTS]
 # Builds the acpmux daemon (release) and coord-sim, runs `coord-sim fanin` (real daemons both sides,
 # one controller, N sessions over HOSTS hosts) and copies the tables and raw samples to
-# $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts.
+# $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts, 3 fan-out rounds
+# (FANIN_FANOUT_ROUNDS=0 measures fan-in with no fan-out bursts).
 set -uo pipefail
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
 HOSTS=${3:-10}
+ROUNDS=${FANIN_FANOUT_ROUNDS:-3}
 ROOT=$(pwd)
 OUT=${FAST_CHECKS_OUT:-/tmp/fanin-out}
 mkdir -p "$OUT"
@@ -22,7 +24,7 @@ SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-si
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
 RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
 chmod 700 "$RUN"
-"$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" \
+"$SIM" fanin --hosts "$HOSTS" --sessions 2000 --ramps "$RAMPS" --rate 0.333 --window-s "$WINDOW" --fanout-rounds "$ROUNDS" \
   --out "$RUN" --acpmux "$BIN" --wall-clock-cap 6000 2>&1 | tee "$OUT/fanin.log" | grep -v '^FANIN_SUMMARY'
 code=${PIPESTATUS[0]}
 "$SIM" fanin teardown --out "$RUN" || true
