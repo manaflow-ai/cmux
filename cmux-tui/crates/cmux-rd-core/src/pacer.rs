@@ -254,7 +254,7 @@ mod tests {
         for (t, _) in &sent {
             *per_time.entry(*t).or_insert(0usize) += 1;
         }
-        let rate = 345_600.0 / 8_333.0; // bytes per us
+        let rate = 345_600.0 / 8_333.0_f64.min(MAX_SPREAD_US); // bytes per us
         let burst = (rate * BURST_US as f64 / 1152.0).ceil() as usize + 1;
         assert!(per_time.values().all(|&n| n <= burst), "{per_time:?}");
     }
