@@ -46,6 +46,8 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        // Seeded by an attach or detail read and left out of census rows (`summary_with_tools`).
+        row.remove("timeBreakdown");
         if let Some(Value::String(title)) = row.get_mut("title") {
             *title = summary_title(title);
         }

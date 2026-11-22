@@ -14,8 +14,10 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     static let observedNotificationMethods = [
         "_acpmux/prompt_accepted", "_acpmux/event", "_acpmux/permission_pending",
     ]
-    static let eventObserverMarkers = [
-        "\"permission_request\"", "\"permission_reissued\"", "\"permission_decision\"",
+    /// The `_acpmux/event` kinds a host observer reads (``AcpmuxDecisionContexts``,
+    /// ``AgentPaneUserGestures``: each reads `params.kind`); every other event goes on as its text.
+    static let observedEventKinds: Set<String> = [
+        "permission_request", "permission_reissued", "permission_decision",
     ]
 
     private nonisolated struct Entry {
@@ -109,72 +111,55 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     /// notification feeds a host observer or when a reply needs its id rewritten. Notifications
     /// otherwise retain their original text; a reply gets the page's id (or its filtered shape).
     /// A reply to no request the relay sent is dropped.
-    func toPage(_ text: String) -> Inbound {
-        switch AcpmuxJSONKeys.verdict(text) {
+    func toPage(_ text: String) -> Inbound { classify(text).inbound }
+
+    /// ``toPage(_:)``, and whether the page waits on an opaque notification
+    /// (``AcpmuxPaneSocket/pageWaits(method:kind:)``), all from one read of the frame
+    /// (``AcpmuxJSONKeys/facts(_:)``): the check, the top-level `method` and `id`, and
+    /// `params.kind`. Nothing searches the frame's text after it.
+    func classify(_ text: String) -> (inbound: Inbound, waits: Bool) {
+        let facts = AcpmuxJSONKeys.facts(text)
+        switch facts.verdict {
         case .clean: break
-        case .malformed: return .drop
-        case .duplicate: return .close
+        case .malformed: return (.drop, false)
+        case .duplicate: return (.close, false)
         }
-        // Stream notifications have no id to rewrite. The marker check avoids Foundation's full
-        // parse for the usual `session/update` payloads while retaining the parsed object for the
-        // three notifications read by host observers.
-        let methodScan = Self.topLevelMethod(text)
-        var method = methodScan.value
-        var notificationObject: [String: Any]?
-        /// The escape check's parse of a frame without a method (a reply), kept for the reply path.
-        var replyObject: [String: Any]?
-        // JSON method names are normally plain ASCII. If an escaped key or value appears, use
-        // Foundation once to decode that rare spelling before deciding whether host observers
-        // need the object; plain stream notifications never take this path.
-        if method?.contains("\\") == true || (!methodScan.found && text.utf8Contains("\\")) {
-            if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
-                if let decoded = object["method"] as? String {
-                    method = decoded
-                    notificationObject = object
-                } else {
-                    replyObject = object
-                }
-            }
-        }
-        if let method, Self.observedNotificationMethods.contains(method) {
+        if let method = facts.method, Self.observedNotificationMethods.contains(method) {
             // Most `_acpmux/event` frames are transcript chunks. The host only reads permission
-            // records from that stream; pacing for turn boundaries uses the raw text path below.
-            if method == "_acpmux/event" &&
-                !text.utf8ContainsAny(Self.eventObserverMarkers) {
-                return .page(text, object: nil, replyTo: "_acpmux/event")
+            // records from that stream; a turn boundary wakes a hidden page by its kind alone.
+            if method == "_acpmux/event", !(facts.kind.map(Self.observedEventKinds.contains) ?? false) {
+                return (.page(text, object: nil, replyTo: "_acpmux/event"), AcpmuxPaneSocket.pageWaits(method: method, kind: facts.kind))
             }
-            let object = notificationObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
-            guard let object
-            else { return .page(text, object: nil, replyTo: nil) }
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            else { return (.page(text, object: nil, replyTo: nil), AcpmuxPaneSocket.pageWaits(method: method, kind: facts.kind)) }
             if method == "_acpmux/prompt_accepted", let promptAccepted,
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
                 promptAccepted(promptId)
             }
-            return .page(text, object: object, replyTo: method)
+            return (.page(text, object: object, replyTo: method), false)
         }
-        if methodScan.found {
-            // Opaque: its method still goes along, for the page-wait check (``AcpmuxPaneSocket/pageWaits(on:method:)``).
-            return .page(text, object: nil, replyTo: method)
+        if facts.hasMethod {
+            return (.page(text, object: nil, replyTo: nil), AcpmuxPaneSocket.pageWaits(method: facts.method, kind: facts.kind))
         }
-        guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
-        guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (.drop, false) }
+        guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return (.drop, false) }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
         guard let entry = state.withLock({ state -> Entry? in
             guard let entry = state.entries.removeValue(forKey: relayID) else { return nil }
             state.inFlight.remove(entry.pageID)
             return entry
-        }), let id = Self.value(entry.pageID) else { return .drop }
+        }), let id = Self.value(entry.pageID) else { return (.drop, false) }
         object["id"] = id
         // The page id is free again from here, while the host still sends the reply: the page
         // never reuses an id (direct.ts counts them up), so its answer cannot go to another request.
         if entry.method == AgentPaneAgentReply.method {
-            return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
+            return (.complete(object: object, pageID: entry.pageID, subject: entry.subject), false)
         }
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+            return (.page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method), false)
         }
-        guard let fresh = Self.encode(object) else { return .drop }
-        return .page(fresh, object: object, replyTo: entry.method)
+        guard let fresh = Self.encode(object) else { return (.drop, false) }
+        return (.page(fresh, object: object, replyTo: entry.method), false)
     }
 
     /// A raw JSON id back to its value.
@@ -185,70 +170,5 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     static func encode(_ object: [String: Any]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return nil }
         return String(decoding: data, as: UTF8.self)
-    }
-
-    /// Finds the top-level `method` key and value without constructing a JSON object. The duplicate-key
-    /// validator has already established that this is well-formed JSON, so this small scanner only
-    /// needs to track strings and nesting; it avoids mistaking a transcript field named `method`
-    /// for the frame's method when deciding whether a reply needs a full parse.
-    private struct MethodScan {
-        var found: Bool
-        var value: String?
-    }
-
-    private static func topLevelMethod(_ text: String) -> MethodScan {
-        var text = text
-        return text.withUTF8 { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return MethodScan(found: false, value: nil) }
-            var depth = 0
-            var i = 0
-            while i < bytes.count {
-                switch base[i] {
-                case 0x22: // string
-                    let start = i + 1
-                    i = start
-                    var escaped = false
-                    while i < bytes.count {
-                        let byte = base[i]
-                        if escaped { escaped = false }
-                        else if byte == 0x5C { escaped = true }
-                        else if byte == 0x22 { break }
-                        i += 1
-                    }
-                    if depth == 1, i - start == 6 {
-                        var next = i + 1
-                        while next < bytes.count, base[next] == 0x20 || base[next] == 0x09 || base[next] == 0x0A || base[next] == 0x0D { next += 1 }
-                        if next < bytes.count, base[next] == 0x3A,
-                           base[start] == 0x6D, base[start + 1] == 0x65, base[start + 2] == 0x74,
-                           base[start + 3] == 0x68, base[start + 4] == 0x6F, base[start + 5] == 0x64 {
-                            var value = next + 1
-                            while value < bytes.count, base[value] == 0x20 || base[value] == 0x09 || base[value] == 0x0A || base[value] == 0x0D { value += 1 }
-                            guard value < bytes.count, base[value] == 0x22 else {
-                                return MethodScan(found: true, value: nil)
-                            }
-                            let valueStart = value + 1
-                            value = valueStart
-                            var valueEscaped = false
-                            while value < bytes.count {
-                                let byte = base[value]
-                                if valueEscaped { valueEscaped = false }
-                                else if byte == 0x5C { valueEscaped = true }
-                                else if byte == 0x22 { break }
-                                value += 1
-                            }
-                            if valueEscaped || value >= bytes.count {
-                                return MethodScan(found: true, value: nil)
-                            }
-                            return MethodScan(found: true, value: String(decoding: bytes[valueStart..<value], as: UTF8.self))
-                        }
-                    }
-                    i += 1
-                case 0x7B, 0x5B: depth += 1; i += 1
-                case 0x7D, 0x5D: depth -= 1; i += 1
-                default: i += 1
-                }
-            }
-            return MethodScan(found: false, value: nil)
-        }
     }
 }

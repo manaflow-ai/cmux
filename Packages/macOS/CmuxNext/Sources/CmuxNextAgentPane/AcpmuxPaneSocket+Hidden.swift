@@ -80,11 +80,13 @@ extension AcpmuxPaneShedding {
     nonisolated static let streamMethods: Set<String> = ["session/update", "_acpmux/event"]
 
     /// Whether a pane nobody can see may go without `text` until it shows: a stream record the page can read again
-    /// (``sheddable(_:method:)`` already holds) that it does not wait on (``AcpmuxPaneSocket/pageWaits(on:)``: a turn's
+    /// (``sheddable(_:method:)`` already holds) that it does not wait on (``AcpmuxPaneSocket/pageWaits(method:kind:)``: a turn's
     /// end, a prompt queued or refused). Other chats' list notices go by ``AcpmuxPaneSocket/setAsleep(_:)``.
     nonisolated static func sheddableWhileHidden(_ text: String, method: String?) -> Bool {
         guard let method, streamMethods.contains(method) else { return false }
-        return !AcpmuxPaneSocket.pageWaits(on: text)
+        // Only an `_acpmux/event`'s wait depends on its `params.kind`; a session update never waits.
+        let kind = method == "_acpmux/event" ? AcpmuxJSONKeys.facts(text).kind : nil
+        return !AcpmuxPaneSocket.pageWaits(method: method, kind: kind)
     }
 
     /// Where a hidden episode starts, in the place of the first record left out: the page notes the seq its chat is

@@ -331,7 +331,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             var answers = 0
             var questionsChanged = false
             for text in batch {
-                switch ids.toPage(text) {
+                let (inbound, waits) = ids.classify(text)
+                switch inbound {
                 case .drop:
                     continue
                 case .close:
@@ -363,9 +364,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                         replacements.observe(object, replyTo: method, connection: connection)
                         if Self.pageWaits(on: object) { awaited += 1 }
                         if Self.answersPage(object) { answers += 1 }
-                    } else if Self.pageWaits(on: fresh, method: method) {
+                    } else if waits {
                         // Opaque notifications still wake a hidden page for the small set of
-                        // delivery-boundary events; their raw text is enough to identify them.
+                        // delivery-boundary events, as the frame's one read classified them.
                         awaited += 1
                     }
                     page.append(fresh)

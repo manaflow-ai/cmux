@@ -77,14 +77,20 @@ struct AcpmuxPaneInboundScanBench {
         print("inbound scan bench, 1,000 frames of \(bytes) B: cpu \(cpu), wall \(wall) (median of 5)")
     }
 
-    /// The scan's answers, so the faster path is the same check.
+    /// Whether the page waits on `text`, from the one facts read the inbound pass makes (``AcpmuxRequestIds/classify(_:)``).
+    static func waits(_ text: String) -> Bool {
+        let facts = AcpmuxJSONKeys.facts(text)
+        return AcpmuxPaneSocket.pageWaits(method: facts.method, kind: facts.kind)
+    }
+
+    /// The facts read's answers, so the faster path is the same check.
     @Test func pageWaitsOnTheTurnEndAndOnNoChunk() {
         let frames = Self.turn(frames: 20, bytes: 2_048)
-        #expect(AcpmuxPaneSocket.pageWaits(on: frames[19]))
-        #expect(!AcpmuxPaneSocket.pageWaits(on: frames[0]))
-        #expect(!AcpmuxPaneSocket.pageWaits(on: frames[9]))
-        #expect(AcpmuxPaneSocket.pageWaits(on: #"{"method":"_acpmux/event","params":{"kind" : "queued"}}"#))
-        #expect(AcpmuxPaneSocket.pageWaits(on: #"{"id":3,"method":"session/request_permission","params":{}}"#))
-        #expect(!AcpmuxPaneSocket.pageWaits(on: #"{"method":"_acpmux/event","params":{"kind":"turn_endless"}}"#))
+        #expect(Self.waits(frames[19]))
+        #expect(!Self.waits(frames[0]))
+        #expect(!Self.waits(frames[9]))
+        #expect(Self.waits(#"{"method":"_acpmux/event","params":{"kind" : "queued"}}"#))
+        #expect(Self.waits(#"{"id":3,"method":"session/request_permission","params":{}}"#))
+        #expect(!Self.waits(#"{"method":"_acpmux/event","params":{"kind":"turn_endless"}}"#))
     }
 }

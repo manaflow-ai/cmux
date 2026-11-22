@@ -3,7 +3,7 @@ import Foundation
 extension AcpmuxPaneSocket {
     /// The frame as native UTF-8. URLSessionWebSocketTask hands a text frame over as a bridged
     /// NSString (UTF-16 for any non-ASCII text), and every later byte read (the size, the
-    /// duplicate-key check, the method scan, `contains`) would walk it one character at a time
+    /// one check-and-classify read, ``AcpmuxJSONKeys/facts(_:)``) would walk it one character at a time
     /// through `characterAtIndex:`. One bulk transcode here makes each of those a native read.
     /// A native string comes back as it is.
     nonisolated static func nativeUTF8(_ text: String) -> String {
