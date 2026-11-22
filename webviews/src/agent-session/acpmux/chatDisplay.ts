@@ -10,10 +10,24 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import {
+  DEFAULT_RAIL_SHOW,
+  isRailShow,
+  RAIL_CONTROL_KEY,
+  RAIL_SHOW_KEY,
+  type RailShow,
+} from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
+import { readingLook, readingLookValues } from "./readingLook.experiment";
+import {
+  HIGH_CONTRAST_CHAT_VARIABLES,
+  highContrastLook,
+  highContrastLookValues,
+  type HighContrastChatVariable,
+} from "./highContrastLook.experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
 import {
   CHAT_UI_FONT_KEY,
@@ -34,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -130,7 +145,7 @@ export type TrayHandleSide = "left" | "middle" | "right";
 export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
-/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
@@ -234,6 +249,19 @@ const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =
   value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
+function transcriptWidth(value: unknown): number {
+  switch (value) {
+    case "narrow":
+      return 640;
+    case "medium":
+      return CHAT_DISPLAY.width.fallback;
+    case "wide":
+      return 960;
+    default:
+      return number(value, CHAT_DISPLAY.width) ?? CHAT_DISPLAY.width.fallback;
+  }
+}
+
 /// A font family name safe to put in a CSS value: no quotes, braces or semicolons.
 const family = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -265,7 +293,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
-    width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
+    width: transcriptWidth(values[CHAT_DISPLAY.width.key]),
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
@@ -394,22 +422,33 @@ let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
+let railShow: RailShow = DEFAULT_RAIL_SHOW;
+let railControlOn = false;
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
-let featureTipsOn = true;
+let featureTipsOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
+let highContrastArm: keyof typeof highContrastLook.arms = "off";
 /// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
 let appliedFacesKey = "";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
-export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void {
+export function applyChatDisplay(
+  root: HTMLElement,
+  display: ChatDisplay,
+  look: keyof typeof highContrastLook.arms = highContrastArm,
+): void {
   for (const [name, value] of Object.entries(chatDisplayVariables(display))) {
     if (value === null) root.style.removeProperty(name);
     else root.style.setProperty(name, value);
+  }
+  for (const name of Object.keys(HIGH_CONTRAST_CHAT_VARIABLES) as HighContrastChatVariable[]) {
+    if (look === "high") root.style.setProperty(name, HIGH_CONTRAST_CHAT_VARIABLES[name]);
+    else root.style.removeProperty(name);
   }
 }
 
@@ -417,23 +456,29 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureThinkingLook(raw);
   configureSenderIconLook(raw);
-  const next = resolveChatDisplay(raw);
+  const readingValues = readingLookValues(raw, experimentArm(readingLook));
+  const nextHighContrastArm = experimentArm(highContrastLook);
+  const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   const storedBanner = raw[UNREAD_BANNER_KEY];
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
+  const show = isRailShow(raw[RAIL_SHOW_KEY]) ? (raw[RAIL_SHOW_KEY] as RailShow) : DEFAULT_RAIL_SHOW;
+  const railControl = raw[RAIL_CONTROL_KEY] === true;
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
-  const tips = raw[FEATURE_TIPS_KEY] !== false;
+  const tips = raw[FEATURE_TIPS_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
+  const sameLook = nextHighContrastArm === highContrastArm;
   // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
   // have loaded the estimate measures them (the measure stacks change), under a new look that has
   // the transcript measure every row again, as a bundled face's load does below.
@@ -449,11 +494,14 @@ export function setChatDisplay(value: unknown): void {
   appliedFacesKey = facesKey;
   if (
     same &&
+    sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
+    show === railShow &&
+    railControl === railControlOn &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
@@ -469,6 +517,8 @@ export function setChatDisplay(value: unknown): void {
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
+  railShow = show;
+  railControlOn = railControl;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
@@ -477,10 +527,13 @@ export function setChatDisplay(value: unknown): void {
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
+    highContrastArm = nextHighContrastArm;
+    if (typeof document !== "undefined") applyChatDisplay(document.documentElement, current, nextHighContrastArm);
     for (const listener of listeners) listener();
     return;
   }
   current = next;
+  highContrastArm = nextHighContrastArm;
   // A bundled face loads after this event: once it has, the estimate measures it (its measure
   // stack changes), and a new look (the same values) makes the transcript measure every row again,
   // offscreen ones too, as a new font does (App.tsx `measuredLook`).
@@ -490,7 +543,7 @@ export function setChatDisplay(value: unknown): void {
     current = { ...current };
     for (const listener of listeners) listener();
   });
-  if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
+  if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next, nextHighContrastArm);
   for (const listener of listeners) listener();
 }
 
@@ -600,6 +653,15 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const railShowSnapshot = () => railShow;
+const railControlSnapshot = () => railControlOn;
+/// What the prompt rail shows (RAIL_SHOW_KEY), separate from the measured look: a change remeasures no row.
+export const useRailShow = (): RailShow => useSyncExternalStore(subscribe, railShowSnapshot, railShowSnapshot);
+/// Whether the prompt rail draws its head control (RAIL_CONTROL_KEY).
+export const useRailControl = (): boolean => useSyncExternalStore(subscribe, railControlSnapshot, railControlSnapshot);
+/// Shows `show` on every rail at once; the default removes the key.
+export const setRailShow = (show: RailShow): void =>
+  changeChatDisplay(RAIL_SHOW_KEY, show === DEFAULT_RAIL_SHOW ? null : show);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.

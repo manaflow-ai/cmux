@@ -13,8 +13,9 @@ use serde_json::{Map, Number, Value};
 
 use super::{
     CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
-    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_u32,
-    parse_bool, parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
+    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_purpose,
+    insert_u32, parse_bool, parse_tab_group_private, request, usage, validate_one_of,
+    validate_prefixed_id,
 };
 
 const GROUP_COLORS: &[&str] =
@@ -369,14 +370,15 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
-/// `workspace list [--order session|personal] [--name <name>] [--cwd <path>]`.
+/// `workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+/// [--id <id,...>] [--tree]`.
 pub(super) fn workspace_list(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Params::default();
     insert_optional_string(&mut params.fields, flags, "order", "order");
-    let filter = super::list_filter::take(flags, true, true)?;
+    let filter = super::list_filter::take_workspace(flags)?;
     params.send(Op::WorkspaceList, selectors, flags).map(|plan| plan.filtered(filter))
 }
 
@@ -679,13 +681,19 @@ pub(super) fn parse_room(words: &[&str], flags: &mut Flags) -> Result<CommandPla
     let mut selectors = Selectors::default();
     let mut params = Params::default();
     let operation = match words {
-        ["list"] => Op::RoomList,
+        ["list"] => {
+            let created_by = super::list_filter::take_created_by(flags)?;
+            return params
+                .send(Op::RoomList, &selectors, flags)
+                .map(|plan| plan.filtered(super::ListFilter { created_by, ..Default::default() }));
+        }
         ["create"] => {
             params.insert("name", Value::String(flags.required("name")?));
             for name in ["color", "icon", "theme"] {
                 insert_optional_string(&mut params.fields, flags, name, name);
             }
             optional_index(&mut params, flags)?;
+            insert_purpose(&mut params.fields, flags);
             Op::RoomCreate
         }
         ["unpin"] => {
