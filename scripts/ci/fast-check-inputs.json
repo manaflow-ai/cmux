@@ -57,6 +57,26 @@
       }
     },
     ".github/workflows/cmux-next-guards.yml": {
+      "nightly-guards": {
+        "why": "on a pull request this call runs only ci-guards.yml's submodule forward-only guard (and its Guard status): it judges gitlink moves, .gitmodules and the Zig package mirror of the Ghostty trees and the repo's build.zig.zon files",
+        "inputs": [
+          ".github/workflows/ci-guards.yml",
+          ".gitmodules",
+          "ghostty",
+          "ghostty-next",
+          "homebrew-cmux",
+          "**/build.zig.zon",
+          "scripts/ci/submodule_forward_only.py",
+          "scripts/ci/ci_process_tree.py",
+          "scripts/ci/git_fetch_retry.py",
+          "scripts/ci/zig_package_mirror.py",
+          "scripts/ci/zig-packages.lock",
+          "scripts/ci/deadline_http.py",
+          "tests/test_submodule_forward_only.py",
+          "tests/git_fixture_env.py"
+        ],
+        "not_inputs": {}
+      },
       "ci-guard-group": {
         "why": "the ci guard group and the groups a change routes (detect_linux_guard_changes.classify_feat): the guard tests read .github/, tests/ and scripts/; a product path runs it only when a group owns it",
         "router": "guard_groups",
