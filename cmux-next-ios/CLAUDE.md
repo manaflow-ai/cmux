@@ -44,7 +44,7 @@ cd /tmp/ev && unzip -q evidence.zip              # screens/launch.png, SUMMARY.m
 ```
 
 Measured from a lane VM on 2026-11-22: step 1 took 4 min 2 s end to end (36 s of compiling, the rest
-queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on `aws-m4pro-1` (the
+queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on a fleet simulator Mac (the
 Rust FFI xcframework missed its cache and took 308 s; FFI plus app build 581 s; the rest was queue,
 boot and install). The FFI is cached by its inputs, so a Swift-only change skips those 308 s.
 A PR into `feat-cmux-next` that touches `cmux-next-ios/**` also runs the whole kit
