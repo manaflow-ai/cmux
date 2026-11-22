@@ -29,7 +29,7 @@ impl Hub {
     pub(super) fn record_task_shape(self: &Arc<Self>, session: &Arc<Session>, shape: Shape) {
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("skill-distill-shape", async move {
             let meta = session.meta();
             let cwd = meta.cwd.clone();
             if !super::memory_inbox::is_project(&cwd) {

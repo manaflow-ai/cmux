@@ -1,4 +1,5 @@
 import { memo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { focusRoute } from "../../../ui/focusRoute";
 import { useT } from "../i18n";
 import { skillDraftProblems, skillSteps, type SkillAction, type SkillDraft, type SkillOffer } from "./skillOffer";
 import "./SkillOfferCard.css";
@@ -145,7 +146,7 @@ export const SkillOfferCard = memo(function SkillOfferCard({
                 ref={(element) => {
                   if (element && focusName.current) {
                     focusName.current = false;
-                    element.focus();
+                    focusRoute(element, "person", "skill offer: Edit opens the name field");
                   }
                 }}
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
