@@ -33,3 +33,4 @@ export const transcriptRunsLook = defineExperiment({
   },
   defaultArm: "runs",
 });
+// break test for #49502: an innocuous change on a red base
