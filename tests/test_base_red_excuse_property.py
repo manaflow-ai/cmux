@@ -61,6 +61,8 @@ def setUpModule():
     # As tests/test_base_red_excuse.py: no git, network or on-disk cache read.
     for patch in (unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True),
                   unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: None),
+                  unittest.mock.patch("subprocess.Popen", side_effect=AssertionError(
+                      "the property test must use fixture reads, never external commands")),
                   unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": "off",
                                                         "BASE_RED_EXCUSE_FIXTURE_SHA": "1"})):
         patch.start()
