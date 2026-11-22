@@ -502,7 +502,7 @@ function PendingQuestion({
             type="button"
             className="acpmux-question-skip"
             aria-keyshortcuts="Escape"
-            title={reject.detail}
+            aria-description={reject.detail}
             disabled={sent}
             onClick={skip}
           >
