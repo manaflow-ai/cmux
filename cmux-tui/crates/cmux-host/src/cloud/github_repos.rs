@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use super::github::{refusal, valid_repo};
 use super::sender::Answer;
+use crate::github_link::GithubLink;
 
 pub const REQUEST_KEY: &str = "github_repos";
 const REPOS_PATH: &str = "/v1/integrations/github/repos";
@@ -172,8 +173,11 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
         }
         Answer::Http { status: 404 | 409, body }
             if matches!(
-                body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str),
-                Some("integration.not_found" | "needs_reauth")
+                body.get("error")
+                    .and_then(|e| e.get("code"))
+                    .and_then(Value::as_str)
+                    .and_then(GithubLink::of),
+                Some(GithubLink::NotFound | GithubLink::NeedsReauth)
             ) =>
         {
             connect()

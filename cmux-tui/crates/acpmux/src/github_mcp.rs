@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use cmux_host::cloud::github::TokenAsk;
 use cmux_host::github_cli::{self, Refused};
+use cmux_host::github_link::GithubLink;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use zeroize::Zeroizing;
@@ -117,15 +118,18 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
         .take(64)
         .collect();
     let next = github_cli::next_step(&code);
-    let connect =
-        matches!(code.as_str(), "integration.not_found" | "needs_reauth" | "policy.denied");
+    let link = GithubLink::of(&code);
+    let connect = matches!(
+        link,
+        Some(GithubLink::NotFound | GithubLink::NeedsReauth | GithubLink::PolicyDenied)
+    );
     let subject = repo.map_or_else(|| "GitHub".to_owned(), |r| format!("GitHub for {r}"));
     let text = match &next {
         Some(next) => format!("cmux could not get a token for {subject} ({code}). Next: {next}."),
         None => format!("cmux could not get a token for {subject} ({code}); try again shortly."),
     };
     let mut error = json!({
-        "code": if matches!(code.as_str(), "integration.not_found" | "needs_reauth") {
+        "code": if matches!(link, Some(GithubLink::NotFound | GithubLink::NeedsReauth)) {
             "github.not_connected".to_owned()
         } else {
             code.clone()

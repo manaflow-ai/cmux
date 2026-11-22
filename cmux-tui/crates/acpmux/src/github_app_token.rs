@@ -18,6 +18,7 @@
 
 use crate::github_broker::{GithubAction, GithubActionParams};
 use crate::rpc::RpcError;
+use cmux_host::github_link::GithubLink;
 use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -268,50 +269,54 @@ pub fn permissions(action: GithubAction) -> Value {
 /// The error for Cloud's `code`, in fixed words: nothing Cloud wrote goes on to the machine.
 /// Only a code this list names is passed on; any other is `unknown`.
 fn app_error(code: &str) -> RpcError {
-    let (code, number, reason, message) = match code {
-        "integration.not_found" => (
-            "integration.not_found",
+    // The link codes are parsed once (`GithubLink`); the rest are this file's own.
+    let (code, number, reason, message) = match (GithubLink::of(code), code) {
+        (Some(GithubLink::NotFound), _) => (
+            GithubLink::NotFound.code(),
             -32044,
             "github.not_connected",
             "GitHub is not connected for this team: connect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
-        "needs_reauth" => (
-            "needs_reauth",
+        (Some(GithubLink::NeedsReauth), _) => (
+            GithubLink::NeedsReauth.code(),
             -32044,
             "github.not_connected",
             "GitHub needs to be connected again: reconnect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
-        "policy.denied" => (
-            "policy.denied",
+        (Some(GithubLink::PolicyDenied), _) => (
+            GithubLink::PolicyDenied.code(),
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: the team's GitHub connection does not cover this repository",
         ),
-        "rate_limited" => (
+        (None, "rate_limited") => (
             "rate_limited",
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: GitHub is rate limiting it",
         ),
-        "unreachable" => (
+        (None, "unreachable") => (
             "unreachable",
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: cmux Cloud did not answer",
         ),
-        "invalid_reply" => (
+        (None, "invalid_reply") => (
             "invalid_reply",
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: the token cmux Cloud sent is not for this repository",
         ),
-        "build_space" => (
+        (None, "build_space") => (
             "build_space",
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: this dev build was started without its build space (CMUX_BUILD_SPACE), so it asks cmux Cloud nothing",
         ),
-        _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
+        // `github.not_connected` is the agent's reason, never Cloud's code: unknown, as before.
+        (Some(GithubLink::NotConnected) | None, _) => {
+            ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token")
+        }
     };
     let mut data = json!({"reason": reason, "code": code});
     if reason == "github.not_connected"
