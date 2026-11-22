@@ -1,0 +1,190 @@
+/* The chat's held surge as one row of the composer hat (SurgeHoldRow.tsx), on the goal row's columns
+   and tint (TaskGoalStrip.css): one 28 px line, the messages mark, the words, the held count in
+   tabular figures and, when some need the person, their count in the warning color. Open, the held
+   threads read over the line in the transcript's received-messages look, bounded in height so the
+   transcript keeps its room; the line itself never moves. */
+.acpmux-surge {
+  --acpmux-surge-row: var(--ui-row-height, 28px);
+  --acpmux-surge-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
+    calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
+  overflow: clip;
+  border-radius: var(--acpmux-composer-radius);
+  background: var(--acpmux-stack-tint);
+  box-shadow: var(--acpmux-stack-shadow);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.acpmux-surge-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: var(--acpmux-surge-row);
+  padding-inline-end: var(--acpmux-surge-inset);
+}
+
+.acpmux-surge-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  min-height: var(--acpmux-surge-row);
+  margin: 0;
+  padding: 0 var(--ds-space-1) 0 var(--acpmux-surge-inset);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-surge-toggle:hover { background: var(--acpmux-row-hover); }
+.acpmux-surge-toggle:focus-visible,
+.acpmux-surge-need:focus-visible,
+.acpmux-surge-filters button:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
+}
+
+.acpmux-surge-mark {
+  display: inline-grid;
+  flex: none;
+  width: 16px;
+  place-items: center;
+  color: var(--agent-muted);
+}
+.acpmux-surge[data-need] .acpmux-surge-mark { color: var(--agent-warning, var(--agent-accent)); }
+
+.acpmux-surge-copy {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-surge-title { font-weight: var(--font-weight-emphasis); }
+.acpmux-surge-count {
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-surge-chevron {
+  flex: none;
+  color: var(--agent-muted);
+  transform: rotate(180deg);
+  transition: transform var(--agent-motion-move, var(--cmux-motion-standard)) var(--cmux-ease-out);
+}
+.acpmux-surge[data-open] .acpmux-surge-chevron { transform: none; }
+
+.acpmux-surge-need {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--ds-space-2);
+  min-height: 20px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 14%, transparent);
+  /* The text ink, not the warning hue: the hue on its own 14% tint read 2.5-2.7:1 in light themes
+     (control-contrast-11, #ac9007 on #f3efdc). The tint and the warning mark beside it carry the meaning. */
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: var(--font-weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+button.acpmux-surge-need:hover {
+  background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 22%, transparent);
+}
+.acpmux-surge-copy .acpmux-surge-need { display: inline-flex; align-items: center; }
+
+/* Open: the threads over the line, at most about half the pane, scrolling inside. */
+.acpmux-surge-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  max-height: min(56vh, 520px);
+  padding: var(--ds-space-2) var(--acpmux-surge-inset) var(--ds-space-1);
+  border-bottom: 1px solid var(--agent-hairline, color-mix(in srgb, currentColor 10%, transparent));
+}
+
+.acpmux-surge-search {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--acpmux-surge-row);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-row-hover);
+  color: var(--agent-muted);
+}
+.acpmux-surge-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  outline: none;
+}
+
+.acpmux-surge-filters { display: flex; gap: var(--ds-space-1); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.acpmux-surge-filters button {
+  margin: 0;
+  padding: 0 var(--ds-space-2);
+  min-height: 24px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.acpmux-surge-filters button:hover { background: var(--acpmux-row-hover); }
+.acpmux-surge-filters button[aria-pressed="true"] {
+  background: var(--acpmux-row-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-surge-threads {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-surge-threads .cv-incoming { width: 100%; min-width: 0; }
+
+.acpmux-surge-note {
+  margin: 0;
+  padding: var(--ds-space-2) 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-surge-retry {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-accent, var(--agent-text));
+  font: inherit;
+  text-decoration: underline;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-surge-chevron { transition: none; }
+}

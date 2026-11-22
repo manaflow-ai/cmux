@@ -1,0 +1,27 @@
+/* The facts hover card (FactsHoverCard.tsx WithFacts): what a row's text cannot show (a whole path, a
+   link's address, a command, an agent's whole name), one fact a line, on the hover card glass
+   (desktop.css .ui-card.ui-glass). A value wraps anywhere, so a long path shows whole; a label sits
+   above its value in the secondary ink. */
+.ui-facts-card {
+  max-width: min(480px, calc(100vw - var(--tooltip-edge, 4px) - var(--tooltip-edge, 4px)));
+}
+.ui-facts-card__body {
+  display: grid;
+  gap: var(--grid-base);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ui-facts-card__fact {
+  display: grid;
+  min-width: 0;
+}
+.ui-facts-card__label {
+  color: var(--cmux-text-secondary, color-mix(in srgb, currentColor 64%, transparent));
+}
+.ui-facts-card__value {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ui-facts-card__value[data-code] {
+  font-family: var(--font-mono);
+}
