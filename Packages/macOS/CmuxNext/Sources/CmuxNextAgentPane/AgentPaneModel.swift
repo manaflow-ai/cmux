@@ -34,6 +34,9 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// Told each paint report of a page reloading under its picture (``AgentPaneView/reloadUnderCover(_:)``),
+    /// with whether that frame drew the chat as it stands (a kept tail or the settled view).
+    @ObservationIgnored var reloadPaintWaiters: [(_ settled: Bool) -> Void] = []
     /// The waits for another process this open ran before its first paint, as the host sees them.
     @ObservationIgnored public internal(set) var openWaits = AgentPaneOpenWaits()
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
@@ -630,6 +633,8 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            let reloadWaiters = reloadPaintWaiters
+            for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)

@@ -153,6 +153,16 @@ nonisolated struct WebBundlePins {
     var pinned: Set<URL> { Set(trees.values.compactMap { $0 }) }
 }
 
+/// A host that keeps what its page shows on screen while the page reloads in place for a web update or the live
+/// web loop (``WebBundleServedViews/reload(_:to:)``): the reload shows no blank page, no loading state and no
+/// composer drawn again, only the new page in one step once it drew (Leo, 2026-11-22: "no shift, no anything,
+/// just... ok now it changed").
+public protocol WebReloadCovering: AnyObject {
+    /// Runs `reload` (the page's reload) with the page as it draws now held on screen until the reloaded
+    /// document drew. It runs `reload` once, at once or after a picture is taken.
+    func reloadUnderCover(_ reload: @escaping @MainActor () -> Void)
+}
+
 /// The web views the page and agent pane scheme handlers served, and the update each loaded from,
 /// so an update that becomes active reloads them in place, each at its own safe point.
 public final class WebBundleServedViews {
@@ -162,6 +172,13 @@ public final class WebBundleServedViews {
     private var pins = WebBundlePins()
     /// Views that keep the update they loaded with until they close (``keepLoadedTree(_:)``).
     private let keepsLoaded = NSHashTable<WKWebView>.weakObjects()
+    /// The host that covers each view's reload (``coverReloads(of:with:)``).
+    private let covers = NSMapTable<WKWebView, AnyObject>.weakToWeakObjects()
+
+    /// `cover` keeps `webView`'s page on screen through each in-place reload (``WebReloadCovering``).
+    public func coverReloads(of webView: WKWebView, with cover: any WebReloadCovering) {
+        covers.setObject(cover, forKey: webView)
+    }
 
     /// `webView` keeps the update it loaded with until it closes: a newer update never reloads it in
     /// place (``behind(_:)`` skips it), and its tree stays on disk while it is open (``pinnedTrees``).
@@ -219,7 +236,11 @@ public final class WebBundleServedViews {
     public func reload(_ views: [WKWebView], to tree: URL?) -> Int {
         for webView in views {
             pins.pin(ObjectIdentifier(webView), to: tree)
-            webView.reload()
+            if let cover = covers.object(forKey: webView) as? any WebReloadCovering {
+                cover.reloadUnderCover { [weak webView] in webView?.reload() }
+            } else {
+                webView.reload()
+            }
         }
         return views.count
     }

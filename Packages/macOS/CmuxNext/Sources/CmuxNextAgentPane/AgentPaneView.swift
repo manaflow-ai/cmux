@@ -181,6 +181,8 @@ public final class AgentPaneView: NSView {
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
     var holdsPageAway = false
+    /// The picture of the chat held over its page while the page reloads in place (`AgentPaneView+ReloadCover`).
+    var reloadCover: AgentPaneReloadCover?
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
@@ -297,6 +299,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        WebBundleServedViews.shared.coverReloads(of: webView, with: self) // a web update swaps in under a picture
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
