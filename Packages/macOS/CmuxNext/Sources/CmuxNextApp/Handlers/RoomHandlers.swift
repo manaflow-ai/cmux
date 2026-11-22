@@ -37,6 +37,8 @@ enum RoomHandlers {
             let adoptable = windows.adoptableWorkspaces(in: room.id, for: windowID)
             windows.state(for: windowID).enterProfile(room.id)
             if adoptable.isEmpty {
+                // Its workspaces show in another window: the new window is one more view of them (rule 6), never a new workspace beside them.
+                if windows.openView(id: windowID, of: room.id) != nil { return }
                 Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
             } else {
                 windows.openWindow(id: windowID, workspaces: adoptable)
@@ -73,13 +75,11 @@ enum RoomHandlers {
         }
         for color in GroupColor.allCases {
             bind(ActionID(rawValue: "space.color.\(color.rawValue)")) { invocation in
-                let room = try context.room(invocation)
-                update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
+                try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
             }
         }
         bind("space.clearColor") { invocation in
-            let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, color: .clear) }
+            try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .clear) }
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
@@ -169,6 +169,7 @@ enum RoomHandlers {
             context.services.windows.switchProfile(room.id, in: window.state)
         }
         RoomMoveHandlers.bind(bind, context: context)
+        registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
     }
 
     /// A new space with the next free color and its own first workspace.
@@ -211,7 +212,7 @@ enum RoomHandlers {
                     enter(id, state)
                 } else {
                     try await startNewSpace(id, from: inNewWindow ? nil : active?.id, windows: services.windows,
-                                            newTabPage: inNewWindow && invocation.origin == .user)
+                                            newTabPage: invocation.origin == .user) // a person's: a chat (David Beyer, 2026-11-20)
                 }
                 return nil
             } catch {
@@ -220,7 +221,7 @@ enum RoomHandlers {
         })
     }
 
-    /// Gives the new, empty space `profile` its first workspace. A run that
+    /// Gives the new, empty space `profile` its first workspace (a chat with `newTabPage`, else a terminal). A run that
     /// may change the view shows the space in window `windowID`
     /// (`switchProfile`, which creates the workspace there). Any other run
     /// (a script, the CLI without `focus`) files the workspace, pinned to
@@ -231,9 +232,9 @@ enum RoomHandlers {
     private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager, newTabPage: Bool = false) async throws {
         if let windowID, let state = windows.states[windowID], windows.registry.value.window(windowID)?.isOpen == true {
             if ActionRunScope.viewChangeAllowed() {
-                windows.switchProfile(profile, in: state)
+                windows.switchProfile(profile, in: state, opensNewTabPage: newTabPage)
             } else {
-                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: windowID)
+                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile, newTabPage: newTabPage), into: windowID)
             }
             return
         }

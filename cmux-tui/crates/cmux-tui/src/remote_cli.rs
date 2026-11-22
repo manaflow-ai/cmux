@@ -111,7 +111,15 @@ fn run_inner(
 ) -> anyhow::Result<()> {
     let rest = args.get(1..).unwrap_or_default();
     if remote_help_requested(rest) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        match args.first().map(String::as_str) {
+            Some("remote") => match crate::cli::app_action_help::append("remote", help) {
+                Some(text) => print!("{text}"),
+                None => print!("{help}"),
+            },
+            _ => print!("{help}"),
+        }
         return Ok(());
     }
     match args.first().map(String::as_str) {
@@ -720,7 +728,34 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+/// Starts the connection `connect`, `exec`, `cp` and the rest share. A far machine's refusal no
+/// redial cures (`--via-machine`'s `consent_required`, ...) ends it at once with what to do;
+/// with `--json` it is also one stdout line, `{"event":"refused","reason","error","machine"}`.
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let json = flags.json;
+    let machine = flags.via_machine.clone();
+    start_connected_inner(flags).map_err(|error| {
+        let Some(refusal) = crate::remote_runtime::startup_refusal(&error) else {
+            return error;
+        };
+        let said = catalog().remote_client.machine_refused(&refusal.reason, &refusal.message);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "refused",
+                    "reason": refusal.reason,
+                    "error": said,
+                    "machine": machine,
+                })
+            );
+            let _ = io::stdout().flush();
+        }
+        anyhow!(said)
+    })
+}
+
+fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags
@@ -1945,17 +1980,27 @@ async fn select_known_daemon(
     match matching.as_slice() {
         [daemon] => Ok(daemon.clone()),
         [] if daemons.len() == 1 => Ok(daemons[0].clone()),
-        [] if route.is_some() => {
-            Err(anyhow!("no known daemon matches this route; connect with an invitation"))
-        }
-        [] if daemons.len() > 1 => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
-        [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
-        _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
+        [] if route.is_some() => Err(anyhow!(
+            "no known daemon matches this route; `cmux remote known-daemons` lists the paired ones, and `cmux remote connect ROUTE --invite-file PATH` pairs a new one"
+        )),
+        [] if daemons.len() > 1 => Err(anyhow!(
+            "multiple known daemons; name one with a route or --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
+        [] => Err(anyhow!(
+            "no known daemons; on the host run `cmux remote enroll create`, then pair this device with `cmux remote connect ROUTE --invite-file PATH` (or --carrier for a trusted carrier)"
+        )),
+        _ => Err(anyhow!(
+            "multiple known daemons match this route; use --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
     }
 }
 
 fn parse_route(route: &str, description: &str) -> anyhow::Result<Url> {
-    Url::parse(route).with_context(|| format!("invalid {description}"))
+    Url::parse(route).with_context(|| {
+        format!(
+            "invalid {description} (write it with a scheme, such as ws://HOST:PORT/, wss://HOST/, ssh://USER@HOST or unix:///ABSOLUTE/PATH; `cmux remote known-daemons` shows the routes already paired)"
+        )
+    })
 }
 
 fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u8; 32]> {

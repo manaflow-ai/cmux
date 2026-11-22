@@ -15,7 +15,7 @@ root="$(git rev-parse --show-toplevel)"
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
-  for tree in "${trees[@]}"; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
+  for tree in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -23,8 +23,8 @@ trap cleanup EXIT
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 status=0
-for sha in "${shas[@]}"; do
-  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags --no-recurse-submodules "${depth[@]}" origin "$sha"
+for sha in ${shas[@]+"${shas[@]}"}; do
+  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
   full="$(git -C "$root" rev-parse "$sha^{commit}")"
   tree="$scratch/${full:0:12}"
   git -C "$root" worktree add -q --detach "$tree" "$full" && trees+=("$tree") || { status=1; continue; }

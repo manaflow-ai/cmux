@@ -1,8 +1,9 @@
-//! Reducer unit tests and property tests. `PROPTEST_CASES` sets the number
-//! of random op sequences (default 256).
+//! Reducer unit tests and property tests. [`property_config`] is the one
+//! configuration of each property test of this crate.
 
 use super::*;
 use proptest::prelude::*;
+use proptest::test_runner::{RngAlgorithm, RngSeed};
 
 /// Workspaces of screens of columns of panes, each a tab count. Ids are
 /// assigned from one counter in that order, starting at 1.
@@ -543,16 +544,29 @@ fn concrete(
     Some(LayoutOp { key, kind })
 }
 
-fn proptest_cases() -> u32 {
-    std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(256)
+/// The configuration of each property test of this crate. The seed and the generator are fixed here and a failed
+/// case writes no file. `PROPTEST_CASES` sets the case count (default 256). A value of 0 panics here, because a run
+/// with no case would pass. A value that is not a count panics here too: without the panic the run would take the
+/// default count and say nothing. The `proptest!` macro applies the `PROPTEST_` variables on top of this
+/// configuration: `PROPTEST_RNG_SEED` gives other cases for one run. With no such variable, each run with one count
+/// has the same cases.
+pub(crate) fn property_config() -> ProptestConfig {
+    let cases = std::env::var_os("PROPTEST_CASES").map(|text| {
+        let count =
+            text.to_str().and_then(|value| value.parse::<u32>().ok()).filter(|count| *count > 0);
+        count.unwrap_or_else(|| panic!("PROPTEST_CASES must be a count above 0, not {text:?}"))
+    });
+    ProptestConfig {
+        cases: cases.unwrap_or(256),
+        rng_seed: RngSeed::Fixed(0x5EED_2026),
+        rng_algorithm: RngAlgorithm::ChaCha,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    }
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: proptest_cases(),
-        failure_persistence: None,
-        ..ProptestConfig::default()
-    })]
+    #![proptest_config(property_config())]
 
     #[test]
     fn random_op_sequences_keep_invariants(

@@ -281,7 +281,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&v)
             } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
                 println!(
-                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `{} register {name} --code ...` it gives to finish",
+                    crate::cli::entry::program()
                 );
             } else {
                 let field =
@@ -299,14 +300,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Rename { session, new_name } => {
+        Command::Rename { session, new_name, handle } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = client
-                .request(method::MUX_RENAME, json!({"sessionId": id, "newName": new_name}))
-                .await?;
+            let id = if handle {
+                crate::cli::resolve::control_id(&client, &session).await?
+            } else {
+                resolve_id(&client, &session).await?
+            };
+            let params = if handle {
+                json!({"sessionId": id, "newHandle": new_name})
+            } else {
+                json!({"sessionId": id, "newName": new_name})
+            };
+            let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {
                 print_json(&v)
+            } else if handle {
+                println!(
+                    "{}",
+                    v["handle"].as_str().ok_or_else(|| anyhow!("rename returned no handle"))?
+                );
             } else {
                 println!("renamed")
             }
@@ -468,22 +481,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::MoveSessions {
+        Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
             all_idle,
             interrupt,
+            after_turn,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
-        } => {
+        }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
                 leave_dirty,
                 carry_changes,
                 cwd,
@@ -493,8 +508,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             };
             super::session_move::run(args, json_out).await
         }
-        Command::Transfer { session, to, cwd, name, interrupt } => {
-            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
         }
         Command::Import { path, name } => {
             let client = connect(true).await?;
@@ -900,26 +915,65 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::Consent { cmd }) => {
-            let (screen, control, granted) = match cmd {
-                crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
-                    (screen, control, true)
-                }
-                crate::cli::command_host::ConsentCmd::Revoke { screen, control } => {
-                    (screen, control, false)
+            let (screen, control, signed_in_machines, granted) = match cmd {
+                crate::cli::command_host::ConsentCmd::Grant {
+                    screen,
+                    control,
+                    signed_in_machines,
+                } => (screen, control, signed_in_machines, true),
+                crate::cli::command_host::ConsentCmd::Revoke {
+                    screen,
+                    control,
+                    signed_in_machines,
+                } => (screen, control, signed_in_machines, false),
+            };
+            let surface = match (screen, control, signed_in_machines) {
+                (true, false, false) => "screen",
+                (false, true, false) => "control",
+                (false, false, true) => crate::cli::cloud_join::SIGNED_IN_MACHINES,
+                _ => {
+                    return Err(anyhow!(
+                        "use exactly one of --screen, --control or --signed-in-machines"
+                    ));
                 }
             };
-            let surface = match (screen, control) {
-                (true, false) => "screen",
-                (false, true) => "control",
-                _ => return Err(anyhow!("use exactly one of --screen or --control")),
-            };
+            // Under sudo: this Mac's admin sets it here, with no app (`consent_admin.rs`).
+            if let Some(consent) = crate::cli::consent_admin::set_if_admin(surface, granted)? {
+                if json_out {
+                    print_json(&crate::cli::cloud_join::for_this_account(
+                        json!({"consent":consent}),
+                    ));
+                } else {
+                    println!("consent updated as this Mac's admin: {surface}");
+                }
+                return Ok(());
+            }
             let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
             let value = client
                 .request(
                     method::MUX_MACHINE_CONSENT_SET,
                     json!({"surface":surface,"granted":granted}),
                 )
-                .await?;
+                .await
+                .inspect_err(|error| {
+                    // Only the person check's refusal, and only in text mode (--json keeps stderr
+                    // to the one error envelope): say how this Mac's admin does it instead.
+                    let person = error.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
+                        e.0.data.as_ref().and_then(|d| d["reason"].as_str())
+                            == Some(crate::hub::person::REASON)
+                    });
+                    if person && cfg!(unix) && !json_out {
+                        eprintln!(
+                            "as this Mac's admin, run it with sudo instead: sudo acpmux machine consent {} --{}",
+                            if granted { "grant" } else { "revoke" },
+                            if surface == crate::cli::cloud_join::SIGNED_IN_MACHINES {
+                                "signed-in-machines"
+                            } else {
+                                surface
+                            }
+                        );
+                    }
+                })?;
             if json_out {
                 print_json(&value);
             } else {
@@ -1178,6 +1232,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
                     let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    if !json_out
+                        && let Some(note) = crate::cli::host_enroll::hub_route_note(&list, &name)
+                    {
+                        println!("{note}");
+                    }
                     let plan = crate::cli::host_enroll::Plan {
                         name,
                         host,

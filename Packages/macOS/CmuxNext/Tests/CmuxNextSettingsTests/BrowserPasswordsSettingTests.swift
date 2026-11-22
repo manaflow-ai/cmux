@@ -17,7 +17,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed),
                                           managedWatchFiles: [])
         return (settings, home)

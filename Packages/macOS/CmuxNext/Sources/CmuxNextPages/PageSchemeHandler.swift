@@ -288,7 +288,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if components.isEmpty { components = [page.entry] }
+        if components.isEmpty { components = page.entry.split(separator: "/").map(String.init) }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if let prefix = components.first, page.dynamicPrefixes.contains(prefix) {
             return .dynamic(PageResourceRequest(prefix: prefix, path: Array(components.dropFirst()), url: url))
@@ -319,7 +319,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }
-        return file
+        // A NIGHTLY ships a page's string table in English only; the person's language comes in
+        // the downloaded language pack (CMUX-570).
+        return Bundle.languagePackFile(for: file) ?? file
     }
 
     /// `type` when it is a plain `type/subtype` with an optional `charset` (no header injection),

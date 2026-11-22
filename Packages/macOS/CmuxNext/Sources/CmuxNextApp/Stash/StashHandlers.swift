@@ -155,7 +155,7 @@ enum StashHandlers {
             return try WindowMembershipHandlers.groupMembers(invocation, context)
         case "window.stash":
             // A row's menu takes the window that lists the row.
-            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
+            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.actingWindow(for: $0.id) : nil }
             return try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         default:
             return try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
@@ -208,7 +208,7 @@ enum StashHandlers {
 /// The Save and Close handlers' strings (Resources/Stash.xcstrings).
 nonisolated enum StashHandlerStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Stash", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Stash", bundle: .module.inAppLanguage)
     }
 
     static var saved: String { t("stash.saved", "Saved to Stashed Tabs") }

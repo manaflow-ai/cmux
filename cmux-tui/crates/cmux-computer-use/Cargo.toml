@@ -1,0 +1,94 @@
+[package]
+name = "cmux-computer-use"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# cmux Computer Use is its own MIT-licensed component so it can ship on every
+# platform on its own (docs/computer-use/README.md, "Licensing").
+license = "MIT"
+publish.workspace = true
+description = "cmux Computer Use: the platform-agnostic engine (tools, policy, sessions, frames) and the macOS, Windows and Linux desktops"
+
+[lints]
+workspace = true
+
+[features]
+default = ["desktop", "server"]
+# The real platform desktops. Without it the crate is the engine only
+# (acpmux links it for the tool catalog and the wire types).
+desktop = ["dep:x11rb", "dep:windows"]
+# The worker side: the agent socket server (server.rs) and the worker's
+# control channel (worker.rs). acpmux and the daemon leave it off.
+server = ["dep:windows-sys"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+png = { workspace = true }
+libc = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# Owned child processes: an app launched for the agent (linux) and bounded
+# helper commands (macos/workspace.rs).
+cmux-process = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Pure-Rust protocol crates only, so one binary runs on every distribution
+# (glibc or musl) with no libX11, libwayland, libdbus or libei at build time.
+x11rb = { version = "0.14", optional = true, features = ["xtest", "randr", "composite", "res", "shape", "screensaver", "damage"] }
+# AT-SPI2 accessibility, xdg-desktop-portal and the GNOME idle monitor.
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+# wlroots compositors: screencopy, virtual pointer and keyboard, foreign
+# toplevels, layer-shell (agent cursor) and ext-idle-notify.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# NSWorkspace / NSRunningApplication messages and the launch completion
+# block. CoreFoundation, CoreGraphics and Accessibility are plain C, declared
+# in src/platform/macos/sys.rs.
+objc2 = "0.6"
+block2 = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Xps",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# The agent socket's named pipe (server/windows.rs).
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+optional = true
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+]
+
+[dev-dependencies]

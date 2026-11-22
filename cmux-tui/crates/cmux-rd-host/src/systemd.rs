@@ -11,6 +11,7 @@
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::Mutex;
 
 /// The first fd systemd passes (`SD_LISTEN_FDS_START`).
 pub const LISTEN_FDS_START: RawFd = 3;
@@ -58,8 +59,7 @@ fn sockopt_int(fd: RawFd, name: libc::c_int) -> io::Result<libc::c_int> {
 }
 
 /// Takes the passed fd as a listener after checking it is a listening Unix stream socket,
-/// marks it close-on-exec (the browser child must not inherit it) and clears the
-/// `LISTEN_*` variables.
+/// marks it close-on-exec (the browser child must not inherit it).
 pub fn take_listener(fd: RawFd) -> Result<UnixListener, String> {
     let bad = |what: String| format!("--listen-systemd: fd {fd} {what}");
     if sockopt_int(fd, libc::SO_DOMAIN).map_err(|e| bad(format!("is not a socket: {e}")))?
@@ -77,18 +77,40 @@ pub fn take_listener(fd: RawFd) -> Result<UnixListener, String> {
     if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
         return Err(bad(format!("close-on-exec: {}", io::Error::last_os_error())));
     }
-    for var in ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"] {
-        std::env::remove_var(var);
-    }
     // SAFETY: systemd passed this fd to this process and nothing else owns it.
     Ok(unsafe { UnixListener::from_raw_fd(fd) })
 }
 
-/// The listener systemd passed to this process.
-pub fn listener_from_env() -> Result<UnixListener, String> {
+/// What [`take_env`] read from `LISTEN_PID` and `LISTEN_FDS`, until [`listener_from_env`]
+/// takes it (once: the fd has one owner).
+static PASSED: Mutex<Option<Result<RawFd, String>>> = Mutex::new(None);
+
+/// Reads the `LISTEN_*` variables systemd set for this process and clears them, so no child
+/// (the browser) inherits them and takes the socket for its own.
+///
+/// # Safety
+///
+/// No other thread may exist: `remove_var` races any concurrent read of the environment, a C
+/// library's `getenv` included. cmux-rd's `main` calls it through
+/// [`crate::prepare_process_env`].
+pub(crate) unsafe fn take_env() {
     let pid = std::env::var("LISTEN_PID").ok();
     let fds = std::env::var("LISTEN_FDS").ok();
-    let fd = listen_fd_from_env(pid.as_deref(), fds.as_deref(), std::process::id())?;
+    let passed = listen_fd_from_env(pid.as_deref(), fds.as_deref(), std::process::id());
+    *PASSED.lock().unwrap_or_else(|e| e.into_inner()) = Some(passed);
+    for var in ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"] {
+        // SAFETY: the caller's: no other thread exists.
+        unsafe { std::env::remove_var(var) };
+    }
+}
+
+/// The listener systemd passed to this process, as [`take_env`] found it at start.
+pub fn listener_from_env() -> Result<UnixListener, String> {
+    let passed = PASSED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let fd = passed.ok_or(
+        "--listen-systemd: the LISTEN_* variables were not taken at start (only the cmux-rd \
+         executable takes them), or the listener was taken already",
+    )??;
     take_listener(fd)
 }
 

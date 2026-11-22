@@ -44,7 +44,7 @@ extension AppOnboardingServices {
     /// with its window, group, color and pin. `progress` hears the share of classic workspaces
     /// handled, 0...1. See ``migrateClassic(_:firstWorkspace:confirmation:progress:)``.
     func importClassicSessions(progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
-        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport, progress: progress)
+        let outcome = try await migrateClassic(.manual, confirmation: { await self.confirmClassicImport($0) }, progress: progress)
         return outcome.confirmed ? outcome.summary : nil
     }
 
