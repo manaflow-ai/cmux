@@ -67,6 +67,8 @@ interface SessionRow {
   path: string | null;
   /** The session this one replaced (`POST /v1/sessions/:id/move`); null for one started fresh. */
   moved_from: string | null;
+  /** The last billing answer a full (Stack-token) caller got for this session: 1 paid, 0 free, null never read. */
+  relay_paid: number | null;
 }
 
 interface RelayRow {
@@ -197,6 +199,7 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["devices", "machine", "TEXT"],
   ["sessions", "moved_from", "TEXT"],
+  ["sessions", "relay_paid", "INTEGER"],
 ];
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
@@ -1047,6 +1050,8 @@ export class UserDO extends DurableObject<Env> {
     if (newHost === old.host_id && newViewer === old.viewer_id) throw badRequest("the session already has that device");
     this.checkPushed(me, newHost, newViewer, old.scope, c);
     const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
+    // A move continues the same share: it keeps the billing answer its viewer's request got.
+    this.sql.exec("UPDATE sessions SET relay_paid = ? WHERE id = ?", old.relay_paid ?? null, newId);
     this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
     this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
     // The new share is up before the old one goes: a move that cannot start keeps the old share.
@@ -1076,6 +1081,9 @@ export class UserDO extends DurableObject<Env> {
       this.audit("approved", { viewerId: me.id, hostId, scope, sessionId: id, detail: "permission" });
       await this.approveOrEnd(this.session(id)!, c);
     } else {
+      // The host decides with its own session, which has no Stack token: the viewer's billing
+      // answer is read now and kept on the session, so the host's approval mints the relay.
+      await this.sessionEntitlement(this.session(id)!, c);
       await this.scheduleAlarm();
       this.send(hostId, await this.sessionRequest(id, me, scope));
     }
@@ -1128,7 +1136,7 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
     if (!this.stillOpen(s.id)) return;
     // Ask billing now (in parallel with the Session DO init); fail closed.
-    const entitled = this.entitlement(c).catch(() => "error" as const);
+    const entitled = this.sessionEntitlement(s, c);
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
@@ -1177,7 +1185,7 @@ export class UserDO extends DurableObject<Env> {
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
     if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
-    const entitled = (await this.entitlement(c)) === "paid";
+    const entitled = (await this.sessionEntitlement(s, c)) === "paid";
     const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
@@ -1254,7 +1262,7 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await this.entitlement(c)) === "paid" ? await mintTurn(this.env) : [];
+    const ice = (await this.sessionEntitlement(s, c)) === "paid" ? await mintTurn(this.env) : [];
     return json({ ice });
   }
 
@@ -1380,6 +1388,25 @@ export class UserDO extends DurableObject<Env> {
   // ---- device renewal (PROTOCOL.md, Device renewal) ----
 
   /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
+  /**
+   * One session's relay right. Its viewer and host are one account (one UserDO per user), so
+   * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
+   * asks billing, fail closed, and the answer is kept on the session. A host or machine caller
+   * has no Stack token: it gets the relay when its session already holds a paid answer, else
+   * its own (a host anchor's `rel`; a machine session's none). Nothing is cached across
+   * sessions, so a lapsed plan stops at the next one, and a free or failed read grants nothing.
+   */
+  private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
+    if (c.scope === "full") {
+      const answer = await this.entitlement(c).catch(() => "error" as const);
+      if (answer !== "error") this.sql.exec("UPDATE sessions SET relay_paid = ? WHERE id = ?", answer === "paid" ? 1 : 0, s.id);
+      return answer;
+    }
+    const held = this.sql.exec("SELECT relay_paid FROM sessions WHERE id = ?", s.id).toArray()[0];
+    if (held && (held.relay_paid as number | null) === 1) return "paid";
+    return this.entitlement(c).catch(() => "error" as const);
+  }
+
   private async entitlement(c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "host") return c.hostRelay ? "paid" : "free";
     return (await relayEntitlement(this.env, c.userId, c.stackToken)) as "paid" | "free" | "error";
