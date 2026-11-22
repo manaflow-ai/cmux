@@ -105,6 +105,62 @@ import UniformTypeIdentifiers
         return shot.ref.hash
     }
 
+    /// Pastes picture INDEX at the caret when the field may already hold a copy of it (the same
+    /// bytes again, as a second Cmd+V of one screenshot); returns the new chip's id.
+    private func pasteCopy(_ index: Int, into r: Rig) async throws -> String {
+        let before = r.pictures
+        let shot = try await r.store.prepareAttachment(data: try screenshot(index), typeIdentifier: UTType.png.identifier)
+        await r.view.addDraftAttachment(shot)
+        await until { r.pictures.count == before.count + 1 }
+        let added = r.pictures.filter { !before.contains($0) }
+        #expect(added.count == 1, "the pasted copy shows in the field as a picture of its own")
+        return try #require(added.first)
+    }
+
+    /// The same picture pasted three times is three pictures (#50984: the second and third paste of
+    /// one screenshot showed nothing, the draft keyed its chips by the picture's hash). Each paste is
+    /// its own undo step: Cmd+Z takes out only the last copy, Cmd+Shift+Z puts them back one by one.
+    @Test func theSamePicturePastedThreeTimesIsThreePicturesEachItsOwnUndoStep() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.type("look ")
+        var ids: [String] = []
+        for _ in 0..<3 { ids.append(try await pasteCopy(0, into: r)) }
+        let hash = ids[0]
+        #expect(Set(ids).count == 3, "each paste is a chip of its own")
+        #expect(r.pictures == ids)
+        #expect(r.draft == [hash, hash, hash], "the draft a send takes holds all three")
+        for left in [2, 1, 0] {
+            r.undo.undo()
+            #expect(r.pictures == Array(ids.prefix(left)), "Cmd+Z takes out only the last paste")
+            #expect(r.draft.count == left)
+            #expect(r.words == "look ")
+        }
+        for back in [1, 2, 3] {
+            r.undo.redo()
+            #expect(r.pictures == Array(ids.prefix(back)), "Cmd+Shift+Z puts back one paste")
+            #expect(r.draft.count == back)
+        }
+    }
+
+    /// All three copies go with the send, each as its own part of the message.
+    @Test func theSamePicturePastedThreeTimesIsSentThreeTimes() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.type("look ")
+        for _ in 0..<3 { _ = try await pasteCopy(0, into: r) }
+        #expect(r.view.sendDraft() == nil)
+        await until { r.field.string.isEmpty }
+        #expect(r.view.draftAttachments.isEmpty)
+        func sentPictures() -> Int {
+            guard let mine = r.store.transcript(for: Self.conversation).last(where: { $0.parts.contains { if case .attachment = $0 { true } else { false } } })
+            else { return 0 }
+            return mine.parts.filter { if case .attachment = $0 { true } else { false } }.count
+        }
+        await until { sentPictures() == 3 }
+        #expect(sentPictures() == 3, "the message holds the picture three times")
+    }
+
     /// The crash: a picture, a key after it, the picture deleted, then Cmd+Z again and again. The
     /// first undo must put the picture back (it did nothing), and the undo after it read past the
     /// field's end (NSRangeException). Every step back and forth keeps the field and the draft equal.
