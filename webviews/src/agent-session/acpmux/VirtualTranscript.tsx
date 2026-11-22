@@ -2793,17 +2793,22 @@ function TranscriptView({
     // over it on every one of those frames (agent-pane-composer-rest-gap); a glide on top left them
     // trailing the tray's top edge, the gap 22px for two frames on load and down to 38px as it
     // entered. So a change in the tray's own height takes the room at once and plays no glide.
-    let trayDrawn = tray(over());
-    const trayMoved = () => {
-      const now = tray(over());
-      const moved = Math.abs(now - trayDrawn) >= 0.5;
-      trayDrawn = now;
+    // The queue above the composer is the same: its fold opens and closes the list on the structural
+    // motion (ComposerQueue), and a queued row leaving shrinks it at once. The latest row rests on
+    // the stack on every frame of it (agent-pane-queue-scroll-bottom: a glide on top floated the last
+    // row a card's height over the stack, then slid it down).
+    const queue = () => dock.querySelector(".acpmux-composer-queue")?.getBoundingClientRect().height ?? 0;
+    let ownClockDrawn = [tray(over()), queue()];
+    const ownClockMoved = () => {
+      const now = [tray(over()), queue()];
+      const moved = now.some((height, part) => Math.abs(height - ownClockDrawn[part]!) >= 0.5);
+      ownClockDrawn = now;
       return moved;
     };
     const resized = () => {
       const rows = thread.current;
-      const trayed = trayMoved();
-      if (!rows || growth || asksFolding() || trayed) {
+      const ownClock = ownClockMoved();
+      if (!rows || growth || asksFolding() || ownClock) {
         take();
         return;
       }
