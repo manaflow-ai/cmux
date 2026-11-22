@@ -2,9 +2,10 @@
 // widget-todo) in the fake host, packed from src/main.ts: what each size shows, the reads it makes,
 // and the to-do list it keeps. The same mounts write the scenes the webviews gallery draws
 // (webviews/src/apps/scene/fixtures/widget-scenes.json): WIDGET_SCENES=write rewrites the file,
-// otherwise the test fails when the file no longer matches what the widgets draw.
+// otherwise the test fails when the file no longer matches what the widgets draw. The same
+// variable writes each widget's preview/scenes.json (its sizes, empty and error states).
 import { beforeAll, describe, expect, test } from "bun:test"
-import { readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pack } from "../../tools/pack.ts"
 import { FakeHost, type Op } from "./fake-host.ts"
@@ -337,12 +338,15 @@ describe("widget-todo", () => {
 
 const RENDER: Record<Name, string> = { "widget-clock": "renderClock", "widget-weather": "renderWeather", "widget-calendar": "renderCalendar", "widget-todo": "renderTodo" }
 
-async function scene(name: Name, size: string): Promise<Op[]> {
-  const h =
-    name === "widget-clock" ? host(name, { size, zones: "America/New_York, Europe/London, Asia/Tokyo, Asia/Kolkata, Australia/Sydney, America/Los_Angeles" })
+function sizeHost(name: Name, size: string) {
+  return name === "widget-clock" ? host(name, { size, zones: "America/New_York, Europe/London, Asia/Tokyo, Asia/Kolkata, Australia/Sydney, America/Los_Angeles" })
     : name === "widget-weather" ? weather(size)
     : name === "widget-calendar" ? calendar(size)
     : todo(size).h
+}
+
+async function scene(name: Name, size: string, make: () => FakeHost = () => sizeHost(name, size)): Promise<Op[]> {
+  const h = make()
   h.mount("m", RENDER[name])
   await h.settle(10)
   // The final tree as one batch: a create per node, then each node's children, then the root.
@@ -353,6 +357,49 @@ async function scene(name: Name, size: string): Promise<Op[]> {
   ops.push({ op: "root", id: tree.root })
   return ops
 }
+
+/** Each widget's own empty and error states beside its sizes: the names say which (`cmux ext preview`). */
+const STATES: Record<Name, Record<string, { size: string; make?: () => FakeHost }>> = {
+  "widget-clock": {},
+  "widget-weather": {
+    // No place yet: the field that asks for one.
+    "small-empty": { size: "small", make: () => host("widget-weather", { size: "small" }) },
+    // The forecast does not load.
+    "medium-offline": {
+      size: "medium",
+      make: () => {
+        const h = host("widget-weather", { size: "medium", place: "Lisbon", units: "celsius" })
+        h.handlers["net.fetch"] = () => ({ ok: false, body: { code: "net.unreachable", message: "The network is offline.", retryable: true } })
+        return h
+      }
+    }
+  },
+  "widget-calendar": {
+    // Not asked yet: the button that asks.
+    "small-empty": { size: "small", make: () => calendar("small", "notDetermined") },
+    "medium-denied": { size: "medium", make: () => calendar("medium", "denied") }
+  },
+  "widget-todo": {
+    "medium-empty": { size: "medium", make: () => todo("medium", []).h }
+  }
+}
+
+// Each example widget's preview/scenes.json, the first-party widgets' shape ({name: {size, ops}}):
+// `cmux ext preview examples/extensions` draws them, and the states it derives, in the gallery.
+test("each widget's preview/scenes.json matches what it draws", async () => {
+  for (const name of NAMES) {
+    const states: Record<string, { size: string; ops: Op[] }> = {}
+    for (const size of SIZES) states[size] = { size, ops: await scene(name, size) }
+    for (const [state, { size, make }] of Object.entries(STATES[name])) states[state] = { size, ops: await scene(name, size, make) }
+    const file = join(dir(name), "preview/scenes.json")
+    const json = `${JSON.stringify(states, null, 1)}\n`
+    if (process.env.WIDGET_SCENES === "write") {
+      mkdirSync(join(dir(name), "preview"), { recursive: true })
+      writeFileSync(file, json)
+    }
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(JSON.parse(json))
+  }
+})
 
 test("the gallery's widget scenes match what the widgets draw", async () => {
   const scenes: Record<string, Op[]> = {}
