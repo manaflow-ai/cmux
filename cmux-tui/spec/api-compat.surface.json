@@ -10124,6 +10124,10 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -10154,6 +10158,10 @@
       },
       "/limit": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/rows": {
+        "ty": "string",
         "nullable": true
       }
     },
@@ -18544,10 +18552,16 @@
       "/data/generation": {
         "ty": "string"
       },
+      "/data/next": {
+        "ty": "uint64"
+      },
       "/data/pane_revision": {
         "ty": "uint64"
       },
       "/data/registry_id": {
+        "ty": "string"
+      },
+      "/data/rows": {
         "ty": "string"
       },
       "/data/terminal_revision": {
