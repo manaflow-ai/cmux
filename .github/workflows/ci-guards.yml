@@ -29,6 +29,10 @@ env:
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `submodule-forward-only`
+    # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Guard status counts the skip as fine only on such a pull request.
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -2431,6 +2435,8 @@ jobs:
         env:
           GUARD_INPUTS: ${{ toJSON(inputs) }}
           GUARD_NEEDS: ${{ toJSON(needs) }}
+          GUARD_EVENT: ${{ github.event_name }}
+          GUARD_BASE_REF: ${{ github.base_ref }}
         run: |
           python3 - <<'PY'
           import json
@@ -2468,6 +2474,9 @@ jobs:
           for route, job in sorted(route_jobs.items()):
               if route == "submodule_forward_only":
                   results[job] = needs[job]["result"]
+                  # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+                  if os.environ.get("GUARD_EVENT") == "pull_request" and os.environ.get("GUARD_BASE_REF") == "feat-cmux-next":
+                      may_skip.add(job)
                   continue
               value = inputs.get(route)
               result = needs[job]["result"]

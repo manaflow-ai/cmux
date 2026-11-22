@@ -98,6 +98,9 @@ declare namespace Cmux {
   type CloudSessionView = { key: string; team: Cmux.TeamId; vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; kind: Cmux.CloudSessionKind; workspace?: Cmux.CloudSessionId; title: string; harness?: string; owner: Cmux.UserId; owner_name: string | null; assignee: Cmux.UserId; assignee_name: string | null; machine_state: Cmux.CloudSessionMachineState; activity: Cmux.CloudSessionActivity; last_activity_at: number; created_at: number; archived: boolean; followers: Array<Cmux.UserId>; follower_count: number; following: boolean; assigned_to_you: boolean; viewers: Array<Cmux.UserId>; can_reassign: boolean; can_archive: boolean; link: string }
   type CloudSessionVm = string
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; archive_of?: { machine: Cmux.MachineId; name: string | null; until: number } | null; revision: Cmux.Revision }
+  type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
+  type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
+  type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -905,6 +908,10 @@ interface CmuxGlobal {
     snapshot: {
       /** `cloud.snapshot.list` (read, scope `cloud:read`): Snapshots of one machine, or of the team. */
       list: CmuxOp<{ machine?: Cmux.MachineId }, { snapshots: Array<Cmux.CloudSnapshot> }>
+    }
+    surge: {
+      /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
+      preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
     }
     vm: {
       attention: {
