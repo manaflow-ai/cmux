@@ -52,8 +52,8 @@ pub use checkpoint::{
 };
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
-    Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, ResumeSize, RowRef, Side, Since,
-    Window,
+    Anchor, Edge, LiveFold, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, ResumeSize, RowRef, Side,
+    Since, Window,
 };
 pub use record::{HEADER_LEN, RECORD_OVERHEAD};
 

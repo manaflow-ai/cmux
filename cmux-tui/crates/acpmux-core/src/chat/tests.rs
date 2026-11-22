@@ -1161,3 +1161,35 @@ fn bench_first_window() {
         stream::window(&mut state, "bench", &stream::person_id(None), log::Anchor::End, 0).unwrap();
     fs::write(&out, frame.payload()).unwrap();
 }
+
+/// The settled row ids of the first window a reload gets for `source`.
+fn first_window_ids(source: &[u8]) -> Vec<u64> {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::write(book.join("source.ndjson"), source).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "test", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    let window: serde_json::Value = serde_json::from_slice(frame.payload()).unwrap();
+    window["rows"].as_array().unwrap().iter().map(|row| row["id"].as_u64().unwrap()).collect()
+}
+
+/// A reload mid-turn draws no settled row the turn's end folds away: the open turn's work comes
+/// folded, as the same rows come once it ends.
+#[test]
+fn a_reload_mid_turn_draws_nothing_the_turns_end_folds_away() {
+    let ended = corpus(2);
+    let text = String::from_utf8(ended.clone()).unwrap();
+    // The last turn without its end record: its work settled, its last reply still open.
+    let lines = text.lines().count();
+    let open: String = text.lines().take(lines - 1).map(|line| format!("{line}\n")).collect();
+    let after = first_window_ids(&ended);
+    let during = first_window_ids(open.as_bytes());
+    assert!(!during.is_empty());
+    for id in &during {
+        assert!(after.contains(id), "row {id} drawn mid-turn folds away: {during:?} {after:?}");
+    }
+}
