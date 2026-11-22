@@ -151,7 +151,8 @@ async fn a_new_start_makes_pairs_places_and_starts_the_host() {
 #[tokio::test]
 async fn keep_awake_sets_no_idle_pause() {
     let fake = Fake::default();
-    let mut s = start(true);
+    fake.probes(vec![done()]);
+    let mut s = start(false);
     s.keep_awake = true;
     run(&fake, &s).await.unwrap();
     assert!(
