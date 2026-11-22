@@ -109,6 +109,15 @@ final class PageState {
 
     var sectionOrders: [Int] { sections.map(\.order) }
 
+    /// The names a search filter (`in:tabs`) reads, one list per section index: its title and
+    /// its id; then the contributed answers' sections (agent chats), which hold no ranked rows.
+    func filterSectionNames(_ page: PalettePageSpec) -> [[String]] {
+        let ranked = sections.map { [$0.title, $0.id] }
+        let known = Set(sections.map(\.id))
+        let answered = page.contributedAnswers.map(\.section).filter { !known.contains($0.id) }.map { [$0.title, $0.id] }
+        return ranked + answered
+    }
+
     /// Merges provider items in provider order, dropping duplicate IDs.
     func rebuild() {
         guard case .list(let page) = kind else { return }

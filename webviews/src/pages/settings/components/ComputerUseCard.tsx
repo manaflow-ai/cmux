@@ -16,31 +16,15 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { RowFrame, RowStatus, SettingRow } from "./SettingRow";
-
-export const COMPUTER_USE_MODE = "computerUse.mode";
-export const COMPUTER_USE_DENIED_APPS = "computerUse.deniedApps";
-/** Whether agents may open menus of background apps (a choice row, drawn before the switches). */
-export const COMPUTER_USE_MENUS = "computerUse.menus";
-/** The switches and pickers under the approvals, in the card's order: the agent cursor's tag and
- * what agents wait for after each action follow Show Agent Cursor; Allow Foreground Input
- * (advanced) comes last. */
-export const COMPUTER_USE_SWITCHES = [
-  "computerUse.allowOwnMachines",
-  "computerUse.pauseOnTakeover",
-  "computerUse.showCursor",
-  "computerUse.cursorTag",
-  "computerUse.settle",
-  "computerUse.livePreview",
-  "computerUse.allowForeground",
-] as const;
-
-/** The schema rows the card draws itself. */
-export const COMPUTER_USE_ROWS: ReadonlySet<string> = new Set([
+import {
   COMPUTER_USE_MODE,
   COMPUTER_USE_DENIED_APPS,
   COMPUTER_USE_MENUS,
-  ...COMPUTER_USE_SWITCHES,
-]);
+  COMPUTER_USE_SWITCHES,
+  COMPUTER_USE_ROWS,
+} from "../cardRows";
+
+export { COMPUTER_USE_MODE, COMPUTER_USE_DENIED_APPS, COMPUTER_USE_MENUS, COMPUTER_USE_SWITCHES, COMPUTER_USE_ROWS };
 
 /** The modes in the order the picker lists them: most access first. */
 export const COMPUTER_USE_MODES = ["fullAccess", "approvedApps", "askEveryTime", "lookOnly", "off"] as const;
