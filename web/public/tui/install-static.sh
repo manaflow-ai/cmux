@@ -588,9 +588,9 @@ if [ "$os" = Linux ]; then
     exit 1
   fi
 else
-  # unsigned: macOS only, outside the Linux release file.
+  # macOS: outside the Linux release file (no darwin target yet).
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$base_url/manifest.json" \
-    -o "$tmp_dir/manifest.json"
+    -o "$tmp_dir/manifest.json" # unsigned: macOS only
   checksum="$(
     sed -n "s/.*\"$artifact\"[[:space:]]*:[[:space:]]*\"\\([0-9a-f][0-9a-f]*\\)\".*/\\1/p" \
       "$tmp_dir/manifest.json"
@@ -613,9 +613,8 @@ else
   case "$artifact_base_url" in
     */latest) artifact_base_url="${artifact_base_url%/latest}/$commit" ;;
   esac
-  # unsigned: macOS only, outside the Linux release file.
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$artifact_base_url/$artifact" \
-    -o "$tmp_dir/cmux"
+    -o "$tmp_dir/cmux" # unsigned: macOS only
   if [ "$(clr_sha "$tmp_dir/cmux")" != "$checksum" ]; then
     echo "cmux: checksum verification failed" >&2
     echo "next: run this again; if it repeats, report it at https://github.com/manaflow-ai/cmux/issues" >&2
