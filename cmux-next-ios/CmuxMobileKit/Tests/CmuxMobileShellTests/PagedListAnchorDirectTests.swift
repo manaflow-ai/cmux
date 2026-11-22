@@ -113,13 +113,6 @@ import UIKit
             list.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame.height ?? -1
         }
 
-        /// One frame: lay out, commit, and let the run loop turn once (the probe samples it).
-        func turn() {
-            list.layoutIfNeeded()
-            CATransaction.flush()
-            RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 60))
-        }
-
         /// Lays the list out and commits the frame, then lets the run loop turn so the probe's
         /// committed-frame observer samples it.
         func settle() {
