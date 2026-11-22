@@ -59,6 +59,8 @@ export type ToolOptions = {
   /** Leave the call running: no result record (end it later with `toolEnd`). */
   open?: boolean;
   path?: string;
+  /** The call's input (`rawInput`) for a call that is not a command: SendMessage's `{ to, message }`. */
+  input?: Record<string, unknown>;
 };
 
 export type IncomingOptions = {
@@ -241,6 +243,7 @@ export class SimBuilder {
         kind,
         status: "in_progress",
         ...(kind === "execute" ? { rawInput: { command: title, description: title } } : {}),
+        ...(options.input ? { rawInput: options.input } : {}),
         ...(options.path ? { locations: [{ path: options.path }] } : {}),
         ...(options.tool ? { _meta: { claude: { tool: options.tool } } } : {}),
       }),
@@ -301,6 +304,15 @@ export class SimBuilder {
       );
     }
     return this;
+  }
+
+  /** Claude Code's SendMessage to a subagent (by its agentId) or another agent: a "Sent to" row. */
+  sendMessage(to: string, message: string, { ms = 2_500, after = 300 } = {}): this {
+    return this.tool(
+      "SendMessage",
+      { kind: "other", tool: "SendMessage", input: { to, message }, ms, output: '{"success":true}' },
+      after,
+    );
   }
 
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */
