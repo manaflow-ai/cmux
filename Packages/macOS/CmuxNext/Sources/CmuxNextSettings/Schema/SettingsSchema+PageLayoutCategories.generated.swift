@@ -21,6 +21,7 @@ extension SettingsPageLayout {
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
+            GroupSpec(group: "settings.group.language"),
             GroupSpec(group: "settings.group.window"),
             GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),
@@ -150,11 +151,11 @@ extension SettingsPageLayout {
     private static let chatCategory = CategorySpec(
         id: "chat", title: SettingsText.keyed("settings.category.chat", "Chat"), symbol: "bubble.left",
         groups: [
-            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
-            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
+            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily", "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
             GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
-            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
+            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.links.openCitationsInEditor", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
             GroupSpec(group: "settings.group.chats"),
         ]
     )
@@ -217,6 +218,7 @@ extension SettingsPageLayout {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             GroupSpec(group: "settings.group.banners"),
+            GroupSpec(group: "settings.group.notificationDelivery"),
             // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
             GroupSpec(group: "settings.group.sounds"),
             GroupSpec(group: "settings.group.dismissal"),
