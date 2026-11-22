@@ -4659,8 +4659,10 @@ function TranscriptView({
   // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
   // something went wrong with a retry button just above the composer ... and then it layout shifted"):
   // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
-  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
-  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // (`restExtra`), so a line covers no row. A taller notice (its Details open, an app notice card)
+  // moves no row either (Leo, 2026-11-22: "that message should not shift layout"): it lies over the
+  // newest row's foot too, and the room takes all of it only once the rows move anyway (`noticeHold`,
+  // the notice's height the room has not taken). So too at the chat's
   // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
   // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
   // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
@@ -4673,7 +4675,7 @@ function TranscriptView({
     dockSpace <= 0 || !following
       ? 0
       : dockNotice >= noticeHeldAt
-        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        ? Math.min(dockNotice - noticeHeldAt, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
         : noticeTaken
           ? 0
           : dockNotice - noticeHeldAt;
