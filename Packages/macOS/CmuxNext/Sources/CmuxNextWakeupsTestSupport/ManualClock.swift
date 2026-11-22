@@ -43,13 +43,22 @@ public final class ManualClock: Clock, Sendable {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
+    /// A `waitForSleeper` call that is suspended.
+    private struct Watcher {
+        /// The latest deadline of the sleeper it waits for; nil for any sleeper.
+        let dueBy: Instant?
+        let continuation: CheckedContinuation<Bool, Never>
+
+        func wants(_ deadline: Instant) -> Bool { dueBy.map { deadline <= $0 } ?? true }
+    }
+
     private struct State {
         var now = Instant(offset: .zero)
         var sleepers: [Sleeper] = []
         /// Sleeps cancelled before they were registered.
         var cancelled: Set<Int> = []
-        /// `waitForSleeper` calls suspended until a sleeper is registered.
-        var watchers: [Int: CheckedContinuation<Bool, Never>] = [:]
+        /// `waitForSleeper` calls suspended until a sleeper they want is registered.
+        var watchers: [Int: Watcher] = [:]
         var nextID = 0
     }
 
@@ -74,8 +83,9 @@ public final class ManualClock: Clock, Sendable {
                     if state.cancelled.remove(id) != nil { return (.failure(CancellationError()), []) }
                     if deadline <= state.now { return (.success(()), []) }
                     state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
-                    defer { state.watchers.removeAll() }
-                    return (nil, Array(state.watchers.values))
+                    let woken = state.watchers.filter { $0.value.wants(deadline) }
+                    for watcher in woken.keys { state.watchers[watcher] = nil }
+                    return (nil, woken.values.map(\.continuation))
                 }
                 for watcher in watchers { watcher.resume(returning: true) }
                 if let outcome { continuation.resume(with: outcome) }
@@ -97,7 +107,7 @@ public final class ManualClock: Clock, Sendable {
 
     /// The deadlines of the tasks asleep on the clock now. With several timers on one clock,
     /// ``waitForSleeper(within:)`` returns once any of them sleeps; a test that advances past one
-    /// timer's deadline first waits until that deadline is here.
+    /// timer's deadline first waits until that deadline is here (``waitForSleeper(dueBy:within:)``).
     public var sleeperDeadlines: [Instant] { state.withLock { $0.sleepers.map(\.deadline) } }
 
     /// Returns once a task is asleep on the clock (at once when one already is).
@@ -110,15 +120,37 @@ public final class ManualClock: Clock, Sendable {
     /// - Parameter limit: How long to wait (on the wall clock) before failing the test.
     /// - Throws: ``NoSleeper`` when no task went to sleep within `limit`; `CancellationError`.
     public func waitForSleeper(within limit: Duration = .milliseconds(2_500)) async throws {
+        try await waitForSleeper(wanted: nil, within: limit)
+    }
+
+    /// Returns once a task is asleep on the clock with a deadline at or before `deadline` (at once
+    /// when one already is). With several timers on one clock, this is the wait for the timer the
+    /// test moves the clock past next: a timer that is due later does not end it.
+    ///
+    /// ```swift
+    /// try await clock.waitForSleeper(dueBy: clock.now.advanced(by: .milliseconds(250)))
+    /// clock.advance(by: .milliseconds(250))
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - deadline: The latest deadline of the sleeper to wait for.
+    ///   - limit: How long to wait (on the wall clock) before failing the test.
+    /// - Throws: ``NoSleeper`` when no such task went to sleep within `limit`; `CancellationError`.
+    public func waitForSleeper(dueBy deadline: Instant, within limit: Duration = .milliseconds(2_500)) async throws {
+        try await waitForSleeper(wanted: deadline, within: limit)
+    }
+
+    private func waitForSleeper(wanted dueBy: Instant?, within limit: Duration) async throws {
         let id = state.withLock { state in state.nextID += 1; return state.nextID }
         // A private ledger: the test's failure deadline is not an app wakeup.
         let deadline = DemandTimer(owner: "ManualClock.waitForSleeper", ledger: WakeupLedger())
         let arrived = await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 let ready: Bool? = state.withLock { state in
-                    if !state.sleepers.isEmpty { return true }
+                    let watcher = Watcher(dueBy: dueBy, continuation: continuation)
+                    if state.sleepers.contains(where: { watcher.wants($0.deadline) }) { return true }
                     if state.cancelled.remove(id) != nil { return false }
-                    state.watchers[id] = continuation
+                    state.watchers[id] = watcher
                     return nil
                 }
                 if let ready { return continuation.resume(returning: ready) }
@@ -136,7 +168,7 @@ public final class ManualClock: Clock, Sendable {
     /// that comes before it registered is kept so the registration returns at once.
     private func resolveWatcher(_ id: Int, arrived: Bool, cancelling: Bool = false) {
         let watcher: CheckedContinuation<Bool, Never>? = state.withLock { state in
-            if let watcher = state.watchers.removeValue(forKey: id) { return watcher }
+            if let watcher = state.watchers.removeValue(forKey: id) { return watcher.continuation }
             if cancelling { state.cancelled.insert(id) }
             return nil
         }
