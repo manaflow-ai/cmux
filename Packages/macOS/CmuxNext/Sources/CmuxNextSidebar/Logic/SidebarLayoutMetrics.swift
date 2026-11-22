@@ -144,6 +144,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// compact row's dim time on the name's line. Off by default (Lawrence 2026-10-19): no row
     /// draws a time unless the user picks the Last Activity element.
     public var showsTimestamps = false
+    /// How rows show their agent chat's task list (`SidebarTaskProgressLook`, the gallery's pick by default).
+    public var taskProgressLook = SidebarTaskProgressLook.shipped
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
     /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
@@ -233,12 +235,23 @@ nonisolated extension SidebarLayoutOptions {
         if content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
-        // over a status or an expanded row's age, and never a line of its own.
-        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
-            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
-        }
+        applyTaskProgress(ws, to: &content)
         return content
+    }
+
+    /// Steps left in the agent's task list, as `taskProgressLook` draws them (Leo 2026-11-22, "DO IT PROPERLY"):
+    /// the step in progress on a row that already has a second line, and a hairline at the row's foot while the chat
+    /// works through 2 or more steps. Nothing ever takes room from the name's line, and a one-line row stays one line.
+    /// A reported progress bar (`content.progress`) keeps the foot; workspaces as tabs draw neither.
+    func applyTaskProgress(_ ws: SidebarWorkspace, to content: inout WorkspaceRowContent) {
+        guard let tasks = ws.taskProgress, !workspacesAsTabs else { return }
+        if taskProgressLook.drawsStepLine, content.detail != nil, let step = tasks.current?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !step.isEmpty {
+            (content.taskStep, content.now, content.detail, content.tasks) = (step, nil, step, tasks)
+        }
+        if let style = taskProgressLook.bar, ws.agentWorking, tasks.total >= 2, content.progress == nil {
+            (content.taskBar, content.tasks) = (SidebarTaskBar(style: style, progress: tasks), tasks)
+        }
     }
 
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {

@@ -97,9 +97,17 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .localizedModule) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .localizedModule) }
-    /// The agent chat's task list: steps done of all (the row's "3/7" in words, and the hover card's line).
+    /// The agent chat's task list: steps done of all (the row's hairline in words, and the hover card's line).
     static func taskProgress(done: Int, total: Int) -> String {
         String(localized: "sidebar.tasks.progress", defaultValue: "\(done) of \(total) tasks done", bundle: .localizedModule)
+    }
+    /// The muted count at the end of a row's plan line: which step runs, of all ("2 of 5").
+    static func taskStepOf(_ step: Int, total: Int) -> String {
+        String(localized: "sidebar.tasks.stepOf", defaultValue: "\(step) of \(total)", bundle: .localizedModule)
+    }
+    /// A row's plan line count in words, for its accessibility label ("Step 2 of 5").
+    static func taskStep(_ step: Int, total: Int) -> String {
+        String(localized: "sidebar.tasks.step", defaultValue: "Step \(step) of \(total)", bundle: .localizedModule)
     }
     /// The hover card's line for the step the agent works on.
     static func taskNow(_ step: String) -> String { String(localized: "sidebar.tasks.now", defaultValue: "Now: \(step)", bundle: .localizedModule) }

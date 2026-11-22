@@ -270,6 +270,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// How rows show their agent chat's task list (`SidebarLayoutOptions.taskProgressLook`).
+    public var taskProgressLook = SidebarTaskProgressLook.shipped
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
@@ -801,6 +803,7 @@ public final class SidebarModel {
         o.expanded = expanded
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
+        o.taskProgressLook = taskProgressLook
         (o.showsColors, o.colorIndicator) = (showsColors, colorIndicator)
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {

@@ -66,6 +66,16 @@
   hover pin reverses only its hover half. Drag still pins. Regression: `SidebarHoverPinTests`,
   `SidebarTrailingColumnTests.anExpandedRowOffersItsPinOnHoverOnly`.
 
+- 2026-11-22 (plan-display-sidebar): Sidebar-Look: Leo, 2026-11-22: "if we ever EVER FUCKING WANT SOME BULLSHIT
+  LIKE THIS, WE FUCKING DO IT PROPERLY. SO GO DO IT PROPERLY." (of "limit 0/1 •": the 2026-11-20 count cut a title to
+  one word). No row draws a task count on the name's line any more, workspace rows or the Chief's subagent rows.
+  `SidebarTaskProgressLook.shipped` (`stepLineAndSegments`, picked from `AASidebarTaskPlanGalleryTests`): a row that
+  already has a second line reads the step in progress there with a muted "2 of 5" at its end; while the chat works
+  through 2 or more steps, a 2 pt hairline at the row's foot, one segment per step (done, in progress, left) up to 12
+  steps and one fill past that. A one-line row stays one line; a reported progress bar keeps the foot. The hover card
+  is unchanged; `sidebar.taskProgress` still turns it off. VoiceOver: the step and "Step 2 of 5", or "N of M tasks done"
+  for the hairline. Regression: `SidebarTaskProgressTests`, `ChiefSubagentTaskCountTests`.
+
 - 2026-11-20 (a-chat-task-list): Sidebar-Look: David Beyer, Nov 20 call (via Chief): "a task list that tracks
   what's done and what's next across long agent chats", shown per thread in the sidebar. An agent chat's row shows a
   quiet `done/total` ("3/7") in its trailing status slot while its task list has steps left, only when the row shows

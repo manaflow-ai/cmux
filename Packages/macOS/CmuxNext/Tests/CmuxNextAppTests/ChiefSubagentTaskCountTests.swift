@@ -7,8 +7,9 @@ import Foundation
 import Testing
 
 /// The Chief's subagent rows under the sidebar's top Chief row (cmux#48416 follow-up, "Chief replaces Home") show a
-/// subagent's task count, as a chat row does (`SidebarTaskProgressTests`): a quiet "1/3" on the row's trailing side
-/// while steps are left, nothing once the list is done or the `sidebar.taskProgress` setting is off.
+/// subagent's task list as a one-line chat row does (`SidebarTaskProgressTests`): the hairline at the row's foot while it
+/// works through steps left, never a count beside the title (Leo 2026-11-22), nothing once the list is done or the
+/// `sidebar.taskProgress` setting is off.
 @MainActor @Suite(.serialized) struct ChiefSubagentTaskCountTests {
     static func lane(_ name: String, _ state: AgentActivityLane.State, list: AgentTaskList?) -> AgentActivityLane {
         AgentActivityLane(id: "id-" + name, name: name, title: "Fix the build", peer: nil, parent: "optchat-chief:6b68ac4a",
@@ -43,26 +44,29 @@ import Testing
         SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: true)
     }
 
-    @Test func aSubagentWithStepsLeftShowsItsCountBesideItsTitle() throws {
+    @Test func aWorkingSubagentDrawsTheHairlineAndNoCount() throws {
         try SidebarTaskProgressTests.withTaskProgress(nil) {
             let item = try #require(Self.rows([Self.lane("optchat-sub-6b68ac4a-a2", .working, list: Self.open)]).first)
             let view = Self.drawn(item)
-            let count = try #require(Self.shownTexts(view).first { $0.stringValue == "1/3" },
-                                     "the subagent row draws no 1/3: \(Self.shownTexts(view).map(\.stringValue))")
-            #expect(count.frame.width > 0 && count.frame.maxX <= view.bounds.maxX)
-            #expect(view.title.frame.maxX <= count.frame.minX, "the title runs under the count")
+            #expect(Self.shownTexts(view).allSatisfy { !$0.stringValue.contains("/") }, "\(Self.shownTexts(view).map(\.stringValue))")
+            #expect(view.taskBar?.progress.total == 3)
+            #expect(!view.taskBarLayer.isHidden && view.taskBarLayer.frame.width > 0)
+            #expect(view.taskBarLayer.frame.maxX <= view.bounds.maxX)
             #expect((view.accessibilityValue() as? String)?.contains("1 of 3 tasks done") == true,
-                    "VoiceOver does not hear the count: \(String(describing: view.accessibilityValue()))")
+                    "VoiceOver does not hear the hairline: \(String(describing: view.accessibilityValue()))")
         }
     }
 
-    @Test func aFinishedListOrNoListShowsNoCount() throws {
+    @Test func aFinishedListOrNoListShowsNothing() throws {
         try SidebarTaskProgressTests.withTaskProgress(nil) {
             let items = Self.rows([Self.lane("optchat-sub-6b68ac4a-a2", .idle, list: Self.finished),
-                                   Self.lane("optchat-sub-6b68ac4a-a3", .working, list: nil)])
-            #expect(items.count == 2)
+                                   Self.lane("optchat-sub-6b68ac4a-a3", .working, list: nil),
+                                   Self.lane("optchat-sub-6b68ac4a-a4", .idle, list: Self.open)])
+            #expect(items.count == 3)
             for item in items {
-                #expect(Self.shownTexts(Self.drawn(item)).allSatisfy { !$0.stringValue.contains("/") })
+                let view = Self.drawn(item)
+                #expect(Self.shownTexts(view).allSatisfy { !$0.stringValue.contains("/") })
+                #expect(view.taskBar == nil && view.taskBarLayer.isHidden)
             }
         }
     }
@@ -70,7 +74,7 @@ import Testing
     @Test func theSettingTurnsItOff() throws {
         try SidebarTaskProgressTests.withTaskProgress(false) {
             let item = try #require(Self.rows([Self.lane("optchat-sub-6b68ac4a-a2", .working, list: Self.open)]).first)
-            #expect(Self.shownTexts(Self.drawn(item)).allSatisfy { $0.stringValue != "1/3" })
+            #expect(Self.drawn(item).taskBar == nil)
         }
     }
 }

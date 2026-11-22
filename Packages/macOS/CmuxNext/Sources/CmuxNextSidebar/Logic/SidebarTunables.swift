@@ -178,11 +178,12 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.nowLine")
 
     /// A row whose agent chat has steps left in its task list (acpmux `taskList`: the harness's
-    /// plan, else the one its Chief keeps) shows how many are done ("3/7") on the name's line, and
-    /// its hover card says what runs now and what is next. On by default (David Beyer, Nov 20 call).
+    /// plan, else the one its Chief keeps) shows it as `SidebarTaskProgressLook.shipped` draws it (never on
+    /// the name's line), and its hover card says what runs now and what is next. On by default (David Beyer,
+    /// Nov 20 call; the row's look redone after Leo 2026-11-22).
     public static let taskProgress = Tunable<Bool>.toggle(
         "sidebar.taskProgress", .sidebar, "Rows show their agent's task progress",
-        help: "While an agent chat in a workspace has steps left in its task list, the row shows how many are done (3/7) and the hover card says what runs now and what is next.",
+        help: "While an agent chat in a workspace has steps left in its task list, a two-line row reads the step in progress, a working row shows a thin line of the steps done, and the hover card says what runs now and what is next.",
         default: true, code: "SidebarTunables.taskProgress")
 
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.

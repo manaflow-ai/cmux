@@ -8,6 +8,7 @@ extension WorkspaceRowView {
     /// the progress label, else at the row's bottom edge (`bottom`).
     func layoutStatus(x: CGFloat, width: CGFloat, head: CGFloat, bottom: CGFloat) {
         statusBlock.frame = NSRect(x: x, y: head, width: width, height: statusHeight)
+        layoutTaskBar(x: x, width: width, bottom: bottom)
         guard let progress else {
             progressTrack.isHidden = true
             return

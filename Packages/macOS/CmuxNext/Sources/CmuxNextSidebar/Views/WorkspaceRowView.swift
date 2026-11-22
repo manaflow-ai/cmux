@@ -93,6 +93,11 @@ final class WorkspaceRowView: SidebarRowView {
     let progressTrack = CALayer()
     let progressFill = CALayer()
     internal(set) var progress: SidebarProgress?
+    /// The agent chat's task list (`WorkspaceRowContent.taskStep`, `.taskBar`; WorkspaceRowView+TaskPlan): the muted
+    /// "2 of 5" at the end of a plan line, and the hairline at the row's foot while the chat works.
+    let taskStepCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    let taskBarLayer = SidebarTaskBarLayer()
+    internal(set) var taskBar: SidebarTaskBar?
     /// Classic's status block under the name (`WorkspaceRowContent.status`).
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
@@ -183,7 +188,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, taskStepCount, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -194,6 +199,10 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
+        taskBarLayer.isHidden = true
+        layer?.addSublayer(taskBarLayer)
+        taskStepCount.isHidden = true
+        taskStepCount.font = .monospacedDigitSystemFont(ofSize: SidebarStyle.subtitleFont.pointSize, weight: .regular)
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -345,8 +354,9 @@ final class WorkspaceRowView: SidebarRowView {
         }
         title.font = ws.titleWeight.map { SidebarStyle.titleFont(weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
-        subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
+        subtitle.setString(shown.taskStep ?? shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
+        configureTaskPlan(shown)
         // No status words and no running time on a row (Leo 2026-10-21): its badge's dot says it; the label reads the chip.
         let trailingText = shown.trailingText
         (isExpanded, timeText) = (shown.expanded, trailingText)

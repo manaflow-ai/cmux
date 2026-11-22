@@ -75,6 +75,7 @@ extension WorkspaceRowView {
         // center instead put the second line about a point lower and ate that room.
         subtitle.isHidden = !hasSubtitle
         subtitle.frame = NSRect(x: x, y: top + th, width: lineWidth, height: sh)
+        layoutTaskStepCount()
         metaLabel.isHidden = !hasMeta
         metaLabel.frame = NSRect(x: x, y: hasSubtitle ? subtitle.frame.maxY : top + th, width: lineWidth, height: sh)
     }

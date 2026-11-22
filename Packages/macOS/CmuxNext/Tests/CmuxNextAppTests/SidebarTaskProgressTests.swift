@@ -10,7 +10,8 @@ import Testing
 
 /// David Beyer, Nov 20 call: a task list that tracks what is done and what is next across a long
 /// agent chat, shown per chat in the sidebar. acpmux keeps the chat's `taskList` across its turns;
-/// the chat's row shows a quiet "1/3" while steps are left, and its hover card says Now and Next.
+/// the chat's row shows it as `SidebarTaskProgressLook.shipped` draws it (Leo 2026-11-22: never a count on the name's
+/// line, which cut a title to "limit 0/1"), and its hover card says Now and Next.
 @MainActor @Suite(.serialized) struct SidebarTaskProgressTests {
     typealias Lanes = SidebarLaneStatusTests
 
@@ -83,34 +84,71 @@ import Testing
         #expect(SidebarLaneStatus.taskProgress([done]) == nil, "a finished list says nothing a row needs")
     }
 
-    @Test func aRowWithStepsLeftShowsItsCountQuietly() throws {
+    @Test func nothingEverSitsOnTheNamesLine() throws {
         let fixture = try Fixture()
         try Self.withTaskProgress(nil) {
             let rows = fixture.rows()
-            let planned = try #require(rows["planned"])
+            var planned = try #require(rows["planned"])
             #expect(planned.taskProgress == SidebarTaskProgress(done: 1, total: 3, current: "Fix the queue", next: "Land"))
             #expect(rows["finished"]?.taskProgress == nil)
-            let content = SidebarLayoutOptions().rowContent(planned, machine: nil)
-            #expect(content.trailingStatus == "1/3")
-            #expect(content.tasks?.total == 3)
-            #expect(content.detail == nil, "a one-line row stays one line")
+            for look in SidebarTaskProgressLook.allCases {
+                for working in [false, true] {
+                    planned.agentWorking = working
+                    var options = SidebarLayoutOptions()
+                    options.taskProgressLook = look
+                    let content = options.rowContent(planned, machine: nil)
+                    #expect(content.trailingStatus == nil, "\(look): \(content.trailingStatus ?? "")")
+                    #expect(content.detail == nil && content.taskStep == nil, "\(look): a one-line row stays one line")
+                }
+            }
         }
     }
 
-    @Test func theCountNeverCoversAnExpandedRowsAge() throws {
+    @Test func aWorkingRowDrawsTheHairlineOnlyForTwoStepsOrMore() throws {
         let fixture = try Fixture()
         try Self.withTaskProgress(nil) {
             var planned = try #require(fixture.rows()["planned"])
-            planned.lastActivity = Date(timeIntervalSince1970: 1_000)
-            var options = SidebarLayoutOptions()
-            options.expanded = true
-            // Timestamps are off by default: the expanded row has no age, so the count may sit there.
-            #expect(options.rowContent(planned, machine: nil).trailingStatus == "1/3")
-            options.showsTimestamps = true
+            let options = SidebarLayoutOptions()
+            #expect(options.rowContent(planned, machine: nil).taskBar == nil, "an idle chat's list draws no hairline")
+            planned.agentWorking = true
             let content = options.rowContent(planned, machine: nil)
-            #expect(content.time != nil)
-            #expect(content.trailingStatus == nil)
+            #expect(content.taskBar == SidebarTaskBar(style: .segments, progress: planned.taskProgress!))
+            #expect(content.tasks?.total == 3)
+            planned.taskProgress = SidebarTaskProgress(done: 0, total: 1, current: "Cap the queue")
+            #expect(options.rowContent(planned, machine: nil).taskBar == nil, "a one-step list draws no hairline")
+            planned.taskProgress = SidebarTaskProgress(done: 1, total: 3)
+            planned.progress = SidebarProgress(value: 0.5)
+            #expect(options.rowContent(planned, machine: nil).taskBar == nil, "a reported progress bar keeps the row's foot")
         }
+    }
+
+    @Test func aTwoLineRowReadsTheStepInProgress() throws {
+        let fixture = try Fixture()
+        try Self.withTaskProgress(nil) {
+            var planned = try #require(fixture.rows()["planned"])
+            planned.directory = "~/code/cmux"
+            planned.agentStep = "Running tests"
+            var options = SidebarLayoutOptions()
+            options.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.directory])))
+            let content = options.rowContent(planned, machine: nil)
+            #expect(content.taskStep == "Fix the queue")
+            #expect(content.detail == "Fix the queue" && content.now == nil, "the plan's step takes the second line")
+            #expect(SidebarTaskProgress(done: 1, total: 3).stepNumber == 2)
+            let label = WorkspaceRowView.accessibilityText(planned, content: content, tabCount: nil, presence: [])
+            #expect(label.contains("Fix the queue, Step 2 of 3"), "\(label)")
+            options.taskProgressLook = .hidden
+            #expect(options.rowContent(planned, machine: nil).taskStep == nil)
+        }
+    }
+
+    @Test func theSegmentsSayDoneNowAndLeft() {
+        let bar = SidebarTaskBar(style: .segments, progress: SidebarTaskProgress(done: 2, total: 5, current: "Step 3"))
+        let parts = SidebarTaskBarLayer.parts(bar, size: CGSize(width: 108, height: 2))
+        #expect(parts.done.count == 2 && parts.current.count == 1 && parts.track.count == 2)
+        #expect(parts.done[0].width == 20 && parts.current[0].minX == 44)
+        let long = SidebarTaskBar(style: .segments, progress: SidebarTaskProgress(done: 30, total: 120))
+        let fill = SidebarTaskBarLayer.parts(long, size: CGSize(width: 200, height: 2))
+        #expect(fill.done == [CGRect(x: 0, y: 0, width: 50, height: 2)] && fill.track.count == 1, "120 steps draw one fill")
     }
 
     @Test func theHoverCardSaysHowFarNowAndNext() throws {

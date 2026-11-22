@@ -91,9 +91,14 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
+    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws it, as its plan line
+    /// (`taskStep`) or hairline (`taskBar`, `SidebarTaskProgressLook`); its accessibility label says it in words.
+    /// Never on the name's line: a count there cut the title to one word (Leo 2026-11-22).
     public var tasks: SidebarTaskProgress?
+    /// The step in progress, in the second line's place on a row that has one, with a muted "2 of 5" at its end.
+    public var taskStep: String?
+    /// The hairline at the row's foot: the share of steps done, while the chat works.
+    public var taskBar: SidebarTaskBar?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
