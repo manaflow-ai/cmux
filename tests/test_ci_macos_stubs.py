@@ -170,5 +170,28 @@ class WeakenTests(unittest.TestCase):
             weaken.weaken(data)
 
 
+class CommittedStubsTest(unittest.TestCase):
+    """The stubs in scripts/ci/macos-stubs, as the Linux link reads them."""
+
+    STUB_DIR = ROOT / "scripts" / "ci" / "macos-stubs"
+
+    def symbols(self, name: str) -> list[str]:
+        return re.findall(r"'(_[^']+)'", (self.STUB_DIR / name).read_text(encoding="utf-8"))
+
+    def test_corefoundation_covers_chrono_local_time(self) -> None:
+        # chrono's Local (iana-time-zone's macOS backend) imports these. acpmux-standalone and
+        # cmux-tui linked them from 2026-11-22 05Z and every Linux cross link of
+        # aarch64-apple-darwin failed "undefined symbol: CFTimeZoneCopySystem" (job 137128508308),
+        # so each run rebuilt the macOS targets on a Mac (build-darwin-fallback, ~30 min).
+        cf = set(self.symbols("CoreFoundation.tbd"))
+        for symbol in ("_CFTimeZoneCopySystem", "_CFTimeZoneGetName", "_CFTimeZoneResetSystem"):
+            self.assertIn(symbol, cf)
+
+    def test_every_stub_lists_its_symbols_once_in_order(self) -> None:
+        for path in sorted(self.STUB_DIR.glob("*.tbd")):
+            syms = self.symbols(path.name)
+            self.assertEqual(syms, sorted(set(syms)), path.name)
+
+
 if __name__ == "__main__":
     unittest.main()
