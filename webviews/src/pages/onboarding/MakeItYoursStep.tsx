@@ -11,7 +11,7 @@
 // at once and the host writes it, so the app behind the window changes while the person watches.
 // Continue keeps the picks; Skip (and Escape) puts back what was set when the window opened.
 // Return presses Continue, Escape skips (the page's own key handler).
-import { useRef, useState, type CSSProperties } from "react";
+import { useRef, useState } from "react";
 import { cx } from "../../ui/cx";
 import type { MakeItYoursState, WorkStyle, MakeItYoursMaterial } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
@@ -69,35 +69,37 @@ function OpacitySlider({ value, label }: { value: number; label: string }) {
       <span className="onb-make-adjust-label" id="onb-make-opacity-label">
         {label}
       </span>
-      <input
-        type="range"
-        className="onb-make-slider"
-        min={0}
-        max={1}
-        step={OPACITY_STEP}
-        value={shown}
-        aria-labelledby="onb-make-opacity-label"
-        aria-valuetext={percent(shown)}
-        onPointerDown={() => {
-          dragging.current = true;
-        }}
-        onChange={(event) => {
-          const next = Number(event.currentTarget.value);
-          if (dragging.current) {
-            pending.current = next;
-            setDrag(next);
-            return;
-          }
-          // A key (or an assistive app's step): its own gesture, written now.
-          send(next);
-        }}
-        onPointerUp={release}
-        onPointerCancel={release}
-        onLostPointerCapture={release}
-        onBlur={release}
-      />
-      <span className="onb-make-adjust-value" aria-hidden="true">
-        {percent(shown)}
+      <span className="onb-make-adjust-control">
+        <input
+          type="range"
+          className="onb-make-slider"
+          min={0}
+          max={1}
+          step={OPACITY_STEP}
+          value={shown}
+          aria-labelledby="onb-make-opacity-label"
+          aria-valuetext={percent(shown)}
+          onPointerDown={() => {
+            dragging.current = true;
+          }}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value);
+            if (dragging.current) {
+              pending.current = next;
+              setDrag(next);
+              return;
+            }
+            // A key (or an assistive app's step): its own gesture, written now.
+            send(next);
+          }}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onLostPointerCapture={release}
+          onBlur={release}
+        />
+        <span className="onb-make-adjust-value" aria-hidden="true">
+          {percent(shown)}
+        </span>
       </span>
     </div>
   );
@@ -149,7 +151,7 @@ export function MakeItYoursStep({
       </fieldset>
       <fieldset className="onb-make-group onb-make-density">
         <legend className="onb-make-label">{strings.t("onboarding.makeItYours.density.label")}</legend>
-        <div className="onb-make-segments" style={{ "--onb-make-count": choices.densities.length } as CSSProperties}>
+        <div className="onb-make-segments">
           {choices.densities.map((density) => (
             <label
               key={density.id}

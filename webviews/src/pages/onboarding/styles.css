@@ -960,6 +960,9 @@
   flex-direction: column;
   gap: var(--ds-space-4);
   min-height: 0;
+  /* The window has a fixed size and the page follows the app's density: a larger one scrolls, never overlaps the footer. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .onb-make-group {
   min-width: 0;
@@ -1076,23 +1079,21 @@
 
 /* Density: one segmented control. */
 .onb-make-segments {
-  display: grid;
-  grid-template-columns: repeat(var(--onb-make-count, 5), minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--ds-space-2);
 }
+/* Equal widths while the names fit; a name never truncates (the row wraps instead). */
 .onb-make-segment {
   display: flex;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  min-width: 0;
+  min-width: max-content;
   height: 32px;
-  padding-inline: var(--ds-space-1);
+  padding-inline: var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   white-space: nowrap;
-}
-.onb-make-segment > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Background: None, Shuffle, then the paintings. */
@@ -1143,13 +1144,22 @@ img.onb-make-tile-image {
 }
 
 /* Under the tiles, Settings > Appearance's two rows for a background: Opacity and Material. */
+/* One row each, their labels in one column. */
 .onb-make-adjust {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--ds-space-4);
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--ds-space-3);
+  row-gap: var(--ds-space-2);
   margin-top: var(--ds-space-3);
 }
 .onb-make-adjust-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-width: 0;
+}
+.onb-make-adjust-control {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
@@ -1181,29 +1191,25 @@ img.onb-make-tile-image {
 }
 .onb-make-chips {
   display: flex;
-  flex: 1;
+  flex-wrap: wrap;
   gap: var(--grid-half-step);
   min-width: 0;
 }
 .onb-make-chip {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  min-width: 0;
+  min-width: max-content;
   height: 24px;
-  padding-inline: var(--ds-space-1);
+  padding-inline: var(--ds-space-2);
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-control);
   background: var(--onb-card-fill);
   font-size: var(--text-caption);
   white-space: nowrap;
   cursor: default;
-}
-.onb-make-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .onb-make-chip:hover {
   background: var(--ds-color-hover);
