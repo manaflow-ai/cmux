@@ -277,6 +277,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Clear All Notifications | Feed > Filter menu > **Clear All Notifications** | works (parity2) | `notification.clear` on the Mac's current session (new on the lane, see SECURITY.md); the Feed's terminal events go with it. No confirmation, as on the Mac. |
 | Read the macOS banners the Mac asked for and run one's click from outside the app (`notifications.banners`, `notifications.open {id}`; `cmux notification banners`, `cmux notification open <id>`; release builds too, for the notify-banner-click probe; 2026-11-15) | — | not from a phone | A test and automation readback of the Mac's own banners, over the Mac's local control socket only: neither method is in a relay allowlist, and the open moves the Mac's focus. The phone gets its own pushes and opens their chat itself (Feed, a push tap). |
 | Mute workspace | Feed > Filter > Workspaces toggles | partial | The phone's mute is the phone's own (the Mac's mute is not on the lane). |
+| VoiceOver says when an agent in another chat needs you, fails or finishes and no banner shows (`AgentStatusAnnouncement`, WCAG 2.2 SC 4.1.3) | none (Mac-local announcement) | the phone's own pushes, which VoiceOver reads | partial | In-app iPhone announcements (`AccessibilityNotification.Announcement`) for a chat not in view are a follow-up. |
 
 ## Navigation and search (palette batch, cmux#25834)
 
