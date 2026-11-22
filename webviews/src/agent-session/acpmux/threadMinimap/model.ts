@@ -3,6 +3,7 @@
 import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
+import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
@@ -664,14 +665,15 @@ export type MinimapTurns = {
   sessionId: string;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
-  /// Prompts indexed by the rail but not materialized in the transcript yet.
-  earlierRows?: readonly AcpmuxRow[];
-  /// The loaded portion is kept separately so prepending indexed prompts never changes the
-  /// incremental O(changed rows) work for a streamed reply.
+  /// The prompts the chat's index names that the rows do not hold yet (older than them). They are not in `turns`
+  /// or `ticks`: the rail reads each from here only when it draws or looks one up (railRows.ts), so a long chat's
+  /// index costs no object a prompt.
+  earlier?: PromptHeads;
+  /// The held turns and ticks: `turns` and `ticks` themselves (ScrollMap reads these).
   loadedTurns?: readonly MinimapTurn[];
   loadedTicks?: readonly MinimapTick[];
+  /// The rail row of the first held turn, past the indexed prompts (the count-only ones come before both).
   loadedStart?: number;
-  earlierTurns?: readonly MinimapTurn[];
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -685,7 +687,6 @@ const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[
 /// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
 /// rows before `from` in `rows` are the rows of `base`.
 export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
-const EMPTY_EARLIER_ROWS: readonly AcpmuxRow[] = [];
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
@@ -708,17 +709,11 @@ export function minimapTurns(
   sessionId = "",
   previous?: MinimapTurns,
   change?: RowsChange,
-  earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  earlier: PromptHeads = PromptHeads.EMPTY,
   promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
-  const reuse = prior
-    ? {
-        ...prior,
-        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.index >= 0),
-        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.index >= 0),
-      }
-    : undefined;
+  const reuse = prior;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -821,46 +816,30 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
-  // rail lays out every turn from the first frame. The combined list is a new array whenever the
-  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
-  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
+  // The indexed prompts older than the held rows (`earlier`) are not turns here: the rail reads them as rows of its
+  // own before the held ones (railRows.ts), so it lays out every turn from the first frame without an object a
+  // prompt. The loaded turns' lists are the result's own.
   const withEarlier = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
   ): MinimapTurns => {
-    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
     // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
-    if (!earlierRows.length)
-      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
-    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
-    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base, pendingCount: pending };
-    const earlier = sameEarlier
-      ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: promptText(row),
-          ...withSender(row),
-          reply: [],
-        }));
-    const turns = [...earlier, ...loadedTurns];
+    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length);
     return {
-      ...base,
-      turns,
-      // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
-      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
-      earlierRows,
-      earlierTurns: earlier,
-      pendingCount: pending,
+      rows,
+      sessionId,
+      turns: loadedTurns,
+      ticks: loadedTicks,
+      loadedTurns,
+      loadedTicks,
+      ...(spare ? { spare } : {}),
+      ...(earlier.length ? { earlier } : {}),
       loadedStart: earlier.length,
+      pendingCount: pending,
     };
   };
   if (!old) {
