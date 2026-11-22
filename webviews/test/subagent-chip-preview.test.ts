@@ -55,11 +55,12 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
     const page = await open();
     try {
       const chip = page.locator(CHIPS).nth(1);
-      // Opened, every name is whole: never Leo's letter or two.
-      const cut = await chip
+      // Opened, each name has the row to itself: never Leo's letter or two. A task longer than the
+      // pane still ends in an ellipsis, most of it shown; its card names it whole.
+      const shown = await chip
         .locator(".cv-agent-tag__label")
-        .evaluate((label) => label.scrollWidth > label.clientWidth + 1);
-      expect(cut).toBe(false);
+        .evaluate((label) => label.clientWidth / label.scrollWidth);
+      expect(shown).toBeGreaterThan(0.8);
       const rows = page.locator("[data-subagent-preview-gallery] > .acpmux-row");
       const before = await rows.evaluateAll((all) => all.map((row) => row.getBoundingClientRect().toJSON()));
       expect(await page.locator(PREVIEW).count()).toBe(0);

@@ -87,8 +87,11 @@ export function findHardClips(args: { root?: string; minChars?: number }): ClipF
       )
         cutter = element;
     }
-    // Wholly out of sight (a dropped segment on a hidden line): nothing cut mid-word.
-    if (seenRight <= seenLeft + 0.5 || seenBottom <= seenTop + 0.5) continue;
+    // Wholly out of sight above or below (a dropped segment on a hidden line): nothing cut mid-word.
+    if (seenBottom <= seenTop + 0.5) continue;
+    // On its line but cut away side to side: an ellipsized chip that keeps nothing (Leo's started line
+    // at seven names drew empty chips) is illegible; anything else is scrolled out of view.
+    const emptied = seenRight <= seenLeft + 0.5;
     const chars = text.trim().length;
     const seenChars = Math.round((chars * (seenRight - seenLeft)) / Math.max(width, 1));
     // Ellipsis draws inside the box that overflows (no rect change); find it on the way up to the cutter
@@ -106,6 +109,15 @@ export function findHardClips(args: { root?: string; minChars?: number }): ClipF
         break;
       }
       if (element === cutter) break;
+    }
+    if (emptied) {
+      // Only when the ellipsized box itself has no room for `minChars` letters (an empty chip); text
+      // scrolled out of a box that shows words is fine.
+      const room = ellipsized?.getBoundingClientRect().width ?? Infinity;
+      const letter = ellipsized ? parseFloat(getComputedStyle(ellipsized).fontSize) * 0.6 : 0;
+      if (ellipsized && room < minChars * letter && text.trim().length > minChars)
+        findings.push({ kind: "illegible", text: text.trim(), visibleChars: 0, clipper: describe(ellipsized) });
+      continue;
     }
     if (ellipsized) {
       // The text the ellipsis leaves: the box's room over the text's full width.

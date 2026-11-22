@@ -29,6 +29,32 @@ export const STARTED_COUNT_FROM = 3;
 /// The most icons the count's stack draws; the count says how many there are.
 const STACK_ICONS = 5;
 
+type ListPart = { type: string; value: string };
+
+/// The list's parts as sentence units: each name with the list's words after it ("," or ", and"),
+/// and any words before the first name. A plain function, out of the component, so the React
+/// Compiler compiles the component (it skips one that builds a list by mutation in render).
+function sentenceUnits(group: readonly Subagent[], parts: readonly ListPart[], before: string) {
+  const units: { agent: Subagent; name: string; tail: string }[] = [];
+  let lead = before;
+  for (const part of parts) {
+    if (part.type === "element") units.push({ agent: group[units.length]!, name: part.value, tail: "" });
+    else if (units.length) units[units.length - 1]!.tail += part.value;
+    else lead += part.value;
+  }
+  return { lead, units };
+}
+
+/// The list's parts, each name with its subagent and place (the `before` arm's one cut line).
+function listParts(agents: readonly Subagent[], parts: readonly ListPart[]) {
+  let at = 0;
+  return parts.map((part, index) =>
+    part.type === "element"
+      ? { index, value: part.value, agent: agents[at]!, at: at++ }
+      : { index, value: part.value, agent: undefined, at: -1 },
+  );
+}
+
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const [look] = useState(() => experimentArm(startedLineLook));
   const [open, setOpen] = useState(false);
@@ -72,13 +98,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   /// comma never stands apart from its name.
   const sentence = (group: readonly Subagent[], className: string) => {
     const names = group.map((agent) => subagentTaskLabel(t, agent));
-    const units: { agent: Subagent; name: string; tail: string }[] = [];
-    let lead = before ?? "";
-    for (const part of list.formatToParts(names)) {
-      if (part.type === "element") units.push({ agent: group[units.length]!, name: part.value, tail: "" });
-      else if (units.length) units[units.length - 1]!.tail += part.value;
-      else lead += part.value;
-    }
+    const { lead, units } = sentenceUnits(group, list.formatToParts(names), before ?? "");
     return (
       <TranscriptActivityRow
         icon={identity(group[0]!)}
@@ -106,22 +126,16 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   /// cut to fit.
   const beforeLine = (): ReactNode => {
     const names = agents.map((agent) => subagentTaskLabel(t, agent));
-    let agentIndex = 0;
-    const taggedNames: ReactNode[] = [];
-    for (const [index, part] of list.formatToParts(names).entries()) {
-      if (part.type !== "element") {
-        taggedNames.push(<Fragment key={`separator-${index}`}>{part.value}</Fragment>);
-        continue;
-      }
-      const at = agentIndex++;
-      const agent = agents[at]!;
-      taggedNames.push(
-        <Fragment key={agent.id}>
-          {at > 0 && identity(agent)}
-          {chip(agent, part.value, at === 0)}
-        </Fragment>,
-      );
-    }
+    const taggedNames = listParts(agents, list.formatToParts(names)).map((part) =>
+      part.agent ? (
+        <Fragment key={part.agent.id}>
+          {part.at > 0 && identity(part.agent)}
+          {chip(part.agent, part.value, part.at === 0)}
+        </Fragment>
+      ) : (
+        <Fragment key={`separator-${part.index}`}>{part.value}</Fragment>
+      ),
+    );
     return (
       <TranscriptActivityRow
         icon={identity(agents[0]!)}

@@ -157,12 +157,21 @@ test("late kind and prompt metadata update a cached start label", () => {
   const read = () =>
     withSubagentLines([...record.groups.values()], cache).find((entry) => entry.kind === SUBAGENT_STARTED)!;
   const first = read();
-  record.feed("subagent_state_update", [{ id: "chat/toolu_review", kind: "Explore" }]);
-  const second = read();
-  expect(second).not.toBe(first);
-  expect(renderToStaticMarkup(<SubagentStartedLine row={second} />)).toContain("Explore");
-  record.feed("subagent_state_update", [{ id: "chat/toolu_review", prompt: "Inspect the source\nReport findings" }]);
-  const third = read();
-  expect(third).not.toBe(second);
-  expect(renderToStaticMarkup(<SubagentStartedLine row={third} />)).toContain("Inspect the source");
+  // The group's names (the `wrap` look): the count look, the default from three, names them only
+  // opened (startedLine.experiment.ts).
+  const scope = globalThis as { cmuxExperiments?: Record<string, string> };
+  const overrides = scope.cmuxExperiments;
+  scope.cmuxExperiments = { ...overrides, "subagent-started-line": "wrap" };
+  try {
+    record.feed("subagent_state_update", [{ id: "chat/toolu_review", kind: "Explore" }]);
+    const second = read();
+    expect(second).not.toBe(first);
+    expect(renderToStaticMarkup(<SubagentStartedLine row={second} />)).toContain("Explore");
+    record.feed("subagent_state_update", [{ id: "chat/toolu_review", prompt: "Inspect the source\nReport findings" }]);
+    const third = read();
+    expect(third).not.toBe(second);
+    expect(renderToStaticMarkup(<SubagentStartedLine row={third} />)).toContain("Inspect the source");
+  } finally {
+    scope.cmuxExperiments = overrides;
+  }
 });
