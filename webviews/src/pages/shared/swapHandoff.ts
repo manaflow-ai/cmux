@@ -430,7 +430,9 @@ export function startSwapRestore(doc: Document = document): void {
   restored = Promise.resolve(null);
   if (!handoff) return;
   const root = doc.documentElement;
-  root.setAttribute(SWAP_RESTORING_ATTRIBUTE, "");
+  // A hidden page (a chat in another tab) shows nothing meanwhile and may get no timer for a second:
+  // it puts its state back without hiding, so showing it later never shows a cleared page.
+  if (doc.visibilityState === "visible") root.setAttribute(SWAP_RESTORING_ATTRIBUTE, "");
   const style = doc.createElement("style");
   // No transition runs while it restores: a field, a fold or a scroller put back shows put back,
   // not on its way there.
