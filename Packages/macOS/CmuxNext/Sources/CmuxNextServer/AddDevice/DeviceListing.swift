@@ -41,9 +41,25 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
         /// A paired client machine's Full-access setting (acpmux `pair_set`); nil for every other
         /// row, which has no such setting.
         public var fullAccess: Bool?
+        /// What the Screen Sharing page offers for a machine (`cmux_device_kind::screen::offer`); nil for a
+        /// person's login, which is not a machine.
+        public var screen: Screen?
+
+        /// A machine's screen offer: `action` `view` (with its `route`), or `none` with a `reason` (`offline`,
+        /// `no-desktop`, `phone`, `unknown`).
+        public nonisolated struct Screen: Equatable, Sendable, Decodable {
+            public var action: String
+            public var reason: String?
+
+            public init(action: String, reason: String? = nil) {
+                self.action = action
+                self.reason = reason
+            }
+        }
 
         public init(id: String, name: String, kind: String = "computer", roles: [String], state: String,
-                    os: String? = nil, detail: String? = nil, addedAt: String? = nil, fullAccess: Bool? = nil) {
+                    os: String? = nil, detail: String? = nil, addedAt: String? = nil, fullAccess: Bool? = nil,
+                    screen: Screen? = nil) {
             self.id = id
             self.name = name
             self.kind = kind
@@ -53,10 +69,11 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
             self.detail = detail
             self.addedAt = addedAt
             self.fullAccess = fullAccess
+            self.screen = screen
         }
 
         nonisolated enum CodingKeys: String, CodingKey {
-            case id, name, kind, roles, state, os, detail
+            case id, name, kind, roles, state, os, detail, screen
             case addedAt = "added_at"
             case fullAccess = "full_access"
         }
