@@ -14,6 +14,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { teardownDom } from "./support/domTeardown";
+import { pastFirstPaint } from "./support/pastFirstPaint";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -437,6 +438,8 @@ test("a token streamed while a fold plays runs no pass: only a row placed again 
   const { root, render } = mount(new Set(), live);
   try {
     await act(async () => render());
+    // Past the chat's first paint its full history mounts: rows mounting then would join the fold.
+    await act(pastFirstPaint);
     await act(async () => line(11).click());
     expect(thread().getAttribute("data-turn-fold")).toBe("open");
     // A pass reads the thread's mounted rows; count those reads.
