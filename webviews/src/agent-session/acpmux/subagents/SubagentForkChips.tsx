@@ -90,11 +90,14 @@ function ReadOnlyChip({
     </>
   );
   const name = t(kind === "model" ? "subagents.fork.modelLabel" : "subagents.fork.modeLabel", { value: label });
+  // The chat's mode trigger class: without it the bar's icon-only 30 px mode button clipped the
+  // label to "ss per" for "Bypass permissions" (composerLocation.css, the same bug New Tab had).
+  const button = kind === "mode" ? "acpmux-picker-button acpmux-access-trigger" : "acpmux-picker-button";
   if (!onPick || items.length === 0)
     return (
       <span className={className} data-subagent-chip={kind}>
         {/* tooltip-allow: a read-only chip's hover says why it cannot change here */}
-        <span className="acpmux-picker-button" role="img" aria-label={`${name}. ${tip}`} title={tip}>
+        <span className={button} role="img" aria-label={`${name}. ${tip}`} title={tip}>
           {face}
         </span>
       </span>
@@ -103,7 +106,7 @@ function ReadOnlyChip({
     <span className={className} data-subagent-chip={kind}>
       <Menu open={open} onOpenChange={setOpen}>
         {/* tooltip-allow: the hover says why the chip is fixed and that a click forks */}
-        <MenuButton className="acpmux-picker-button" label={name} title={tip} aria-haspopup="menu">
+        <MenuButton className={button} label={name} title={tip} aria-haspopup="menu">
           {face}
           <ChevronIcon />
         </MenuButton>
