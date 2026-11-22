@@ -7,6 +7,9 @@ valve held linux_16 at 2 vCPU; runs planned then kept that label, and their
 re-runs OOMed in the fat-LTO build for days (run 44293740637, attempts 1-3;
 2026-11-19: 72 failed re-run legs, 1,544 runner-min). The build job's runs-on
 reads the pool again for such a leg on attempt 2 and later.
+
+Since scripts/ci/one_linux_label.py (Leo, 2026-11-20: "you shouldn't have to think about sizing your f*** CI")
+that re-read is the one Linux label, cmux-linux, whatever the pool variable holds.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ from test_ci_tui_routes_avoid_nightly_label import route  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
 POOL_16 = "blacksmith-16vcpu-ubuntu-2404"
+LINUX = "cmux-linux"
 RETRY_MAC = "glaeda-side-std-xcode-26.6"
 
 
@@ -54,9 +58,9 @@ class RerunLegRereadsPool(unittest.TestCase):
     def test_a_rerun_leg_on_a_small_blacksmith_label_takes_the_live_pool(self) -> None:
         for attempt in (2, 3):
             for small in ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"):
-                self.assertEqual(label(attempt, small), POOL_16, (attempt, small))
-                self.assertEqual(label(attempt, small, "aarch64-apple-darwin", darwin_on_linux=True), POOL_16)
-                self.assertEqual(label(attempt, small, pool="cmux-fleet-linux-x64"), "cmux-fleet-linux-x64")
+                self.assertEqual(label(attempt, small), LINUX, (attempt, small))
+                self.assertEqual(label(attempt, small, "aarch64-apple-darwin", darwin_on_linux=True), LINUX)
+                self.assertEqual(label(attempt, small, pool="cmux-fleet-linux-x64"), LINUX)
 
     def test_attempt_one_keeps_its_plan(self) -> None:
         for runner in ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "cmux-gcp-lane-build-x64"):

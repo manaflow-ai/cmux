@@ -219,7 +219,10 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
-                          if "'cmux-linux'" in str(job.get("runs-on", "")))
+                          if "'cmux-linux'" in str(job.get("runs-on", ""))
+                          # A matrix leg takes its plan's runner; cmux-linux is only its re-run arm
+                          # (tests/test_ci_tui_rerun_leg_rereads_pool.py).
+                          and not str(job["runs-on"]).rstrip().endswith("|| matrix.runner }}"))
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
@@ -240,6 +243,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
+                # The build package's caller-named runner (an input; empty unless a caller pins one) is its own test.
+                text = text.replace("inputs.linux_runner", "''")
                 text = text.replace("github.workflow_ref",
                                     "'manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/x'")
                 for linux_runner in LINUX_RUNNER_VALUES:

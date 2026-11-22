@@ -467,7 +467,7 @@ jobs:
           # not waited for. The publisher is a feat-cmux-next push: its
           # attempt 1 queues on the owned build-lane label, attempt 2+ on the
           # Blacksmith pool, and both count (the 20-minute cutoff still holds).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('cmux-gcp-lane-build-x64,{0}', github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux') }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1121,7 +1121,7 @@ jobs:
           # not waited for. The publisher is a feat-cmux-next push: its
           # attempt 1 queues on the owned build-lane label, attempt 2+ on the
           # Blacksmith pool, and both count (the 20-minute cutoff still holds).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('cmux-gcp-lane-build-x64,{0}', github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux') }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. A healthy owner publishes about 20 minutes after it
           # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch

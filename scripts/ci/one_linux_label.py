@@ -68,6 +68,9 @@ PIN = re.compile(
     # A live placement's answer (fleet Linux, which now places onto cmux-linux, or an owned Mac or side lane).
     r"|needs\.[\w-]+\.outputs\."
 )
+# A conditioned arm that already names the label (`<condition> && 'cmux-linux'`): a placement, not a size.
+LABEL_ARM = re.compile(rf"^.+ && '{LABEL}'$")
+FORK_TEST = "head.repo.full_name != github.repository"
 # One Linux arm of a mixed (macOS first) expression's top-level chain: `<condition> && <Linux size picker>`.
 MIXED_TERM = re.compile(
     r"^(?P<cond>.+?) && (?:!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER"
@@ -82,6 +85,9 @@ FRESH_VM_JOBS = {
     **{key: _SIGNING for key in (("ios-appstore-upload.yml", "set-testflight-notes"), ("ios-appstore-upload.yml", "assign-internal"),
                                  ("ios-testflight.yml", "set-testflight-notes"), ("ios-testflight.yml", "assign-internal-group"))},
     ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it reads none (signing keychain rule 7)",
+    ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337); a `# ephemeral-required` tag would "
+                                         "need a JIT lead (tests/test_ci_write_token_jit_label.py)",
+    ("cmux-next-dev-kick.yml", "kick"): "holds a write token; tests/test_cmux_next_dev_kick.py keeps it on the ephemeral_only pool",
     ("nightly-sign.yml", "admit"): "nightly shadow job: reads no repository variable (tests/test_nightly_sign_shadow_workflow.py)",
     ("cmux-next.yml", "fast-tier-cargo"): "tests/test_cmux_next_checks_workflow.py needs an ephemeral Linux VM, never a reused host",
     **{("cmux-next.yml", job): _SUBMODULES for job in (
@@ -182,6 +188,10 @@ def or_terms(expr: str) -> list[str]:
     return out
 
 
+# A pool list (`format('<owned label>,{0}', <picker>)`, DAEMON_POOL): only the picker inside moves.
+FORMAT_TERM = re.compile(r"^format\('(?P<lead>[^'{}]*,)\{0\}', (?P<inner>.+)\)$")
+
+
 def rewrite_expr(expr: str) -> str | None:
     """The one-label form of a `${{ ... }}` Linux x64 picker; None when it is not one, or holds an unknown term."""
     body = expr[3:-2].strip()
@@ -190,11 +200,19 @@ def rewrite_expr(expr: str) -> str | None:
         if NOT_LINUX_X64.search(terms[0]) or "ubuntu" not in terms[0]:
             return None
         terms = terms[1:]
+    if len(terms) == 1 and (fm := FORMAT_TERM.match(terms[0])):
+        inner = rewrite_expr("${{ " + fm["inner"] + " }}")
+        if inner is None:
+            return None
+        inner = inner[3:-2].strip().removeprefix(OWNER_GUARD + " || ")
+        return "${{ " + f"{OWNER_GUARD} || format('{fm['lead']}{{0}}', {inner})" + " }}"
     # Kept terms stay in their order; the fork branch takes the place of the first fork or size term, so a pin
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
     kept, picked, fork_at = [], False, None
     for term in terms:
-        if PICKER.search(term):
+        if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
+            kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
+        elif PICKER.search(term):
             picked = True
             fork_at = len(kept) if fork_at is None else fork_at
         elif PIN.search(term):
