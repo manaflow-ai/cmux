@@ -331,7 +331,8 @@ struct SubagentFollow: Equatable {
     /// the end in place in the same pass); otherwise the top, so rows measured as the reader
     /// scrolls (a finished transcript's 15,000 pt log) move nothing on screen.
     func sizeChangeAnchor(running: Bool) -> Anchor {
-        follows && running ? .bottom : .top
+        // RED: b7dd254a's rule (the bottom whenever the reader is on the end).
+        follows ? .bottom : .top
     }
 
     /// A scroll geometry change; true when the view should scroll to its end (rows came in below
