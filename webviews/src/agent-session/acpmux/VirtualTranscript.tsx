@@ -1,12 +1,12 @@
 import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
 import {
+  gridScale,
   MARK_INDICATOR,
   MARK_PROMPT,
   rowMark,
   TRANSCRIPT_COMPOSER_GAP,
   transcriptLiveVars,
-  gridScale,
 } from "./transcriptGrid";
 import React, {
   useCallback,
@@ -203,7 +203,7 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending, noteUnreadNews } from "./conversation/unreadState";
+import { noteUnreadNews, readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
 import { sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
