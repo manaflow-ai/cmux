@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// The launch bench's positive control (scripts/measure/launch-tti.sh `control=MS`): with
 /// `CMUX_NEXT_LAUNCH_TEST_DELAY_MS=N` the launch waits N ms before it makes any window, so every startup number
@@ -29,9 +29,8 @@ public struct LaunchTestDelay: Equatable, Sendable {
     /// Waits `duration` on a one-shot DemandTimer deadline (a launch's only wait for it; nothing polls).
     public func elapse(clock: any Clock<Duration> = ContinuousClock()) async {
         let timer = DemandTimer(owner: "launch.test_delay", clock: clock)
-        await withExtendedLifetime(timer) { // the timer's deadline dies with it
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in timer.schedule(after: duration) { done.resume() } }
-        }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in timer.schedule(after: duration) { done.resume() } }
+        timer.cancel() // after the fire, a no-op; it keeps the timer alive until then (its deadline task holds it weakly)
     }
 
     /// At launch, before any window: the wait when `environment` asks for one, between the launch marks
