@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat, session } from "../../../gallery/fixtures/acpmux";
+import { noChat } from "../../../gallery/fixtures/acpmux";
 import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
@@ -583,17 +583,18 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
 // experience beautiful and simple"): a first run's New Tab is the composer and its chips, with no "Try
 // one" starter rows under it. The placeholder already says what to type.
 test("a first run's New Tab draws the composer alone: no starter rows under it", async () => {
-  let asked = 0;
   await act(async () => {
-    root!.render(
-      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
-    );
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
   });
   await promptField();
   expect(container.querySelector(".nt-starters")).toBeNull();
-  expect(container.querySelectorAll(".nt-starter")).toHaveLength(0);
+  // Nothing follows the composer on the page: no rows of prompts to try under it.
+  const composer = container.querySelector(".nt-composer")!;
+  expect(composer).not.toBeNull();
+  let next = composer.nextElementSibling;
+  while (next && next.textContent?.trim() === "") next = next.nextElementSibling;
+  expect(next).toBeNull();
   expect(container.textContent).not.toContain("Try one");
-  expect(asked).toBe(0);
 });
 
 test("No folder, then a remote machine with a folder: location and send name that folder", async () => {
