@@ -253,7 +253,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         if case .agent(let harness) = request.start {
             return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness,
-                                                                                model: request.task?.model),
+                                                                                model: request.task?.model,
+                                                                                effort: request.task?.effort,
+                                                                                mode: request.task?.mode,
+                                                                                options: request.task?.options ?? [:]),
                                                  placeholder: placeholder, client: client)
         }
         do {
@@ -500,8 +503,41 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
         }
+        await Self.applyStartSettings(start, to: session, choice: choice) { method, params in
+            _ = try await acpmux.request(method, params, timeout: .seconds(20))
+        }
         acpmux.noteStartedHere(session)
         return (choice.id, session)
+    }
+
+    /// The effort, mode and options the phone picked, set on the new chat before its first prompt,
+    /// each only when the Mac offers it (as the Mac's composer applies its held picks). A refusal
+    /// leaves the agent's own value: the chat stands, as with a refused model.
+    static func applyStartSettings(_ start: AgentChatStart, to session: String, choice: AgentHarnessChoice,
+                                   send: @Sendable (String, JSONValue) async throws -> Void) async {
+        var requests: [(String, JSONValue)] = []
+        if let effort = start.effort, choice.efforts(model: start.model).contains(where: { $0.id == effort }) {
+            // acpmux finds the agent's own effort option for `effort` (`model_options.rs`).
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(choice.effortOption?.id ?? "effort"), "value": .string(effort),
+            ])))
+        }
+        if let mode = start.mode, mode != choice.askingModes.first, choice.askingModes.contains(mode) {
+            requests.append(("session/set_mode", .object(["sessionId": .string(session), "modeId": .string(mode)])))
+        }
+        for (id, value) in start.options.sorted(by: { $0.key < $1.key }) {
+            guard choice.configOptions.first(where: { $0.id == id })?.choices.contains(where: { $0.id == value }) == true else { continue }
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(id), "value": .string(value),
+            ])))
+        }
+        for (method, params) in requests {
+            do {
+                try await send(method, params)
+            } catch {
+                creationLog.error("\(method, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
+            }
+        }
     }
 
     /// acpmux could not reach the model service the agent's route needs (`route.unavailable`):

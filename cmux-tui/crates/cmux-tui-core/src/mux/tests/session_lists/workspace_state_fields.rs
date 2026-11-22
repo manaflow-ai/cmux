@@ -1,7 +1,7 @@
 //! Final bench row (e), 2026-11-12: the daemon's reply to `workspace.list` at 50 workspaces went
 //! from 0.753 to 1.14 ms at 2e5a10e4. That commit made the state fields of ONE workspace a read of
 //! the 7 bulk statements of `state/workspace_extras.rs` with one id, and `workspace.list` (and the
-//! session snapshot) decorated each workspace with it: 7 statements per workspace. The person's
+//! session snapshot) decorated each workspace with it: 7 statements per workspace. A large
 //! session has about 826 workspaces.
 //!
 //! The checks: (1) a count with no clock: `workspace.list` and `session.snapshot` compile the same

@@ -66,4 +66,11 @@ int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms) {
   return fork_api().browser_set_resize_sync(browser_id, timeout_ms);
 }
 
+int cmux_shim_browser_resize_fence(int browser_id, unsigned int fence_port, int timeout_ms,
+                                   void (*done)(void* context, int presented), void* context) {
+  if (!fork_api().browser_resize_fence) return 0;
+  // 0 x 0: the page compositor's size after this turn's resize, the size the GPU draws.
+  return fork_api().browser_resize_fence(browser_id, fence_port, 0, 0, timeout_ms, done, context);
+}
+
 }  // extern "C"

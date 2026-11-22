@@ -11,6 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
+import { createGitHubPicker } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -174,29 +175,41 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
-test("a plan refusal offers Upgrade, Run on This Mac and Not Now; a start that failed on its way never Upgrade", () => {
+test("a plan refusal shows the pricing card: cmux NEXT Plus, Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
   const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
   const html = renderToStaticMarkup(
-    <CloudStartView
-      start={refusal}
-      onUpgrade={() => undefined}
-      onRunHere={() => undefined}
-      onDismiss={() => undefined}
-    />,
+    <CloudStartView start={refusal} onRunHere={() => undefined} onDismiss={() => undefined} />,
   );
-  expect(html).toContain('data-role="default">Upgrade</button>');
-  expect(html).toContain(">Run on This Mac</button>");
-  expect(html).toContain(">Not Now</button>");
-  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
-  expect(html).toContain('aria-expanded="false"');
+  expect(html).toContain("Cloud needs a plan");
+  // Smallest first: Plus, then Pro, then Max.
+  expect(html).toMatch(/data-plan="next_plus"[\s\S]*data-plan="next_pro"[\s\S]*data-plan="next_max"/);
+  expect(html).toContain("cmux NEXT Plus");
+  expect(html).toContain("$20 / month");
+  expect(html).toContain("Machines up to 4 vCPU and 16 GB memory");
+  expect(html).toContain("cmux NEXT Pro");
+  expect(html).toContain("$50 / month");
+  expect(html).toContain("Machines up to 8 vCPU and 32 GB memory");
+  expect(html).toContain("cmux NEXT Max");
+  expect(html).toContain("$200 / month");
+  expect(html).toContain("Machines up to 32 vCPU and 64 GB memory");
+  // The first plan's Subscribe leads, and only it.
+  expect(html).toMatch(
+    /data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"[^>]*>Subscribe<\/button>/,
+  );
+  expect(html).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*>Subscribe<\/button>/);
+  expect(html).toMatch(/data-action="subscribe" data-plan="next_max"[^>]*>Subscribe<\/button>/);
+  expect(html).not.toMatch(/data-plan="next_pro"[^>]*data-role="default"/);
+  expect(html).not.toMatch(/data-plan="next_max"[^>]*data-role="default"/);
+  expect(html).not.toContain('data-plan="pro"');
+  expect(html).toContain('data-action="run-here">Run on This Mac</button>');
+  expect(html).toContain('data-action="dismiss">Not Now</button>');
+  // Nothing started (the plan is checked before any machine): no startup card, no Upgrade of the classic plan.
+  expect(html).not.toContain("acpmux-cloud-start__card");
+  expect(html).not.toContain(">Upgrade</button>");
   const generic = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...refusal, code: "cloud_start_failed" }}
-      onUpgrade={() => undefined}
-      onRunHere={() => undefined}
-    />,
+    <CloudStartView start={{ ...refusal, code: "cloud_start_failed" }} onRunHere={() => undefined} />,
   );
-  expect(generic).not.toContain(">Upgrade</button>");
+  expect(generic).not.toContain('data-action="subscribe"');
   // Its way on is the start's own (cloudStartWayOn): Run on This Mac, filled where App passes no Retry.
   expect(generic).toContain('data-action="run-here" data-role="default">Run on This Mac</button>');
 });
@@ -211,30 +224,23 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
   };
   const html = renderToStaticMarkup(
-    <CloudStartView
-      start={refusal}
-      onSwitchTeam={() => undefined}
-      onUpgrade={() => undefined}
-      onRetry={() => undefined}
-    />,
+    <CloudStartView start={refusal} onSwitchTeam={() => undefined} onRetry={() => undefined} />,
   );
   expect(html).toContain("This team has no Cloud plan");
   expect(html).toContain("cmux is the team selected in the team menu.");
   expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
-  expect(html).toContain('data-action="see-plans">See plans</button>');
+  // The plans stay beside the switch, which leads: no Subscribe is filled.
+  expect(html).toContain('data-action="subscribe" data-plan="next_pro"');
+  expect(html).not.toMatch(/data-action="subscribe"[^>]*data-role="default"/);
   expect(html).not.toContain("acpmux-cloud-start__retry");
   expect(html).not.toContain("acpmux-cloud-start__card");
   expect(html).not.toContain("Cloud machines need a Pro plan.");
   // With no own team known, See plans leads.
   const plans = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...refusal, planTeam: { team: "cmux" } }}
-      onSwitchTeam={() => undefined}
-      onUpgrade={() => undefined}
-    />,
+    <CloudStartView start={{ ...refusal, planTeam: { team: "cmux" } }} onSwitchTeam={() => undefined} />,
   );
   expect(plans).not.toContain("switch-team");
-  expect(plans).toContain('data-role="default" data-action="see-plans"');
+  expect(plans).toMatch(/data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"/);
   // The click hands the team to the pane, which switches and sends again.
   const host = installDom();
   const picked: string[] = [];
@@ -298,9 +304,69 @@ test("the clone row words each part of a seed and of a copy", () => {
       fallback: "not_git",
       progress: { filesDone: 1204, filesTotal: 8310, receivedBytes: 312 * 1024 * 1024, bytesTotal: 2.1 * 1024 ** 3 },
     })?.detail,
-  ).toBe("Copying the folder instead · 1,204 of 8,310 files · 312 MB of 2.1 GB");
+  ).toBe("Copying the folder instead, because it is not a git repository · 1,204 of 8,310 files · 312 MB of 2.1 GB");
   expect(row({ state: "done", phase: "complete" })?.detail).toBeUndefined();
-  expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe("Copying the folder instead");
+  expect(row({ state: "done", phase: "complete", fallback: "not_git" })?.detail).toBe(
+    "Copying the folder instead, because it is not a git repository",
+  );
+  // A code the card has no words for still says it copies.
+  expect(row({ state: "done", phase: "complete", fallback: "git_failed" })?.detail).toBe("Copying the folder instead");
+});
+
+test("the clone row says how many files a first pass left on this Mac, and nothing when none", () => {
+  const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
+    startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
+  expect(row({ state: "done", phase: "complete", leftOnMac: 1204 })?.detail).toBe("1,204 files stayed on this Mac");
+  expect(row({ state: "done", phase: "complete", leftOnMac: 1 })?.detail).toBe("1 file stayed on this Mac");
+  expect(row({ state: "done", phase: "complete", fallback: "not_git", leftOnMac: 2 })?.detail).toBe(
+    "Copying the folder instead, because it is not a git repository · 2 files stayed on this Mac",
+  );
+  expect(row({ state: "done", phase: "complete" })?.detail).toBeUndefined();
+});
+
+test("the opened checklist shows the files left on this Mac in the pane's words", async () => {
+  const start: CloudStartProgress = {
+    key: "k",
+    task: "hi",
+    state: "starting",
+    hasRepository: true,
+    clone: { state: "done", phase: "complete", leftOnMac: 1204 },
+  };
+  const host = installDom();
+  root = createRoot(host);
+  await act(async () => root?.render(<CloudStartView start={start} showSteps />));
+  await act(async () => (host.querySelector(".acpmux-cloud-start__summary") as HTMLButtonElement).click());
+  const detail = host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail');
+  expect(detail?.textContent).toBe("1,204 files stayed on this Mac");
+  await act(async () =>
+    root?.render(
+      <CloudStartView start={{ ...start, clone: { state: "done", phase: "complete", leftOnMac: 1 } }} showSteps />,
+    ),
+  );
+  expect(host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail')?.textContent).toBe(
+    "1 file stayed on this Mac",
+  );
+  await act(async () =>
+    root?.render(<CloudStartView start={{ ...start, clone: { state: "done", phase: "complete" } }} showSteps />),
+  );
+  expect(host.querySelector('[data-step-id="clone"] .acpmux-cloud-start__detail')).toBeNull();
+  expect(host.textContent).not.toContain("stayed on this Mac");
+});
+
+test("a copy's steps before its first file show, and keep saying why it copies", () => {
+  const row = (clone: NonNullable<CloudStartProgress["clone"]>) =>
+    startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone }, undefined, 0, "en")[1];
+  // RED before: a pushed repository whose plan found no base showed only
+  // "Copying the folder instead · 0 of 46,516 files" for minutes, with no reason and no movement.
+  expect(
+    row({ state: "running", phase: "prepare", fallback: "no_base", progress: { objects: 1, totalObjects: 4 } })?.detail,
+  ).toBe("Copying the folder instead, because none of its commits are on GitHub · Checking files · 25%");
+  expect(
+    row({ state: "running", phase: "folders", fallback: "no_base", progress: { objects: 3, totalObjects: 4 } })?.detail,
+  ).toBe("Copying the folder instead, because none of its commits are on GitHub · Making folders · 75%");
+  expect(row({ state: "running", phase: "copy", fallback: "seed.needs_github" })?.detail).toBe(
+    "Copying the folder instead, because the Cloud machine can't read the repository",
+  );
 });
 
 test("a seed that needs the GitHub App links its install from the clone row", () => {
@@ -482,6 +548,53 @@ test("Retry shows only on a failure another try can help", async () => {
   expect(retry?.textContent).toBe("Retry");
   await act(async () => retry?.click());
   expect(retried).toBe(1);
+});
+
+test("a start connecting GitHub would fix offers Connect GitHub beside Retry, and no other failure does", async () => {
+  const failed = { ...start, state: "failed" as const, retryable: true, message: "Connect GitHub to clone it." };
+  const calls: string[] = [];
+  let refuse = false;
+  const github = createGitHubPicker(
+    async (method) => {
+      calls.push(method);
+      if (refuse) throw new Error("GitHub isn't set up for this team.");
+      return { opened: true };
+    },
+    () => () => undefined,
+    () => false,
+  );
+  expect(
+    renderToStaticMarkup(
+      <CloudStartView
+        start={{ ...failed, code: "cloud_start_failed" }}
+        onRetry={() => undefined}
+        githubStore={github}
+      />,
+    ),
+  ).not.toContain('data-action="connect-github"');
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <CloudStartView
+        start={{ ...failed, code: "seed.needs_github" }}
+        onRetry={() => void retried++}
+        githubStore={github}
+      />,
+    );
+  });
+  const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
+  expect(connect?.textContent).toBe("Connect GitHub");
+  expect(connect?.getAttribute("data-role")).toBe("default");
+  await act(async () => connect?.click());
+  expect(calls).toEqual(["github.connect"]);
+  const retry = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__retry");
+  await act(async () => retry?.click());
+  expect(retried).toBe(1);
+  refuse = true;
+  await act(async () => connect?.click());
+  expect(container.querySelector("[data-connect-error]")?.textContent).toBe("GitHub isn't set up for this team.");
 });
 
 test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {

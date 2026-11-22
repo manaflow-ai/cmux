@@ -70,6 +70,8 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The mode the process runs in: a profile may pin its own (`spawn_mode`).
+            let mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             (
                 Some((plan.program, plan.args)),
                 Some(agent_host::TranslatorSpec {
@@ -133,7 +135,16 @@ impl Hub {
             cwd_pin: None,
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
+            holder: None,
         };
+        // The agent holder (`agent_host/custody.rs`), as for a session's own host.
+        #[cfg(unix)]
+        if crate::agent_host::custody::holder_on()
+            && host_spec.translator.is_none()
+            && !host_spec.codex_bridge
+        {
+            host_spec.holder = Some(agent_host::HolderSpec::default());
+        }
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
             anyhow::bail!("the daemon is stopping");
@@ -235,7 +246,14 @@ impl Hub {
                     child
                         .request(
                             method::SESSION_NEW,
-                            self.acp_params(&session_id, draft, &spec.spawn, None, &child),
+                            self.acp_params(
+                                &session_id,
+                                draft,
+                                &spec.spawn,
+                                None,
+                                &child,
+                                &spec.answer,
+                            ),
                         )
                         .await?,
                 )
@@ -281,6 +299,7 @@ impl Hub {
             reported_off,
             started: latch.clone(),
             claimed_under: None,
+            codex_answer: None,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

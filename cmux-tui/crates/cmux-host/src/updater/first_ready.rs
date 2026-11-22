@@ -33,7 +33,7 @@
 //! machine stay as they are.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::channel::{self, Binary, Payload};
 use super::role::{self, Lock, Outcome};
@@ -117,7 +117,15 @@ pub(super) fn before_ready(
     if let Some(why) = not_first(paths) {
         return First::NotFirst(why);
     }
-    let first = step(paths, target, deadline, io);
+    let started = Instant::now();
+    let mut observation = super::look::FirstReady {
+        started_at: wall_ms(),
+        from_version: store::current_generation(paths)
+            .and_then(|generation| store::linked_package(paths, generation, super::CMUX_TUI))
+            .ok(),
+        ..Default::default()
+    };
+    let first = step(paths, target, deadline, io, &mut observation);
     let outcome = match &first {
         First::NotFirst(_) => return first,
         First::Current(commit) => Outcome::Current(commit.clone()),
@@ -125,10 +133,42 @@ pub(super) fn before_ready(
         First::OnImage(why) => Outcome::Failed(why.clone()),
     };
     role::save_outcome(paths, &outcome, "before the first ready: ");
+    // Round measured durations up to milliseconds: a real sub-ms update is not "no update".
+    observation.check_ms =
+        u64::try_from(started.elapsed().as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX);
+    observation.finished_at = wall_ms();
+    observation.outcome = match &first {
+        First::Current(_) => "current",
+        First::Flipped(_) => "updated",
+        _ => "on_image",
+    }
+    .to_owned();
+    observation.update_ms =
+        observation.image_behind.map(|behind| if behind { observation.check_ms } else { 0 });
+    let mut state = load_state(paths);
+    // A later service start must not relabel the original image as already current.
+    if state.first_ready.is_none() {
+        state.first_ready = Some(observation);
+        if save_state(paths, &state).is_err() {
+            log("first-ready observation could not be saved");
+        }
+    }
     first
 }
 
-fn step(paths: &Paths, target: &str, deadline: Instant, io: &mut impl Io) -> First {
+fn wall_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+fn step(
+    paths: &Paths,
+    target: &str,
+    deadline: Instant,
+    io: &mut impl Io,
+    observation: &mut super::look::FirstReady,
+) -> First {
     let Some(_lock) = Lock::take(paths, false) else {
         return First::OnImage("another update check runs".to_owned());
     };
@@ -141,10 +181,18 @@ fn step(paths: &Paths, target: &str, deadline: Instant, io: &mut impl Io) -> Fir
             Err(_) => std::thread::sleep(READ_RETRY),
         }
     };
+    observation.channel_commit = Some(payload.commit.clone());
+    observation.to_version = payload.binaries_for(target).ok().map(|(tui, _)| tui.sha256.clone());
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
-        Ok(Decision::Update(plan)) => plan,
-        Ok(Decision::Current) => return First::Current(payload.commit),
+        Ok(Decision::Update(plan)) => {
+            observation.image_behind = Some(true);
+            plan
+        }
+        Ok(Decision::Current) => {
+            observation.image_behind = Some(false);
+            return First::Current(payload.commit);
+        }
         Ok(Decision::Older) => {
             return First::OnImage("the channel's build is older than this one".to_owned());
         }

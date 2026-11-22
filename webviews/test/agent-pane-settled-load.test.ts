@@ -30,6 +30,7 @@ import { loadTurn, streamedReply, type LoadStep } from "../src/agent-session/acp
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
   setDefaultTimeout(400_000);
@@ -477,209 +478,218 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     await recordRows(page);
   };
   const recordRows = (page: Page) =>
-    page.addInitScript(() => {
-      type Seen = { el: number; visible: boolean; kind: "text" | "tool" };
-      const ids = new WeakMap<Element, number>();
-      let next = 1;
-      const idOf = (el: Element) => {
-        if (!ids.has(el)) ids.set(el, next++);
-        return ids.get(el)!;
-      };
-      const TEXT = /\bacpmux-(user|assistant)\b/;
-      const LIVE_LINES = new Set(["thinking-live", "typing"]);
-      const state = {
-        on: false,
-        frames: 0,
-        lastChange: 0,
-        firstRow: undefined as number | undefined,
-        // Per row id, and per row content (its text's first 160 characters), what it was last frame.
-        rows: new Map<string, Seen & { shown: boolean; hiddenAfterShown: boolean }>(),
-        content: new Map<
-          string,
-          { el: number; id: string; visible: boolean; kind: Seen["kind"]; shown: boolean; hiddenAfterShown: boolean }
-        >(),
-        flips: { text: [] as string[], tool: [] as string[] },
-        remounts: { text: [] as string[], tool: [] as string[] },
-        lost: { text: [] as string[], tool: [] as string[] },
-        rowsSeen: { text: new Set<string>(), tool: new Set<string>() },
-        marks: [] as [string, number][],
-        // The restart detectors: the visible row set by frame (changes once rows show), frames that
-        // show the New Tab page, each row's fold state by frame, and the pending (background) count.
-        visibleSet: "",
-        setChanges: [] as number[],
-        newTab: [] as number[],
-        folds: new Map<string, [number, string][]>(),
-        pending: [] as [number, string][],
-        overlaps: [] as string[],
-        atBottom: false,
-        leftBottom: [] as string[],
-        // The settled cold open's detectors, from the first frame on (armed or not): each distinct
-        // state the pane showed in order (blank, newtab, rows), the queued prompts the composer
-        // shows by frame, and the fork controls on screen in the first frame that showed rows.
-        states: [] as string[],
-        queued: [] as [number, number][],
-        forkFirstRows: undefined as number | undefined,
-        // By painted frame, not by time: the queued count in the first frame that showed rows, and
-        // the queued count changes in the frames after it.
-        queuedFirstRows: undefined as number | undefined,
-        queuedChangesAfterRows: 0,
-        forks: [] as [number, number][],
-        settledPainted: [] as number[],
-      };
-      if ((window as unknown as { __settledArmed?: boolean }).__settledArmed) state.on = true;
-      (window as unknown as { __settled: typeof state }).__settled = state;
-      const read = (now: number) => {
-        state.frames += 1;
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const box = scroller?.getBoundingClientRect();
-        const paneHidden =
-          !scroller ||
-          scroller.closest("[data-seeking]") !== null ||
-          getComputedStyle(scroller).visibility === "hidden" ||
-          scroller.clientHeight === 0;
-        const seenIds = new Set<string>();
-        const seenContent = new Set<string>();
-        let changed = false;
-        for (const el of scroller?.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]") ?? []) {
-          const id = el.getAttribute("data-row-id")!;
-          // The live turn's working line comes and goes with the turn by design: not a message.
-          if (LIVE_LINES.has(id)) continue;
-          const kind = TEXT.test(el.className) ? "text" : "tool";
-          const r = el.getBoundingClientRect();
-          const style = getComputedStyle(el);
-          const visible =
-            !paneHidden &&
-            r.height > 0 &&
-            r.bottom > box!.top + 1 &&
-            r.top < box!.bottom - 1 &&
-            style.visibility !== "hidden" &&
-            Number(style.opacity) > 0.05;
-          const elId = idOf(el);
-          seenIds.add(id);
-          if (visible && state.firstRow === undefined) state.firstRow = now;
-          const before = state.rows.get(id);
-          if (!before) {
-            state.rows.set(id, { el: elId, visible, kind, shown: visible, hiddenAfterShown: false });
-            if (visible) changed = true;
-          } else {
-            if (state.on && before.el !== elId && before.shown) {
-              state.remounts[kind].push(`${id}@${Math.round(now)}`);
-              changed = true;
+    page.addInitScript(
+      ({ TRANSCRIPT_ROW }) => {
+        type Seen = { el: number; visible: boolean; kind: "text" | "tool" };
+        const ids = new WeakMap<Element, number>();
+        let next = 1;
+        const idOf = (el: Element) => {
+          if (!ids.has(el)) ids.set(el, next++);
+          return ids.get(el)!;
+        };
+        const TEXT = /\bacpmux-(user|assistant)\b/;
+        const LIVE_LINES = new Set(["thinking-live", "typing"]);
+        const state = {
+          on: false,
+          frames: 0,
+          lastChange: 0,
+          firstRow: undefined as number | undefined,
+          // Per row id, and per row content (its text's first 160 characters), what it was last frame.
+          rows: new Map<string, Seen & { shown: boolean; hiddenAfterShown: boolean }>(),
+          content: new Map<
+            string,
+            { el: number; id: string; visible: boolean; kind: Seen["kind"]; shown: boolean; hiddenAfterShown: boolean }
+          >(),
+          flips: { text: [] as string[], tool: [] as string[] },
+          remounts: { text: [] as string[], tool: [] as string[] },
+          lost: { text: [] as string[], tool: [] as string[] },
+          rowsSeen: { text: new Set<string>(), tool: new Set<string>() },
+          marks: [] as [string, number][],
+          // The restart detectors: the visible row set by frame (changes once rows show), frames that
+          // show the New Tab page, each row's fold state by frame, and the pending (background) count.
+          visibleSet: "",
+          setChanges: [] as number[],
+          newTab: [] as number[],
+          folds: new Map<string, [number, string][]>(),
+          pending: [] as [number, string][],
+          overlaps: [] as string[],
+          atBottom: false,
+          leftBottom: [] as string[],
+          // The settled cold open's detectors, from the first frame on (armed or not): each distinct
+          // state the pane showed in order (blank, newtab, rows), the queued prompts the composer
+          // shows by frame, and the fork controls on screen in the first frame that showed rows.
+          states: [] as string[],
+          queued: [] as [number, number][],
+          forkFirstRows: undefined as number | undefined,
+          // By painted frame, not by time: the queued count in the first frame that showed rows, and
+          // the queued count changes in the frames after it.
+          queuedFirstRows: undefined as number | undefined,
+          queuedChangesAfterRows: 0,
+          forks: [] as [number, number][],
+          settledPainted: [] as number[],
+        };
+        if ((window as unknown as { __settledArmed?: boolean }).__settledArmed) state.on = true;
+        (window as unknown as { __settled: typeof state }).__settled = state;
+        const read = (now: number) => {
+          state.frames += 1;
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          const box = scroller?.getBoundingClientRect();
+          const paneHidden =
+            !scroller ||
+            scroller.closest("[data-seeking]") !== null ||
+            getComputedStyle(scroller).visibility === "hidden" ||
+            scroller.clientHeight === 0;
+          const seenIds = new Set<string>();
+          const seenContent = new Set<string>();
+          let changed = false;
+          for (const el of scroller?.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW) ?? []) {
+            const id = el.getAttribute("data-row-id")!;
+            // The live turn's working line comes and goes with the turn by design: not a message.
+            if (LIVE_LINES.has(id)) continue;
+            const kind = TEXT.test(el.className) ? "text" : "tool";
+            const r = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            const visible =
+              !paneHidden &&
+              r.height > 0 &&
+              r.bottom > box!.top + 1 &&
+              r.top < box!.bottom - 1 &&
+              style.visibility !== "hidden" &&
+              Number(style.opacity) > 0.05;
+            const elId = idOf(el);
+            seenIds.add(id);
+            if (visible && state.firstRow === undefined) state.firstRow = now;
+            const before = state.rows.get(id);
+            if (!before) {
+              state.rows.set(id, { el: elId, visible, kind, shown: visible, hiddenAfterShown: false });
+              if (visible) changed = true;
+            } else {
+              if (state.on && before.el !== elId && before.shown) {
+                state.remounts[kind].push(`${id}@${Math.round(now)}`);
+                changed = true;
+              }
+              if (state.on && visible && before.hiddenAfterShown) {
+                state.flips[kind].push(`${id}@${Math.round(now)}`);
+                before.hiddenAfterShown = false;
+              }
+              if (before.visible !== visible) changed = true;
+              if (!visible && before.visible && state.on) before.hiddenAfterShown = true;
+              before.el = elId;
+              before.visible = visible;
+              before.shown ||= visible;
             }
-            if (state.on && visible && before.hiddenAfterShown) {
-              state.flips[kind].push(`${id}@${Math.round(now)}`);
-              before.hiddenAfterShown = false;
+            if (visible) state.rowsSeen[kind].add(id);
+            // The same content under another id, or a new element: what the reader sees went and came.
+            const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+            if (text.length < 24 || !visible) continue;
+            const key = `${kind}:${text}`;
+            seenContent.add(key);
+            const had = state.content.get(key);
+            if (!had) state.content.set(key, { el: elId, id, visible, kind, shown: true, hiddenAfterShown: false });
+            else {
+              if (state.on && had.hiddenAfterShown) {
+                if (had.id !== id) state.lost[kind].push(`${had.id}->${id}@${Math.round(now)}`);
+                had.hiddenAfterShown = false;
+              }
+              had.el = elId;
+              had.id = id;
+              had.visible = true;
             }
-            if (before.visible !== visible) changed = true;
-            if (!visible && before.visible && state.on) before.hiddenAfterShown = true;
-            before.el = elId;
-            before.visible = visible;
-            before.shown ||= visible;
           }
-          if (visible) state.rowsSeen[kind].add(id);
-          // The same content under another id, or a new element: what the reader sees went and came.
-          const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
-          if (text.length < 24 || !visible) continue;
-          const key = `${kind}:${text}`;
-          seenContent.add(key);
-          const had = state.content.get(key);
-          if (!had) state.content.set(key, { el: elId, id, visible, kind, shown: true, hiddenAfterShown: false });
-          else {
-            if (state.on && had.hiddenAfterShown) {
-              if (had.id !== id) state.lost[kind].push(`${had.id}->${id}@${Math.round(now)}`);
-              had.hiddenAfterShown = false;
+          for (const [id, row] of state.rows)
+            if (!seenIds.has(id) && (row.visible || row.el !== 0)) {
+              if (row.visible) {
+                changed = true;
+                if (state.on) row.hiddenAfterShown = true;
+              }
+              row.visible = false;
+              row.el = 0;
             }
-            had.el = elId;
-            had.id = id;
-            had.visible = true;
-          }
-        }
-        for (const [id, row] of state.rows)
-          if (!seenIds.has(id) && (row.visible || row.el !== 0)) {
-            if (row.visible) {
-              changed = true;
-              if (state.on) row.hiddenAfterShown = true;
+          for (const [key, entry] of state.content)
+            if (!seenContent.has(key) && entry.visible) {
+              entry.visible = false;
+              if (state.on) entry.hiddenAfterShown = true;
             }
-            row.visible = false;
-            row.el = 0;
+          // The rows a reader sees, in order: a change once rows showed is the view reshaping.
+          const visibleIds = [...state.rows].filter(([, row]) => row.visible).map(([id]) => id);
+          const set = visibleIds.join(",");
+          if (set !== state.visibleSet) {
+            if (state.on && state.visibleSet !== "") state.setChanges.push(Math.round(now));
+            state.visibleSet = set;
           }
-        for (const [key, entry] of state.content)
-          if (!seenContent.has(key) && entry.visible) {
-            entry.visible = false;
-            if (state.on) entry.hiddenAfterShown = true;
+          // A pane with a chat that shows the New Tab page, for any frame.
+          if (state.on && state.firstRow !== undefined && document.querySelector(".nt-screen")) {
+            state.newTab.push(Math.round(now));
+            changed = true;
           }
-        // The rows a reader sees, in order: a change once rows showed is the view reshaping.
-        const visibleIds = [...state.rows].filter(([, row]) => row.visible).map(([id]) => id);
-        const set = visibleIds.join(",");
-        if (set !== state.visibleSet) {
-          if (state.on && state.visibleSet !== "") state.setChanges.push(Math.round(now));
-          state.visibleSet = set;
-        }
-        // A pane with a chat that shows the New Tab page, for any frame.
-        if (state.on && state.firstRow !== undefined && document.querySelector(".nt-screen")) {
-          state.newTab.push(Math.round(now));
-          changed = true;
-        }
-        // Each visible row's folds (their open state), recorded when it changes.
-        for (const id of visibleIds) {
-          const el = scroller!.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
-          if (!el) continue;
-          const sig = [...el.querySelectorAll("[aria-expanded]")].map((b) => b.getAttribute("aria-expanded")).join("");
-          const seen = state.folds.get(id) ?? [];
-          if (seen.at(-1)?.[1] !== sig) {
-            seen.push([Math.round(now), sig]);
-            state.folds.set(id, seen);
-            if (seen.length > 1) changed = true;
-          }
-        }
-        // The background tasks the composer counts (its tray's head, or its pull tab).
-        const tray = document.querySelector(".acpmux-running-tray__title, .acpmux-tray-pull__tab");
-        const count = tray?.textContent?.match(/\d+/)?.[0] ?? "";
-        if (count && state.pending.at(-1)?.[1] !== count) {
-          state.pending.push([Math.round(now), count]);
-          changed = true;
-        }
-        // No two drawn rows overlap (a stale measured height or place draws one over another).
-        if (state.on && !paneHidden) {
-          const boxes = [...scroller!.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
-            .filter((el) => !LIVE_LINES.has(el.getAttribute("data-row-id")!))
-            .map((el) => [el.getAttribute("data-row-id")!, el.getBoundingClientRect()] as const)
-            .filter(([, r]) => r.height > 0 && r.bottom > box!.top && r.top < box!.bottom)
-            .sort((x, y) => x[1].top - y[1].top);
-          for (let i = 1; i < boxes.length; i++)
-            if (boxes[i]![1].top < boxes[i - 1]![1].bottom - 2) {
-              state.overlaps.push(`${boxes[i - 1]![0]}/${boxes[i]![0]}@${Math.round(now)}`);
-              break;
+          // Each visible row's folds (their open state), recorded when it changes.
+          for (const id of visibleIds) {
+            const el = scroller!.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+            if (!el) continue;
+            const sig = [...el.querySelectorAll("[aria-expanded]")]
+              .map((b) => b.getAttribute("aria-expanded"))
+              .join("");
+            const seen = state.folds.get(id) ?? [];
+            if (seen.at(-1)?.[1] !== sig) {
+              seen.push([Math.round(now), sig]);
+              state.folds.set(id, seen);
+              if (seen.length > 1) changed = true;
             }
-        }
-        // While the reader stays at the bottom, the newest row stays in view: the view never leaves it.
-        if (state.on && state.atBottom && scroller && !paneHidden) {
-          const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-          if (gap > 48) state.leftBottom.push(`${Math.round(gap)}px@${Math.round(now)}`);
-        }
-        {
-          const frameState = document.querySelector(".nt-screen") ? "newtab" : visibleIds.length > 0 ? "rows" : "blank";
-          if (state.states.at(-1) !== frameState) state.states.push(frameState);
-          const fold = document.querySelector(".acpmux-queue-fold")?.textContent?.match(/\d+/)?.[0];
-          const queued = fold ? Number(fold) : document.querySelectorAll(".acpmux-queued").length;
-          if (state.queued.at(-1)?.[1] !== queued) {
-            if (state.queuedFirstRows !== undefined) state.queuedChangesAfterRows += 1;
-            state.queued.push([Math.round(now), queued]);
-            if (state.queued.length > 1) changed = true;
           }
-          if (frameState === "rows" && state.queuedFirstRows === undefined) state.queuedFirstRows = queued;
-          const forks = scroller?.querySelectorAll(".cv-fork-button").length ?? 0;
-          if (frameState === "rows" && state.forkFirstRows === undefined) state.forkFirstRows = forks;
-          if (state.forks.at(-1)?.[1] !== forks) state.forks.push([Math.round(now), forks]);
-        }
-        if (changed) state.lastChange = now;
-      };
-      // installPaintedFrames' init script ran first, so its frame reader is here already.
-      window.cmuxAfterPaint((frame) => {
-        read(frame);
-        return true;
-      });
-    });
+          // The background tasks the composer counts (its tray's head, or its pull tab).
+          const tray = document.querySelector(".acpmux-running-tray__title, .acpmux-tray-pull__tab");
+          const count = tray?.textContent?.match(/\d+/)?.[0] ?? "";
+          if (count && state.pending.at(-1)?.[1] !== count) {
+            state.pending.push([Math.round(now), count]);
+            changed = true;
+          }
+          // No two drawn rows overlap (a stale measured height or place draws one over another).
+          if (state.on && !paneHidden) {
+            const boxes = [...scroller!.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)]
+              .filter((el) => !LIVE_LINES.has(el.getAttribute("data-row-id")!))
+              .map((el) => [el.getAttribute("data-row-id")!, el.getBoundingClientRect()] as const)
+              .filter(([, r]) => r.height > 0 && r.bottom > box!.top && r.top < box!.bottom)
+              .sort((x, y) => x[1].top - y[1].top);
+            for (let i = 1; i < boxes.length; i++)
+              if (boxes[i]![1].top < boxes[i - 1]![1].bottom - 2) {
+                state.overlaps.push(`${boxes[i - 1]![0]}/${boxes[i]![0]}@${Math.round(now)}`);
+                break;
+              }
+          }
+          // While the reader stays at the bottom, the newest row stays in view: the view never leaves it.
+          if (state.on && state.atBottom && scroller && !paneHidden) {
+            const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+            if (gap > 48) state.leftBottom.push(`${Math.round(gap)}px@${Math.round(now)}`);
+          }
+          {
+            const frameState = document.querySelector(".nt-screen")
+              ? "newtab"
+              : visibleIds.length > 0
+                ? "rows"
+                : "blank";
+            if (state.states.at(-1) !== frameState) state.states.push(frameState);
+            const fold = document.querySelector(".acpmux-queue-fold")?.textContent?.match(/\d+/)?.[0];
+            const queued = fold ? Number(fold) : document.querySelectorAll(".acpmux-queued").length;
+            if (state.queued.at(-1)?.[1] !== queued) {
+              if (state.queuedFirstRows !== undefined) state.queuedChangesAfterRows += 1;
+              state.queued.push([Math.round(now), queued]);
+              if (state.queued.length > 1) changed = true;
+            }
+            if (frameState === "rows" && state.queuedFirstRows === undefined) state.queuedFirstRows = queued;
+            const forks = scroller?.querySelectorAll(".cv-fork-button").length ?? 0;
+            if (frameState === "rows" && state.forkFirstRows === undefined) state.forkFirstRows = forks;
+            if (state.forks.at(-1)?.[1] !== forks) state.forks.push([Math.round(now), forks]);
+          }
+          if (changed) state.lastChange = now;
+        };
+        // installPaintedFrames' init script ran first, so its frame reader is here already.
+        window.cmuxAfterPaint((frame) => {
+          read(frame);
+          return true;
+        });
+      },
+      { TRANSCRIPT_ROW },
+    );
 
   type Settled = {
     frames: number;
