@@ -88,6 +88,8 @@ STALE_HOURS = 24
 PART_STALE_HOURS = 20
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
+# A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
+CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
@@ -196,6 +198,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # Wakeups and threads per process kind at idle (scripts/cmux-next/idle-budget.py, its `light` session: the launch
+    # window and its terminal, Home's pages in Chromium; 60 s settle, 60 s window): idle_budget.light.<kind>.<field>,
+    # judged against idle-budget.json. Chromium's GPU, renderer and utility processes each get <= 1 wakeup/s there
+    # (plans/cmux-next/idle-wakeups.md section 7); before this part their wakeups were in no stored row.
+    # run_seconds: its first run (2026-11-19, cmux21, cold build) took 2060 s, about 1850 s of it the build.
+    {"name": "idle-budget", "args": [*MEASURE, "--suite=idle-budget", "--sessions=light"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
@@ -215,6 +224,17 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Terminal key to echo (scripts/cmux-next/typing-frame-bench.py, the cron's run of bench-typing.py's probe): one
+    # key at a time typed into a `zsh -f` prompt, from the key event's timestamp to the frame Ghostty reports shown on
+    # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle, 3
+    # rounds of 80 keys pooled: row terminal.key_to_echo.idle, target p95 TYPING_KEY_TO_ECHO_MS. The load phase is not
+    # in the part yet: on cmux23 (2026-11-19) the agent chats it opens kept the window's keyboard, so no terminal had
+    # focus and it measured no key. The bench configuration, like the throughput part next to it (one build serves
+    # both): an optimized app is the latency people feel.
+    {"name": "typing", "args": [*MEASURE, "--config=bench", "--suite=typing-frame", "--surfaces=terminal",
+                                "--phases=idle", "--rounds=3", "--samples=80"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing", "needs": "typing",
+     "run_seconds": 2700},  # cmux23 2026-11-19: 2225 s with a cold bench build (about 1950 s) and idle plus load
     # Power (scripts/cmux-next/power-cron.py, bench_power.py): the app and every process it owns in mW, idle with one
     # terminal, idle with one Chromium page and scrolling a page, and standalone Ghostty idle in the same step. The
     # terminal row's budget is that Ghostty number; the page rows' are the best other browser's in the checked-in
@@ -309,12 +329,13 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
+    (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
@@ -354,6 +375,9 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
+# Terminal key to echo's target p95 (ms): plans/cmux-next/perf-lead.md's "Key to frame (terminal, Home composer,
+# omnibar) p95 < 8 ms", whose proof is bench-typing.py's probe. Under the generic LATENCY_TARGET_MS on purpose.
+TYPING_KEY_TO_ECHO_MS = 8.0
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
                        "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
                        # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
@@ -711,6 +735,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
             version = versions.get(bench)
             out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
                 + 100 * DIFF_LOAD_VERSION
+    elif part["kind"] == "typing":
+        out.update(typing_rows(report, budgets_mod))
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -724,6 +750,28 @@ def rows_of_part(part, report, budgets_mod, budgets):
             # god_chat_replay_ratio_max reads webui.god_ratio.transcript_replay.long.{heap_mb,thought_ms,token_ms}).
             paired = report.get("paired") if isinstance(report.get("paired"), dict) else {}
             out.update(paired_ratio_rows(paired.get("rounds") or []))
+    return out
+
+
+def typing_rows(report, budgets_mod):
+    """{terminal.key_to_echo.<phase>: row} of a typing-frame-bench.py report (pure): every round's measured keys of
+    the terminal surface pooled per session and phase, p50 and p95 of key to echoed frame, target
+    TYPING_KEY_TO_ECHO_MS. The light session's rows carry no session; another session's (STRESS, a backdrop) name it.
+    A run without `key_to_frame_values` (a bench before the cron's part) gives no row."""
+    pooled = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or run.get("surface") != "terminal":
+            continue
+        values = [v for v in run.get("key_to_frame_values") or [] if isinstance(v, (int, float))]
+        session = re.sub(r"[^a-z0-9_]+", "_", str(run.get("session") or "light").lower())
+        phase = re.sub(r"[^a-z0-9_]+", "_", str(run.get("phase") or "idle").lower())
+        name = f"terminal.key_to_echo.{phase}" if session == "light" else f"terminal.key_to_echo.{session}.{phase}"
+        pooled.setdefault(name, []).extend(values)
+    out = {}
+    for name, values in pooled.items():
+        if values:
+            out[name] = {"p50": round(budgets_mod.pct(values, 0.5), 2), "p95": round(budgets_mod.pct(values, 0.95), 2),
+                         "unit": "ms", "budget": TYPING_KEY_TO_ECHO_MS, "floor": 1.0, "n": len(values)}
     return out
 
 
@@ -934,7 +982,7 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch, web UI and main-thread rows their budget (a web UI row without a target has none)."""
+    0; diff, launch, web UI, terminal key-to-echo and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
@@ -942,7 +990,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.")):
+    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1170,17 +1218,23 @@ def with_build(parts):
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
-    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
-    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
+    the stale ones: it has no row on NOW at all. A yielded part stays first in todo, so without this a part that keeps
+    yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
+    38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
+    ran (2026-11-21)."""
     stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
-    stale = []
+    never, stale = [], []
     for i, name in enumerate(todo):
+        if name == "build":
+            continue
         e = stored.get(name)
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
-        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+        if not at:
+            never.append(name)
+        elif hours_between(at, t) > PART_STALE_HOURS:
             stale.append((at, i, name))
-    first = [n for _, _, n in sorted(stale)]
+    first = never + [n for _, _, n in sorted(stale)]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
@@ -1290,7 +1344,10 @@ def drop_dead_measurement(state, t, measurable):
     (give_up_host)."""
     cur = state.get("current")
     why = None
-    if cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS):
+    over = cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS)
+    if over and close_at_bound(cur, t):
+        return "closed at its bound"
+    if over and not (cur.get("closed_at") and hours_between(parse_iso(cur["closed_at"]), t) <= CLOSE_GRACE_HOURS):
         why = "abandoned"
     elif cur and needs_mac(cur) and not measurable(cur["sha"]):
         why = "unmeasurable"
@@ -1306,6 +1363,27 @@ def drop_dead_measurement(state, t, measurable):
             if same_range(rng, cur.get("bisect_range")) and cur["sha"] not in rng.setdefault("skip", []):
                 rng["skip"].append(cur["sha"])
     return why
+
+
+def close_at_bound(cur, t):
+    """A tip measurement that reached its bound with a part done ends with what it has (pure on cur): each part
+    still to do is recorded as not run (state 'not_run', its reason the bound), so the next decide finishes it and
+    the report judges its rows; the measurement ends incomplete instead of abandoned. Returns whether it closed.
+    Abandoning threw the whole measurement away: from 2026-11-15 08:03Z the cron finished none for 165 h while each
+    one ran 8 to 20 of its 27 parts and was dropped at ABANDON_HOURS. A bisect step still abandons (its verdict needs
+    its parts), and so does a measurement with no part done (nothing to judge). cur['closed_at'] holds the close: the
+    finish gets CLOSE_GRACE_HOURS before the abandon applies again."""
+    if cur.get("kind") != "tip" or not cur.get("parts_todo") or cur.get("closed_at"):
+        return False
+    if not any(isinstance(p, dict) and p.get("state") == "done" for p in (cur.get("parts") or {}).values()):
+        return False
+    reason = (f"not run: the measurement reached its bound ({ABANDON_HOURS} h active or {ABANDON_WALL_HOURS} h in "
+              "all) and ended with the parts it had")
+    for name in cur["parts_todo"]:
+        cur["parts"][name] = {"state": "not_run", "reason": reason}
+    cur["parts_todo"] = []
+    cur["closed_at"] = iso(t)
+    return True
 
 
 def commit_failed(cur):
@@ -2051,6 +2129,12 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "typing":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=typing-frame" in text and '"key_to_frame_values"' in bench
         elif need == "terminal-scroll":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
                                 capture_output=True).returncode == 0
@@ -2082,6 +2166,11 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "idle-budget":
+            # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "def cron_report(" in text
         elif need == "workspace-scaling":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout

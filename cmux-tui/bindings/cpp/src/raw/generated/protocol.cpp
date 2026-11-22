@@ -35616,6 +35616,11 @@ Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& v
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
+    if (value.if_idle) {
+        auto encoded = encode_value(*value.if_idle);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("if_idle", std::move(encoded).value());
+    }
     if (value.keep_layout) {
         auto encoded = encode_value(*value.keep_layout);
         if (!encoded) return std::move(encoded).error();
@@ -35656,6 +35661,12 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_generation);
         if (!decoded) return std::move(decoded).error();
         result.generation = std::move(decoded).value();
+    }
+    const Json* field_if_idle = value.find("if_idle");
+    if (field_if_idle) {
+        auto decoded = decode_value<bool>(*field_if_idle);
+        if (!decoded) return std::move(decoded).error();
+        result.if_idle = std::move(decoded).value();
     }
     const Json* field_keep_layout = value.find("keep_layout");
     if (field_keep_layout) {
@@ -47631,9 +47642,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand263FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand267FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand267FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
+    {"if_idle", 12U, "daemon-stop-if-idle-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
     {"restart", 12U, ""},
 }};
