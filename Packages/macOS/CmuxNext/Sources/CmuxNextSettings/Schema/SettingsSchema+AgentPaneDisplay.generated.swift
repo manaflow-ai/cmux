@@ -138,6 +138,18 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+    /// `agentPane.display.layout.messages`: Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.
+    nonisolated static let layoutMessagesPath = ["agentPane", "display", "layout", "messages"]
+    nonisolated static let layoutMessagesDefault = "bubbles"
+    nonisolated static let layoutMessagesValues = ["bubbles", "flat", "card"]
+    /// `agentPane.display.layout.composer`: Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.
+    nonisolated static let layoutComposerPath = ["agentPane", "display", "layout", "composer"]
+    nonisolated static let layoutComposerDefault = "rounded"
+    nonisolated static let layoutComposerValues = ["rounded", "pill", "square"]
+    /// `agentPane.display.layout.header`: Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.
+    nonisolated static let layoutHeaderPath = ["agentPane", "display", "layout", "header"]
+    nonisolated static let layoutHeaderDefault = "full"
+    nonisolated static let layoutHeaderValues = ["full", "quiet"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
@@ -456,6 +457,7 @@ export function applyChatDisplay(
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));

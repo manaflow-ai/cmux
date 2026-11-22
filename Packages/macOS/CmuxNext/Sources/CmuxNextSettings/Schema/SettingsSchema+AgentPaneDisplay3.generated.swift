@@ -85,6 +85,47 @@ extension AgentPaneDisplaySettingsSchema {
                 default: .array(AgentPaneDisplaySettingsSchema.commandLabelsDefault.map { .string($0) }),
                 keywords: ["agent", "chat", "acp", "display", "reading", "command", "label", "rule", "preset", "background", "tray", "shell"]
             ).hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.layoutMessagesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.layout.messages", "Message Layout"),
+                help: SettingsText.keyed("settings.agentPane.display.layout.messages.help", "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."),
+                kind: .choice([
+                    SettingChoice("bubbles", SettingsText.keyed("settings.choice.chatLayout.bubbles", "Bubbles")),
+                    SettingChoice("flat", SettingsText.keyed("settings.choice.chatLayout.flat", "Flat Rows")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.chatLayout.card", "Cards")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.layoutMessagesDefault),
+                keywords: ["agent", "chat", "display", "layout", "look", "messages", "bubbles", "flat", "cards", "prompt"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.layoutComposerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.layout.composer", "Message Box Shape"),
+                help: SettingsText.keyed("settings.agentPane.display.layout.composer.help", "The message box's outline: rounded, a pill, or square and docked."),
+                kind: .choice([
+                    SettingChoice("rounded", SettingsText.keyed("settings.choice.chatLayout.rounded", "Rounded")),
+                    SettingChoice("pill", SettingsText.keyed("settings.choice.chatLayout.pill", "Pill")),
+                    SettingChoice("square", SettingsText.keyed("settings.choice.chatLayout.square", "Square")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.layoutComposerDefault),
+                keywords: ["agent", "chat", "display", "layout", "look", "composer", "message box", "pill", "square", "rounded", "shape"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.layoutHeaderPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.layout.header", "Chat Header"),
+                help: SettingsText.keyed("settings.agentPane.display.layout.header.help", "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."),
+                kind: .choice([
+                    SettingChoice("full", SettingsText.keyed("settings.choice.chatLayout.full", "Full")),
+                    SettingChoice("quiet", SettingsText.keyed("settings.choice.chatLayout.quiet", "Quiet")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.layoutHeaderDefault),
+                keywords: ["agent", "chat", "display", "layout", "look", "header", "toolbar", "quiet", "hide", "chrome"]
+            ),
         ]
     }
 }
