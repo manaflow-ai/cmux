@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
+from cmux_next_step_text import step_run  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -888,7 +889,7 @@ class PathRoutingStructure(unittest.TestCase):
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
         route_step = next(step for step in route["steps"] if step.get("id") == "route")
-        self.assertIn("scripts/ci/cmux_next_route.py", route_step["run"])
+        self.assertIn("scripts/ci/cmux_next_route.py", step_run(route_step))
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
@@ -1854,10 +1855,16 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
+        # The cargo route goes before the label guard, which stays last
+        # (tests/test_ci_label_events_skip_full_ci.py).
+        label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
+                       "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
+                       "&& github.event.label.name != 'full-ci') }}")
+        self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         self.assertEqual(cargo["if"], mac["if"].replace(
             " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", "")
-            .replace(" }}", " && (github.event_name != 'pull_request' || "
-                     "needs.path_route.outputs.fast_tier_cargo != 'false') }}"))
+            .replace(label_guard, " && (github.event_name != 'pull_request' || "
+                     "needs.path_route.outputs.fast_tier_cargo != 'false')" + label_guard))
         self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route"])
         self.assertEqual(jobs["path_route"]["outputs"]["fast_tier_cargo"],

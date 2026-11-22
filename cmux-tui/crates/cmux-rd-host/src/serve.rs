@@ -7,6 +7,7 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -38,7 +39,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,12 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// The viewer's bitrate cap in kbit/s (`a=cmux-rd-max-kbps`; src/serve_wish.rs).
+    #[serde(default)]
+    max_kbps: Option<u32>,
+    /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
+    #[serde(default)]
+    cursor: Option<bool>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -153,23 +159,35 @@ fn session_display(opts: &Opts, setup: &Setup) -> String {
     }
 }
 
-/// Linux's display list for the viewer's picker: the X screen's size (one display; an X
-/// screen spans every monitor). A portal session learns its size only once the person picks
+/// Linux's display list for the viewer's picker: the whole X screen first (an X screen spans
+/// every monitor), then each RandR monitor when it has two or more (`x11_view::listing`; the
+/// viewer's pick is the index). A portal session learns its size only once the person picks
 /// the screen, so its list is empty until the stream starts; an X display that cannot be
 /// opened says why.
 #[cfg(target_os = "linux")]
-fn linux_displays(capture: CaptureBackend, display: &str) -> AppLine {
+fn linux_displays(capture: CaptureBackend, display: &str, pick: Option<&str>) -> AppLine {
     let listed = match capture {
         CaptureBackend::X11 => x11rb::connect(Some(display))
             .map_err(|e| format!("X display {display}: {e}"))
             .map(|(conn, screen)| {
                 let root = &x11rb::connection::Connection::setup(&conn).roots[screen];
-                vec![(u32::from(root.width_in_pixels), u32::from(root.height_in_pixels))]
+                let size = (u32::from(root.width_in_pixels), u32::from(root.height_in_pixels));
+                let monitors = crate::x11_view::monitors(&conn, root.root, size);
+                crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect()
             }),
         CaptureBackend::Portal => capture.available().map(|()| Vec::new()),
     };
     match listed {
-        Ok(sizes) => AppLine { displays: Some(sizes), current: Some(0), ..AppLine::default() },
+        Ok(sizes) => {
+            // The viewer's pick is current when it is on the list (else the share refuses it).
+            let current =
+                pick.and_then(|w| w.trim().parse::<usize>().ok()).filter(|&i| i < sizes.len());
+            AppLine {
+                displays: Some(sizes),
+                current: Some(current.unwrap_or(0)),
+                ..AppLine::default()
+            }
+        }
         Err(e) => AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -332,11 +350,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = setup
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&setup.stun, setup.relay_only);
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
@@ -357,12 +371,15 @@ pub fn run(opts: &Opts) -> Res<()> {
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
-    say(linux_displays(capture, &display));
+    say(linux_displays(capture, &display, setup.display.as_deref()));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
-        Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
-        }
+    match crate::desktop::displays(&display) {
+        Ok((sizes, current, ids)) => say(AppLine {
+            displays: Some(sizes),
+            current: Some(current),
+            display_ids: (!ids.is_empty()).then_some(ids),
+            ..AppLine::default()
+        }),
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -385,6 +402,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
         libc::fcntl(
@@ -484,8 +504,12 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
+    if crate::desktop::scales_pictures() {
+        host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
@@ -534,13 +558,20 @@ fn serve_session(
     let encode_profile = session_profile(opts, setup)?;
     let max_fps = encode_profile.stream_fps(max_fps);
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
-    let max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
+    let start_kbps = crate::serve_wish::start_kbps(
+        opts.num_or(
+            "start-kbps",
+            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+        )?,
+        max_kbps,
+    );
     let cfg = SessionCfg {
         display,
+        display_pick: setup.display.clone(),
         max_fps,
         encode_profile,
         start_kbps,
@@ -556,9 +587,14 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        show_cursor,
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
+        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
+        resolution_ladder: opts.flag_or("resolution-ladder", false),
+        max_qp: crate::host::ladder_max_qp(opts)?,
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier
