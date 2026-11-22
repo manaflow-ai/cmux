@@ -223,6 +223,15 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
                 },
                 { capture: true, passive: true },
               );
+              for (const type of ["pointerleave", "blur", "pointermove"])
+                window.addEventListener(
+                  type,
+                  (event) =>
+                    seen.push(
+                      `${type} buttons=${(event as PointerEvent).buttons ?? ""} @${Math.round(performance.now())}`,
+                    ),
+                  { capture: true, passive: true },
+                );
               document.addEventListener("scroll", () => seen.push("scroll"), {
                 capture: true,
                 passive: true,
@@ -241,6 +250,9 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
                 attributes: scroller.getAttributeNames().filter((name) => name.startsWith("data-cmux")),
                 marks: (window as any).__marks,
                 now: Math.round(performance.now()),
+                lane: scroller.offsetWidth - scroller.clientWidth,
+                rectRight: scroller.getBoundingClientRect().right,
+                scrollingNow: scroller.hasAttribute("data-cmux-scrolling"),
                 top: scroller.scrollTop,
                 height: scroller.scrollHeight,
                 client: scroller.clientHeight,
