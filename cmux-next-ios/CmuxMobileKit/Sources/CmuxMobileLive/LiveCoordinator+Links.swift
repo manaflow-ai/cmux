@@ -601,6 +601,7 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
+        terminal.scrollFramesSink = { [weak self] line in await self?.sendScrollFrames(line, macID: macID) }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
@@ -610,6 +611,25 @@ extension LiveCoordinator {
         openSurface(macID: macID)
         terminal.setMacOffline(sessions[macID]?.terminalsOffline ?? false)
         return terminal
+    }
+
+    /// One terminal pan's frame times (``TerminalPanFrames``) to the Mac's `phone-frames`
+    /// service, which logs them where an agent on the Mac reads them. Only a Mac that lists
+    /// `phone-frames-v1`; nothing waits past 10 s, and a line that cannot go is dropped.
+    func sendScrollFrames(_ line: Data, macID: String) async {
+        guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
+              let link = session(macID: macID)?.servedLink else { return }
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
+        ) else { return }
+        _ = try? await LinkDeadline.run(
+            timeout: .seconds(10),
+            operation: { try await channel.send(line) },
+            onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
+        )
+        await channel.close(code: "eof", reason: "")
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.

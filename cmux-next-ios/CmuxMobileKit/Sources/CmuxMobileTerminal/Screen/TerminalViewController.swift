@@ -202,6 +202,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tapStoppedScroll = false
     /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
     private let tuiScroll = TerminalTUIScrollController()
+    /// Every pan's frame times, to the Mac (`phone-frames`), in every build.
+    private lazy var panFrames: TerminalPanFrameRecorder = {
+        let recorder = TerminalPanFrameRecorder()
+        recorder.onPan = { [weak self] pan in
+            guard let self else { return }
+            model.session.reportScrollFrames(pan)
+        }
+        return recorder
+    }()
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
     private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
@@ -1332,6 +1341,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.stop()
         #endif
+        panFrames.finish()
         stopBlankWatch()
         stopFollowFallback()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
@@ -3042,6 +3052,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A reader who already scrolled up keeps scrolling normally.
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
+        // The alternate screen's drag is the TUI scroll's (`installTUIScroll`).
+        if !model.isTUI { panFrames.begin(.scrollback) }
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
         restoredMark = nil
@@ -3062,6 +3074,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         let pinned = dragPinsToComposer
         dragPin.ended()
+        if pinned || !decelerate { panFrames.finish(.scrollback) }
         if pinned {
             // The keyboard drag ended on the prompt.
             scroll.jumpToBottom()
@@ -3072,6 +3085,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        panFrames.finish(.scrollback)
         settleScroll()
     }
 
@@ -3662,7 +3676,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return touch.map { tuiSelection.ownsTouch($0) } ?? false
         }
         // The rows move under a selection: it would point at other text.
-        tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        tuiScroll.dragBegan = { [weak self] in
+            self?.tuiSelection.clear()
+            self?.panFrames.begin(.tui)
+        }
+        tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 

@@ -41,6 +41,7 @@ pub mod notify_terminal;
 mod notify_waiting;
 pub mod pairing;
 pub mod peer;
+pub mod phone_frames;
 pub mod policy;
 pub mod push_keys;
 pub mod seal;

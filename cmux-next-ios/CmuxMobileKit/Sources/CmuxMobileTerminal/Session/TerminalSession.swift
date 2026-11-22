@@ -234,6 +234,9 @@ public protocol TerminalSession: AnyObject {
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
+    /// there (`phone-frames`). Others ignore it.
+    func reportScrollFrames(_ pan: TerminalPanFrames)
 }
 
 extension TerminalSession {
@@ -267,6 +270,8 @@ extension TerminalSession {
     public func loadOlderHistory() -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public var hostGridOwnerName: String? { nil }
 }

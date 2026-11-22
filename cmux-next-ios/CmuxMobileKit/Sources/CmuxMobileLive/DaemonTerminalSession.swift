@@ -697,6 +697,25 @@ public final class DaemonTerminalSession: TerminalSession {
         historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
     }
 
+    /// Sends one pan's frame line to the Mac (`phone-frames`); the coordinator sets it.
+    /// It returns when the line went out or could not.
+    public var scrollFramesSink: (@MainActor (Data) async -> Void)?
+    /// Pan lines on their way: past ``maxScrollFramesInFlight`` a pan is dropped, never queued.
+    private var scrollFramesInFlight = 0
+    static let maxScrollFramesInFlight = 2
+
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {
+        guard let sink = scrollFramesSink, scrollFramesInFlight < Self.maxScrollFramesInFlight else { return }
+        var pan = pan
+        pan.program = programName
+        guard let line = pan.line() else { return }
+        scrollFramesInFlight += 1
+        Task { [weak self] in
+            await sink(line)
+            self?.scrollFramesInFlight -= 1
+        }
+    }
+
     /// The size state and own participant of an attach reply (shared sizing).
     nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
