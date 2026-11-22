@@ -68,6 +68,17 @@
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
+// Duress offline (Leo, 2026-11-22: "testing under duress. you should also be able to simulate duress 'offline' aka
+// without a true agent thing, just like how i introduced that stuff in the gui"): SIM=<scenario|long:N|path> records
+// a chat-sim transcript (bench/simLogs.ts: a scenario of `bun scripts/chat-sim.ts --list`, long:N for chat-sim's
+// `--long N`, or an .ndjson from its `--emit-ndjson` or `--sanitize`, or a session directory) instead of the
+// TURNS-turn chat, and the bench waits for that transcript's newest reply instead of `Answer TURNS:` (TURNS and
+// CONTENT are then unused). With RUNNING=1 the daemon holds the transcript up to a turn that has just started, and
+// from the relaunched page's attach on it streams the transcript's remaining records (about as many as the
+// recording takes at the rate, at most half the chat) at SIM_RATE records/s (60 by default) to every page attached
+// to the chat, so each load is measured while the chat streams: its shift frames and settle then include the rows
+// the stream adds. `FIRST_LOAD_JSON` and `RESTART_SETTLED_JSON` carry `sim` (the transcript, records served,
+// records streamed, rate). Unset, every mode and default is as above.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -91,6 +102,7 @@ import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { restartSettled } from "./restartSettled";
+import { simChat, simLog } from "./simLogs";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -174,12 +186,21 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
-const LATEST = `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
 /// RUNNING=1: the chat's last turn is still running when the app restarts, as a working agent's is.
 const RUNNING = process.env.RUNNING === "1";
+/// SIM=<scenario|long:N|path>: the recorded chat is that chat-sim transcript (bench/simLogs.ts); SIM_RATE: the
+/// records a second a running one streams after the relaunch.
+const SIM = process.env.SIM || undefined;
+const SIM_RATE = Number(process.env.SIM_RATE ?? 60);
+if (!Number.isFinite(SIM_RATE) || SIM_RATE <= 0) throw new Error("SIM_RATE must be a positive number of records/s");
+const simulated = SIM
+  ? simChat(simLog(SIM, PAPERCUT_CHAT), { running: RUNNING, restRecords: (SIM_RATE * RECORD_MS) / 1000 })
+  : undefined;
+/// The newest answer's text: the bench waits until a row in view holds it.
+const LATEST = simulated?.latest ?? `Answer ${TURNS}:`;
 /// CPU=N slows each relaunched page's CPU N times (CDP Emulation.setCPUThrottlingRate), as a loaded
 /// Mac does after an update (Leo's cosmic-gray, 2026-11-16: load1 150 on 15 cores, 100-570 ms frames for
 /// 40 s after the restart): a settle that takes several frames then shows each of them. 1 (the default) is off.
@@ -234,12 +255,102 @@ const REPORTED = {
     },
   ],
 };
-const { events, session } = papercutEvents({
-  turns: TURNS,
-  running: RUNNING,
-  session: REPORTED,
-  ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
-});
+const { events, session }: ReturnType<typeof papercutEvents> = simulated
+  ? (() => {
+      // The chat-sim transcript's summary: the papercut chat's fields, with its own turns and running turn.
+      const base = papercutEvents({ turns: 0, running: false, session: REPORTED }).session;
+      const served = simulated.served.map(({ seq, at, dir, kind, msg }) => ({
+        sessionId: PAPERCUT_CHAT,
+        seq,
+        at,
+        dir,
+        kind,
+        msg,
+      }));
+      const last = served.at(-1)!;
+      return {
+        events: served,
+        session: {
+          ...base,
+          status: simulated.turn ? "running" : "ready",
+          ...(simulated.turn ? { turn: simulated.turn } : {}),
+          turnCount: simulated.turns,
+          updatedAt: last.at,
+          lastSeq: last.seq,
+        },
+      };
+    })()
+  : papercutEvents({
+      turns: TURNS,
+      running: RUNNING,
+      session: REPORTED,
+      ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
+    });
+/// SIM with RUNNING=1: the records the daemon holds before the restart (the log is cut back to them before each
+/// warm load), and the stream of the rest (`streamSim`), from the relaunched page's attach on.
+const SERVED_RECORDS = events.length;
+const simStream = {
+  armed: false,
+  timer: undefined as ReturnType<typeof setInterval> | undefined,
+  sent: 0,
+  /// The sockets with the chat attached: each streamed record goes to every one, as acpmux sends a chat's records.
+  attached: new Set<{ send(data: string): unknown }>(),
+};
+/// Starts streaming the transcript's rest once (when armed): every tick sends what is due at SIM_RATE since the
+/// start, so a late tick on a loaded runner catches up rather than slowing the rate.
+const streamSim = () => {
+  if (!simulated || !simStream.armed || simulated.rest.length === 0) return;
+  simStream.armed = false;
+  const startedAt = Date.now();
+  let next = 0;
+  simStream.timer = setInterval(
+    () => {
+      const due = Math.min(simulated.rest.length, Math.floor(((Date.now() - startedAt) * SIM_RATE) / 1000) + 1);
+      for (; next < due; next += 1) {
+        const event = { ...simulated.rest[next]!, sessionId: PAPERCUT_CHAT, at: Date.now() };
+        events.push(event);
+        (session as { lastSeq: number }).lastSeq = event.seq;
+        simStream.sent += 1;
+        const frame = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event });
+        for (const ws of simStream.attached) {
+          try {
+            ws.send(frame);
+          } catch {
+            // Closed: its page reads the log again on its next attach.
+          }
+        }
+      }
+      if (next >= simulated.rest.length) stopSim();
+    },
+    Math.max(4, Math.floor(1000 / SIM_RATE)),
+  );
+};
+const stopSim = () => {
+  simStream.armed = false;
+  if (simStream.timer) clearInterval(simStream.timer);
+  simStream.timer = undefined;
+};
+/// Before a warm load: the daemon holds the served records again, and nothing streams.
+const resetSim = () => {
+  if (!simulated) return;
+  stopSim();
+  simStream.sent = 0;
+  events.length = SERVED_RECORDS;
+  (session as { lastSeq: number }).lastSeq = events.at(-1)?.seq ?? 0;
+};
+/// What `sim` in the JSON lines says (undefined without SIM, so the lines are as before).
+const simJson = () =>
+  simulated
+    ? {
+        spec: SIM,
+        records: SERVED_RECORDS + simulated.rest.length,
+        served: SERVED_RECORDS,
+        streamable: simulated.rest.length,
+        rate: SIM_RATE,
+        turns: simulated.turns,
+        latest: LATEST,
+      }
+    : undefined;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -664,6 +775,8 @@ type Round = {
   lastAskMs: number | null;
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
+  /// SIM with RUNNING=1: the transcript's records the daemon streamed this round (absent without SIM).
+  simStreamed?: number;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -697,6 +810,9 @@ try {
       open() {
         load.socketOpenedAt ||= Date.now();
       },
+      close(ws) {
+        simStream.attached.delete(ws);
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
@@ -712,12 +828,15 @@ try {
         const reply = () => {
           if (message.method === "initialize") load.initializeAnsweredAt ||= Date.now();
           if (message.method === "_acpmux/attach") load.attachAnsweredAt ||= Date.now();
+          if (message.method === "_acpmux/attach" && simulated) simStream.attached.add(ws);
           // A socket the page gave up on meanwhile takes nothing.
           try {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           } catch {
             // Closed: the page asks again on its next socket.
           }
+          // SIM with RUNNING=1: the agent writes on from the relaunched page's attach (after its page, in order).
+          if (message.method === "_acpmux/attach") streamSim();
         };
         // A slow daemon: the socket is up but its handshake answers only once acpmux is ready.
         const delay = message.method === "initialize" && downMode === "slow-init" ? downUntil - Date.now() : 0;
@@ -735,6 +854,7 @@ try {
   releases.push([
     "stand-in acpmux",
     () => {
+      stopSim();
       for (const timer of delayedReplies) clearTimeout(timer);
       delayedReplies.clear();
       return daemon.stop(true);
@@ -1006,6 +1126,7 @@ try {
   /// The load before the restart: acpmux up, the chat opened and settled, then its copy written as the
   /// page writes it (chatSnapshot/live.ts `watchChatSnapshot`).
   const warm = async (): Promise<ChatSnapshot> => {
+    resetSim();
     servedCopy = null;
     downMode = undefined;
     downUntil = 0;
@@ -1101,6 +1222,7 @@ try {
         await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
         await cdp.send("Profiler.start");
       }
+      simStream.armed = true;
       const start = await page.evaluate(
         ({ session, tail, recordMs }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
@@ -1173,8 +1295,10 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
+        ...(simulated ? { simStreamed: simStream.sent } : {}),
       };
     } finally {
+      stopSim();
       servingSpare = false;
       await page.close();
     }
@@ -1202,6 +1326,7 @@ try {
         );
       }
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      simStream.armed = true;
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
@@ -1264,6 +1389,7 @@ try {
         attachAnsweredMs: since(load.attachAnsweredAt),
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        ...(simulated ? { simStreamed: simStream.sent } : {}),
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
           const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
@@ -1271,6 +1397,7 @@ try {
         })(),
       };
     } finally {
+      stopSim();
       downMode = undefined;
       downUntil = 0;
       servedCopy = null;
@@ -1301,11 +1428,19 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  const json: Record<string, unknown> = {
+    turns: TURNS,
+    downMs: DOWN_MS,
+    recordMs: RECORD_MS,
+    rounds: ROUNDS,
+    ...(simulated ? { sim: simJson() } : {}),
+  };
   let failed = false;
+  const streamed = simulated?.rest.length ? `, then up to ${simulated.rest.length} at ${SIM_RATE}/s` : "";
+  const chatLabel = simulated ? `SIM=${SIM} (${SERVED_RECORDS} records${streamed})` : `${TURNS} turns`;
   for (const [mode, rounds] of byMode) {
     console.log(
-      `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
+      `first-load-after-restart [${mode}]: ${chatLabel}, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
       "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
@@ -1433,6 +1568,7 @@ try {
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
       settledEach: settled.map((one) => one.settledMs),
+      ...(simulated ? { sim: { ...simJson(), streamedEach: rounds.map((r) => r.simStreamed) } } : {}),
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
     json[`${mode}.settled`] = settledRow;
