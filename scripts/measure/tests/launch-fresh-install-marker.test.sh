@@ -97,14 +97,16 @@ cat >"$bin/cua" <<'SH'
 echo "$2 $3" >>"$CUA_LOG"
 case "$2" in
   list_windows) case "$3" in
-    *100*) echo '{"structuredContent":{"windows":[{"window_id":1,"is_on_screen":true},{"window_id":2,"is_on_screen":true},{"window_id":3,"is_on_screen":true}]}}' ;;
+    *100*) if [ -e "$CUA_LOG.clicked" ]; then  # the pressed prompt is gone
+        echo '{"structuredContent":{"windows":[{"window_id":1,"is_on_screen":true},{"window_id":3,"is_on_screen":true}]}}'
+      else echo '{"structuredContent":{"windows":[{"window_id":1,"is_on_screen":true},{"window_id":2,"is_on_screen":true},{"window_id":3,"is_on_screen":true}]}}'; fi ;;
     *300*) echo '{"structuredContent":{"windows":[{"window_id":9,"is_on_screen":true,"title":"Keychain Not Found"}]}}' ;;
   esac ;;
   get_window_state) case "$3" in
     *'"window_id": 3'*) echo '{"structuredContent":{"elements":[{"role":"AXStaticText","value":"Something else"},{"role":"AXButton","title":"Cancel","element_token":"t3"}]}}' ;;
     *) echo '{"structuredContent":{"elements":[{"role":"AXStaticText","value":"\"(null)\" is an app downloaded from the Internet. Are you sure you want to open it?"},{"role":"AXButton","title":"Open","element_token":"o"},{"role":"AXButton","title":"Cancel","element_token":"c"}]}}' ;;
   esac ;;
-  click) echo '{}' ;;
+  click) : >"$CUA_LOG.clicked"; echo '{}' ;;
 esac
 SH
 chmod +x "$bin/pgrep" "$bin/cua"
@@ -115,6 +117,6 @@ clicks="$(grep '^click ' "$CUA_LOG" || true)"
 [[ "$(wc -l <<<"$clicks")" == 1 && "$clicks" == *'"window_id": 2'*'"element_token": "c"'* ]] || fail "wrong presses: $clicks"
 grep -q '"pid": 300' "$CUA_LOG" && grep -E '^(get_window_state|click) .*"pid": 300' "$CUA_LOG" && fail "touched SecurityAgent: $(cat "$CUA_LOG")"
 grep -q '"action": "left: a keychain.*"owner": "SecurityAgent"' <<<"$out" || fail "the keychain panel is not named: $out"
-grep -q '"action": "pressed Cancel".*"window_id": 2' <<<"$out" || fail "no pressed row: $out"
+grep -q '"action": "pressed Cancel, prompt gone".*"window_id": 2' <<<"$out" || fail "no pressed row: $out"
 grep -q '"action": "not a download prompt: left".*"window_id": 3' <<<"$out" || fail "window 3 not left: $out"
 echo "launch-fresh-install marker: ok"

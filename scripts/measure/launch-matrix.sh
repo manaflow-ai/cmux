@@ -96,7 +96,7 @@ lm_main() {
   if [[ ! -x "$PROBE" || "$LM_DIR/launch-matrix.swift" -nt "$PROBE" ]]; then
     xcrun swiftc -O -o "$PROBE" "$LM_DIR/launch-matrix.swift" >"$OUT/swiftc.log" 2>&1 || { echo "LM probe build failed"; cat "$OUT/swiftc.log"; exit 3; }
   fi
-  CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+  cua_pick "$OUT"
   local grants; grants="$(console "$PROBE" grants 2>/dev/null | sed -n 's/^LM-GRANTS //p')"
   echo "LM-GRANTS {\"probe\": $grants, \"cuadriver\": \"$( [[ -x "$CUA" ]] && console "$CUA" permissions status 2>&1 | grep -E 'Accessibility|Screen Recording' | tr -s ' ' | tr '\n' ' ' || echo none)\"}"
   [[ "$app" == nightly ]] && { app="$(nightly_app)" || exit 3; }
