@@ -187,6 +187,8 @@ def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
     assert data["app_bytes"] == sum(c["bytes"] for c in data["components"])
     assert 0 < data["dmg_estimate_bytes"] < data["app_bytes"], data["dmg_estimate_bytes"]
     assert "| `Contents/Resources/bin/cmux` |" in r.stdout, r.stdout
+    assert "| Largest file | On disk (MB) | In DMG (MB) |" in r.stdout, r.stdout
+    assert f"| `{CEF}/Versions/A/Chromium Embedded Framework` |" in r.stdout, r.stdout
 
 
 def fat(slices: list[bytes], wide: bool) -> bytes:
