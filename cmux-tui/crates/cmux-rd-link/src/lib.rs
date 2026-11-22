@@ -52,9 +52,9 @@ pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 const MAX_HANDSHAKE: usize = 256;
 /// Resend the last handshake message this often until the peer answers.
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
-/// Give up on a handshake after this long from first contact: the
-/// initiator's start (it dials at once), or the moment a responder first
-/// has the peer (a route from signaling, or a valid message 1).
+/// Give up on a handshake after this long from first contact: in an endpoint, the first
+/// route to the peer; in a bare link, the initiator's start (it dials at once), or the moment
+/// a responder first has the peer (a route from signaling, or a valid message 1).
 pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// The longest a responder waits for that first contact. A responder starts
 /// its link before signaling has carried its answer to the peer (its key and
@@ -62,6 +62,11 @@ pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
 /// start is no part of the handshake's own [`HANDSHAKE_TIMEOUT_US`]. It
 /// matches the host's 30 s wait for a viewer (`cmux-rd serve`).
 pub const RESPONDER_WAIT_US: u64 = 30_000_000;
+/// Give up when signaling has supplied no route to the peer after this long. Signaling (the
+/// device hub, a relayed bench) can take longer than the handshake itself, so its wait does
+/// not count against [`HANDSHAKE_TIMEOUT_US`]; this bounds it, so a peer that never shows up
+/// does not hold the socket.
+pub const SIGNALING_TIMEOUT_US: u64 = 60_000_000;
 /// A viewer's bound for an established link that hears nothing at all
 /// ([`Link::set_peer_lost`]): the host's own grace for a silent viewer
 /// (`cmux-rd-host` `REATTACH_GRACE_NS`). A live peer answers a probe every
@@ -122,6 +127,8 @@ pub enum LinkError {
     /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`] from first
     /// contact, or a responder heard of no peer in [`RESPONDER_WAIT_US`].
     HandshakeTimeout,
+    /// Signaling supplied no route to the peer in [`SIGNALING_TIMEOUT_US`].
+    NoRoute,
     /// A sealed packet or control record before the handshake finished.
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
@@ -141,6 +148,9 @@ impl std::fmt::Display for LinkError {
             Self::Noise(e) => write!(f, "noise: {e}"),
             Self::WrongPeer => write!(f, "the peer's key is not the one the hub vouched for"),
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
+            Self::NoRoute => {
+                write!(f, "no route to the peer arrived in {} s", SIGNALING_TIMEOUT_US / 1_000_000)
+            }
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
             Self::PeerLost { silent_us } => {
@@ -490,6 +500,21 @@ impl Link {
             }
         }
         Ok(self.out.drain(..).collect())
+    }
+
+    /// Starts the handshake's timeout clock over: the endpoint calls it when the first route
+    /// arrives, so the wait for signaling does not count against the handshake.
+    pub(crate) fn start_handshake_clock(&mut self, now_us: u64) {
+        if let State::Handshake(_) = self.state {
+            self.started_us = now_us;
+            self.contact_us = Some(now_us);
+        }
+    }
+
+    /// Ends a handshake that never got a route ([`LinkError::NoRoute`]).
+    pub(crate) fn fail_no_route(&mut self) -> LinkError {
+        self.state = State::Failed;
+        LinkError::NoRoute
     }
 
     /// Advances handshake timers without creating another packet.  Endpoints
