@@ -19,9 +19,10 @@ import Testing
     static let readTimeout: Duration = .seconds(2)
 
     /// A Mac's acpmux channel. `healthy` answers everything; `quiet` answers the bind
-    /// (`initialize`, the watch) and then nothing; `closing` closes when asked for the list.
+    /// (`initialize`, the watch) and then nothing; `busy` is alive but slow (it answers the bind
+    /// and the harness list, nothing else); `closing` closes when asked for the list.
     final class BenchMac: LinkChannel, @unchecked Sendable {
-        enum Mode { case healthy, quiet, closing }
+        enum Mode { case healthy, quiet, busy, closing }
         let id: UInt32 = 1
         let mode: Mode
         private let inbox: AsyncStream<Data>
@@ -47,7 +48,8 @@ import Testing
                 case .healthy where method == "_acpmux/sessions":
                     reply(#"{"sessions":[{"sessionId":"s1","harness":"fake"}],"nextCursor":null}"#)
                 case .healthy: reply("{}")
-                case .quiet: break
+                case .busy where method == "_acpmux/harnesses": reply(#"{"harnesses":[]}"#)
+                case .quiet, .busy: break
                 case .closing: continuation.finish()
                 }
             }
@@ -94,6 +96,8 @@ import Testing
         ]
         let json = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         print("LINKBENCH \(json)")
+        // The simulator step keeps attachments in its evidence (kit-attachments/), not stdout.
+        Attachment.record("LINKBENCH \(json)\n", named: "linkbench-\(scenario)-\(steady ? "after" : "before").txt")
     }
 
     /// The `acpmux` channel goes quiet while the Mac's link stays up (its heartbeat probes the
@@ -199,5 +203,87 @@ import Testing
             _ = try await hub.request("session/new", .object([:]), timeout: .milliseconds(300))
         }
         #expect(stalls == 0)
+    }
+
+    /// A read slow behind a prompt or mutation still in flight never replaces the channel: that
+    /// would cut the write off on a channel that is only slow. The read keeps its own deadline,
+    /// and the write keeps its channel to the end.
+    @Test func aReadSlowBehindAWriteLeavesTheChannelAlone() async {
+        let hub = hub(steady: true)
+        let mac = BenchMac(.busy)
+        await hub.bind(mac)
+        var stalls = 0
+        hub.onStall = { stalls += 1; await hub.bind(BenchMac(.healthy)) }
+        let write = Task { @MainActor in
+            try await hub.request("session/new", .object([:]), timeout: .seconds(3))
+        }
+        await Task.yield()
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        #expect(stalls == 0, "no rebind while a write is in flight")
+        #expect(outcome.answered == 0)
+        #expect(outcome.errors.count == 1)
+        // The write ran to its own deadline on the channel it was sent on.
+        await #expect(throws: LinkError.self) { _ = try await write.value }
+        #expect(stalls == 0)
+    }
+
+    /// A channel that is dead under a write (it answers nothing, not even the cheap probe) is
+    /// still recovered: the write is lost with it either way, and the read answers on the new one.
+    @Test func aDeadChannelUnderAWriteIsStillRecovered() async {
+        let hub = hub(steady: true)
+        await hub.bind(BenchMac(.quiet))
+        var stalls = 0
+        hub.onStall = { stalls += 1; await hub.bind(BenchMac(.healthy)) }
+        let write = Task { @MainActor in
+            try await hub.request("session/new", .object([:]), timeout: .seconds(3))
+        }
+        await Task.yield()
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        #expect(stalls == 1)
+        #expect(outcome.answered == 1)
+        await #expect(throws: (any Error).self) { _ = try await write.value }
+    }
+
+    /// A channel replaced while the stalled read's probe waits (another recovery, or the link's own
+    /// reconnect, bound a fresh one) is not recovered a second time: the read is asked again on
+    /// the new channel, and `onStall` never runs (#49130 F1).
+    @Test func aRebindDuringTheProbeIsNotFollowedByASecondRecovery() async throws {
+        let hub = hub(steady: true)
+        await hub.bind(BenchMac(.quiet))
+        var stalls = 0
+        hub.onStall = { stalls += 1; await hub.bind(BenchMac(.healthy)) }
+        let write = Task { @MainActor in
+            try await hub.request("session/new", .object([:]), timeout: .seconds(3))
+        }
+        // The stall watch fires at 600 ms and probes for up to 600 ms more; the rebind lands inside it.
+        let rebind = Task { @MainActor in
+            try await Task.sleep(for: .milliseconds(900))
+            await hub.bind(BenchMac(.healthy))
+        }
+        await Task.yield()
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        try await rebind.value
+        // Past the probe's bound: a second recovery, if any, has run by now.
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(stalls == 0, "the channel was already replaced: no second recovery")
+        #expect(outcome.answered == 1)
+        _ = try? await write.value
+    }
+
+    /// A prompt answered before its `reply(to:)` is asked for is no longer in flight: it never
+    /// keeps a later stalled read from recovering the channel.
+    @Test func anAnsweredSubmitIsNoLongerAWriteInFlight() async throws {
+        let hub = hub(steady: true)
+        await hub.bind(BenchMac(.healthy))
+        let (connection, id) = try await hub.submit("session/prompt", .object([:]))
+        for _ in 0..<200 where await connection.hasWritesInFlight {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await connection.hasWritesInFlight == false)
+        _ = try await connection.reply(to: id)
+        #expect(await connection.hasWritesInFlight == false)
     }
 }

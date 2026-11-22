@@ -1780,6 +1780,34 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(len(setup), 1)
         self.assertIn("neither npm nor bun is on PATH", lint.shown(setup[0]))
 
+    def test_an_all_run_in_a_shallow_ci_clone_lints_every_package(self):
+        # cmux-ci test at 491d6f30 (run 44991179215): `web-lint.sh --all` in Actions' depth-1 checkout of a snapshot
+        # two commits over the remote said "cannot tell which commits are this push's own ... refused; nothing was
+        # linted". --all lints every package whatever changed, so it needs no push range.
+        self.add_tui_packages()
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:feat-cmux-next")
+        # Two snapshot commits over the branch, on a ref of their own; Actions checks out only the top one.
+        for n in (1, 2):
+            self.write(f"snapshot-{n}.txt", f"{n}\n")
+            self.commit(f"snapshot {n}")
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:refs/heads/snapshot")
+        shallow = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "snapshot",
+                        f"file://{self.origin}", str(shallow)], env=self.env, check=True, capture_output=True)
+        # As actions/checkout leaves it: the commit detached, no remote ref names it, and no base to fetch.
+        for argv in (["checkout", "--quiet", "--detach"], ["update-ref", "-d", "refs/remotes/origin/snapshot"],
+                     ["remote", "set-url", "origin", str(self.root / "gone.git")]):
+            subprocess.run(["git", *argv], cwd=shallow, env=self.env, check=True)
+        self.assertEqual(subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=shallow, env=self.env,
+                                        text=True, capture_output=True).stdout.strip(), "true")
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh", "--all"], cwd=shallow, env=self.env, text=True,
+                                capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("web lint passed", result.stderr)
+        self.assertIn("check web", self.tool_log.read_text())
+
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
 

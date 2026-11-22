@@ -658,6 +658,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("web-lint", self.web["jobs"])
         self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
 
+    def test_every_push_typechecks_the_whole_webviews_tree(self):
+        # cmux#49052 (2026-11-22): a rename elsewhere broke webviews' types, and the range lint skips webviews on a
+        # push that did not change it. Leo: "Every push to main gets a webview type check, so a break shows up on the
+        # status board within minutes." One job per push (no needs, no path routing, no step condition), whose name
+        # base-red-watch keys its push reds by and does not ignore.
+        on = self.lint.get("on", self.lint.get(True))
+        self.assertNotIn("paths", on["push"])
+        self.assertNotIn("paths-ignore", on["push"])
+        self.assertIs(self.lint["concurrency"]["cancel-in-progress"], False)
+        job = self.lint["jobs"]["webviews-typecheck"]
+        self.assertEqual(job["name"], "webviews typecheck (whole tree)")
+        self.assertNotIn("needs", job)
+        self.assertNotIn("if", job)
+        self.assertLessEqual(job["timeout-minutes"], 10)
+        for step in job["steps"]:
+            self.assertNotIn("if", step, step.get("name"))
+            self.assertNotIn("continue-on-error", step, step.get("name"))
+        check = next(s for s in job["steps"] if s.get("name") == "Typecheck webviews")
+        self.assertEqual((check["working-directory"], check["run"].strip()), ("webviews", "bun run typecheck"))
+        scripts = json.loads((ROOT / "webviews/package.json").read_text())["scripts"]
+        self.assertIn("vp check", scripts["typecheck"])
+
     def test_an_unknown_covered_range_runs_every_web_subarea(self):
         import web_subareas  # noqa: PLC0415
         self.assertEqual(web_subareas.EVERY_SUBAREA, coalesce.EVERYTHING)

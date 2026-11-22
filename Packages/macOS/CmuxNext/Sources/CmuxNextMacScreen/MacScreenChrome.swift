@@ -47,6 +47,10 @@ final class MacScreenChromeActions {
     var selectDisplay: (Int) -> Void = { _ in }
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
+    /// Customize: the stream's bitrate cap in kbit/s (nil: Auto); a change starts a new session.
+    var setMaxKbps: (Int?) -> Void = { _ in }
+    /// Customize: show the cursor in the stream or not; a change starts a new session.
+    var toggleStreamCursor: () -> Void = {}
     var refresh: () -> Void = {}
     var fullScreen: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
@@ -99,6 +103,13 @@ final class MacScreenChromeHost {
     }
 
     var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
+
+    /// The button the keyboard lands on while a state shows: under look B's strip the strip's (the card is hidden there),
+    /// else the shown card's; nil while live.
+    var keyButton: MacScreenButton? {
+        if model.viewerLook.style.statusStrip { return model.card == nil ? nil : statusStrip?.bar.keyButton }
+        return showsCard ? card.keyButton : nil
+    }
 }
 
 extension MacScreenPaneModel {
