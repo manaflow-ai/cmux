@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextCompat
 public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 import Observation
@@ -143,7 +142,7 @@ private struct AutoRetryWindowSight: NSViewRepresentable {
 
     final class SightView: NSView {
         var changed: @MainActor (Bool) -> Void
-        private var observers: [MainActorObservation] = []
+        private weak var followed: NSWindow?
 
         init(changed: @escaping @MainActor (Bool) -> Void) {
             self.changed = changed
@@ -155,12 +154,11 @@ private struct AutoRetryWindowSight: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            observers = []
+            if let followed { FrameScheduler.unfollowSight(of: followed, owner: self) }
+            followed = window
             guard let window else { return }
-            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-                         NSWindow.didDeminiaturizeNotification] {
-                observers.append(MainActorObservation(name, object: window) { [weak self] in self?.report() })
-            }
+            // The app's one occlusion observer tells this view (minimizing changes occlusion too).
+            FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.report() }
             report()
         }
 
