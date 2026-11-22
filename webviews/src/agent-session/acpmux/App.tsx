@@ -778,8 +778,6 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
-import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
-import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { bridgeGone } from "./watchBannerModel";
@@ -9416,26 +9414,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
           },
           "chat.cancel": () => client.cancel(),
-          "chat.planScopeDrift": ({ action, sessionId, path, area }) => {
-            const id = typeof sessionId === "string" ? sessionId : undefined;
-            if (!id || id !== client.selectedSession) return Promise.resolve(false);
-            if (action === "keepGoing") {
-              keepPlanScopeArea(id, typeof area === "string" ? area : "");
-              return Promise.resolve(true);
-            }
-            dismissPlanScopeDrift(id);
-            if (action === "stop") return client.cancel().then(() => true);
-            return send(
-              typeof path === "string"
-                ? translate("planScopeDrift.replanPrompt", { path })
-                : translate("planScopeDrift.replanPromptNoPath"),
-              [],
-              undefined,
-              true,
-              undefined,
-              id,
-            ).then(() => true);
-          },
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
@@ -12851,7 +12829,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
-        <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
