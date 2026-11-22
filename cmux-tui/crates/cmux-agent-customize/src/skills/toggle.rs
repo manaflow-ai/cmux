@@ -157,12 +157,12 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
         .position(|rule| rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()));
     match existing.and_then(|index| rules.get_mut(index)) {
         Some(rule) => {
-            rule["enabled"] = toml_edit::value(enabled);
+            rule.insert("enabled", toml_edit::value(enabled));
         }
         None => {
             let mut rule = toml_edit::Table::new();
-            rule["path"] = toml_edit::value(path_text);
-            rule["enabled"] = toml_edit::value(enabled);
+            rule.insert("path", toml_edit::value(path_text));
+            rule.insert("enabled", toml_edit::value(enabled));
             rules.push(rule);
         }
     }

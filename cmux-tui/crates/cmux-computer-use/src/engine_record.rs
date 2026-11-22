@@ -74,8 +74,8 @@ fn summary_json(id: &str, s: &Summary) -> Value {
         "redacted_windows": s.redacted_windows,
         "left_out_apps": s.left_out_apps,
     });
-    if let Some(detail) = &s.detail {
-        body["detail"] = json!(detail);
+    if let (Some(detail), Some(fields)) = (&s.detail, body.as_object_mut()) {
+        fields.insert("detail".to_string(), json!(detail));
     }
     body
 }

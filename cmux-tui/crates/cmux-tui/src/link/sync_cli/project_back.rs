@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
+use cmux_json::JsonSet as _;
 use cmux_projection::layer::{self, Layer};
 use cmux_projection::manifest::{Kind, Manifest};
 use cmux_projection::way_back::{self, MacStat, Plan};
@@ -155,7 +156,10 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
 
     let (answer, mut reader) =
         dial(socket, &json!({"cmd": "projection.layer", "name": found.name}), &[])?;
-    let bytes = answer["data"]["bytes"].as_u64().context("the machine sent no listing size")?;
+    let bytes = answer
+        .pointer("/data/bytes")
+        .and_then(Value::as_u64)
+        .context("the machine sent no listing size")?;
     let mut raw = Vec::new();
     (&mut reader).take(bytes).read_to_end(&mut raw)?;
     anyhow::ensure!(raw.len() as u64 == bytes, "the machine's listing ended early");
@@ -271,7 +275,7 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
     if !keep {
         let (answer, _) =
             dial(socket, &json!({"cmd": "projection.drop", "name": found.name}), &[])?;
-        dropped = answer["data"]["dropped"] == true;
+        dropped = answer.pointer("/data/dropped") == Some(&Value::Bool(true));
         let _ = super::project::stop_server(&found.remote);
         forget(&found.name);
     }
@@ -580,10 +584,12 @@ fn path_inside(repo: &str, path: &str) -> String {
 /// manifest's `.git` entries; None outside any.
 fn repository_of(manifest: &Manifest, path: &str) -> Option<String> {
     let parts: Vec<&str> = path.split('/').collect();
-    (0..parts.len()).rev().map(|end| parts[..end].join("/")).find(|folder| {
-        let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
-        manifest.resolve(&dotgit).is_some()
-    })
+    (0..parts.len()).rev().filter_map(|end| parts.get(..end)).map(|folder| folder.join("/")).find(
+        |folder| {
+            let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
+            manifest.resolve(&dotgit).is_some()
+        },
+    )
 }
 
 /// Whether repository `repo`'s HEAD, branch and index here are as the manifest listed them, so
@@ -653,12 +659,15 @@ fn apply(
     for write in plan.writes.iter().filter(|write| write.replaces == Some(Kind::File)) {
         expected.insert(write.path.clone(), expected_here(&root, &write.path)?);
     }
+    let expected_of = |path: &str| {
+        expected.get(path).with_context(|| format!("{path} was not checked before the change"))
+    };
     let mut transaction = Transaction::new(root_path, &staging.0)?;
     let mut staged_number = 0u64;
     let outcome = (|| -> anyhow::Result<()> {
         for delete in &plan.deletes {
             match delete.kind {
-                Kind::File => transaction.delete(&delete.path, &expected[&delete.path])?,
+                Kind::File => transaction.delete(&delete.path, expected_of(&delete.path)?)?,
                 Kind::Link => {
                     let text = manifest
                         .resolve(&delete.path)
@@ -683,7 +692,7 @@ fn apply(
                     transaction.remove_link(&write.path, &text)?;
                 }
                 Some(Kind::File) if write.kind != Kind::File => {
-                    transaction.delete(&write.path, &expected[&write.path])?;
+                    transaction.delete(&write.path, expected_of(&write.path)?)?;
                 }
                 Some(Kind::Dir) if write.kind != Kind::Dir => {
                     let (parent, name) = place::parent_of(&root, &write.path)?
@@ -704,8 +713,11 @@ fn apply(
                         &staged,
                         std::fs::Permissions::from_mode(local::permissions_of(write.mode)),
                     )?;
-                    let replaced =
-                        (write.replaces == Some(Kind::File)).then(|| &expected[&write.path]);
+                    let replaced = if write.replaces == Some(Kind::File) {
+                        Some(expected_of(&write.path)?)
+                    } else {
+                        None
+                    };
                     transaction.write(&write.path, &name, replaced)?;
                 }
                 Kind::Link => {
@@ -768,7 +780,7 @@ fn dial(
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
     let mut line = line.clone();
-    line["id"] = json!(1);
+    line.set("id", json!(1));
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     stream.write_all(&bytes)?;
@@ -780,11 +792,15 @@ fn dial(
     reader.read_line(&mut answer)?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
-    if answer["ok"] != true {
-        if answer["error_code"] == "projection.unavailable" || answer.get("error_code").is_none() {
+    if answer.get("ok") != Some(&Value::Bool(true)) {
+        let code = answer.get("error_code");
+        if code.and_then(Value::as_str) == Some("projection.unavailable") || code.is_none() {
             bail!("the machine does not serve Bring Back for projected folders: {answer}");
         }
-        bail!("{}", answer["error"].as_str().unwrap_or("the machine refused Bring Back"));
+        bail!(
+            "{}",
+            answer.get("error").and_then(Value::as_str).unwrap_or("the machine refused Bring Back")
+        );
     }
     Ok((answer, reader))
 }

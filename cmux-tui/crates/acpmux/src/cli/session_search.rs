@@ -9,6 +9,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use anyhow::Result;
 use clap::Args;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -90,7 +91,7 @@ impl HistoryQuery {
 pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(&args.session)?).await?;
     let mut params = args.query.params()?;
-    params["sessionId"] = json!(id);
+    params.set("sessionId", json!(id));
     let v = client.request(method::MUX_SESSION_SEARCH, params).await?;
     if json_out {
         print_json(&v);

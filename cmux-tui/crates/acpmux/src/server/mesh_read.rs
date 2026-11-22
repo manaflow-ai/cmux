@@ -35,6 +35,7 @@ use crate::mesh::{
     Ack, HubError, InMessage, Kind, MAX_READ_RESULT_BYTES, Mode, OutMessage, Sender, Target,
 };
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use std::time::Duration;
 
 #[path = "mesh_read_parts.rs"]
@@ -146,7 +147,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
     let in_parts = body.get("parts").and_then(Value::as_bool) == Some(true);
     for key in crossing(m) {
         if let Some(value) = asked.and_then(|p| p.get(*key)) {
-            params[*key] = value.clone();
+            params.set(*key, value.clone());
         }
     }
     let mut budget = params

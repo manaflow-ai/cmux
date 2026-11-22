@@ -44,21 +44,26 @@ async fn read_at(root: &Path, cwd: &Path) -> std::io::Result<Value> {
 /// Only numeric lane facts leave the host: never paths, diagnostics, writers or snapshot messages.
 /// A result from another sequence is unknown, even if that lane did not change (conservative).
 fn project(raw: &Value, now: f64) -> Value {
-    let Some(seq) = raw["seq"].as_u64() else { return json!({"available": false}) };
-    let Some(updated) = raw["updated"].as_f64() else { return json!({"available": false}) };
+    let Some(seq) = raw.get("seq").and_then(Value::as_u64) else {
+        return json!({"available": false});
+    };
+    let Some(updated) = raw.get("updated").and_then(Value::as_f64) else {
+        return json!({"available": false});
+    };
     let stale = !(0.0..=MAX_AGE).contains(&(now - updated));
     let lanes: Vec<Value> = ["rust", "webviews", "swift"]
         .into_iter()
         .map(|name| {
-            let lane = &raw["lanes"][name];
+            let lane = raw.get("lanes").and_then(|lanes| lanes.get(name));
+            let field = |key: &str| lane.and_then(|lane| lane.get(key));
             let current = !stale
-                && raw["pending"].as_u64() == Some(0)
-                && lane["seq"].as_u64() == Some(seq)
-                && lane["stale"] == false;
+                && raw.get("pending").and_then(Value::as_u64) == Some(0)
+                && field("seq").and_then(Value::as_u64) == Some(seq)
+                && field("stale").and_then(Value::as_bool) == Some(false);
             let verdict = if !current {
                 "unknown"
             } else {
-                match lane["ok"].as_bool() {
+                match field("ok").and_then(Value::as_bool) {
                     Some(true) => "passed",
                     Some(false) => "failed",
                     None => "unknown",

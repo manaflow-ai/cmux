@@ -11,6 +11,7 @@ use crate::client::Client;
 use crate::no_panic::LockExt as _;
 use crate::rpc::method;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use futures_util::stream::{self, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -23,14 +24,15 @@ const MAX_CONCURRENT_SEARCHES: usize = 16;
 
 pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Result<()> {
     let mut params = args.params()?;
-    params["withTurnTime"] = json!(true);
+    params.set("withTurnTime", json!(true));
     let limit =
         crate::session_search::Query::from_params(&params).map_err(anyhow::Error::msg)?.limit;
     let status = client.request(method::MUX_STATUS, json!({})).await.ok();
     let source = if list_read::closed_remote_listed(status.as_ref()) {
         None
     } else {
-        let peers = status.as_ref().and_then(|status| status["peers"].as_array());
+        let peers =
+            status.as_ref().and_then(|status| status.get("peers").and_then(Value::as_array));
         Via::daemon().open_knowing(&client, peers.map(Vec::as_slice)).await?
     };
     let rows = match source {
@@ -45,7 +47,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
     let offline_peers = Mutex::new(HashSet::<String>::new());
     let searches = rows.into_iter().filter_map(|row| {
         let session = crate::session_identity::routed_id(&row).ok()?;
-        let name = row["name"].as_str().unwrap_or(&session).to_owned();
+        let name = row.get("name").and_then(Value::as_str).unwrap_or(&session).to_owned();
         let host = row
             .get("peer")
             .and_then(Value::as_str)
@@ -53,10 +55,10 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
             .map(str::to_owned)
             .unwrap_or_else(|| local_host.clone());
         let client = client.clone();
-        let is_peer = row["peer"].is_string();
+        let is_peer = row.get("peer").is_some_and(Value::is_string);
         let offline_peers = &offline_peers;
         let mut params = params.clone();
-        params["sessionId"] = json!(session);
+        params.set("sessionId", json!(session));
         Some(async move {
             let result = if is_peer && offline_peers.lock_or_recover().contains(&host) {
                 Err("peer_unreachable".to_owned())
@@ -67,7 +69,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
                     let reason = error
                         .downcast_ref::<crate::client::DaemonError>()
                         .and_then(|daemon| daemon.0.data.as_ref())
-                        .and_then(|data| data["reason"].as_str())
+                        .and_then(|data| data.get("reason").and_then(Value::as_str))
                         .unwrap_or("search_unavailable");
                     if is_peer && reason == "peer_unreachable" {
                         offline_peers.lock_or_recover().insert(host.clone());
@@ -87,12 +89,14 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
                 for mut hit in
                     answer.get("hits").and_then(Value::as_array).cloned().unwrap_or_default()
                 {
-                    hit["session"] = json!(name);
-                    hit["sessionId"] = json!(session);
-                    hit["host"] = json!(host);
+                    hit.set("session", json!(name));
+                    hit.set("sessionId", json!(session));
+                    hit.set("host", json!(host));
                     hits.push(hit);
                 }
-                hits.sort_by_key(|hit| std::cmp::Reverse(hit["at"].as_u64().unwrap_or(0)));
+                hits.sort_by_key(|hit| {
+                    std::cmp::Reverse(hit.get("at").and_then(Value::as_u64).unwrap_or(0))
+                });
                 hits.truncate(limit);
             }
             Err(error) => unreached.push(json!({
@@ -103,9 +107,10 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
         }
     }
     for hit in &mut hits {
-        hit["time"] = json!(utc_time(hit));
+        let time = json!(utc_time(hit));
+        hit.set("time", time);
     }
-    let answer = json!({"query": params["query"], "hits": hits, "unreached": unreached, "sessions": session_count});
+    let answer = json!({"query": params.get("query"), "hits": hits, "unreached": unreached, "sessions": session_count});
     if json_out {
         print_json(&answer);
     } else {
