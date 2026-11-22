@@ -568,10 +568,10 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__plan .cv-plan__item {
   align-items: flex-start;
   min-height: var(--ui-row-height, 28px);
-  padding-block: calc((var(--ui-row-height, 28px) - 16px) / 2);
+  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
 }
 .acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
 }
 .acpmux-running-tray__plan .cv-plan__title,
 .acpmux-running-tray__plan .cv-plan__detail {
