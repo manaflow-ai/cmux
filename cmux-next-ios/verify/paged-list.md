@@ -156,7 +156,9 @@ turns it on. So every case runs twice at the same commit:
 | Shift | `PagedListStressUITests` | on | frame shift, drawn shift, landing shift | everything (its hitch numbers are not read) |
 | Timing | `PagedListStressHitchUITests` | off (`-cmux-mobile-paged-lab-noprobe`) | above 10 ms of hitches per second (not `busy`), landing shift | hitch, worst frame, frames (`PAGEDLIST STRESSHITCH-…`) |
 
-Hitch, worst-frame and CPU numbers come only from the timing run on a leased host with nothing else on it. The landing measure (`landing_shift_pt`) judges a landing at rest only: when the finger, a fling or the list's slide moved the offset before it is read, the per-frame measure judges it. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
+Hitch, worst-frame and CPU numbers come only from the timing run on a leased host with nothing else on it. The 10 ms/s assert is the
+suite's floor; the acceptance bars (under 5 ms of hitches a second, no frame over 33 ms, and no regression
+against the base commit) are read from each timing record, per case and per run. The landing measure (`landing_shift_pt`) judges a landing at rest only: when the finger, a fling or the list's slide moved the offset before it is read, the per-frame measure judges it. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,
 worst_frame_ms, dropped_frames, in_memory_rows, disk_bytes).
