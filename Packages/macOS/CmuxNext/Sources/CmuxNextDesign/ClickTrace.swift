@@ -84,12 +84,32 @@ public final class ClickTrace {
         self.now = now
     }
 
+    private var monitor: Any?
+
+    /// Records every press of the app from now on (the first window overlay host starts it; idempotent). The monitor
+    /// sees a press as it is dequeued, before any window or the overlay panel's own monitor handles it, and returns it
+    /// unchanged; where the keyboard went is read on the next main-actor turn, after the press's dispatch and its
+    /// focus changes.
+    public func startMonitoring() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
+            nonisolated(unsafe) let event = event // crash-allow: AppKit runs local monitors on the main thread; it never leaves it
+            MainActor.assumeIsolated { // main-proof: AppKit runs local event monitors on the main thread
+                let trace = ClickTrace.shared
+                trace.press(event, window: event.window)
+                let timestamp = event.timestamp
+                Task { @MainActor in trace.settled(timestamp: timestamp, keyWindow: NSApp.keyWindow) }
+            }
+            return event
+        }
+    }
+
     public static func isPress(_ type: NSEvent.EventType) -> Bool {
         type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
     }
 
-    /// A press is about to be dispatched (`CmuxApplication.sendEvent`), or was taken before dispatch
-    /// (``overlayTook(_:from:)``). A second report of the same event (same timestamp) adds no line.
+    /// A press came (``startMonitoring()``), or the overlay took one before dispatch (``overlayTook(_:from:panel:)``).
+    /// A second report of the same event (same timestamp) adds no line.
     public func press(_ event: NSEvent, window: NSWindow?) {
         guard Self.isPress(event.type) else { return }
         if let open, open.timestamp == event.timestamp, open.timestamp != 0 { return }
@@ -128,9 +148,14 @@ public final class ClickTrace {
         }
     }
 
-    /// AppKit dispatched the newest press: where the keyboard is now.
+    /// AppKit dispatched the press (the newest, else no line changes): where the keyboard is now.
     public func dispatched(_ event: NSEvent, keyWindow: NSWindow?) {
-        guard Self.isPress(event.type), open?.timestamp == event.timestamp else { return }
+        guard Self.isPress(event.type) else { return }
+        settled(timestamp: event.timestamp, keyWindow: keyWindow)
+    }
+
+    func settled(timestamp: TimeInterval, keyWindow: NSWindow?) {
+        guard open?.timestamp == timestamp else { return }
         update { entry in
             entry.keyWindow = keyWindow.map { Self.name($0) }
             entry.keyWindowNumber = keyWindow?.windowNumber

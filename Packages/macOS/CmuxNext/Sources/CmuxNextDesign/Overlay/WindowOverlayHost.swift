@@ -97,6 +97,7 @@ public final class WindowOverlayHost {
     private static var app: WindowOverlayHost?
 
     init(window: NSWindow?) {
+        ClickTrace.shared.startMonitoring() // `cmux app clicks`: every press of the app, from the first window on
         self.window = window
         isAppHost = window == nil
         panel = OverlayHostPanel()
