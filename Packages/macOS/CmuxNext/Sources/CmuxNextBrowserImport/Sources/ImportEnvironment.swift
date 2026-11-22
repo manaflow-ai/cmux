@@ -20,12 +20,12 @@ public struct ImportEnvironment: Sendable {
     public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?,
                 locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil },
                 safeStorageNames: @escaping @Sendable () -> [SafeStorageName] = { [] },
-                readsOtherAppContainers: Bool = OtherAppContainers.mayRead) {
+                readsOtherAppContainers: Bool? = nil) {
         self.homeDirectory = homeDirectory
         self.locateApp = locateApp
         self.locateAppNamed = locateAppNamed
         self.safeStorageNames = safeStorageNames
-        self.readsOtherAppContainers = readsOtherAppContainers
+        self.readsOtherAppContainers = readsOtherAppContainers ?? OtherAppContainers.mayRead  // nil: this build's own answer
     }
 
     /// Whether detection may look at `url`: outside other apps' containers, or in a build that may read them.
