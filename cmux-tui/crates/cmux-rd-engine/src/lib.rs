@@ -408,6 +408,11 @@ pub struct MediaEngine {
     upstreams: BTreeMap<u16, Upstream>,
     /// The encoder profile every request carries.
     profile: EncodeProfile,
+    /// Bounded startup/idle capacity probes share the media transport sequence
+    /// space and the controller's departure accounting.
+    probe_planner: ProbePlanner,
+    probe_generation: Option<u64>,
+    last_probe_start_us: Option<u64>,
 }
 
 impl MediaEngine {
