@@ -15,11 +15,11 @@ public nonisolated enum AgentPaneFolderChoice: Equatable, Sendable {
     /// cannot save the workspace's agent folder.
     public static var restartServiceMessage: String {
         String(localized: "agentPane.chooseFolder.restartService",
-               defaultValue: "Restart cmux's background service to use Choose Folder.", bundle: .module)
+               defaultValue: "Restart cmux's background service to use Choose Folder.", bundle: .localizedModule)
     }
 
     /// Any other refusal or failure to save the folder.
     public static var notSavedMessage: String {
-        String(localized: "agentPane.chooseFolder.notSaved", defaultValue: "The folder could not be saved.", bundle: .module)
+        String(localized: "agentPane.chooseFolder.notSaved", defaultValue: "The folder could not be saved.", bundle: .localizedModule)
     }
 }

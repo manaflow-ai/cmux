@@ -17,7 +17,7 @@ import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type Tea
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
-import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerPairingRecorded, reduceServerPairingSpent, reduceServerRevoke, reduceServerSignedOut, type ServerPairing, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
 import { CLOUD_SESSION_OPS, reduceCloudSession } from "./team-cloud-sessions.ts"
@@ -36,6 +36,10 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Recently paired servers (host -> the pairing code and invite that made them), so a revoke can spend them (team-servers.ts). */
+  readonly server_pairings?: Readonly<Record<string, ServerPairing>>
+  /** Pairings of removed servers that TeamDO still has to spend (host -> objects; team-do.ts flushPairingSpends). */
+  readonly pairing_spends?: Readonly<Record<string, { readonly pairing_object: string; readonly invite_object: string | null }>>
   /** A paired server's install -> the cmux-platform join token its approval minted (an id, not a secret; team-servers.ts). */
   readonly server_machine_joins?: Readonly<Record<string, string>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
@@ -274,6 +278,18 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceServerInstallRevoked(state, params)
       }
+      case "server.pairing.recorded": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerPairingRecorded(state, params, ctx)
+      }
+      case "server.pairing.spent": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerPairingSpent(state, params)
+      }
+      case "server.signed_out": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerSignedOut(state, params, ctx)
+      }
       case "server.network.confirmed": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceServerNetworkConfirmed(state, params, ctx)
@@ -366,6 +382,20 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const q = params as { connection?: string; subject?: string; stack_user?: string; linked?: boolean }
         // Audit only; no state beyond the audit chain (identities live in the sso_identities side table).
         return withAudit({ ok: true, state, value: { connection: q.connection }, audit: { summary: q.linked ? `first SSO sign-in through ${q.connection}` : `SSO sign-in through ${q.connection}`, detail: q } }, state.team.id, ctx, op)
+      }
+      case "auth.handoff.minted":
+      case "auth.handoff.redeemed":
+      case "auth.handoff.refused": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        const q = params as { handoff?: string; stage?: string; reason?: string; device?: string; minted_device?: string }
+        // Audit only (auth-handoff.ts keeps the codes in its own side table, by hash).
+        const summary =
+          op === "auth.handoff.minted"
+            ? `sign-in hand-off ${q.handoff ?? "?"} minted${q.device ? ` for ${q.device}` : ""}`
+            : op === "auth.handoff.redeemed"
+              ? `sign-in hand-off ${q.handoff ?? "?"} redeemed${q.device ? ` by ${q.device}` : ""}`
+              : `sign-in hand-off ${q.stage ?? "?"} refused: ${q.reason ?? "?"}${q.device ? ` (${q.device})` : ""}`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary, detail: q } }, state.team.id, ctx, op)
       }
       case "sso.connection.secret_set":
       case "sso.connection.activated": {
