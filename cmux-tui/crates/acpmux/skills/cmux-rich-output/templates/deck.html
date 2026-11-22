@@ -5,23 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deck title</title>
 <style>
-/* Theme: change a --cmux-* or --deck-* value here, never a color inside a rule below. */
+/* Theme: change a --cmux-* or --deck-* value here, never a color inside a rule below.
+   The look follows Claude's launch slides: a warm flat canvas, ink text, one coral accent, a serif
+   headline, monospace labels, and no shadows or gradients. Put a brand font first in a stack. */
 :root {
   color-scheme: light dark;
-  --cmux-text: light-dark(#1d1d1f, #f2f2f4);
-  --cmux-muted: light-dark(#6e6e73, #a1a1a6);
-  --cmux-accent: light-dark(#0a64d8, #5aa2ff);
-  --cmux-border: light-dark(#d9d9de, #3a3a3e);
-  --cmux-control: light-dark(#ececf0, #2c2c30);
+  --cmux-text: light-dark(#141413, #f0eee6);
+  --cmux-muted: light-dark(#6b6a64, #a3a29b);
+  --cmux-accent: light-dark(#c15f3c, #d97757);
+  --cmux-border: light-dark(#dedcd1, #3d3c38);
+  --cmux-control: light-dark(#e8e6dc, #2b2a27);
   --cmux-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --cmux-mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --deck-page: light-dark(#f2f2f4, #111113);
-  --deck-slide: light-dark(#ffffff, #1c1c1e);
+  --deck-display: ui-serif, "New York", Georgia, "Times New Roman", serif;
+  --deck-page: light-dark(#e8e6dc, #0f0f0e);
+  --deck-slide: light-dark(#faf9f5, #1f1e1d);
+  --deck-mark: "";
   --deck-ahead: light-dark(#1a7f37, #3fb950);
   --deck-behind: light-dark(#c4320a, #ff7b5c);
   --deck-laser: #ff2d2d;
   --deck-title: 64px;
-  --deck-heading: 44px;
+  --deck-heading: 60px;
   --deck-body: 28px;
 }
 * { box-sizing: border-box; }
@@ -30,33 +34,55 @@ body { background: var(--deck-page); color: var(--cmux-text); font: var(--deck-b
 
 /* A slide is 1280 x 720 CSS pixels; the runtime scales it to fit. */
 :is(main.deck, .deck-thumb, .deck-next) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
-:is(main.deck, .deck-thumb, .deck-next) > section.title { justify-content: center; }
-:is(main.deck, .deck-thumb, .deck-next) > section.title h1 { font-size: 88px; }
+/* A title slide: a label at the top, the title large at the bottom. */
+:is(main.deck, .deck-thumb, .deck-next) > section.title { justify-content: space-between; padding-bottom: 88px; }
+:is(main.deck, .deck-thumb, .deck-next) > section.title h1 { font-size: 120px; margin-top: auto; }
 :is(main.deck, .deck-thumb, .deck-next) > section.center { justify-content: center; align-items: center; text-align: center; }
 section h1, section h2, section h3, section p, section ul, section ol, section blockquote, section pre, section figure { margin: 0; }
-section h1 { font-size: var(--deck-title); line-height: 1.1; letter-spacing: -0.02em; }
-section h2 { font-size: var(--deck-heading); line-height: 1.15; letter-spacing: -0.01em; }
-section h3 { font-size: 32px; color: var(--cmux-muted); font-weight: 500; }
+section h1, section h2, section blockquote { font-family: var(--deck-display); font-weight: 400; }
+section h1 { font-size: var(--deck-title); line-height: 1.05; letter-spacing: -0.025em; }
+section h2 { font-size: var(--deck-heading); line-height: 1.1; letter-spacing: -0.02em; }
+section h3 { font-size: 30px; color: var(--cmux-muted); font-weight: 400; }
 section ul, section ol { padding-left: 1.2em; display: grid; gap: 12px; }
 section li::marker { color: var(--cmux-accent); }
 section a { color: var(--cmux-accent); }
-section blockquote { border-left: 6px solid var(--cmux-accent); padding-left: 28px; font-size: 36px; }
+section blockquote { font-size: 56px; line-height: 1.15; letter-spacing: -0.02em; max-width: 22ch; }
 section pre, section code { font-family: var(--cmux-mono); font-size: 22px; }
 section pre { background: var(--cmux-control); border-radius: 12px; padding: 24px 28px; white-space: pre-wrap; }
 section img, section svg { max-width: 100%; max-height: 100%; object-fit: contain; }
 section .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; flex: 1; min-height: 0; align-items: start; }
 section .muted, section small { color: var(--cmux-muted); }
+/* A monospace label above or beside a headline ("Standup", a date, a speaker). */
+section .kicker { font: 24px/1.3 var(--cmux-mono); color: var(--cmux-muted); letter-spacing: 0; }
+/* A label column on the left, the content on the right. */
+section .split { display: grid; grid-template-columns: 300px 1fr; gap: 56px; flex: 1; min-height: 0; align-items: start; }
+/* A list drawn as a tree, in monospace: names, steps, files. */
+section ul.tree { list-style: none; padding-left: 28px; margin-top: 16px; gap: 8px; border-left: 2px solid var(--cmux-border); font: 24px/1.5 var(--cmux-mono); }
+section ul.tree > li { position: relative; }
+section ul.tree > li::before { content: ""; position: absolute; left: -28px; top: 0.75em; width: 18px; border-top: 2px solid var(--cmux-border); }
+section ul.tree .muted { margin-left: 0.6em; }
+/* The agent at work: a transcript, with a dot per step and a chip per edit. */
+section .transcript { display: grid; gap: 10px; align-content: start; padding: 28px 32px; border-radius: 12px; background: var(--cmux-control); font: 22px/1.45 var(--cmux-mono); }
+section .transcript > p { padding-left: 1.4em; text-indent: -1.4em; }
+section .transcript > .you { color: var(--cmux-muted); }
+section .transcript > .you::before { content: "> "; }
+section .transcript > .step::before { content: "\23FA  "; color: var(--cmux-accent); }
+section .chip { display: inline-block; padding: 2px 12px; border-radius: 999px; border: 2px solid var(--cmux-border); font: 20px/1.5 var(--cmux-mono); text-indent: 0; }
+section .chip ins { color: var(--deck-ahead); text-decoration: none; }
+section .chip del { color: var(--deck-behind); text-decoration: none; }
+/* An optional mark in each slide's corner: set --deck-mark to a short string, such as "cmux". */
+:is(main.deck, .deck-thumb, .deck-next) > section::after { content: var(--deck-mark); position: absolute; right: 48px; bottom: 36px; font: 18px var(--cmux-mono); color: var(--cmux-muted); }
 section aside.notes { display: none; }
 
 /* The viewer: a slide strip, the slide, and a bar. */
 body.deck-ready { display: grid; grid-template: "strip bar" auto "strip stage" 1fr "strip notes" auto / 212px 1fr; height: 100vh; overflow: hidden; }
 .deck-strip { grid-area: strip; overflow-x: hidden; overflow-y: auto; padding: 12px; border-right: 1px solid var(--cmux-border); display: grid; align-content: start; gap: 10px; counter-reset: thumb; }
-.deck-strip-label { margin: 6px 0 -2px 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--cmux-muted); }
+.deck-strip-label { margin: 6px 0 -2px 20px; font: 12px var(--cmux-mono); color: var(--cmux-muted); }
 .deck-thumb { all: unset; position: relative; width: 168px; height: 94.5px; margin-left: 20px; border-radius: 4px; outline: 1px solid var(--cmux-border); overflow: hidden; cursor: pointer; background: var(--deck-slide); counter-increment: thumb; }
 .deck-thumb::before { content: counter(thumb); position: absolute; left: -22px; top: 0; width: 16px; text-align: right; font-size: 11px; color: var(--cmux-muted); }
 .deck-thumb[aria-current="true"] { outline: 2px solid var(--cmux-accent); }
 .deck-thumb:focus-visible { outline: 2px solid var(--cmux-accent); outline-offset: 2px; }
-.deck-thumb > section { transform: scale(0.13125); transform-origin: 0 0; pointer-events: none; }
+.deck-thumb > section { position: relative; transform: scale(0.13125); transform-origin: 0 0; pointer-events: none; }
 .deck-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
 .deck-bar .deck-count { min-width: 64px; text-align: center; color: var(--cmux-muted); font-variant-numeric: tabular-nums; }
 .deck-bar .deck-status { margin-left: auto; color: var(--cmux-muted); }
@@ -65,7 +91,7 @@ body.deck-ready { display: grid; grid-template: "strip bar" auto "strip stage" 1
 .deck-bar button[aria-pressed="true"] { border-color: var(--cmux-accent); color: var(--cmux-accent); }
 .deck-bar .deck-only-presenter { display: none; }
 main.deck { grid-area: stage; position: relative; overflow: hidden; }
-body.deck-ready main.deck > section { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; display: none; box-shadow: 0 1px 3px rgb(0 0 0 / 0.18); }
+body.deck-ready main.deck > section { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; display: none; outline: 1px solid var(--cmux-border); }
 body.deck-ready main.deck > section[data-current] { display: flex; }
 .deck-notes { grid-area: notes; max-height: 22vh; overflow-y: auto; padding: 8px 16px 12px; font-size: 13px; color: var(--cmux-muted); border-top: 1px solid var(--cmux-border); white-space: pre-wrap; }
 .deck-notes:empty { display: none; }
@@ -85,7 +111,7 @@ html.deck-laser-on main.deck { cursor: none; }
 /* Present: the slide alone, full screen, letterboxed in black. */
 html.deck-presenting body { grid-template: "stage" 1fr / 1fr; background: #000; }
 html.deck-presenting .deck-strip, html.deck-presenting .deck-bar, html.deck-presenting .deck-notes { display: none; }
-html.deck-presenting main.deck > section { box-shadow: none; }
+html.deck-presenting main.deck > section { outline: none; }
 
 /* Presenter view: the current slide, the next one, the script and the pace, for the person speaking. */
 .deck-presenter { display: none; }
@@ -93,12 +119,12 @@ html.deck-presenter-view body { grid-template: "bar bar" auto "stage side" 1fr /
 html.deck-presenter-view .deck-strip, html.deck-presenter-view .deck-notes, html.deck-presenter-view .deck-only-viewer { display: none; }
 html.deck-presenter-view .deck-bar .deck-only-presenter { display: inline-block; }
 html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 4px 16px 16px; font-size: 14px; }
-.deck-next-label, .deck-script-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--cmux-muted); }
+.deck-next-label, .deck-script-label { font: 12px var(--cmux-mono); color: var(--cmux-muted); }
 .deck-next { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; outline: 1px solid var(--cmux-border); overflow: hidden; background: var(--deck-slide); flex: none; }
-.deck-next > section { transform-origin: 0 0; pointer-events: none; }
+.deck-next > section { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
 .deck-next-end { display: grid; place-items: center; height: 100%; color: var(--cmux-muted); }
 .deck-clock { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 14px; font-variant-numeric: tabular-nums; }
-.deck-elapsed { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; }
+.deck-elapsed { font: 400 36px var(--cmux-mono); letter-spacing: -0.02em; }
 .deck-pace { justify-self: end; font-size: 15px; font-weight: 600; color: var(--cmux-muted); }
 .deck-pace[data-pace="ahead"] { color: var(--deck-ahead); }
 .deck-pace[data-pace="behind"] { color: var(--deck-behind); }
@@ -106,13 +132,16 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
 .deck-budget { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--cmux-control); overflow: hidden; }
 .deck-budget > i { display: block; height: 100%; width: 0; background: var(--cmux-accent); }
 .deck-budget[data-over] > i { background: var(--deck-behind); }
-.deck-script { flex: 1; min-height: 0; overflow-y: auto; font-size: 20px; line-height: 1.5; color: var(--cmux-muted); }
+.deck-script { flex: 1; min-height: 0; overflow-y: auto; font: 21px/1.5 var(--deck-display); color: var(--cmux-muted); }
 .deck-script .deck-said { color: var(--cmux-text); }
 .deck-script .deck-now { color: var(--cmux-text); background: color-mix(in srgb, var(--cmux-accent) 18%, transparent); border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .deck-script:empty::before { content: "No script on this slide (add an aside.notes)."; font-size: 14px; }
 @media (max-width: 720px) {
-  html.deck-presenter-view body { grid-template: "bar" auto "stage" 42vh "side" 1fr / 1fr; }
+  html.deck-presenter-view body { grid-template: "bar" auto "stage" 42vh "side" minmax(0, 1fr) / minmax(0, 1fr); }
   html.deck-presenter-view .deck-bar { flex-wrap: wrap; }
+  html.deck-presenter-view .deck-presenter { overflow-y: auto; }
+  .deck-next { width: 50%; }
+  .deck-script { flex: none; overflow: visible; }
 }
 
 /* Export PDF: one slide per page, at full size, in the light theme. */
@@ -122,7 +151,7 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   html, body, body.deck-ready { display: block; height: auto; overflow: visible; background: #fff; }
   .deck-strip, .deck-bar, .deck-notes, .deck-presenter, .deck-laser, .deck-captions { display: none !important; }
   main.deck { overflow: visible; }
-  body.deck-ready main.deck > section, main.deck > section { display: flex !important; position: relative; left: 0; top: 0; transform: none !important; box-shadow: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  body.deck-ready main.deck > section, main.deck > section { display: flex !important; position: relative; left: 0; top: 0; transform: none !important; outline: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 </style>
 </head>
@@ -130,18 +159,24 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
 <main class="deck">
 
 <section class="title" data-seconds="20">
+  <p class="kicker">Standup / Monday</p>
   <h1>Deck title</h1>
   <h3>Subtitle, author or date</h3>
   <aside class="notes">Say this slide out loud from the aside.notes. The presenter view shows it as the script, and the pptx keeps it as speaker notes.</aside>
 </section>
 
 <section data-seconds="45">
-  <h2>One idea per slide</h2>
-  <ul>
-    <li>Three to five short lines</li>
-    <li>Big type: the slide is read from across a room</li>
-    <li>Details go in the notes, not on the slide</li>
-  </ul>
+  <div class="split">
+    <p class="kicker">How to write it</p>
+    <div>
+      <h2>One idea per slide</h2>
+      <ul class="tree">
+        <li>Three to five short lines</li>
+        <li>Big type<span class="muted">read from across a room</span></li>
+        <li>Details go in the notes</li>
+      </ul>
+    </div>
+  </div>
   <aside class="notes">One idea per slide keeps the room with you. Keep the lines short and the type large. Anything longer belongs in what you say, not on the slide.</aside>
 </section>
 
@@ -154,14 +189,26 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   <aside class="notes">Text on the left, a picture on the right. Draw a chart's bars as inline SVG so they follow the theme.</aside>
 </section>
 
+<section data-seconds="40">
+  <h2>Show the agent at work</h2>
+  <div class="transcript">
+    <p class="you">Make the chart on slide 3 show this week</p>
+    <p class="step">Read slides/standup.html</p>
+    <p class="step">Update(slides/standup.html) <span class="chip">Edited standup.html <ins>+4</ins> <del>-4</del></span></p>
+    <p class="step">The open deck reloaded on slide 3.</p>
+  </div>
+  <aside class="notes">Show what the agent did, step by step, the way a session shows it. Then switch to the deck: the edit is already on screen.</aside>
+</section>
+
 <section class="center" data-seconds="15">
   <blockquote>A quote or a single number, large, alone on its slide.</blockquote>
   <aside class="notes">Pause on this one. Let the number land before you move on.</aside>
 </section>
 
 <section class="appendix-start">
-  <h2>Appendix</h2>
-  <p class="muted">Numbers, links and method. The timed run ends before this slide; these stay one arrow key away for questions.</p>
+  <p class="kicker">Appendix</p>
+  <h2>Numbers, links and method</h2>
+  <p class="muted">The timed run ends before this slide; these stay one arrow key away for questions.</p>
 </section>
 
 </main>
@@ -243,19 +290,22 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   const scripts = slides.map((s) => deckLogic.sentences(s.querySelector("aside.notes")?.textContent));
 
   // State that outlives a reload of this tab (the file was rewritten): the mode, the timer, the
-  // laser and the captions. The slide itself is in the URL hash.
+  // laser and the captions. The slide itself is in the URL hash. Kept twice, in sessionStorage and
+  // in the history entry, because a file:// page's sessionStorage now and then reads empty on reload.
   const KEY = `cmux-deck:${location.pathname}`;
-  const saved = (() => { try { return JSON.parse(sessionStorage.getItem(KEY)) || {}; } catch { return {}; } })();
+  const saved = (() => { try { return JSON.parse(sessionStorage.getItem(KEY)) || history.state?.deck || {}; } catch { return history.state?.deck || {}; } })();
   const state = { mode: null, startedAt: null, enteredAt: null, laser: false, captions: false, sig: null, ...saved };
-  const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage off: state lasts this load only */ } };
+  const save = () => {
+    try { history.replaceState({ deck: state }, ""); } catch { /* history off */ }
+    try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage off: the history entry has it */ }
+  };
   const sig = deckLogic.signature(deck.innerHTML);
   const edited = state.sig && state.sig !== sig;
   state.sig = sig;
-  // ?presenter opens the presenter view; ?audience (the window it opens, which starts with a copy of
-  // this tab's sessionStorage) shows the slides alone.
+  // ?presenter opens the presenter view; ?audience (the window it opens) presents the slides alone.
   const query = new URLSearchParams(location.search);
   if (query.has("presenter")) state.mode = "presenter";
-  else if (query.has("audience") && state.mode === "presenter") state.mode = "present";
+  else if (query.has("audience") && !state.audience) Object.assign(state, { audience: true, mode: "present" });
 
   // Windows of the same deck (the presenter and the audience) follow each other's slide, laser and
   // captions, and a window that reloads onto a newer file tells the others to reload too.
@@ -335,7 +385,7 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     thumbs[current].scrollIntoView({ block: "nearest" });
     count.textContent = `${current + 1} / ${slides.length}`;
     notes.textContent = slides[current].querySelector("aside.notes")?.textContent.trim() ?? "";
-    history.replaceState(null, "", `${location.pathname}${location.search}#${current + 1}`);
+    history.replaceState({ deck: state }, "", `${location.pathname}${location.search}#${current + 1}`);
     // A reload lands on the slide it left, and keeps the time already spent on it.
     if (!(first && state.enteredAt)) state.enteredAt = Date.now();
     save();
@@ -484,7 +534,10 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   setLaser(state.laser);
   setCaptions(state.captions, true);
   send({ t: "hello", sig, born });
-  if (edited) status.textContent = `Deck updated ${new Date().toLocaleTimeString()}, still on slide ${current + 1}`;
+  if (edited) {
+    status.textContent = `Deck updated ${new Date().toLocaleTimeString()}`;
+    setTimeout(() => { status.textContent = ""; }, 8000);
+  }
   root.dataset.deckLoaded = String(born);
 
   // Export .pptx: each slide's text, lists and pictures become native, editable PowerPoint shapes, placed
@@ -534,7 +587,7 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
           const style = getComputedStyle(node);
           page.addText(node.innerText.trim(), {
             ...box(node), margin: 0, valign: "top", fit: "shrink",
-            fontSize: parseFloat(style.fontSize) * 0.75, fontFace: style.fontFamily.split(",")[0].replace(/["']/g, "").replace(/^-apple-system$|^system-ui$/, "Helvetica Neue"),
+            fontSize: parseFloat(style.fontSize) * 0.75, fontFace: style.fontFamily.split(",")[0].replace(/["']/g, "").replace(/^-apple-system$|^system-ui$/, "Helvetica Neue").replace(/^ui-serif$/, "Georgia").replace(/^ui-monospace$/, "Menlo"),
             color: hex(style.color) || "000000", bold: Number(style.fontWeight) >= 600, italic: style.fontStyle === "italic",
             align: { center: "center", right: "right", end: "right" }[style.textAlign] || "left",
             bullet: node.tagName === "LI" ? (node.parentElement.tagName === "OL" ? { type: "number" } : true) : false,

@@ -53,11 +53,23 @@ A deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (
 into the project (for example `slides/<topic>.html`), then change only the slides between
 `<main class="deck">` and `</main>`, the `<title>`, and if needed a `--cmux-*` or `--deck-*` value
 at the top of the `<style>`. Keep the `<script>` last and unchanged: it draws the slide strip, the
-arrow keys, Present (F, Esc exits), Export PDF and Export .pptx.
+arrow keys, Present, the presenter view, Export PDF and Export .pptx.
 
 - A slide is 1280 x 720 pixels. One idea per slide, about 40 words at most, text 24px or larger.
 - `<section class="title">` for a title slide, `class="center"` for a quote or one number,
-  `<div class="cols">` for two columns, `<aside class="notes">` for speaker notes.
+  `<div class="cols">` for two columns.
+- Each layer of a slide is its own element, never mixed into the visible text:
+  - what the audience sees: the slide's content;
+  - what to say: `<aside class="notes">`, sentences to read aloud (the script);
+  - the pace: `data-seconds="N"` on the `<section>`, the seconds this slide gets;
+  - the appendix: slides from `<section class="appendix-start">` on (numbers, links, method) are
+    outside the timed run but stay one arrow key away.
+- The look follows Claude's launch slides: a warm flat canvas, ink text, one coral accent, a serif
+  headline, monospace labels, no shadows or gradients. Building blocks: `<p class="kicker">` (a
+  monospace label), `<div class="split">` (a label column, then the content), `<ul class="tree">`
+  (a list drawn as a tree), `<div class="transcript">` with `<p class="you">` and `<p class="step">`
+  lines and `<span class="chip">Edited f.ts <ins>+9</ins> <del>-3</del></span>` (the agent at
+  work), and `--deck-mark` for a short mark in each slide's corner.
 - Pictures: inline `<svg>` (draw a chart's bars yourself; `currentColor` follows the theme), or an
   image file beside the deck. Export .pptx carries inline SVG and `data:` images; it leaves out an
   image file the browser will not read, and says so.
@@ -67,6 +79,34 @@ arrow keys, Present (F, Esc exits), Export PDF and Export .pptx.
   One slide per page, in the light theme.
 - Export .pptx is the person's click: it loads a PowerPoint writer (pptxgenjs, about 157 KB) from
   cdn.jsdelivr.net the first time and saves an editable deck: text stays text.
+
+### Present it in cmux
+
+- Present (F; Esc exits): the slide alone, full screen, or filling its pane when the pane cannot go
+  full screen.
+- Presenter view (S, or open the file with `?presenter`): the current slide, the next one, the
+  script with the sentence to say now marked, the time since it opened (T restarts it), and the pace
+  against the `data-seconds` budget: ahead, on pace or behind, and this slide's time of its budget.
+  Laser (L) draws a red pointer that follows the mouse over the slide. Captions (C) show the script
+  on the slide, one sentence at a time, spread over the slide's budget.
+- Audience window: opens the slides alone (`?audience`) in a second window or pane, for the screen
+  you share. It follows the presenter's slide, laser and captions. Two panes on the same file follow
+  each other the same way.
+- The slide is in the URL (`#3`), and the mode, timer, laser and captions survive a reload.
+
+### Edit it while it shows
+
+The open tab reloads when the file changes (`live`), onto the same slide and in the same mode, so
+change the deck while the person watches, with no export and no new `open`:
+
+- Edit the file in place: the tab reloads about 150 ms after the last write settles and shows the
+  change about 50 ms later (about 200 ms edit to visible in a headless Chromium run). Write the whole
+  file at once (write a temp file, then rename it over the deck) so no reload reads half a file.
+- A second window of the deck that cmux does not watch (the audience window) reloads too, about
+  30 ms after the watched one: each window tells the others when it has read a newer file.
+- The bar says "Deck updated" with the time, so the person sees the edit landed.
+- Rewriting a whole deck from a generator works the same way, if it keeps one `<section>` per slide:
+  the slide number in the URL stays put.
 
 ## Documents and PDF
 
