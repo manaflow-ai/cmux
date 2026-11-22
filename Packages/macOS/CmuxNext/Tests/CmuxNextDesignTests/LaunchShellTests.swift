@@ -42,6 +42,7 @@ struct LaunchShellTests {
         let stage0 = LaunchShellWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), title: "stage 0")
         let real = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
                             backing: .buffered, defer: false)
+        real.isReleasedWhenClosed = false // close() must not release what ARC releases too (signal 11)
         defer { stage0.close(); real.close() }
         let moved = try #require(LaunchShellReplay.event(try key("é", window: stage0), to: real))
         #expect(moved.windowNumber == real.windowNumber)
