@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 
@@ -96,7 +97,8 @@ def main() -> int:
             surface,
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
-            int(scale.rstrip("x") or 0),
+            # history scales sort by size ("1x" < "10x"); a named scale such as "ios" sorts after them
+            (0, int(scale[:-1]), "") if re.fullmatch(r"\d+x", scale) else (1, 0, scale),
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
