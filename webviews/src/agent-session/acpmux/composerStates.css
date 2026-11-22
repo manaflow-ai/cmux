@@ -112,23 +112,27 @@
 }
 
 /* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
-   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
+   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at the chrome glass
+   level's tint (design/glass-system.md; a private 60% before the one glass system) so the art shows
    through the window's tint (the New Tab box's fill; the chat card is clearer still, below), and the
    light rim above. The prompt is primary text, which the window's tint floor already keeps at 4.5:1
    over the art. Reduce Transparency keeps it solid. */
 :root[data-cmux-see-through] .acpmux-shell,
 :root[data-cmux-see-through] :where(.ui-positioner:has(> .nt-popover)) {
-  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
+  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-chrome-tint), transparent);
 }
 /* Over art the pane's quiet controls (the header's tools, the context ring, the composer's chips
    and pickers) draw three quarters of the way from the secondary ink to the primary one. The window
    tint floor keeps primary text at 4.5:1 over the art, but the secondary ink fell to 2.2:1 there
    (control-contrast audit: a header tool #aaaaaa on the busy picture's #786e12, the Mode chip
    #828282 on a light picture's #e3e9dc). The step keeps them quieter than the prompt. Reduce
-   Transparency draws an opaque window, where the secondary ink holds. */
+   Transparency draws an opaque window, where the secondary ink holds. New Tab's chips read
+   --acpmux-chip-ink, which .nt-composer resolved from the secondary ink above them, so it takes the
+   step here too (#aaaaaa on #126b53 read 2.78:1). */
 :root[data-cmux-see-through]:not([data-reduce-transparency])
   :is(.acpmux-header-tool, .acpmux-context-ring, .acpmux-picker-button, .acpmux-access-trigger) {
   --agent-muted: color-mix(in srgb, var(--agent-text) 75%, var(--cmux-text-secondary, var(--agent-text)));
+  --acpmux-chip-ink: var(--agent-muted);
 }
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
    cards otherwise change the wallpaper's tint at every seam. */
@@ -348,6 +352,15 @@
      on the pane, so it casts about half the floating glass's reach and dark. */
   :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-shadow: var(--glass-material-depth-composer);
+  }
+  /* Wallpaper lighting (glass.css WALLPAPER LIGHTING): a soft bloom of the picture's most colorful
+     color round the card, leaning toward the key light. An outer shadow, so it never covers the text,
+     and it moves only with the light field. */
+  :root[data-wallpaper-light]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-shadow:
+      var(--glass-material-depth-composer),
+      calc(14px * var(--wl-dx)) calc(10px * var(--wl-dy)) 56px 6px
+        color-mix(in srgb, var(--wl-bloom) calc(100% * var(--wl-bloom-alpha)), transparent);
   }
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
@@ -661,6 +674,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-shell-field::placeholder {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
+}
+/* Over a see-through window the field is clear glass over art or the desktop: the light placeholder
+   ink fell to 1.8:1 there (fleet capture of 6015e301, the Great Wave). It takes the secondary tier,
+   as pageBase.css lifts tertiary text there and as the native Chief composer holds 4.5:1
+   (test/composer-placeholder-see-through.test.ts). An opaque window keeps the light ink. */
+:root[data-cmux-see-through] :is(.acpmux-shell, .ui-positioner) {
+  --acpmux-composer-placeholder: var(--acpmux-composer-dim);
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
    composerLocation.css draws it around the strip's seam). Focus is the same hairline a step

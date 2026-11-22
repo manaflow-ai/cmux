@@ -55,7 +55,9 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
     public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
-    let list = CmuxSidebarView()
+    /// Made on first use, after `init` installs the host hooks (`HomeReduceMotion.install()`): the list sets its
+    /// controls' tooltips while it is made, so a list made before the hooks would draw AppKit's stock tooltip.
+    private(set) lazy var list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
@@ -469,6 +471,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         performWithTheme {
             let text = Palette.textPrimary
             searchCapsule.layer?.backgroundColor = nil
+            searchCapsule.glass.tintColor = Self.searchCapsuleTintInScope()
             searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
             searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
             field.textColor = text
@@ -481,6 +484,17 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                 editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
             }
         }
+    }
+
+    /// The search capsule's tint. Over a see-through Home fill the clear capsule showed the art under
+    /// its placeholder (2.05:1 on the Great Wave in dark); there it takes the fill every field takes
+    /// (the web composer's surface, `HomeThemePalette.composerSurfaceOverGlass`, the Chief field's
+    /// `composeFillOverGlass`). An opaque Home fill keeps the clear glass (nil).
+    static func searchCapsuleTintInScope() -> NSColor? { // theme-scoped
+        let fill = Palette.fill(for: .home, default: Palette.paneFill).usingColorSpace(.sRGB)
+        guard (fill?.alphaComponent ?? 1) < 1 else { return nil }
+        let surface = HomeThemePalette.composerSurfaceOverGlass(HomeThemePalette.baseThemeInScope())
+        return surface.nsColor
     }
 
     @objc func toggleUnread() { unreadOnly.toggle() }
