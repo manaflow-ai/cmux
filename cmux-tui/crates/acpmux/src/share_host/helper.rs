@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 /// The helper's executable inside its bundle.
 pub(crate) const EXECUTABLE: &str = "cmux-screen-sharing";
 /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-pub(crate) const BUNDLE_SUFFIX: &str = " Screen Sharing.app";
+pub(crate) const BUNDLE_SUFFIX: &str = cmux_signed_bundle::HELPER_BUNDLE_SUFFIX;
 /// cmux's signing team, the floor the join's install must carry.
 const TEAM: &str = "7WLXT3NR37";
 /// The apps whose helper a share runs, after the app holding this binary.
-const APPS: [&str; 2] = ["/Applications/cmux NIGHTLY.app", "/Applications/cmux.app"];
+const APPS: [&str; 2] = cmux_signed_bundle::INSTALLED_APPS;
 /// The join's folder under the acpmux home (`screen_share::DIR`) and its files.
 const JOIN_DIR: &str = "screen-sharing";
 const JOIN_HELPER_RECORD: &str = "helper.json";
@@ -97,25 +97,12 @@ impl Source {
 
 /// The helper bundles `app` carries in `Contents/Library`, sorted.
 pub(crate) fn helpers_in(app: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(app.join("Contents/Library")) else { return Vec::new() };
-    let mut found: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name().is_some_and(|n| n.to_string_lossy().ends_with(BUNDLE_SUFFIX))
-                && p.join("Contents/MacOS").join(EXECUTABLE).is_file()
-        })
-        .collect();
-    found.sort();
-    found
+    cmux_signed_bundle::helpers_in(app, EXECUTABLE)
 }
 
 /// The app bundle holding `executable` (`X.app/Contents/Resources/bin/acpmux` -> `X.app`).
 pub(crate) fn app_of(executable: &Path) -> Option<PathBuf> {
-    executable
-        .ancestors()
-        .find(|p| p.extension().is_some_and(|e| e == "app"))
-        .map(Path::to_path_buf)
+    cmux_signed_bundle::app_of(executable)
 }
 
 /// Every helper a share may run, in order: `env`, `join`, then the helpers of `apps`.
