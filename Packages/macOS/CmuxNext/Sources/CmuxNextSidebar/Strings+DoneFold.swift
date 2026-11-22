@@ -7,7 +7,7 @@ extension Strings {
     }
     /// Sessions no person started (`sidebar.showAutomaticSessions` off).
     static func automaticFold(_ count: Int) -> String {
-        String(localized: "sidebar.automaticFold.title", defaultValue: "Automatic (\(count))", bundle: .module)
+        String(localized: "sidebar.automaticFold.title", defaultValue: "Automatic (\(count))", bundle: .localizedModule)
     }
 
     /// Seen, finished agent chats (`sidebar.settleFinished`).
