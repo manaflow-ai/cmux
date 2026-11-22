@@ -110,16 +110,16 @@ fn without_mac_the_command_is_for_this_mac() {
 #[test]
 fn a_mac_naming_this_one_takes_the_local_path() {
     let machines = vec![
-        json!({"device_id": "D-THIS", "name": "cmux24", "machine_id": "m-this-1", "this": true}),
+        json!({"device_id": "D-THIS", "name": "Mini", "machine_id": "m-this-1", "this": true}),
         json!({"device_id": "D-OTHER", "name": "Studio", "machine_id": "m-other", "this": false}),
     ];
-    for name in ["cmux24", "CMUX24", "d-this", "m-this"] {
+    for name in ["Mini", "MINI", "d-this", "m-this"] {
         assert!(names_this_mac(&machines, name), "{name}");
     }
     for name in ["Studio", "D-OTHER", "", "m-other"] {
         assert!(!names_this_mac(&machines, name), "{name}");
     }
-    assert!(!names_this_mac(&[], "cmux24"));
+    assert!(!names_this_mac(&[], "Mini"));
 }
 
 #[test]

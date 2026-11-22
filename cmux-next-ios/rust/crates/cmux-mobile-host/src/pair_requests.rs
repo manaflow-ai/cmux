@@ -193,8 +193,8 @@ pub fn handle(pairing: Option<&Pairing>, asker: &Asker<'_>, args: &Value) -> Res
 /// hostd's local link socket (`link_socket.rs`, `{"op":"pair-requests"}`), never over a link.
 /// That socket is owner-only (`0600` in the daemon's `0700` folder) and checks the caller's
 /// uid, so the asker is the OS user the app's own Allow button serves, on this Mac: the
-/// same trust as that click (Leo, 2026-11-22: "one Allow on cmux24 that no tool is allowed to
-/// click"). It asks as this Mac's own device id, so every refusal of [`handle`] still holds,
+/// same trust as that click (Leo, 2026-11-22: "surely we dont need to be bottled this hard by
+/// a click. and esp on a single machine"). It asks as this Mac's own device id, so every refusal of [`handle`] still holds,
 /// "a device cannot answer its own pairing request" included. Returns the service's answer,
 /// or `{"error":CODE,"message":REASON}`.
 pub fn answer_locally(pairing: Option<&Pairing>, args: &Value) -> Value {
