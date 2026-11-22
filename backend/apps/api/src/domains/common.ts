@@ -99,6 +99,41 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  // Sign-in hand-off to another device of the same person (auth-handoff.ts): audit only, on the person's
+  // personal team. `handoff` is a prefix of the code's hash, never the code.
+  ...(["auth.handoff.minted", "auth.handoff.redeemed", "auth.handoff.refused"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-own",
+          target: "team",
+          principals: ["system"],
+          params: Schema.Struct({
+            handoff: Schema.optionalKey(Schema.String),
+            stage: Schema.optionalKey(Schema.Literals(["mint", "redeem"])),
+            reason: Schema.optionalKey(Schema.String),
+            device: Schema.optionalKey(Schema.String),
+            minted_device: Schema.optionalKey(Schema.String),
+            session: Schema.optionalKey(Schema.String),
+            expires_at: Schema.optionalKey(Schema.Number)
+          }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "auth.handoff.minted"
+              ? "Internal: the person's signed-in app minted a one-time sign-in hand-off code for another device."
+              : name === "auth.handoff.redeemed"
+                ? "Internal: a device redeemed a sign-in hand-off code and got a new session."
+                : "Internal: a sign-in hand-off mint or redeem was refused.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   [
     "domain.rechecked",
     {

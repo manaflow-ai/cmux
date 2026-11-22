@@ -49,6 +49,10 @@ pub struct Context<'a> {
     /// The binary the session service copies into place; `None`: this
     /// process's own executable.
     pub self_exe: Option<std::path::PathBuf>,
+    /// The daemon socket of the cmux terminal this command runs in
+    /// (`CMUX_TUI_SOCKET`, with `CMUX_TUI_TERMINAL_ID` set): uninstall ends
+    /// that daemon's session's terminals, so it refuses to run in one.
+    pub terminal_socket: Option<std::path::PathBuf>,
 }
 
 impl Context<'_> {
@@ -93,6 +97,11 @@ pub fn run_code(args: &[String], guard: Option<String>, running_cmux: &str) -> u
         env: host::layout_env(),
         now_ms: host::now_ms(),
         self_exe: None,
+        terminal_socket: std::env::var_os("CMUX_TUI_TERMINAL_ID")
+            .filter(|id| !id.is_empty())
+            .and_then(|_| std::env::var_os("CMUX_TUI_SOCKET"))
+            .filter(|socket| !socket.is_empty())
+            .map(Into::into),
     };
     run_with_code(&ctx, args)
 }
