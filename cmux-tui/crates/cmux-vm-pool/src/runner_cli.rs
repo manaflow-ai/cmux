@@ -389,7 +389,9 @@ async fn new_until_done(
             args.timeout_s,
         )
         .await;
-        report["wait"] = wait;
+        if let Some(map) = report.as_object_mut() {
+            map.insert("wait".to_owned(), wait);
+        }
         code = c;
     }
     if args.json {
@@ -398,7 +400,7 @@ async fn new_until_done(
         let _ = writeln!(
             out,
             "vm {}{}",
-            report["vm_id"].as_str().unwrap_or(""),
+            report.get("vm_id").and_then(Value::as_str).unwrap_or(""),
             if prepared.reused { " (resumed)" } else { " (new)" }
         );
         let _ = writeln!(out, "runner {} labels {}", prepared.name, args.labels.join(","));
@@ -451,8 +453,8 @@ async fn wait_for_job(
         match jit.runner(fleet.client, runner_id).await {
             Ok(None) => break if seen_online || busy { "done" } else { "runner_offline" },
             Ok(Some(r)) => {
-                let online = r["status"] == "online";
-                let now_busy = r["busy"].as_bool().unwrap_or(false);
+                let online = r.get("status").and_then(Value::as_str) == Some("online");
+                let now_busy = r.get("busy").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(news) = wait_news(seen_online, busy, online, now_busy) {
                     say(&format!("{name}: {news} after {}s", started.elapsed().as_secs()));
                     last_said = Instant::now();
@@ -535,7 +537,7 @@ async fn park_vm(fleet: &Fleet<'_>, vm: &str) -> bool {
             .get(fleet.client, vm)
             .await
             .ok()
-            .and_then(|v| v["state"].as_str().map(str::to_owned));
+            .and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_owned));
         match state.as_deref() {
             Some("stopped" | "paused") => return true,
             Some("running") if i == 3 => {

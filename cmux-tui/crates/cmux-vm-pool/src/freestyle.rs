@@ -24,8 +24,8 @@ const LONG_CALL: Duration = Duration::from_secs(120);
 pub fn exec_body(command: &str, stdin: Option<&[u8]>, timeout_ms: u64) -> Value {
     let mut body =
         serde_json::json!({"command": command, "linuxUser": "root", "timeoutMs": timeout_ms});
-    if let Some(stdin) = stdin {
-        body["stdin"] = Value::String(base64(stdin));
+    if let (Some(stdin), Some(map)) = (stdin, body.as_object_mut()) {
+        map.insert("stdin".to_owned(), Value::String(base64(stdin)));
     }
     body
 }
@@ -39,7 +39,9 @@ pub fn base64(bytes: &[u8]) -> String {
             chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
         for i in 0..4 {
             if i <= chunk.len() {
-                out.push(char::from(ABC[((n >> (18 - 6 * i)) & 63) as usize]));
+                out.push(
+                    ABC.get(((n >> (18 - 6 * i)) & 63) as usize).map_or('=', |c| char::from(*c)),
+                );
             } else {
                 out.push('=');
             }
