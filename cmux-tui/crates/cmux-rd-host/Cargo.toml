@@ -56,6 +56,8 @@ pipewire = { version = "0.10", optional = true }
 # cmux Computer Use's engine: the helper hosts its macOS worker and gives it ScreenCaptureKit
 # screenshots (src/mac/cu_host.rs). Behind the `computer-use` feature.
 cmux-computer-use = { path = "../cmux-computer-use", features = ["desktop", "server"], optional = true }
+# The Computer Use worker child src/mac/cu_host.rs spawns (inherits no stray descriptor).
+cmux-process = { path = "../cmux-process" }
 
 [target.'cfg(windows)'.dependencies]
 # `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
