@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45052862144",
+  "recorded_at": "2026-11-22T18:12:12Z",
+  "reason": "image inputs changed in 371616a9a32a5a4f6245e56a48d19d3060e0cc22..92583316a8a14451ace0ec9b25b0fd3c00f316bc",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "92583316a8a14451ace0ec9b25b0fd3c00f316bc",
+      "mergedAt": "2026-11-22T18:03:11+00:00",
+      "subject": "cmux-vm image: record the base snapshot's new package fingerprint (#50608)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-22T18:12:12Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
