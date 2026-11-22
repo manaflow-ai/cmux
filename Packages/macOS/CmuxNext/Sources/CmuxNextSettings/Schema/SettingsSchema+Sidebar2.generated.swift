@@ -277,6 +277,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "style", "rail", "thin", "narrow", "minimal", "strip", "hide", "hover", "overlay", "auto hide"]
             ),
             SettingDescriptor(
+                SidebarDrawnMenusSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.drawnMenus", "Styled Sidebar Menus"),
+                help: SettingsText.keyed("settings.sidebar.drawnMenus.help", "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu."),
+                kind: .toggle,
+                default: .bool(SidebarDrawnMenusSetting.fallback),
+                keywords: ["menu", "context menu", "right click", "look", "style"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.densityPath,
                 section: .appearance,
                 group: group,
@@ -366,16 +376,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(WorkspaceColorsSetting.indicatorStyleDefault.rawValue),
                 keywords: ["sidebar", "workspace", "color", "colour", "tint", "fill", "row", "background", "rail", "bar", "dot", "highlight", "indicator", "review", "ready"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.showLocalMachinePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
-                help: SettingsText.keyed("settings.sidebar.showLocalMachine.help", "With more than one computer, this Mac's workspaces show its icon too."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
-                keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
             ),
         ]
     }

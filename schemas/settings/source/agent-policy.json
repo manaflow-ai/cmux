@@ -93,6 +93,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
