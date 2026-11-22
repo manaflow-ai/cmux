@@ -901,7 +901,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 return size
             }
-            func attachParams(_ size: (columns: Int, rows: Int)?, _ historyRows: Int?, _ windowStart: Int?, hybridResumable: Bool) -> [String: Any] {
+            func attachParams(_ size: (columns: Int, rows: Int)?, _ historyRows: Int?, _ windowStart: Int?, hybridResumable: Bool) -> sending [String: Any] {
                 var params: [String: Any] = ["surface": surface]
                 if pipelined, let terminalID { params["terminal_id"] = terminalID }
                 // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
