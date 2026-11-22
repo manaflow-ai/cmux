@@ -85,6 +85,13 @@ public struct LinkMachine: Sendable {
         /// The dial of `generation` failed because the account's session was
         /// revoked (``Phase/signedOut``).
         case signedOut(generation: Int)
+        /// The link kept beside a redial (``LinkMachine/standby``) answered a
+        /// probe: its path is back, so it is the link again and the redial
+        /// is dropped. Its channels never closed.
+        case standbyAlive(generation: Int, path: LinkPathKind, rttMillis: UInt32?)
+        /// The standby link closed, or stayed silent past
+        /// ``LinkController/standbyLimit``.
+        case standbyLost(generation: Int)
     }
 
     public enum Effect: Equatable, Sendable {
@@ -96,6 +103,16 @@ public struct LinkMachine: Sendable {
         case probe(generation: Int)
         /// Ping the live link with a short timeout (presence changed under it).
         case quickProbe(generation: Int)
+        /// Keep the live link (and every channel on it) as the standby
+        /// instead of closing it; a dial follows. Make before break: a
+        /// blackout (an elevator, a dead NAT mapping) that ends before the
+        /// new dial lands resumes on the old link with nothing re-attached.
+        case keepStandby
+        /// The standby link is the link again, under `generation`: watch and
+        /// probe it, cancel the redial. Nothing is re-attached.
+        case promoteStandby(generation: Int)
+        /// Close the standby link (the redial won, or it died).
+        case closeStandby
     }
 
     public private(set) var phase: Phase = .idle
@@ -106,6 +123,9 @@ public struct LinkMachine: Sendable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over TLS.
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
+    /// The generation of a link kept beside a redial after its probe failed
+    /// (``Effect/keepStandby``); nil when there is none.
+    public private(set) var standby: Int?
     public private(set) var isBackgrounded = false
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
@@ -113,6 +133,9 @@ public struct LinkMachine: Sendable {
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// Failed dials retried at once, before any failure shows.
     public static let silentRetries = 1
+    /// Whether an unanswered probe keeps the link beside the redial
+    /// (``Effect/keepStandby``). Off only in tests that measure the old way.
+    public var keepsStandby = true
 
     public init(transport: TransportKind, relayOnly: Bool = false, blockUDP: Bool = false) {
         self.transport = transport
@@ -178,7 +201,22 @@ public struct LinkMachine: Sendable {
         case .dialSucceeded(let gen, let path):
             guard gen == generation, case .connecting = phase else { return [] }
             phase = .connected(transport, path, rttMillis: nil)
-            return []
+            // The new link is up: the old one beside it has nothing left to do.
+            return dropStandby()
+        case .standbyAlive(let gen, let path, let rtt):
+            guard gen == standby else { return [] }
+            standby = nil
+            switch phase {
+            case .connecting, .waiting:
+                generation += 1
+                phase = .connected(transport, path, rttMillis: rtt)
+                return [.promoteStandby(generation: generation)]
+            default:
+                return [.closeStandby]
+            }
+        case .standbyLost(let gen):
+            guard gen == standby else { return [] }
+            return dropStandby()
         case .dialFailed(let gen, let reason):
             guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
             // Presence said offline and a dial (``Event/open``) confirmed it:
@@ -206,6 +244,17 @@ public struct LinkMachine: Sendable {
             guard gen == generation, case .connected = phase else { return [] }
             // The Mac is offline: nothing to dial until presence brings it back.
             if target?.isOnline == false { return reset(to: .macOffline) }
+            // A probe went unanswered on a link that has not closed: the path
+            // may only be dark for a while (an elevator, a cell handover, a
+            // NAT mapping that died). Keep it beside the redial and keep
+            // probing it; whichever answers first carries on. In the
+            // background iOS may suspend the process under it, so it closes.
+            if case .probeFailed = event, keepsStandby, !isBackgrounded {
+                let kept = generation
+                let effects = dropStandby() + [.keepStandby] + dial(attempt: 1, closing: false)
+                standby = kept
+                return effects
+            }
             // Redial at once; a failure then takes the usual retry path.
             return [.close] + dial(attempt: 1, closing: false)
         case .macSignaled:
@@ -260,7 +309,15 @@ public struct LinkMachine: Sendable {
         generation += 1
         media = .off
         phase = next
+        standby = nil
         return wasActive ? [.close] : []
+    }
+
+    /// Forget the standby link; the effect that closes it, if there was one.
+    private mutating func dropStandby() -> [Effect] {
+        guard standby != nil else { return [] }
+        standby = nil
+        return [.closeStandby]
     }
 
     private mutating func dial(attempt: Int, closing: Bool) -> [Effect] {
@@ -270,6 +327,8 @@ public struct LinkMachine: Sendable {
         media = .off
         phase = .connecting(transport, attempt: attempt)
         let effects: [Effect] = [.dial(generation: generation, macID: target.macID, transport: transport)]
+        // `.close` closes the standby link too.
+        if closing && wasActive { standby = nil }
         return closing && wasActive ? [.close] + effects : effects
     }
 
