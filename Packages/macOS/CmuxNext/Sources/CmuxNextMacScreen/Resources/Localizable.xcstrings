@@ -18734,6 +18734,661 @@
         }
       }
     },
+    "macScreen.customize.bitrate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حد معدل البت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ograničenje brzine prijenosa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maks. bithastighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bitratenlimit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitrate Cap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Límite de tasa de bits"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Débit maximal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite bitrate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ビットレート上限"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដែនកំណត់អត្រាប៊ីត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비트레이트 상한"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maks. bitrate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limit przepływności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite de taxa de bits"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ограничение битрейта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขีดจำกัดบิตเรต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bit Hızı Sınırı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обмеження бітрейту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giới hạn tốc độ bit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "码率上限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "位元率上限"
+          }
+        }
+      }
+    },
+    "macScreen.customize.bitrateAuto": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "macScreen.customize.bitrateMbps": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d ميغابت/ث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mb/s"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbit/s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbit/s"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d Mbps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbit/s"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbit/s"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mb/s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Мбит/с"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Мбіт/с"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%d Mbps"
+          }
+        }
+      }
+    },
+    "macScreen.customize.showCursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار المؤشر في البث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži kursor u prijenosu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis markør i streamen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeiger im Stream zeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cursor in Stream"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar el puntero en la transmisión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le pointeur dans le flux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra il puntatore nello stream"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ストリームにカーソルを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញទស្សន៍ទ្រនិចក្នុងស្ទ្រីម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스트림에 커서 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis pekeren i strømmen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż kursor w strumieniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar cursor na transmissão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать курсор в трансляции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงเคอร์เซอร์ในสตรีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yayında İmleci Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати курсор у трансляції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện con trỏ trong luồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在画面中显示光标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在畫面中顯示游標"
+          }
+        }
+      }
+    },
+    "macScreen.customize.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anpassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរតាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂"
+          }
+        }
+      }
+    },
     "macScreen.full.asleepBody": {
       "extractionState": "manual",
       "localizations": {
@@ -34201,6 +34856,18 @@
             "value": "شغّل وكيل مشاركة جهاز Mac هذا."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent slog Del denne Mac til."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -34225,16 +34892,76 @@
             "value": "Un agent a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "エージェントが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារមួយបានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "에이전트가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent włączył Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um agente ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент включил «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์เปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tác tử đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34258,6 +34985,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّلت واجهة أوامر cmux مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-CLI’en slog Del denne Mac til."
           }
         },
         "de": {
@@ -34284,16 +35023,76 @@
             "value": "La CLI cmux a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La CLI di cmux ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux CLIが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI បានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux CLI가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-CLI-en slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A CLI do cmux ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux включил «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI เปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI, Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34317,6 +35116,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّل أحد أجهزتك مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan od vaših uređaja je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En af dine enheder slog Del denne Mac til."
           }
         },
         "de": {
@@ -34343,16 +35154,76 @@
             "value": "Un de vos appareils a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno dei tuoi dispositivi ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "お使いのデバイスの1台が「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍មួយរបស់អ្នកបានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "내 기기 중 하나가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En av enhetene dine slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedno z twoich urządzeń włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um dos seus dispositivos ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одно из ваших устройств включило «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์เครื่องหนึ่งของคุณเปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cihazlarınızdan biri Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один із ваших пристроїв увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thiết bị của bạn đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34376,6 +35247,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّل أمر في طرفية مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naredba u terminalu je uključila Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kommando i en terminal slog Del denne Mac til."
           }
         },
         "de": {
@@ -34402,16 +35285,76 @@
             "value": "Une commande dans un terminal a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un comando in un terminale ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルのコマンドが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាមួយក្នុងទែមីណាល់បានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "터미널의 명령이 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kommando i en terminal slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenie w terminalu włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um comando em um terminal ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команда в терминале включила «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งในเทอร์มินัลเปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir terminaldeki komut Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команда в терміналі увімкнула «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một lệnh trong terminal đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -42285,6 +43228,792 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇窗格或分頁以開啟螢幕共享。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noScreen.noDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنه خادم أو جهاز افتراضي بلا سطح مكتب لمشاركته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "to je server ili VM bez radne površine za dijeljenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det er en server eller VM uden skrivebord at dele"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es ist ein Server oder eine VM ohne Desktop zum Teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it is a server or VM with no desktop to share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es un servidor o una VM sin escritorio que compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "c’est un serveur ou une VM sans bureau à partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "è un server o una VM senza desktop da condividere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有できるデスクトップのないサーバーまたは VM です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាជាម៉ាស៊ីនមេ ឬ VM ដែលគ្មានផ្ទៃតុសម្រាប់ចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공유할 데스크톱이 없는 서버 또는 VM입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det er en server eller VM uten skrivebord å dele"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "to serwer lub maszyna wirtualna bez pulpitu do udostępnienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "é um servidor ou VM sem área de trabalho para compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "это сервер или ВМ без рабочего стола для показа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เป็นเซิร์ฟเวอร์หรือ VM ที่ไม่มีเดสก์ท็อปให้แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "paylaşılacak masaüstü olmayan bir sunucu veya VM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "це сервер або ВМ без робочого столу для показу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đây là máy chủ hoặc VM không có màn hình nền để chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它是没有桌面可共享的服务器或虚拟机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它是沒有桌面可共享的伺服器或虛擬機"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noScreen.notRegistered": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تدرجه مشاركة الشاشة بعد؛ سجّل الدخول إلى cmux عليه وفعّل Allow Mac Screen"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenje ekrana ga još ne navodi; prijavite se u cmux na njemu i uključite Allow Mac Screen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmdeling viser den ikke endnu; log ind i cmux på den, og slå Allow Mac Screen til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfreigabe listet es noch nicht; melde dich dort bei cmux an und schalte Allow Mac Screen ein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartir pantalla aún no lo muestra; inicia sesión en cmux en él y activa Allow Mac Screen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le partage d’écran ne le liste pas encore ; connectez-vous à cmux dessus et activez Allow Mac Screen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Condivisione schermo non lo elenca ancora; accedi a cmux su di esso e attiva Allow Mac Screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画面共有にはまだ表示されていません。そのデバイスで cmux にサインインし、Allow Mac Screen をオンにしてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកអេក្រង់មិនទាន់បង្ហាញវានៅឡើយ ចូល cmux នៅលើវា ហើយបើក Allow Mac Screen"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 공유에 아직 표시되지 않습니다. 해당 기기에서 cmux에 로그인하고 Allow Mac Screen을 켜세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermdeling viser den ikke ennå; logg på cmux på den og slå på Allow Mac Screen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępnianie ekranu jeszcze go nie wyświetla; zaloguj się na nim do cmux i włącz Allow Mac Screen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Compartilhamento de Tela ainda não o lista; entre no cmux nele e ative Allow Mac Screen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Общий экран его пока не показывает; войдите в cmux на нём и включите Allow Mac Screen"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์หน้าจอยังไม่แสดงเครื่องนี้ ลงชื่อเข้า cmux บนเครื่องนั้นแล้วเปิด Allow Mac Screen"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Paylaşımı onu henüz listelemiyor; orada cmux'a giriş yapın ve Allow Mac Screen'i açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спільний екран його ще не показує; увійдіть у cmux на ньому та ввімкніть Allow Mac Screen"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ màn hình chưa liệt kê thiết bị này; hãy đăng nhập cmux trên đó và bật Allow Mac Screen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "屏幕共享尚未列出它；请在它上面登录 cmux 并打开 Allow Mac Screen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕共享尚未列出它；請在它上面登入 cmux 並開啟 Allow Mac Screen"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noScreen.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنه غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nije na mreži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den er offline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es ist offline"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it is offline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "está desconectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il est hors ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "è offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフラインです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានៅក្រៅបណ្តាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오프라인 상태입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den er frakoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "jest offline"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "está offline"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "он не в сети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องออฟไลน์อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "çevrimdışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "він не в мережі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "thiết bị đang ngoại tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它处于离线状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它處於離線狀態"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noScreen.phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لجهاز iPhone أو iPad مشاركة شاشته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone ili iPad ne može dijeliti svoj ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en iPhone eller iPad kan ikke dele sin skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ein iPhone oder iPad kann seinen Bildschirm nicht teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an iPhone or iPad cannot share its screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un iPhone o iPad no puede compartir su pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un iPhone ou un iPad ne peut pas partager son écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un iPhone o iPad non può condividere lo schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone や iPad は画面を共有できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone ឬ iPad មិនអាចចែករំលែកអេក្រង់របស់វាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 또는 iPad는 화면을 공유할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en iPhone eller iPad kan ikke dele skjermen sin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone ani iPad nie może udostępnić ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "um iPhone ou iPad não pode compartilhar a tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone или iPad не может показывать свой экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone หรือ iPad แชร์หน้าจอไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone veya iPad ekranını paylaşamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone або iPad не може показувати свій екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone hoặc iPad không thể chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 或 iPad 无法共享屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 或 iPad 無法共享螢幕"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noScreen.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع cmux معرفة ما إذا كان لديه سطح مكتب لمشاركته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne može utvrditi ima li radnu površinu za dijeljenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke se, om den har et skrivebord at dele"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kann nicht erkennen, ob es einen Desktop zum Teilen hat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot tell whether it has a desktop to share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no puede saber si tiene un escritorio que compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne peut pas savoir s’il a un bureau à partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non può sapere se ha un desktop da condividere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有できるデスクトップがあるかどうか cmux には判断できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចដឹងថាវាមានផ្ទៃតុសម្រាប់ចែករំលែកឬអត់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 공유할 데스크톱이 있는지 알 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke se om den har et skrivebord å dele"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie może ustalić, czy ma pulpit do udostępnienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o cmux não consegue saber se há uma área de trabalho para compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не может определить, есть ли у него рабочий стол для показа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บอกไม่ได้ว่ามีเดสก์ท็อปให้แชร์หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux paylaşılacak bir masaüstü olup olmadığını anlayamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не може визначити, чи є в нього робочий стіл для показу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không xác định được thiết bị có màn hình nền để chia sẻ hay không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法判断它是否有可共享的桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法判斷它是否有可共享的桌面"
+          }
+        }
+      }
+    },
+    "macScreen.actions.offersNoScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتيح %1$@ أي شاشة: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ne nudi ekran: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ tilbyder ingen skærm: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ bietet keinen Bildschirm: %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offers no screen: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no ofrece ninguna pantalla: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ne propose aucun écran : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non offre alcuno schermo: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ には共有できる画面がありません：%2$@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនផ្តល់អេក្រង់ទេ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@에는 공유할 화면이 없습니다: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ tilbyr ingen skjerm: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie udostępnia ekranu: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não oferece nenhuma tela: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не предоставляет экран: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่มีหน้าจอให้ดู: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ekran sunmuyor: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не надає екрана: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ không có màn hình để xem: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 没有可共享的屏幕：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 沒有可共享的螢幕：%2$@。"
           }
         }
       }

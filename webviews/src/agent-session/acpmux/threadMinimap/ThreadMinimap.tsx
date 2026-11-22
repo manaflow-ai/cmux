@@ -43,7 +43,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
-import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
+import { setRailShow, useRailControl, useRailShow, useThreadMinimapArm } from "../chatDisplay";
 import { RAIL_SHOWS, type RailShow } from "./railShow";
 import { threadMinimapReplies } from "./replies.experiment";
 import { RailShowControl } from "./RailShowControl";
@@ -54,6 +54,10 @@ import {
   LANDING_OFFSET,
   MIN_PROMPTS,
   minimapTurns,
+  keepsIndexed,
+  railEntries,
+  sameEntries,
+  railShowsOffered,
   railFade,
   railFadeReach,
   railFades,
@@ -80,10 +84,6 @@ import {
   type RowsChange,
   WAVE_SHAPES,
   replyMore,
-  keepsIndexed,
-  railEntries,
-  sameEntries,
-  railShowsOffered,
   type RowTops,
 } from "./model";
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
