@@ -679,6 +679,14 @@ has a 45-minute limit: a step past its limit fails the job, so a slow re-pin
 build shows red with the step named, never `cancelled`. Other runs keep the job
 limit (the step's 360 is never reached).
 
+Other runs get 30, not 20. An owned mini holds one seed root per mini, so most fast-tier jobs take a shared
+root, and a shared root often starts cold ("evicted", "roots busy"). A cold CmuxNext build-tests build is about
+20 minutes of compiling, and the tests follow. Between 03:00 and 05:00Z on 2026-11-22, 18 of the job's 20
+cancels stopped at the 20-minute limit (20.3 to 20.6 min). They were 4,100 runner-min/day, against a success
+p50 of 6.4 min. Every log that was read showed a cold start and was 99% through compiling at the limit (job
+137081242103: step 14646 of 14698). The cancelled runs were then re-run (attempts 2 to 5), each one cold
+again, so none of them gave a verdict. With 30, a cold run finishes once and reports pass or fail.
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.
