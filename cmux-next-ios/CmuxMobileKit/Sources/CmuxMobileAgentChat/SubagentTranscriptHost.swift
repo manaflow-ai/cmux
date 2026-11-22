@@ -89,7 +89,10 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
             return
         }
         guard !scrollView.isDecelerating else { return }
-        if follow.changed(atEnd: onEnd, grew: grew, scrolling: false, running: running()) || (follows && !onEnd) {
+        // At rest the reader's place decides whether the end is followed; while it is, the end is
+        // kept exactly (rows measured after the first layout grow the content below it).
+        _ = follow.changed(atEnd: onEnd, grew: grew, scrolling: false, running: running())
+        if follows, abs(scrollView.contentOffset.y - bottomOffset) > 0.5 {
             scrollView.contentOffset.y = bottomOffset
         }
         if let probe, follows {
