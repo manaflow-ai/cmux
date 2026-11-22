@@ -77,7 +77,8 @@ export function QuickModelMenu({
   onOpenChange(open: boolean): void;
   /// Holds the chip (the menu's button), where the full picker anchors.
   trigger: React.RefObject<HTMLButtonElement | null>;
-  chip: { "data-menu": string; label: string; title: string };
+  /// `data-tooltip-shortcut`: Switch Model's keycaps, shown after the title (shortcuts.ts).
+  chip: { "data-menu": string; label: string; title: string; "data-tooltip-shortcut"?: string | undefined };
   menu: QuickMenu;
   /// Opens the full picker, searching for `query` when one was typed.
   onMore(query?: string): void;
@@ -1148,9 +1149,10 @@ export function QuickModelMenu({
                       // While a search shows, no tab is the list's: the matches are every harness's.
                       aria-pressed={!query && entry === shownTab}
                       data-used={ownTab ? used : undefined}
-                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                      // name's initial), never a machine or session initial; its accessible name and
-                      // title identify the harness and whether this chat ran it.
+                      // The rail tab draws only the harness's mark (its symbol, else its name's initial),
+                      // never a machine or session initial; its accessible name and title identify the
+                      // harness and whether this chat ran it.
+                      // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
                       className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.

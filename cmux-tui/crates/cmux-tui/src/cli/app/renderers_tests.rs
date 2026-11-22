@@ -116,3 +116,35 @@ fn renderer_rows_of_an_empty_report_are_empty() {
     assert_eq!(out["renderers"], json!([]));
     assert_eq!(out["unmatched_pages"], json!([]));
 }
+
+#[test]
+fn profile_parses_browser_and_seconds() {
+    let parsed =
+        parse(&args(&["app", "renderers", "profile", "--browser", "1", "--seconds", "10"]))
+            .unwrap();
+    match parsed {
+        Some(AppCommand::RendererProfile { params }) => {
+            assert_eq!(params, json!({"browser": 1, "seconds": 10}));
+        }
+        _ => panic!("expected a renderer profile"),
+    }
+}
+
+#[test]
+fn profile_needs_a_browser() {
+    assert!(parse(&args(&["app", "renderers", "profile"])).is_err());
+    assert!(parse(&args(&["app", "renderers", "profile", "--browser", "x"])).is_err());
+}
+
+#[test]
+fn a_profile_answer_moves_its_cpu_profile_to_a_file() {
+    let report = super::with_profile_file(
+        json!({"browser": 3, "heap_used_bytes": 10.0, "cpu_profile": "{\"nodes\":[]}"}),
+    );
+    let path = report["profile_path"].as_str().expect("a profile path");
+    assert!(report.get("cpu_profile").is_none());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "{\"nodes\":[]}");
+    std::fs::remove_file(path).unwrap();
+    let plain = super::with_profile_file(json!({"browser": 3, "heap_used_bytes": 10.0}));
+    assert!(plain.get("profile_path").is_none());
+}

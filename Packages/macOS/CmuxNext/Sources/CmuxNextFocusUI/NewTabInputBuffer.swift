@@ -71,4 +71,14 @@ public final class NewTabInputBuffer {
         }
         replaying = false
     }
+
+    /// `event` as typed into `window` (a key held in one window and replayed in another).
+    public static func retarget(_ event: NSEvent, to window: NSWindow) -> NSEvent {
+        guard event.windowNumber != window.windowNumber,
+              let moved = NSEvent.keyEvent(with: event.type, location: .zero, modifierFlags: event.modifierFlags,
+                                           timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil,
+                                           characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                                           isARepeat: event.isARepeat, keyCode: event.keyCode) else { return event }
+        return moved
+    }
 }

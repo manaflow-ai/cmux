@@ -6,16 +6,18 @@ public nonisolated struct LaunchRecordWindowSnapshot: Sendable {
     public var displayID: UInt32
     public var backgroundRGBA: (UInt8, UInt8, UInt8, UInt8)
     public var barRGBA: (UInt8, UInt8, UInt8, UInt8)
-    public var imagePath: String
+    /// The window image's key in the launch image directory, `<build>/<window_id>/<generation>`
+    /// (launch record v2, cmux-launch-record); empty when no image is published.
+    public var imageKey: String
     public var imagePixelSize: (width: UInt32, height: UInt32)
     public var workspaceID: String
     public var tabIDs: [String]
 
     public init(id: String, frame: CGRect, displayID: UInt32 = 0, backgroundRGBA: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 255),
-                barRGBA: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 255), imagePath: String = "", imagePixelSize: (UInt32, UInt32) = (0, 0),
+                barRGBA: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 255), imageKey: String = "", imagePixelSize: (UInt32, UInt32) = (0, 0),
                 workspaceID: String = "", tabIDs: [String] = []) {
         self.id = id; self.frame = frame; self.displayID = displayID
-        self.backgroundRGBA = backgroundRGBA; self.barRGBA = barRGBA; self.imagePath = imagePath
+        self.backgroundRGBA = backgroundRGBA; self.barRGBA = barRGBA; self.imageKey = imageKey
         self.imagePixelSize = imagePixelSize; self.workspaceID = workspaceID; self.tabIDs = tabIDs
     }
 }

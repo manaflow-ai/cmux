@@ -5,8 +5,8 @@ public import CmuxNextDaemon
 /// open tabs, other workspaces and folders from here, so its open maps no workspace.
 ///
 /// Each workspace's rows are one item of a feed (``ObservedItemsFeed``): a change maps the workspace that changed
-/// and no other. A kept row has no icon: the icon of a row is read when a page lists it,
-/// for the listed rows only. The app makes one holder, starts it once, and reads a page's lists from it:
+/// and no other, and puts its rows in their place with no pass over the workspaces. A kept row has no icon: the
+/// icon of a row is read when a page lists it, for the listed rows only. The app makes one holder, starts it once, and reads a page's lists from it:
 ///
 /// ```swift
 /// let kept = NewTabPlacesKept(home: NSHomeDirectory())
@@ -28,7 +28,8 @@ public final class NewTabPlacesKept {
     public static let maximumIcons = 512
 
     private var feed: ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>?
-    private var following: Task<Void, Never>?
+    /// The call of `changed` that waits for its turn: the changes of one turn make one call.
+    private var announcing: Task<Void, Never>?
 
     /// One workspace as the bar reads it, for the rows that the app keeps; a test gives one that counts its calls.
     public let source: @MainActor (WorkspaceModel) -> NewTabPlaces.Source
@@ -55,23 +56,47 @@ public final class NewTabPlacesKept {
     /// - Parameters:
     ///   - list: Every workspace, in the sidebar's order.
     ///   - rows: One workspace's rows. It runs for each workspace once, then for a workspace that changed.
-    ///   - changed: Runs after the kept rows changed, the first ones included.
+    ///   - changed: Runs after the kept rows changed, the first ones included: once for the changes of one turn.
     public func follow(list: @escaping @MainActor @Sendable () -> [WorkspaceModel]?,
                        rows: @escaping @MainActor @Sendable (WorkspaceModel) -> NewTabPlaces.Rows?,
                        changed: @escaping @MainActor @Sendable () -> Void) {
         guard feed == nil else { return }
         // By object: two machines' workspaces may share an id (`handle:<n>` without the registry).
-        let feed = ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>(list: list, id: { "\(ObjectIdentifier($0))" }, item: rows)
+        let feed = ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>(
+            list: list, id: { "\(ObjectIdentifier($0))" }, item: rows,
+            update: { [weak self] update in
+                guard let self else { return }
+                self.take(update)
+                guard self.announcing == nil else { return }
+                // task-owner: one call of `changed` for the kept rows' changes of one turn; it ends at that call.
+                self.announcing = Task { [weak self] in
+                    guard let self else { return }
+                    self.announcing = nil
+                    changed()
+                }
+            })
         self.feed = feed
         feed.start()
-        // task-owner: the holder keeps the feed's rows for the app's life, as the feed itself lives.
-        following = Task { [weak self] in
-            for await items in ObservationStream({ ObservationTrigger(feed.observedItems) }) {
-                guard let self else { return }
-                guard let rows = items.value else { continue }
-                self.keep(rows)
-                changed()
+    }
+
+    /// Takes what the feed's rows became: every workspace's rows after a pass over the list, or the rows of the
+    /// one workspace that changed, in their place. The folders are joined again only when a workspace's own
+    /// folders changed.
+    private func take(_ update: ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>.Update) {
+        switch update {
+        case .items(let all):
+            keep(all)
+        case .item(let change):
+            guard rows?.indices.contains(change.position) == true, rows?[change.position] == change.old else {
+                // The kept rows are not the feed's (a test gave its own): take the feed's rows whole.
+                if let whole = feed?.observedItems { keep(whole) }
+                return
             }
+            rows?[change.position] = change.new
+            guard change.old.folders != change.new.folders else { return }
+            let all = rows ?? []
+            ObservationWork.visited(all.count, "NewTabPlacesKept.join")
+            folders = NewTabPlaces.folders(all)
         }
     }
 

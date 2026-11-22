@@ -57,6 +57,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var attachmentView = Self.attachmentViewDefault
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
+    public var sessionWorktrees = Self.sessionWorktreesDefault
     public var newChatsIn = Self.newChatsInDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
@@ -79,6 +80,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
+            "sessionWorktrees": .string(sessionWorktrees.rawValue),
             "newChatsIn": .string(newChatsIn.rawValue),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
@@ -125,6 +127,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 }
                 setting.dictationShortcut = shortcut
+                continue
+            }
+            if descriptor.path == sessionWorktreesPath {
+                guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneSessionWorktrees.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.sessionWorktrees = place
                 continue
             }
             if descriptor.path == newChatsInPath {

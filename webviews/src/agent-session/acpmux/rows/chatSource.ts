@@ -137,6 +137,14 @@ export class ChatSource {
       if (opened.fallen === CHAT_ROWS_OTHER_SID) otherSids += 1;
       return this.toV1(chat);
     }
+    // Its sub fell while the open was out (a brand-new chat whose sub the daemon refused before the
+    // host answered, issue 44964): the store let the sid go then, with no chat shown to fall, so
+    // the fall is read here. The chat is v1's, as one that falls while shown (`onFall`).
+    if (!this.host.store.has(opened.sid)) {
+      this.host.close(opened.sid);
+      this.fallen.add(chat);
+      return this.toV1(chat);
+    }
     state = "on";
     const kept = this.kept.get(chat);
     this.kept.delete(chat);
