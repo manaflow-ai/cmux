@@ -12,10 +12,10 @@ and the text of the first new tab's field (`debug.new_tab`, `field`) after a sel
 WHERE THE LETTER IS. After those reads (their time is as it was) a case reads the places that a letter can go to:
 the second new tab's field, the field of each tab that the pane showed before the keys (`Letters.before`; for an
 agent chat its composer, `debug.agent_pane` `query`), and the counts of the app's park for typed text
-(`debug.focus`, `parked_typing`) before the keys, after them, directly before the select and at the case's end. The
-record's `letter_is` is ONE
+(`debug.focus`, `parked_typing`) before the keys, after them, at the last read before the tool's own acts and at
+the case's end. The record's `letter_is` is ONE
 word of WHERE (12 words), the first that is true, in this order: `typed only after the select` (the first new tab's
-field has the letter, and a text was in the park at the read before the select: see THE SELECT), `new tab's field`
+field has the letter, and a text was in the park at the last read before the tool's acts: see THE SELECT), `new tab's field`
 (the first new tab), `second new
 tab's field`, `tab before` (such a field has one letter more than before the keys; with no read before the keys
 this is not said), `refused by the field`, `dropped after the bound`, `page gone` (the park's counts
@@ -28,26 +28,46 @@ the record's `places_not_read` as `place: why`; the place is the record's key (`
 `tabs_before[N]`, `park.before`, `park.end`), and why is: `no dict`, `error`, `no element`, `no text` (a reply
 that is no dict, has an `error`, found no element, has no text), `no parked_typing` (a `debug.focus` reply with no
 counts), the app's refusal of a select, or the class name of an exception. A form's line counts its cases with
-such a place (`places_not_read`). No such place changes a verdict or makes a case `not_run`. The record's `app`
+such a place (`places_not_read`). No place of that list changes a verdict or makes a case `not_run`. (The reads
+of the park before the tool's acts, `park.select`, are not of that list: they are the rule's own reads, and a case
+with no counts there is `not_run`, see THE SELECT.) The record's `app`
 has the app's own word on its active state and the class of its key window, before and after the keys. A record
 has no text of a field but the letter: `seen` gives a word for each other text.
 
 THE SELECT. The tool reads the first new tab's field after its own select of that tab, and the select gives the
 tab the keyboard: the app then types a text that waits in its park for that tab's page. A person makes no such
-select in the 2 s that the park keeps a text. So directly before its own acts on the first new tab (the focus of
-the tab's pane, then the select) a case reads the park's counts again (`park.select`) and the app's input journal
-(`debug.journal`). `waits_before_select` is the count of the texts in the park at that read (each text that came
-less each that left: such a text waits or is on its way into its page; the counts do not say which text). With
-one text or more there the case is NO PASS, also when the field then has the letter: `letter_is` is `typed only
-after the select` (and `letter_also` has `new tab's field`), or the word of the letter's other place. A form's line
-counts its cases with such a text (`waited_before_select`). A case with no counts of the park at that read is
-`not_run`: no read is not `no text waits`. From the journal's entries after the last one before the keys the record
+select in the 2 s that the park keeps a text. So a case reads the park's counts again before its own acts on the
+first new tab (the focus of the tab's pane, then the select). With one text or more in the park at that read
+(each text that came less each that left: such a text waits or is on its way into its page; the counts do not say
+which text) the case makes NO other act: it reads the park again each WAIT_STEP_S (0.1 s), to the first read with
+no text there or to the first read WAIT_S (2.2 s) and more after the sequence's last key. The park keeps a text
+for 2 s, so in that time the app types the text by itself or drops it. Then the case reads the app's input journal
+(`debug.journal`), and then the park ONE more time: that read is the tool's LAST call before its own acts, and the
+record's `park.select` and `waits_before_select` (the count of the texts in the park) are of it. With one text or
+more at that last read the case is NO PASS, also when the field then has the letter: `letter_is` is `typed only
+after the select` (and `letter_also` has `new tab's field`), or the word of the letter's other place. With no text
+at that last read the verdict is by the places as before: the letter in the first new tab's field is then the
+app's own work, and the case can pass. The record's `park_wait` has `first` (the count at the first read),
+`first_s`, `empty_s` (to the first read with no text in the park; None: no such read) and `last_s`, each in
+seconds from the app's reply to the call of the keys to that read's end, and `reads` (how many reads of the park).
+`holds_before_select` is the count of the windows with an open New Tab key hold at the last read (None: the reply
+has no such list): a count only, it changes no verdict. A form's line
+counts its cases with a text at the last read (`waited_before_select`) and at the first read (`waited_first_read`),
+and has the most seconds to an empty park of the cases that waited (`emptied_latest_s`). A case with no counts of
+the park at one of these reads, or with a count below 0, is `not_run`, and the tool makes no select: no read is not
+`no text waits`. The record's `waits_before_keys` is the count before the keys: with a text there the case is
+`not_run` and sends no key (a text that waits later can be that older one). From the journal's entries after the
+last one before the keys the record
 has `journal`: `readiness`, the counts of the notes of the pages' input readiness (`focus`: a focus message of a
 page's script; `editing_on`, `editing_off`: the script's word that an editable element has the focus or lost it;
 `key`: a key that came to a page's document; `wait`, `wait_end`: a wait for a command's field); `first_new_tab`,
-how many times the app gave and took the page focus of the first new tab, and its engine words in their order;
-`whole` (False: the read was cut) and `entries`. The record's `engine` is the last engine word (None: no entry
-names the tab). The journal changes no verdict: with no read the record has `journal.not_read` with the why.
+how many times the app gave and took the page focus of the first new tab, and its engine words in their order (a
+word that the tool does not know is `other`); `page_entries`, how many entries name a page's focus for each tab
+that has one, and for the first new tab; `whole` (False: the read was cut) and `entries`. The record's `engine` is
+the last engine word (None: no entry names the tab). The app writes no such entry for a New Tab page in a WebKit
+view (only for a browser tab in a view and for a page in a Chromium child window): there `engine` None and the 2
+counts of 0 are not facts of the app. The journal changes no verdict: with no read, and with an entry of a form
+that the tool does not know, the record has `journal.not_read` with the why.
 
 THE 3 KEYS: a New Tab key, the letter x 30 ms later, a second New Tab key 30 ms after the letter. The second New Tab
 key is a key with Command while the hold has the letter: the hold ends with no field ready (`release: chord`).
@@ -65,7 +85,7 @@ FORMS
                    (`layout.commit: close moves N panes`) or showed in one frame; the record keeps them.
 
 THE RULE of a case, in each form: no key dropped (`dropped 0` in the hold's log) AND the first new tab's field is the
-letter AND no text was in the park at the read before the select (THE SELECT). (To 22 November 2026 from-chat had a rule of its own, `dropped 1` and an empty field: the chat had the
+letter AND no text was in the park at the last read before the tool's acts (THE SELECT). (To 22 November 2026 from-chat had a rule of its own, `dropped 1` and an empty field: the chat had the
 keyboard at the opening, so the hold was to drop the letter. The app gives a letter to the new tab's type-ahead
 before it asks the hold's drop rule, so the hold drops no key there; and the letter came after the New Tab key.)
 A case whose hold ended before the second New Tab key (the page's report came first, or the hold kept no key) is a
@@ -88,9 +108,13 @@ read waits its full 5 s for a text, so the reads of the places come 5.7 s and mo
 only when that field has a text). The park keeps a text for 2 s at most and drops an older one at each
 `debug.focus` read. So `parked` is almost never said (only for a text that is on its way for more than 5 s): a
 parked text that got to no field is `dropped after the bound`, and the tool's own read at the case's end can be
-the read that makes that count. The read before the select comes 0.7 s and more after the keys: a text that
-waits there is no pass, and the tool does not know if the app would type it with no select in the rest of the
-2 s. A text that the app types between that read and the select (a few calls) is said as typed after the select.
+the read that makes that count. The first read of the park before the tool's acts comes 0.7 s and more after the
+keys, and the last one 2.2 s and more after them when a text waits: each read of the wait is a `debug.focus` read
+too, and can be the read that drops a text older than 2 s (the app does the same drop before it types). A case
+with a text in the park takes up to 1.5 s more. A text that is on its way into its page at the last read counts
+as a text in the park (no pass), and a text that the app types between the last read and the select (the focus
+call of the pane) is said as typed after the select. The seconds of `park_wait` are of the tool's clock at each
+reply, not of the app's. The tool does not read the type-ahead queue of a key hold.
 The journal's readiness notes name no page: their counts are of each page of the app in that time, not of the
 first new tab's page only. The journal has no note for a page's plain ready message: `editing_on` is the note
 that the page's script sends in the same call as a document's first ready message, and at each later focus of an
@@ -131,6 +155,10 @@ WHERE = ("typed only after the select", "new tab's field", "second new tab's fie
 LATE, FIELD, SECOND, BEFORE = WHERE[:4]
 NO_RUN, BY_HOLD, UNREAD, NOWHERE = WHERE[8:]
 NO_COUNTS = "the read before the select has no counts of the park: no read of a text that waits there"
+BELOW = "the park's counts give {} texts, a count below 0: no read of a text that waits there"
+OLDER = "{} texts were in the park before the case's keys: a text that waits later can be an older one"
+WAIT_S = 2.2  # after a case's keys: the park keeps a text for 2 s (TypingPark.swift `limit`), so the app's own time is over then
+WAIT_STEP_S = 0.1  # between 2 reads of the park while a text waits there
 JOURNAL_LAST = 600  # the entries of the journal's read before the select: a case's keys and pages write far fewer
 ENGINES = ("webkit", "chromium", "chromium-key", "chromium-unchosen-key")  # the app's words (FocusEffectApplier.swift)
 # The notes of a page's input readiness in the journal (PageInputReadiness.swift `trace`), by the record's name.
@@ -232,14 +260,20 @@ def noted(entries, mark, tab):
     it sends with a document's first ready message; `key`: a key that came to a page's document). These notes name
     no page: the counts are of each page of the app. `first_new_tab`: how many times the app gave and took the
     page focus of `tab`, and the engine word of each such entry, in their order, with no word 2 times in a row (a
-    word that is not of ENGINES is `other`). `whole` False: the read was cut, and its first entries are lost."""
+    word that is not of ENGINES is `other`). `page_entries`: how many entries name a page's focus, for each tab
+    that has one (`each_tab`, the largest count first, with no id) and for `tab`: with entries of other tabs and
+    none of `tab`, no entry has the id of `tab`, and that is not `the app changed no focus of its page`. `whole`
+    False: the read was cut, and its first entries are lost."""
     every = [entry for entry in entries if isinstance(entry, dict)]
     new = [entry for entry in every if (entry.get("seq") or 0) > mark]
     kinds = [entry.get("kind") for entry in new if isinstance(entry.get("kind"), dict)]
     events = [str(part.get("event")) for part in (kind.get("content") for kind in kinds) if isinstance(part, dict) and part.get("tab") == "readiness"]
-    pages = [part for part in (kind.get("page") for kind in kinds) if isinstance(part, dict) and part.get("tab") == tab]
+    named = [part for part in (kind.get("page") for kind in kinds) if isinstance(part, dict)]
+    pages = [part for part in named if part.get("tab") == tab]
     engines = [part.get("engine") if part.get("engine") in ENGINES else "other" for part in pages]
+    tabs = [repr(part.get("tab")) for part in named]
     return {"whole": not new or (every[0].get("seq") or 0) <= mark + 1, "entries": len(new),
+            "page_entries": {"each_tab": sorted((tabs.count(name) for name in set(tabs)), reverse=True), "first_new_tab": len(pages)},
             "readiness": {name: sum(1 for event in events if pattern.search(event)) for name, pattern in NOTES},
             "first_new_tab": {"focus_given": sum(1 for part in pages if part.get("focused") is True),
                               "focus_taken": sum(1 for part in pages if part.get("focused") is False),
@@ -281,12 +315,15 @@ def verdict(form, cases):
     """A form's counts and its word: PASS, FAIL, NOT PROVED or NOT RUN. `letter_is`: how many of the form's cases
     have each word of WHERE (a word with no case is not in it). `places_not_read`: how many of its cases have a
     place that gave no answer (the word of such a case can be another one of the list: its record says which place).
-    `waited_before_select`: how many of its cases had a text in the park at the read before the select (each is no
-    pass; `letter_is` says what became of the letter)."""
+    `waited_before_select`: how many of its cases had a text in the park at the last read before the tool's acts
+    (each is no pass; `letter_is` says what became of the letter). `waited_first_read`: how many had a text there at
+    the first read after the keys; `emptied_latest_s`: of those cases, the most seconds from the keys' call to the
+    first read with no text in the park (None: no such case had such a read)."""
     ran = [case for case in cases if "pass" in case]
     chords = [case for case in ran if case["chord"]]
     moves = [case for case in ran if case.get("moved")]
     places = [case.get("letter_is", NO_RUN) for case in cases]
+    emptied = [wait.get("empty_s") for wait in (case.get("park_wait") or {} for case in cases) if wait.get("first")]
     counts = {"cases": len(cases), "ran": len(ran), "not_run": len(cases) - len(ran), "chord": len(chords),
               "chord_pass": sum(case["pass"] for case in chords), "ready": len(ran) - len(chords),
               "ready_pass": sum(case["pass"] for case in ran if not case["chord"]),
@@ -294,6 +331,7 @@ def verdict(form, cases):
               "letter_is": {word: places.count(word) for word in WHERE if word in places},
               "places_not_read": sum(1 for case in cases if case.get("places_not_read")),
               "waited_before_select": sum(1 for case in cases if case.get("waits_before_select")),
+              "waited_first_read": len(emptied), "emptied_latest_s": max((at for at in emptied if at is not None), default=None),
               **({"move": len(moves), "no_move": len(ran) - len(moves)} if form in MOVE_FORMS else {})}
     if not ran:
         word = "NOT RUN"
@@ -323,9 +361,11 @@ class Letters:
     """The cases against one app: `builder` is the session helper (perf-stress-session.py `Stress`), `rpc` the
     app's socket call, `wait` the helper's wait (predicate, seconds, step)."""
 
-    def __init__(self, builder, rpc, wait, pause=time.sleep):
+    def __init__(self, builder, rpc, wait, pause=time.sleep, clock=time.monotonic):
         self.builder, self.rpc, self.wait, self.pause, self.setup_fields = builder, rpc, wait, pause, []
         self.before = []  # of a case: (tab, the text of its field) for each tab that the pane showed before the keys
+        # Of the last sequence: the clock's time at the app's reply to its call, and the seconds that its steps take.
+        self.clock, self.keyed, self.played_s = clock, 0.0, 0.0
 
     def focus(self):
         """ONE read of `debug.focus`: the hold's log, the park's counts, the app's active state, the key window."""
@@ -359,8 +399,52 @@ class Letters:
             why = "no entries"
         if why:
             return {"journal": {"not_read": why}, "engine": None}
-        found = noted(reply["entries"], mark, tab)
+        try:
+            found = noted(reply["entries"], mark, tab)
+        except Exception as error:  # noqa: BLE001  the journal takes no verdict: an entry of a form that the tool does not know must not stop the case
+            return {"journal": {"not_read": type(error).__name__}, "engine": None}
         return {"journal": found, "engine": (found["first_new_tab"]["engines"] or [None])[-1]}
+
+    @staticmethod
+    def texts(counts, absent=None):
+        """`waiting` of the counts of a park read, with its 2 ways to no read: a count below 0 is `not_run`, and no
+        counts are `not_run` with the words `absent` (None: no counts give None, and the case goes on)."""
+        waits = waiting(counts)
+        if waits is None and absent:
+            raise NotRun(absent)
+        if waits is not None and waits < 0:
+            raise NotRun(BELOW.format(waits))
+        return waits
+
+    def parked(self, record):
+        """ONE read of the park after the keys: (the texts in it, the seconds from the app's reply to the call of
+        the keys to this read's end). The record's `park.select` gets the read's counts, and `holds_before_select`
+        the count of the windows with an open New Tab key hold (None: the reply has no such list): the record has
+        those of the last such read. A read with no counts, or with a count below 0, is `not_run`."""
+        focus = self.focus()
+        holds = focus.get("new_tab_key_holds")
+        record["park"]["select"], record["holds_before_select"] = park_of(focus), len(holds) if isinstance(holds, list) else None
+        return self.texts(record["park"]["select"], NO_COUNTS), round(self.clock() - self.keyed, 3)
+
+    def settled(self, record, mark, why, tab):
+        """The last reads of what the app did with no help of the tool (THE SELECT): the texts in the park at the
+        tool's last call before its own acts. While a text is in the park the case makes no other act: a read of
+        the park each WAIT_STEP_S, to the first read with no text or the first one WAIT_S after the sequence's
+        last key. Then the journal's read (the record's `journal` and `engine`, with the entries of the wait), and
+        ONE more read of the park. The record's `park_wait` is of each read to now, also when a read stops the case."""
+        reads = []
+
+        def read():
+            reads.append(self.parked(record))
+            record["park_wait"] = {"first": reads[0][0], "first_s": reads[0][1], "reads": len(reads),
+                                   "empty_s": next((at for waits, at in reads if not waits), None), "last_s": reads[-1][1]}
+            return reads[-1]
+        waits, at = read()
+        while waits and at < round(self.played_s + WAIT_S, 3):
+            self.pause(WAIT_STEP_S)
+            waits, at = read()
+        record.update(self.before_select(mark, why, tab))
+        return read()[0]
 
     def text(self, pane):
         """(the text, None) of the field of the page that `pane` shows, when `pane` has the app's focus: a New Tab
@@ -403,7 +487,8 @@ class Letters:
         sent = self.rpc("debug.key", {"sequence": steps, "key_window": "page", "pane": pane}) or {}
         if not isinstance(sent, dict) or sent.get("error"):
             raise NotRun(f"the app refused the sequence: {str(sent.get('error') if isinstance(sent, dict) else sent)[:160]}")
-        self.pause(sum(step.get("after_ms") or 0 for step in steps) / 1000 + SETTLE_S)
+        self.keyed, self.played_s = self.clock(), sum(step.get("after_ms") or 0 for step in steps) / 1000
+        self.pause(self.played_s + SETTLE_S)
         return sent
 
     def page_tab(self, workspace, pane):
@@ -533,6 +618,11 @@ class Letters:
             source, target, steps = self.setup(form, workspace, pane)
             had, (mark, unmarked), start = set(self.ids(workspace, target)), self.journal(1), self.focus()
             mark = None if mark is None else int(mark["stats"]["lastSeq"])
+            # A text in the park before the keys is not of this case, and the counts do not say which text waits later.
+            record["park"] = {"before": park_of(start)}
+            record["waits_before_keys"] = waiting(record["park"]["before"])
+            if self.texts(record["park"]["before"]):
+                raise NotRun(OLDER.format(record["waits_before_keys"]))
             if form in MOVE_FORMS:
                 self.rpc("debug.motion", {"action": "start"})
             sent = self.keys(source, steps)
@@ -540,7 +630,7 @@ class Letters:
             notes = new_notes(list(start.get("new_tab_key_log") or []), list(after.get("new_tab_key_log") or []))
             record["app"] = {"active_before": start.get("app_active"), "active_after": after.get("app_active"),
                              "key_window_before": start.get("key_window"), "key_window_after": after.get("key_window")}
-            record["park"] = {"before": park_of(start), "after": park_of(after)}
+            record["park"]["after"] = park_of(after)
             if form in MOVE_FORMS:
                 motion = self.rpc("debug.motion", {"action": "stop"}) or {}
                 # The app's own word for the close: `layout.commit: close moves N panes ...` or `... in one frame (...)`.
@@ -560,13 +650,9 @@ class Letters:
             if not made:
                 raise NotRun("the keys made no tab in the pane")
             # The tool's own acts on the first new tab start here (the focus of its pane, then its select): they give
-            # the tab the keyboard. These 2 reads are the last ones of what the app did with no help of the tool.
-            record["park"]["select"] = park_of(self.focus())
-            record.update(self.before_select(mark, unmarked, made[0]))
-            waits = waiting(record["park"]["select"])
-            if waits is None:
-                raise NotRun(NO_COUNTS)
-            record["waits_before_select"] = waits
+            # the tab the keyboard. The reads of `settled` are the last ones of what the app did with no help of the
+            # tool, and its last read of the park is the last call before these acts.
+            waits = record["waits_before_select"] = self.settled(record, mark, unmarked, made[0])
             self.builder.focus_pane(target)
             self.select(made[0], workspace, target)
             text = self.wait(lambda: self.field().get("text"), 5, 0.1) or self.field().get("text")
