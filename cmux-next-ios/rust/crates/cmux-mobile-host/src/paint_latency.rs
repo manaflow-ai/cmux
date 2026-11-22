@@ -226,6 +226,9 @@ pub struct Report {
     /// What the report ran under, when the phone says (a harness's label: `sim`, a profile).
     #[serde(default)]
     pub load: Option<String>,
+    /// The phone's Agent CLI Screen Changes setting (lean frames, at most one per 100 ms).
+    #[serde(default)]
+    pub agent_cli_hybrid: Option<bool>,
 }
 
 /// p50, p95 and max of one part (ms), and how many samples.
@@ -276,6 +279,9 @@ pub struct Summary {
     pub clock_rtt_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_ms: Option<u64>,
+    /// The phone's Agent CLI Screen Changes setting when it sent the report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_cli_hybrid: Option<bool>,
     /// The link's route when the report came: `direct-lan`, `direct-wan`, `direct`, `relay`
     /// or `none` (`cmux_mobile_link::dial::route_name`); hostd decides it, the phone never says.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -348,6 +354,7 @@ pub fn summarize(
         offset_ms: offset.map(round),
         clock_rtt_ms: best.map(|c| round(c.rtt_ms())),
         rtt_ms: report.rtt_ms,
+        agent_cli_hybrid: report.agent_cli_hybrid,
         path: None,
         mac: Part::of(mac),
         wire: Part::of(wire),
@@ -443,6 +450,7 @@ mod tests {
             clock: vec![[1000.0, 1520.0, 1521.0, 1041.0], [2000.0, 2520.0, 2521.0, 2141.0]],
             rtt_ms: Some(40),
             load: Some("sim".into()),
+            agent_cli_hybrid: Some(false),
         };
         let s = summarize(report, "phone-1", 5, lookup);
         assert_eq!((s.samples, s.joined), (4, 3), "seq 99 went out of the ring");
@@ -471,6 +479,7 @@ mod tests {
             clock: vec![],
             rtt_ms: None,
             load: None,
+            agent_cli_hybrid: None,
         };
         let s = summarize(report, "p", 0, |_| Some((0, Some(3_000))));
         assert_eq!(s.mac.map(|p| p.p50_ms), Some(3.0));

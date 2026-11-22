@@ -667,7 +667,10 @@ extension LiveCoordinator {
                         clock.append(sample)
                     }
                 }
-                let report = TerminalPaintReport(program: program, samples: samples, clock: clock, rttMs: rtt)
+                let report = TerminalPaintReport(
+                    program: program, samples: samples, clock: clock, rttMs: rtt,
+                    agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
+                )
                 if let line = report.line() { try await channel.send(line) }
             },
             onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }

@@ -257,6 +257,8 @@ pub fn record_paint(
         joined = summary.joined,
         offset_ms = summary.offset_ms,
         route = summary.path.unwrap_or("-"),
+        rtt_ms = summary.rtt_ms,
+        agent_cli_hybrid = summary.agent_cli_hybrid,
         mac_p50_p95 = part(&summary.mac).as_deref().unwrap_or("-"),
         wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
         phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),

@@ -819,6 +819,9 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
+            // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
+            // the setting this phone holds, read in its log beside the link's path and rtt.
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(agentCLIHybridDefaults), privacy: .public) wanted=\(hybridWanted, privacy: .public)")
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
