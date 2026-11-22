@@ -37,7 +37,7 @@ const TEXT: Record<string, string> = {
 };
 
 /// An inbox notice as acpmux sends it (hub/inbox.rs `render`): one thread per sender.
-function notice(senders: Sender[], minutes: number) {
+function notice(senders: Sender[], minutes: number, continues = false) {
   const threads = senders.map((sender, index) => ({
     threadId: `from:${sender.name}`,
     label: "",
@@ -59,8 +59,8 @@ function notice(senders: Sender[], minutes: number) {
     _meta: { provenance: { kind: "inbox_notice", noticeId: `notice-received-${minutes}`, threads } },
   });
   return incoming?.kind === "inbox"
-    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true })
-    : user(text, minutes);
+    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true, continues })
+    : user(text, minutes, { continues });
 }
 
 /// Another agent's message that came in while the turn ran (a steer into it).
@@ -89,7 +89,9 @@ function snapshot() {
       notice(SENDERS.slice(0, 3), 6),
       received(SENDERS[3]!, 5.5),
       received(SENDERS[4]!, 5),
-      notice(SENDERS.slice(5), 4),
+      // Came in while the same turn ran, as in Leo's screenshot: a notice opening a turn of its own
+      // ends the turn before on its row (#49465), and then reads as a second row.
+      notice(SENDERS.slice(5), 4, true),
       assistant("The nightly is back on 6d9ae71 and base is green; #2210 and #2214 are next.", 3.5),
       summary(3.4, { status: "completed", durationMs: 30_000, toolCount: 0 }),
     ],
