@@ -10,7 +10,7 @@
 // current row; a keyboard open focuses that row.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
-import { focusRoute } from "../../ui/focusRoute";
+import { focusRoute } from "./focusRoute";
 
 /** Menus with more rows than this draw only the rows near their viewport. */
 export const MENU_WINDOW_AT = 50;

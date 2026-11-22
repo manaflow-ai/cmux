@@ -97,7 +97,7 @@ import {
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
-import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "./menuWindow";
+import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 import { experimentArm } from "../../experiments/experiment";

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ComposerPlusMenu } from "../../../src/agent-session/acpmux/ComposerPlusMenu";
+import { PLUS_PICKER } from "../../../src/agent-session/acpmux/composerSelectors";
 import { composerPlusRegistry, nativeComposerExtensions } from "../../../src/agent-session/acpmux/composerPlusRegistry";
 import { openPicker } from "../../../src/agent-session/acpmux/pickerOpeners";
 import { caseItems, type VisibleListCase } from "./case";
@@ -40,7 +41,7 @@ const composerPlusCase: VisibleListCase = {
   async mount(root, n) {
     root.style.cssText = "position: fixed; left: 16px; bottom: 16px; width: 420px;";
     flushSync(() => createRoot(root).render(<CasePlusMenu n={n} />));
-    const trigger = root.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button")!;
+    const trigger = root.querySelector<HTMLElement>(PLUS_PICKER)!;
     flushSync(() => openPicker(trigger.getAttribute("aria-label") ?? "Add"));
     const popup = () => document.querySelector<HTMLElement>(".ui-popup.acpmux-composer-plus")!;
     for (let tries = 0; !document.querySelector(".ui-popup.acpmux-composer-plus [role='menuitem']"); tries++) {
