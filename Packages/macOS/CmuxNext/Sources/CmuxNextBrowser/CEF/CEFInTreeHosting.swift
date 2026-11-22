@@ -161,11 +161,9 @@ final class CEFInTreeHosting {
     private let resizeFences: CEFResizeFences
     /// The page goes back to layer hosting after a second refusal.
     var fallBack: (() -> Void)?
-    /// Whether this host's pages may go in the tree. False for the pages Chromium makes itself, a docked DevTools and
-    /// a `window.open` popup: the fork attaches them (census: in the pane, content view in the window, widget not
-    /// drawing) but they draw nothing (live step at ff7bb179 on cmux19, key verify-live-ff7bb179-cmux19:
-    /// devtools.pixels 2 colours, popup.pixels no bars; both PASS with layer hosting). They keep layer hosting until
-    /// the fork draws them.
+    /// Whether this host's pages may go in the tree; a host that sets it false keeps layer hosting. Every host is
+    /// allowed: docked DevTools and `window.open` popups go in tree too since the fork draws a page that enters the
+    /// tree at full size (cef#48 `cmux_in_tree_display`, dist 36g; before it they drew nothing).
     var isAllowed = true
     /// The page came into the tree: a focus ask kept while it was not in tree is granted now.
     var onAttached: (() -> Void)?

@@ -366,8 +366,6 @@ final class CEFDevToolsController {
         // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
         // at the next open).
         if docked {
-            // Not in the tree: a docked DevTools draws nothing there yet (`CEFInTreeHosting.isAllowed`).
-            views?.host.inTree.isAllowed = false
             views?.host.pageWindowCreated(browser: browser, shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion)
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
