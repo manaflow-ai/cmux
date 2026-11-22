@@ -405,7 +405,7 @@ export function ConversationList(props: ConversationListProps) {
             <button
               type="button"
               className="hm-chip"
-              title={t("home.list.filterChipHelp")}
+              aria-description={t("home.list.filterChipHelp")}
               onClick={() => props.onUnreadOnly(false)}
             >
               <span>{t("sidebar.filter.unread")}</span>
