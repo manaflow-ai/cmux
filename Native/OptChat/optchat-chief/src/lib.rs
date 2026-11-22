@@ -60,6 +60,7 @@ pub mod mcp_hub;
 pub mod membership;
 pub mod memory_cli;
 pub mod memory_files;
+pub mod memory_place;
 pub mod memory_sync;
 pub mod memory_sync_state;
 pub mod migrate;
