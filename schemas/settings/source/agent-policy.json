@@ -294,6 +294,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -994,6 +995,13 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {

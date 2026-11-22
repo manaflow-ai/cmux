@@ -659,3 +659,135 @@ async fn a_hub_that_stays_down_fails_bounded_and_names_the_direct_route() {
     assert_eq!(refused.calls.lock().unwrap().len(), 1);
     assert_eq!(e.data.unwrap()["retryable"], json!(false));
 }
+
+/// How long the HTTP client waits on one hub call before it gives up (`mesh_http`'s `CALL_WAIT`).
+const CLIENT_WAIT: Duration = Duration::from_secs(30);
+
+/// A receipt the hub has taken and not yet delivered.
+fn queued() -> Receipt {
+    serde_json::from_value(json!({"messageId": "msg_silent", "state": "queued"})).unwrap()
+}
+
+/// A hub that takes a connection and never answers it: each call hangs for the client's whole
+/// wait, then fails as no answer. With `takes_send`, the send is taken at once and only the
+/// receipt's long-poll hangs.
+struct Silent {
+    takes_send: bool,
+    calls: Mutex<Vec<Call>>,
+}
+
+fn timed_out() -> HubError {
+    HubError::unavailable("the hub: error sending request: operation timed out")
+}
+
+impl MeshHub for Silent {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        let takes = self.takes_send;
+        Box::pin(async move {
+            if takes {
+                return Ok(queued());
+            }
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        Box::pin(async {
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+}
+
+/// A read through a hub that never answers ends within `READ_WAIT`, whether the send or the
+/// answer is what hangs: no try outlives the read's wait, and none starts after it. Before,
+/// three tries of a 30 s call each, plus the resend, took a read past four minutes.
+#[tokio::test(start_paused = true)]
+async fn a_hub_that_never_answers_ends_the_read_within_its_wait() {
+    for takes_send in [false, true] {
+        let hub = Silent { takes_send, calls: Mutex::default() };
+        let started = tokio::time::Instant::now();
+        let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+        let took = started.elapsed();
+        let calls = hub.calls.lock().unwrap().clone();
+        assert!(
+            took <= READ_WAIT + Duration::from_secs(1),
+            "takes_send {takes_send}: the read took {took:?} ({calls:?})"
+        );
+        assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"), "{calls:?}");
+    }
+}
+
+/// A hub that lets go of the read's receipt (404 `mesh.not_found`) only as the read's wait runs
+/// out.
+struct GoneLate {
+    started: tokio::time::Instant,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl MeshHub for GoneLate {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        Box::pin(async { Ok(queued()) })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        let gone = self.started + READ_WAIT;
+        Box::pin(async move {
+            tokio::time::sleep_until(gone).await;
+            Err(hub_status(404, "mesh.not_found"))
+        })
+    }
+}
+
+/// A receipt the hub lets go of once the read's wait has run out is not sent again: the read
+/// fails as unanswered with the one send it made, never a second read no one waits for.
+#[tokio::test(start_paused = true)]
+async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
+    let hub = GoneLate { started: tokio::time::Instant::now(), calls: Mutex::default() };
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
+    assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+}

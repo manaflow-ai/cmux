@@ -1531,6 +1531,7 @@ impl Hub {
             }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
+            self.note_start_level(session, &child, true);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1636,6 +1637,7 @@ impl Hub {
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        self.note_start_level(session, &child, true);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

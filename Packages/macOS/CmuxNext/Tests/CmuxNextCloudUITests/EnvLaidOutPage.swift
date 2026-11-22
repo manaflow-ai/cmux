@@ -50,5 +50,12 @@ struct EnvLaidOutPage {
         let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: .greatestFiniteMagnitude, height: bounds.height))
         return needed.width <= bounds.width + 0.5
     }
+
+    /// Whether `label` takes exactly one visual line: its height is the height of its text set on one line.
+    func isOneLine(_ label: NSTextField) -> Bool {
+        guard let cell = label.cell else { return false }
+        let oneLine = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        return label.bounds.height <= oneLine.height + 0.5
+    }
 }
 #endif
