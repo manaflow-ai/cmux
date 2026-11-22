@@ -5,11 +5,16 @@
 # key taken (the terminal's echo; the chat composer has no input mark yet).
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL] [--arg=input=auto|posted|in_app] \
-#     [--arg=plan=warm:terminal,warm:terminal] [--arg=workspaces=120] --artifact .build/launch-tti/report.tgz --timeout 2400
+#     [--arg=plan=warm:terminal,warm:terminal] [--arg=workspaces=120] [--arg=session=auto|own] --artifact .build/launch-tti/report.tgz --timeout 2400
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
 #                otherwise has the app type its own first-frame key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1)
+#   session=     whose GUI session runs the app (console-session.sh's CONSOLE_SESSION): auto hops into the console
+#                user's session with sudo; own runs in the invoking user's own GUI login with no sudo (a person's Mac
+#                whose console is an agent screen account, e.g. air-blue)
 # Prints TTI-HOST (the Mac, its load), TTI-ROUND per round and one TTI {json}; keeps tti.json and run.log in report.tgz.
+# A non-zero exit ends with one TTI-FAIL line: the exit code and the reason (a CONSOLE-SESSION-FAIL, sudo refusal,
+# traceback or the log's last line), so a bare "exit 1" never comes back.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/launch-tti"
@@ -21,6 +26,7 @@ for arg in "$@"; do
     input=auto|input=posted|input=in_app) extra+=(--input "${arg#input=}") ;;
     plan=*) extra+=(--plan "${arg#plan=}") ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
+    session=auto|session=own) export CONSOLE_SESSION="${arg#session=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -37,6 +43,11 @@ python3 -I -c 'import json, os, shutil, socket; print("TTI-HOST " + json.dumps({
 scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/launch_tti_check.py" --dmg "$out/in.dmg" --out "$out" \
   ${extra[@]+"${extra[@]}"} 2>&1 | tee -a "$out/run.log"
 rc=${PIPESTATUS[0]}
+if [ "$rc" -ne 0 ]; then
+  reason="$(grep -E 'CONSOLE-SESSION-FAIL|sudo: |LR-FAIL|Traceback|Error|error:' "$out/run.log" | head -3 | tr '\n' ' ')"
+  [ -n "$reason" ] || reason="$(grep -v '^TTI-HOST ' "$out/run.log" | tail -1)"
+  echo "TTI-FAIL rc=$rc reason=${reason:-no output from launch_tti_check.py}" | tee -a "$out/run.log"
+fi
 rm -f "$out/in.dmg"
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true
 exit "$rc"
