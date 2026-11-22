@@ -75,6 +75,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",
     "favourite toggle",
   ],
+  // A harness update row's Update (HarnessUpdates.tsx) starts that update on the click; it opens no menu.
+  [
+    "agent-session/acpmux/harnessUpdates.css|.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
+    "update button",
+  ],
   // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
   ["agent-session/acpmux/newtab/screen.css|.nt-row:hover .nt-row-action", "suggestion row hint"],
   [

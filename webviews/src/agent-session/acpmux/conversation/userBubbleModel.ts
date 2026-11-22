@@ -22,10 +22,14 @@ export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<
   return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
-/// The sent thumbnail's height (conversation.css).
-export const SENT_IMAGE_HEIGHT = 120;
-/// The widest a sent image draws: a wider one shrinks to it, whole.
-const SENT_IMAGE_MAX_WIDTH = 320;
+/// The sent thumbnail's height (conversation.css): the tallest a sent image draws, and a sent video's
+/// tile. Was 120 with a 320 cap on width, which drew a wide screenshot as a strip of unreadable text
+/// above its bubble (Leo, 2026-11-21: "you guys or we kinda messed up the rendering ... if you sent it
+/// iinline you prob shouldn't have such odd stuff").
+export const SENT_IMAGE_HEIGHT = 160;
+/// The widest a sent image draws: a wider one shrinks to it, whole. The bubble's column (70% of the
+/// chat, conversation.css) scales it down further in a narrow chat.
+export const SENT_IMAGE_MAX_WIDTH = 480;
 
 /// A video tile's width at SENT_IMAGE_HEIGHT: the shape its composer chip had (`shape`,
 /// composer/videoShape.ts), else its size's within the same bounds; square only while neither is known.

@@ -41,6 +41,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_message_preview::{MessagePreview, Words as PreviewWords};
 use cmux_mobile_link::api::{ApiClient, NotifyEvent};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -348,8 +349,13 @@ impl Classifier {
                 }
                 if kind == "chief" {
                     event.conversation_id = known.chief_home.as_deref().map(label_id_text);
-                    event.body =
-                        self.previews.get(session_id).map(|p| text_label(p, 400)).filter(|t| !t.is_empty());
+                    // The preview is the reply's Markdown; the banner says its words (a table by
+                    // its titles, a link by its label), in English like the push titles.
+                    event.body = self
+                        .previews
+                        .get(session_id)
+                        .map(|p| text_label(&MessagePreview::new(p).text(&PreviewWords::english()), 400))
+                        .filter(|t| !t.is_empty());
                 }
                 self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
@@ -1131,6 +1137,35 @@ mod tests {
         assert_eq!(e.conversation_id.as_deref(), Some("c39c6f72"));
         assert_eq!(e.body.as_deref(), Some("Both branches merged. Gates are green."));
         assert_eq!(e.tail, ["Both branches merged.", "Gates are green."]);
+    }
+
+    /// Lawrence, 2026-11-20: a Chief reply's push banner said its raw Markdown (a before/after table read
+    /// "| | Before | After ||---|…"). The banner says its words, as the apps preview the same reply.
+    #[test]
+    fn a_finished_turn_push_says_its_last_lines_in_words() {
+        // a1317, 2026-11-21: an agent's finished-turn push showed its last lines as Markdown.
+        let mut c = Classifier::default();
+        let preview = "Done. See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |\n**All** 31 pass.";
+        let done = c
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s7","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t1","status":"completed"},"preview":preview}}}))
+            .unwrap();
+        assert_eq!(done.kind, "completed");
+        assert_eq!(done.tail, ["Done. See PR 12.", "Table: Before / After", "All 31 pass."]);
+    }
+
+    #[test]
+    fn a_chief_reply_push_says_its_words_not_its_markdown() {
+        let mut c = Classifier::default();
+        let preview = "**Done.** See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |";
+        let reply = json!({"sessionId":"ct2","harness":"claude","preview":preview,
+            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"b","status":"completed"}});
+        let e = c.handle_at(&turn_msg(reply), Instant::now()).unwrap();
+        assert_eq!(e.kind, "chief");
+        assert_eq!(e.body.as_deref(), Some("Done. See PR 12. Table: Before / After"));
+        let pictures = json!({"sessionId":"ct3","harness":"claude","preview":"![before](/tmp/a.png)\n![after](/tmp/b.png)",
+            "tags":{"cmux.chief":"d00dfeed","cmux.chief.role":"turn"},"lastTurn":{"turnId":"c","status":"completed"}});
+        let e = c.handle_at(&turn_msg(pictures), Instant::now()).unwrap();
+        assert_eq!(e.body.as_deref(), Some("2 images"));
     }
 
     #[test]

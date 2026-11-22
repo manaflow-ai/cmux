@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentActivity
+import CmuxNextDesignTokens
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -9,7 +10,8 @@ import Testing
 /// Leo 2026-10-30: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can
 /// make more improvements to acpmux/cmux-next". A runaway agent chat (no autocompact cap, a huge
 /// context, a storm of subagents) gets a small warning triangle on its sidebar row, apart from the
-/// working spinner, whose tooltip says each rule acpmux found broken and the number.
+/// working spinner. The row's hover card says each rule acpmux found broken and the number (a1315's cut 3: rows,
+/// which have hover cards, carry no tooltips).
 @MainActor @Suite(.serialized) struct SidebarUsageWarningTests {
     static let warnings = [
         "No autocompact cap: context is 412k and only compacts at the model's limit",
@@ -66,29 +68,41 @@ import Testing
         let row = try Self.rowView(ws)
         #expect(!row.usageWarningMark.isHidden)
         #expect(row.usageWarningMark.frame.width > 0)
-        #expect(row.usageWarningMark.themedToolTip == Self.warnings.joined(separator: "\n"))
+        #expect(row.usageWarningMark.themedToolTip == nil, "a mark on a row has a tooltip")
         let label = try #require(row.accessibilityLabel())
         #expect(Self.warnings.allSatisfy(label.contains))
+        // The hover card says each one, in every layout.
+        for layout in WorkspaceHoverCardOptions.Layout.allCases {
+            var options = WorkspaceHoverCardOptions()
+            options.layout = layout
+            let facts = WorkspaceHoverCardContent.make(ws, machine: nil, now: Date(), options: options, timeline: []).facts
+            #expect(facts.filter { $0.kind == "usageWarning" }.map(\.text) == Self.warnings, "\(layout)")
+        }
     }
 
-    /// Hovering the row shows its ⋯ and × over the row's end; the badge stays, left of them, so a
-    /// person can still point at it and read its tooltip (the first capture showed the controls in
-    /// its place).
-    @Test func theBadgeStaysBesideTheHoverControls() throws {
+    /// Hovering the row shows its ⋯ and × over the row's end; the badge gives way to them in place, as every other
+    /// mark does (Leo 2026-11-22: "in all cases, the hovered buttons should just replace the other ones"), and comes
+    /// back when the hover ends. The hover card still names each warning.
+    @Test func theBadgeGivesWayToTheHoverControls() throws {
+        Motion.reduceMotionOverride = true // the badge clears at once instead of fading out
+        defer { Motion.reduceMotionOverride = nil }
         var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
                                   kind: .harness, activity: .working)
         ws.usageWarnings = Self.warnings
         let row = try Self.rowView(ws)
+        row.layoutSubtreeIfNeeded()
+        let mark = row.usageWarningMark
+        let resting = mark.frame
+        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows at rest")
         row.isHovered = true
         row.layoutSubtreeIfNeeded()
         let controls: [NSView] = [row.closeButton, row.moreButton].filter { !$0.isHidden }
         #expect(!controls.isEmpty, "the hover controls show")
-        let mark = row.usageWarningMark
-        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows on hover, not covered (alpha \(mark.alphaValue))")
-        for control in controls {
-            #expect(mark.frame.maxX <= control.frame.minX, "badge \(mark.frame) clear of control \(control.frame)")
-        }
-        #expect(mark.themedToolTip == Self.warnings.joined(separator: "\n"))
+        #expect(mark.alphaValue == 0, "the badge gives way on hover (alpha \(mark.alphaValue))")
+        #expect(mark.frame == resting, "the badge moved on hover \(resting) -> \(mark.frame) (a layout shift)")
+        row.isHovered = false
+        row.layoutSubtreeIfNeeded()
+        #expect(mark.alphaValue == 1, "the badge is back after the hover (alpha \(mark.alphaValue))")
     }
 
     @Test func noWarningNoBadge() throws {

@@ -56,6 +56,19 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         sizes["sidebarRowHeight"] = rowHeight - Double(DensityTokens.half(2 * t))
         sizes["browserRowHeight"] = rowHeight
         sizes["tabStripHeight"] = rowHeight + 2 * Double(DensityTokens.half(3 * t))
+        // Default and the densities above it take Default's Chrome spacing times their factor (Lucas 2026-11-20: "make sure
+        // that densities after default have similar spacing to default (but proportionally)"): the strip padding (Default's
+        // 5 pt, Chrome's tab top) and the omnibar row's gap (Chrome's 6 pt, ``chromeToolbarGap``). Ultra-compact and Compact
+        // keep Default-times-their-factor's 3 pt.
+        if t >= 1 {
+            // Spacious's 37.5 pt bar takes half-point gaps, 6.5 and 7.5 (Lucas 2026-11-21): with 6 and 7 its toolbar row
+            // put the bar where AppKit drew it 0.5 pt taller (`OmnibarDensityTests.nothingClipsOrOverlaps`).
+            let nudge = self == .spacious ? Self.spaciousGapNudge : 0
+            let padding = Double(DensityTokens.half(Self.defaultStripPadding * t)) + nudge
+            sizes["browserRowGap"] = padding
+            sizes["tabStripHeight"] = rowHeight + 2 * padding
+            sizes["omnibarRowGap"] = Double(DensityTokens.half(Self.chromeToolbarGap * t)) + nudge
+        }
         // Compact's tabs sit a point further from the omnibar than their strip padding (Lucas 2026-11-20: "give compact 1
         // more px of bottom padding below the tab"): 3.5 pt from the tab pills to the bar, 2.5 above the tabs and under the bar.
         if self == .compact { sizes["tabToOmnibarGap"] = Double(DensityTokens.half(3 * t)) + Self.compactTabToOmnibarExtra }
@@ -94,10 +107,19 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
     static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
 
+    /// What Spacious's strip padding and omnibar row gap add to Default's times 1.2, so its half-point bar keeps whole-point rows.
+    static let spaciousGapNudge: Double = 0.5
     /// What Compact's gap from its tabs to the omnibar adds to its strip padding (`tabToOmnibarGap`).
     static let compactTabToOmnibarExtra: Double = 1
     /// Default's location bar: Chrome's 34 pt (`kLocationBarHeight` in Chrome's layout constants).
     static let chromeOmnibarHeight: Double = 34
+    /// Default's room above and below its location bar (Lucas 2026-11-20: "match chrome to be EXACTLY the same as chromium
+    /// ... top-padding 6px bottom padding 6px"), Comfortable and Spacious that times their factor: Chrome's 6 pt (`TOOLBAR_INTERIOR_MARGIN`'s vertical inset in
+    /// Chrome's layout constants), the bar's 34 pt in a 46 pt toolbar.
+    static let chromeToolbarGap: Double = 6
+    /// Default's strip padding: 5 pt above, beside and under its tabs, 2 over Default-times-1's 3 (Lucas 2026-11-20: "make
+    /// the top of the tabs 5px (so 2 more px)"); Comfortable and Spacious take it times their factor.
+    static let defaultStripPadding: Double = 5
     /// Default's URL capitals: 11 pt, a point over Compact's 10.
     static let defaultOmnibarCapHeight: Double = 11
     /// Default's star plate: its 16 pt star with Compact's padding (24 pt around 13.5), on whole pixels.

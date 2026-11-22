@@ -128,7 +128,7 @@ public final class ChiefBrainKeeper {
     private func watchHost(_ host: HomeBrainHost, pid: pid_t?) {
         // Quit came while this start ran: the host must not outlive the quit.
         if watch?.isStopped == true {
-            if let pid, ChiefHostStop.isChiefHost(pid) { kill(pid, SIGTERM) }
+            if let pid, ChiefHostStop.isChiefHost(pid) || ChiefHostStop.isFilesHostLauncher(pid) { kill(pid, SIGTERM) }
             return
         }
         // Known gap: a launch whose pid the shell did not print, before the
