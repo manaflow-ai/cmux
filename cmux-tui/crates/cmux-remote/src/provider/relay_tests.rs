@@ -138,7 +138,7 @@ async fn a_wall_clock_step_alone_ends_the_wait_as_a_resume() {
     assert_eq!(task.await.unwrap(), Waited::Resumed);
 }
 
-async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
+pub async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
     let message = socket.next().await.unwrap().unwrap();
     let Message::Text(text) = message else {
         panic!("expected relay control text, got {message:?}");
@@ -146,12 +146,12 @@ async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayC
     serde_json::from_str(&text).unwrap()
 }
 
-async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
-    socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
+pub async fn send_test_control(ws: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
+    ws.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
 }
 
 #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
+pub async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
     let authorization = Arc::new(StdMutex::new(None));
     let observed = authorization.clone();
     let socket = accept_hdr_async(stream, move |request: &Request, response| {

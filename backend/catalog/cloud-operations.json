@@ -2980,6 +2980,13 @@
                     }
                   }
                 }
+              },
+              "linked_by_github_id": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
               }
             }
           }
@@ -60713,6 +60720,13 @@
                           }
                         }
                       }
+                    },
+                    "linked_by_github_id": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
                     }
                   }
                 }
@@ -60892,6 +60906,11 @@
                     "type": "null"
                   }
                 ]
+              },
+              "linked_by_github_id": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -61292,6 +61311,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -61578,6 +61602,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -62303,6 +62332,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

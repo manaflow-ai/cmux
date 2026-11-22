@@ -565,6 +565,30 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
 
+    def test_files_passed_at_the_previous_head_are_not_run_again_and_are_passed_on(self):
+        """ci-web.yml hands a newer head's shard the files it may reuse; the passes go on to the next head."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reused, passed = temp / "reused", temp / "passed"
+        reused.write_text("test/a.test.ts\ntest/gone.test.ts\n", encoding="utf-8")
+        passed.write_text("", encoding="utf-8")
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_REUSED": str(reused),
+                                                             "CMUX_WEB_TEST_PASSED_OUT": str(passed)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./test/fail.test.ts"])
+        self.assertIn("REUSED test/a.test.ts", result.stdout)
+        self.assertEqual(sorted(passed.read_text(encoding="utf-8").split()), ["src/b.test.tsx", "test/a.test.ts"])
+
+    def test_a_shard_whose_every_file_is_reused_passes_without_running_any(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reused, out = temp / "reused", temp / "head.json"
+        reused.write_text("test/a.test.ts\n", encoding="utf-8")
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_REUSED": str(reused),
+                                                                          "CMUX_WEB_TEST_RESULTS": str(out)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, [])
+        self.assertTrue(out.exists())
+
     def test_a_focused_list_naming_no_test_file_fails(self):
         """A stale selection (a moved or deleted test) must not pass by running nothing."""
         result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_FILES": "test/gone.test.ts"})

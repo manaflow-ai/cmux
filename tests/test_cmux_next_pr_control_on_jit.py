@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A same-repo pull request's cmux-next control hops start on the reserved PR control JIT label, ahead of PR CI.
+"""A same-repo pull request's cmux-next control hops start on cmux-linux, the persistent runner pool, on attempt 1.
 
 The verdict of a PR head waits on five control jobs (push-head-preflight, portable-placement, path_route,
 app-compile-placement, macos-placement), four deep, before its first test. Each took a shared RUNNER_POOLS Linux pool,
@@ -8,6 +8,10 @@ so each re-entered the PR queue: on 2026-11-20 the slowest open heads sat 4 to 2
 (cmuxterm-hq goals/pr-verdict-fast.md). cmux-gcp-pr-control-jit-x64 is served only by cmuxterm-hq's runner pool,
 one-job JIT VMs with a warm floor (runner_pool.py PR_CONTROL_JIT_LABEL). A feat-cmux-next push's control jobs take it
 too (#48261). Attempt 2 of a PR takes the old pools, the way out if those runners are down.
+
+On 2026-11-21 that label queued 1,860 jobs (oldest about 2 h): each needs a fresh one-job VM, mints are capped at 60 a
+minute and VM creates were refused, while the persistent pool had about 300 runners idle. No hop needs an ephemeral
+runner, so each takes cmux-linux, the one label for every own-branch Linux job (cmuxterm-hq decisions/junctions.md).
 
 The first landing (#47887) was reverted (#48183): the pool spent every create on a deep nightly backlog and the label
 got none. cmuxterm-hq#15779 gives each label a fair first share of every tick's creates; after it, push control jobs on
@@ -21,7 +25,8 @@ from pathlib import Path
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml"
-LABEL = "cmux-gcp-pr-control-jit-x64"
+LABEL = "cmux-linux"
+JIT_LABEL = "cmux-gcp-pr-control-jit-x64"
 ARM = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
        f"github.run_attempt == 1 && '{LABEL}'")
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
@@ -34,7 +39,7 @@ class PrControlOnJit(unittest.TestCase):
     def setUp(self) -> None:
         self.jobs = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
 
-    def test_each_hop_takes_the_label_on_a_same_repo_pr_attempt_1_after_fork_and_push(self) -> None:
+    def test_each_hop_takes_the_pool_on_a_same_repo_pr_attempt_1_after_fork_and_push(self) -> None:
         for name in HOPS:
             with self.subTest(job=name):
                 head = self.jobs[name]["runs-on"].removeprefix("${{ ").removeprefix(FORK).removeprefix(PUSH)
@@ -52,6 +57,12 @@ class PrControlOnJit(unittest.TestCase):
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(str(job.get("runs-on", "")).count(ARM), 1 if name in HOPS else 0)
+
+    def test_no_pull_request_arm_names_the_jit_label(self) -> None:
+        jit_arm = ARM.replace(f"'{LABEL}'", f"'{JIT_LABEL}'")
+        for name, job in self.jobs.items():
+            with self.subTest(job=name):
+                self.assertNotIn(jit_arm, str(job.get("runs-on", "")))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -163,13 +164,12 @@ fn the_inbox_takes_another_agents_text_only() {
 }
 
 #[test]
-fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false, false));
-    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
-    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
+fn only_a_plain_send_goes_to_the_inbox() {
+    assert!(plain_send(false, false, false, false), "from this host or a peer's forward");
+    assert!(!plain_send(true, false, false, false), "a team message");
+    assert!(!plain_send(false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
     assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
@@ -508,6 +508,78 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+#[tokio::test]
+async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
+    let (hub, session) = hub_with_chat("busy-chat");
+    // The receiving chat took 30 seconds to reply before the burst.
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let mut opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-chat",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
+    let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    let thread = hub.inbox_thread(&session, thread, false);
+    assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(thread["messages"][0]["surgeHeld"], true);
+    assert!(session.inbox().items.iter().all(|item| item.noticed));
+    let duplicate = hub.logged_inbox_answer(&session, "second").unwrap().unwrap();
+    assert_eq!(duplicate.pointer("/_meta/acpmux/surgeHeld").unwrap(), true);
+    let needle = crate::chats::search::Needle::parse("runner watcher 418").unwrap();
+    let search = hub.search_held_inbox(&session, &needle, None).unwrap();
+    assert_eq!(search["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(search["hits"][0]["promptId"], "second");
+    opts.provenance = Some(crate::prompt_provenance::notice(
+        &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+        "busy-chat",
+    ));
+    assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
+    let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
+    urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    assert!(wakes(&session.meta(), &urgent));
+    assert!(!ordinary_fyi(&urgent));
+}
+
+#[test]
+fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
+    let mut inbox = Inbox::default();
+    inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));
+    for seq in 0..(KEEP + 20) {
+        let mut held =
+            item(&seq.to_string(), "runner", "watcher", PromptClass::Fyi, seq as u64, "held");
+        held.surge_held = true;
+        held.noticed = true;
+        inbox.items.push(held);
+        trim(&mut inbox);
+    }
+    assert_eq!(inbox.items.len(), KEEP);
+    assert_eq!(inbox.items[0].prompt_id, "question");
+    assert_eq!(inbox.items.last().unwrap().prompt_id, (KEEP + 19).to_string());
+    assert!(inbox.trimmed.is_empty());
 }
 
 /// The chat runs another agent's turn (not the person's) that takes steers.
@@ -931,4 +1003,46 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         (&m["sender"]["verification"], &m["sender"]["label"]),
         (&json!("declared"), &json!("dot"))
     );
+}
+
+/// The lane-gh broker's relay of a lane VM's message, as a chat on another machine logged it
+/// (2026-11-21): a peer daemon's forward of an agent's message with no class. It woke the idle chat
+/// as a turn of its own, which ended with no tool call (cmuxterm-hq#15820); about 84 of 482
+/// no-op wake turns in 48 h were such forwards. Now the inbox takes it and, unclassified, it is
+/// an FYI: it waits for the next notice and wakes no one.
+#[test]
+fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_no_one() {
+    let provenance = json!({
+        "kind": "agent_message", "from": "fromAgent",
+        "fromName": "gcp-agent-lane-9/civ2-bench-labels", "fromHarness": "claude",
+        "fromRelay": {"by": "lane-gh", "machine": "gcp-agent-lane-9", "session": "civ2-bench-labels"},
+        "forwardedBy": {"actor": "peer"}, "transport": "peer", "verified": false,
+    });
+    let text = [
+        json!({"type": "text", "text": "[message 29188b72f511 from gcp-agent-lane-9/civ2-bench-labels (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 29188b72f511]\"]\n\nno merge SHA yet\n\n[end of message 29188b72f511]"}),
+    ];
+    // `server/requests.rs` gives a peer's forward the inbox as it gives a local send.
+    assert!(plain_send(false, false, false, false));
+    assert!(plain_kind(Some(&provenance)));
+    assert_eq!(
+        super::super::digest::agent_sender(Some(&provenance), None).as_deref(),
+        Some("gcp-agent-lane-9/civ2-bench-labels")
+    );
+    assert!(takes(true, false, Control::Peer, &text, Some(&provenance)));
+    // A relay names no session of this daemon's: it is no chat's parent or delegator.
+    assert_eq!(sender_session(Some(&provenance)), None);
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "coord", "name": "coord", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    meta.turn_count = 40;
+    meta.delegator = Some("s-leo".into());
+    let class = default_notice_class(None);
+    assert_eq!(class, PromptClass::Fyi);
+    assert!(!wakes_as(&meta, class, is_report(Some(&provenance)), None), "an idle chat sleeps on");
+    // A block or a question from the same relay still wakes it at once.
+    for urgent in [PromptClass::Block, PromptClass::Question] {
+        assert!(wakes_as(&meta, urgent, false, None), "{urgent:?}");
+    }
 }

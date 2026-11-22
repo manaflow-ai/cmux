@@ -5,7 +5,7 @@
 
 export function SkillWord({ word, description }: { word: string; description: string }) {
   return description ? (
-    <span className="cv-skill-word" data-tooltip={description} data-tooltip-side="top" aria-description={description}>
+    <span className="cv-skill-word" aria-description={description}>
       {word}
     </span>
   ) : (

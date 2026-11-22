@@ -25,6 +25,7 @@ Behaviour per prompt text:
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
+  "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
                  held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
@@ -666,6 +667,19 @@ def handle_prompt(rid, params):
     if sid in rate_failures and rate_failures[sid][0] > 0:
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
+    # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
+    # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
+    # "echo-fail: X" streams X as its reply, then fails with X, as a harness that streams its error.
+    if text.startswith(("fail: ", "work-then-fail: ", "echo-fail: ")):
+        head, error = text.split(": ", 1)
+        if head == "work-then-fail":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "work-1", "title": "Read file",
+                         "kind": "read", "status": "completed"})
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Read it."}})
+        if head == "echo-fail":
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": error}})
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": error}})
         return
     if text.startswith("recover-once: ") and sid not in failed_once:
         failed_once.add(sid)
@@ -1384,6 +1398,15 @@ def handle_prompt(rid, params):
     # "harness-title: X" titles the session itself, as Codex does.
     if text.startswith("harness-title:"):
         update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "wrap-up: JSON" replies, then ends the turn on a completed acpmux wrap_up call whose
+    # arguments are JSON ({"recap": ..., "ask": ..., "actions": [...]}), as an agent's last step.
+    if text.startswith("wrap-up:"):
+        args = json.loads(text[8:].strip())
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Done with the step."}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wrap-1", "title": "mcp__acpmux__wrap_up", "kind": "other", "status": "in_progress", "rawInput": args})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wrap-1", "status": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "suggest: TEXT" ends the turn with TEXT as the predicted next prompt.

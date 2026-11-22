@@ -29,17 +29,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsHostingVi
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageHost.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPalette.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvInspectorDirection.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvLedgerDirection.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsAuditEvent.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsEntry.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsKind.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsPlayground.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsPlaygroundModel.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsPlaygroundView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSentencesDirection.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvTerminalFrames.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFace.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFaceView.swift
@@ -103,6 +92,5 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsPageTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsSignInTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/EnvSecretsRenderedLayoutTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/NativeControlContrastAuditTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift

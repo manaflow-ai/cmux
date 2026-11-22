@@ -39,7 +39,23 @@ pub async fn call(
     extra: &[(&str, &str)],
     body: Option<&Value>,
 ) -> Result<Value> {
+    call_within(client, method, url, bearer, extra, body, None).await
+}
+
+/// [`call`] with its own bound for one slow call (`exec-await` holds the request open up to five minutes).
+pub async fn call_within(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    bearer: &str,
+    extra: &[(&str, &str)],
+    body: Option<&Value>,
+    within: Option<Duration>,
+) -> Result<Value> {
     let mut request = client.request(method.clone(), url).bearer_auth(bearer);
+    if let Some(within) = within {
+        request = request.timeout(within);
+    }
     for (name, value) in extra {
         request = request.header(*name, *value);
     }

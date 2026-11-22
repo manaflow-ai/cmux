@@ -35,6 +35,8 @@ import {
 } from "./model";
 import type { StashNotice, StashStore } from "./store";
 import type { StashGroup, StashMember } from "./types";
+import { intl } from "../../ui/intl";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Row and group-header heights before the first of their kind is measured (styles.css). */
 const ROW_ESTIMATE = 28;
@@ -96,12 +98,9 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
   const downLasting = useLasting(down);
   const shown = useMemo(() => matchGroups(snap.groups, snap.query), [snap.groups, snap.query]);
   const list = useMemo(() => stashList(shown, snap.groups), [shown, snap.groups]);
-  const time = useMemo(() => new Intl.DateTimeFormat(language, { timeStyle: "short" }), [language]);
-  const date = useMemo(
-    () => new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }),
-    [language],
-  );
-  const count = useMemo(() => new Intl.NumberFormat(language), [language]);
+  const time = useMemo(() => intl.DateTimeFormat(language, { timeStyle: "short" }), [language]);
+  const date = useMemo(() => intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }), [language]);
+  const count = useMemo(() => intl.NumberFormat(language), [language]);
   const off = snap.busy || down;
 
   // The item that holds focus stays mounted however far the list scrolls, and so does the one whose
@@ -458,7 +457,7 @@ const StashRow = memo(function StashRow({
   const workspace = isWorkspace(member);
   const aside = workspace
     ? tabs.length
-      ? new Intl.ListFormat(language, { style: "narrow" }).format(tabs)
+      ? intl.ListFormat(language, { style: "narrow" }).format(tabs)
       : undefined
     : memberHost(member);
   return (
@@ -480,20 +479,24 @@ const StashRow = memo(function StashRow({
       onContextMenu={(event) => onMenu(stash, member, event)}
       onKeyDown={(event) => onMenuKey(stash, member, event)}
     >
-      <button
-        type="button"
-        className="stash-row-main"
-        disabled={off}
-        title={workspace ? tabs.join("\n") : member.url}
-        onClick={() => onRestore(stash, member)}
-      >
-        <span className="stash-row-icon">
-          <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
-        </span>
-        <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
-        {aside && <span className="stash-row-aside">{aside}</span>}
-        <span className="stash-row-time">{time}</span>
-      </button>
+      <WithFacts facts={[{ value: (workspace ? tabs.join("\n") : member.url) ?? "" }]}>
+        {(facts) => (
+          <button
+            {...facts}
+            type="button"
+            className="stash-row-main"
+            disabled={off}
+            onClick={() => onRestore(stash, member)}
+          >
+            <span className="stash-row-icon">
+              <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
+            </span>
+            <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
+            {aside && <span className="stash-row-aside">{aside}</span>}
+            <span className="stash-row-time">{time}</span>
+          </button>
+        )}
+      </WithFacts>
     </div>
   );
 });

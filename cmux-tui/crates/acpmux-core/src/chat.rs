@@ -31,6 +31,17 @@ pub mod stream;
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
 
+pub mod draft;
+pub mod presence;
+
+pub use draft::{
+    ActError, DraftCommit, MAX_DRAFT_BYTES, TOO_LARGE, validate_draft, write_draft_atomic,
+};
+pub use presence::{
+    MAX_PRESENCE_BYTES, MAX_PRESENCE_PEOPLE, PresencePerson, PresenceStateOp, TYPING_EXPIRY,
+    TYPING_RATE_LIMIT, TypingRateLimited, TypingTracker,
+};
+
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
 struct EmptySource;
@@ -342,6 +353,7 @@ enum Request {
         conn: u64,
         sid: String,
     },
+    Presence(PresenceStateOp),
     Page {
         page: Box<Page>,
         person: stream::PersonId,
@@ -362,6 +374,7 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
+            Self::Presence(op) => encoded_len(op),
             // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
             Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
@@ -529,6 +542,12 @@ impl ChatHandle {
 
     pub fn end(&self, conn: u64, sid: &str) -> Result<(), ChatError> {
         self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|refused| refused.0)
+    }
+
+    /// Replaces the followed chat's latest presence set. The caller supplies an op returned by
+    /// [`PresenceStateOp::replace`]; the actor owns delivery and coalescing on the chat stream.
+    pub fn presence(&self, op: PresenceStateOp) -> Result<(), ChatError> {
+        self.send(Request::Presence(op)).map_err(|refused| refused.0)
     }
 
     /// A `page`, answered through `reply`; refused, it is answered at once.
@@ -1318,6 +1337,21 @@ fn handle_request(
             stream::end(state, conn, &sid);
             Ok(true)
         }
+        Request::Presence(op) => {
+            let participants = op
+                .participants
+                .into_iter()
+                .map(|person| crate::wire::PresencePerson {
+                    id: person.id,
+                    name: person.name,
+                    devices: person.devices,
+                    viewing: person.viewing,
+                    typing: person.typing,
+                })
+                .collect();
+            stream::presence(state, participants, op.trimmed);
+            Ok(true)
+        }
         Request::Page { page, person, reply } => {
             if state.ready {
                 stream::page(state, *page, person, reply);
@@ -1813,6 +1847,10 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     state.settled_since_checkpoint = 0;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "chat/act_tests.rs"]
+mod act_tests;
 
 #[cfg(test)]
 mod tests;

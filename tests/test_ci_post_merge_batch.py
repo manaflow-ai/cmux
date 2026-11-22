@@ -8,6 +8,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
+from argparse import Namespace
+from unittest import mock
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,10 +48,36 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120)[0], "skip")
         self.assertEqual(pmb.tick_decision("a" * 40, runs[:1], NOW, 120)[0], "dispatch")
 
+    def test_redispatches_a_tip_batch_with_no_verdict_once(self) -> None:
+        # Drill-8 run 44966393364: the plan lost its runner, so the tip was never tested.
+        runs = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+        runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
         self.assertEqual(pmb.window_minutes("45"), 45)
+
+
+class WebTickTest(unittest.TestCase):
+    """The batch's `web` suite replaced cmux-next-web.yml's coalescing tick: a tick dispatches no web run."""
+
+    def test_a_tick_dispatches_no_web_workflow(self) -> None:
+        calls = []
+
+        def api(path, method="GET", fields=None, **_):
+            calls.append((method, path, fields))
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=True)
+        with unittest.mock.patch.object(pmb, "gh_api", api), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "a" * 40, "2026-11-21T11:00:00Z")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
@@ -192,11 +222,18 @@ class BisectTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c3", "g", "", "1")
         self.assertEqual(pmb.next_step(probe, "success", ["c1", "c2", "c3"])[0], "flake")
 
-    def test_a_probe_without_verdict_retries_once(self) -> None:
+    def test_a_probe_without_verdict_retries_then_stops(self) -> None:
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
-        step, again = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
-        self.assertEqual((step, again.tries), ("retry", 1))
-        self.assertEqual(pmb.next_step(again, "cancelled", ["c1", "c2", "c3"])[0], "lost")
+        for n in range(1, pmb.MAX_PROBE_RETRIES + 1):
+            step, probe = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
+            self.assertEqual((step, probe.tries), ("retry", n))
+        self.assertEqual(pmb.next_step(probe, "", ["c1", "c2", "c3"])[0], "lost")
+
+    def test_a_probe_judge_runs_when_its_plan_died(self) -> None:
+        # Drill-8 probe run 44980687386: the plan job lost its runner and the bisect stopped with no judge.
+        judge = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]
+        self.assertIn("inputs.mode == 'probe'", judge["if"])
+        self.assertIn("!cancelled()", judge["if"])
 
     def test_first_parent_range_on_a_real_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +279,123 @@ class WiringTest(unittest.TestCase):
                 gate = str(callee["jobs"][job_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
+
+
+class GuardTest(unittest.TestCase):
+    """A probe's inputs are checked against the batch run that found the red; a teammate's culprit gets a held revert."""
+
+    COMMITS = ["c1", "c2", "c3", "c4"]
+    ORIGIN = {"id": 50, "display_title": "batch schedule", "path": ".github/workflows/cmux-next-post-merge.yml", "head_branch": "feat-cmux-next", "head_sha": "c4"}
+    FOUND = [("s / j", "s", "g")]
+
+    def refusal(self, probe, origin=ORIGIN, found=FOUND) -> str:
+        return pmb.probe_refusal(probe, "feat-cmux-next", origin, found, lambda good, head: self.COMMITS if (good, head) == ("g", "c4") else [])
+
+    def test_the_bisect_the_batch_started_passes(self) -> None:
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "c4", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c3", "c2", "c4", "50")), "")
+
+    def test_a_forged_range_is_refused(self) -> None:
+        # bad=X, good=X^ naming any X: X is not in the batch's covered commits.
+        self.assertIn("sha", self.refusal(pmb.Probe("s", "s / j", "j", "x", "x0", "x", "50")))
+        self.assertIn("bad", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "x", "50")))
+        self.assertIn("good", self.refusal(pmb.Probe("s", "s / j", "j", "c3", "x0", "c4", "50")))
+        self.assertIn("confirming", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "", "50")))
+
+    def test_a_job_that_was_not_a_new_red_is_refused(self) -> None:
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / k", "k", "c4", "g", "", "50")))
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50"), found=[]))
+
+    def test_an_origin_that_is_not_our_batch_run_is_refused(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")
+        self.assertIn("unreadable", self.refusal(probe, origin=None))
+        for change in ({"display_title": "probe s j at c4"}, {"path": ".github/workflows/other.yml"}, {"head_branch": "lane/x"}):
+            self.assertIn("not a batch run", self.refusal(probe, origin={**self.ORIGIN, **change}))
+
+    def test_a_teammates_culprit_is_held(self) -> None:
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "lawrencecchen"}}), "lawrencecchen")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "some-agent"}}), "")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "", api=lambda path: 1 / 0), "")
+
+        def unreadable(path):
+            raise RuntimeError("gh api: 403")
+
+        self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
+        self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+
+class PushTest(unittest.TestCase):
+    """GitHub's workflow-scope check timing out is retried; any other refusal is not."""
+
+    def pusher(self, errors):
+        calls = []
+
+        def run(*argv):
+            calls.append(argv)
+            if errors:
+                raise RuntimeError(errors.pop(0))
+            return ""
+
+        return run, calls
+
+    def test_a_timed_out_workflow_check_is_retried(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] HEAD -> x (Unable to determine if workflow can be created or updated due to timeout; `workflows` scope may be required.)"] * 2)
+        waits = []
+        pmb.push_branch("u", "HEAD:refs/heads/x", run=run, sleep=waits.append)
+        self.assertEqual((len(calls), waits), (3, [15, 45]))
+
+    def test_other_refusals_and_a_lasting_timeout_raise(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] (protected branch)"])
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 1)
+        run, calls = self.pusher(["due to timeout"] * 9)
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 4)
+
+
+class StartBranchTest(unittest.TestCase):
+    """The revert branch is created by API at the tip; one left by an earlier try is reused."""
+
+    def test_creates_the_ref_at_the_tip(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "push", "GH_TOKEN": "job"}):
+            pmb.start_branch("o/r", "revert/y", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls[0][0], "repos/o/r/git/refs")
+        self.assertEqual(calls[0][1]["fields"], {"ref": "refs/heads/revert/x", "sha": "abc"})
+        self.assertEqual(calls[1][1]["tokens"], ["push"])
+
+    def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
+        def exists(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Reference already exists (HTTP 422)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=exists)
+
+        def denied(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied, sleep=lambda s: None)
+
+    def test_a_github_5xx_is_retried_then_raises(self) -> None:
+        tries, waits = [], []
+
+        def flaky(path, **kw):
+            tries.append(1)
+            if len(tries) < 2:
+                raise RuntimeError("gh api POST repos/o/r/git/refs: gh: Server Error (HTTP 502)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=flaky, sleep=waits.append)
+        self.assertEqual((len(tries), waits), (2, [15]))
+
+        def down(path, **kw):
+            raise RuntimeError("gh: Server Error (HTTP 502)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=down, sleep=lambda s: None)
 
 
 if __name__ == "__main__":

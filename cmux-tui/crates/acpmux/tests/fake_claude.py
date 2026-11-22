@@ -73,7 +73,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line.
+control request is appended to that file, one per line. FAKE_CLAUDE_INIT_LOG logs each
+initialize as its pid and whether it asked for prompt suggestions.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
@@ -85,8 +86,9 @@ replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "agent-503" starts a background agent (agent id A503) whose task fails on SR2's 503 after the
 turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
-holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
-a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
+holds that turn until PATH exists; "agent-503-late: PATH" fails only once PATH exists, with no
+turn of its own, as a failure that lands while a person's turn runs; "agent-400" fails on a bad
+request instead, "agent-reset" on a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
 again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
 FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
 completes).
@@ -279,6 +281,17 @@ def extra_agents():
 
 def agent_failed(said):
     """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
+    if said.startswith("agent-503-late: "):
+        path = said[len("agent-503-late: "):].split("<", 1)[0].split()[0]
+
+        def fail_late():
+            import time
+            while not os.path.exists(path):
+                time.sleep(0.02)
+            agent_failure("toolu_a503")
+
+        threading.Thread(target=fail_late, daemon=True).start()
+        return
     agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
     for tool, task in extra_agents():
         send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
@@ -761,6 +774,10 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
+        # FAKE_CLAUDE_INIT_LOG=<file>: each initialize as "init <pid> <promptSuggestions>".
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_LOG"):
+            with open(os.environ["FAKE_CLAUDE_INIT_LOG"], "a") as f:
+                f.write(f"init {os.getpid()} " + str(request.get("promptSuggestions") is True).lower() + "\n")
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]

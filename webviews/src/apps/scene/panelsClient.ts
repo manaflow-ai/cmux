@@ -276,7 +276,7 @@ export class AppPanelsClient {
 let devClient: PageClient | null = null;
 /** The browser dev entry installs its mock before React mounts. Production never selects a mock
  * from a URL, and tests/gallery can inject their own PageClient directly. */
-export function installAppPanelsDevClient(client: PageClient): void {
+export function installAppPanelsDevClient(client: PageClient | null): void {
   devClient = client;
 }
 export function appPanelsDevClient(): PageClient | null {

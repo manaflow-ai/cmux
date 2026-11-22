@@ -635,6 +635,21 @@ fn server_lifecycle_routing_flags_follow_action() {
         lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
+    // `daemon stop --if-idle` (the Rex docs' `server stop --if-idle`).
+    let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
+        parse(&strings(&["server", "stop", "--if-idle"]), Surface::CmuxTui).unwrap()
+    else {
+        panic!("server stop --if-idle must produce a server plan");
+    };
+    assert!(matches!(
+        plan.action,
+        lifecycle::ServerAction::Stop { force: false, end_terminals: false, if_idle: true, .. }
+    ));
+    assert!(
+        parse(&strings(&["server", "restart", "--if-idle"]), Surface::CmuxTui).is_err(),
+        "a restart is never conditional"
+    );
+
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
         &strings(&[
             "server",

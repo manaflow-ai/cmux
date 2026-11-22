@@ -87,9 +87,17 @@ def describe(front):
     return "Home" if k == ("home",) else f"workspace={k[1]} tab={k[2]}"
 
 
+# What a person sees of a tab: a terminal frame or the launch snapshot's windows. The window's own regions
+# (reveal.sidebar, reveal.tabs, reveal.pane) ready before Home's page in a fresh window too: they hold Home.
+TAB_DRAWN = ("launch_snapshot_shown", "first_terminal_frame", "launch.visible_terminals_drawn")
+
+
 def first_surface(row):
-    """What the launch showed first: home or tabs (a pane, restored tabs, the launch snapshot's windows), or none."""
+    """What the launch showed first: home or tabs (a terminal, restored tabs, the launch snapshot's windows), or none."""
     first, marks = row.get("first_reveal"), row.get("marks") or {}
+    home = marks.get("reveal.home", marks.get("home.first_page"))
+    if home is not None:
+        return "tabs" if any(marks.get(k, home) < home for k in TAB_DRAWN) else "home"
     if first:
         return "home" if first == "home" else "tabs"
     if "launch_snapshot_shown" in marks:

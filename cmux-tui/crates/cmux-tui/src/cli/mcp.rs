@@ -25,6 +25,7 @@ mod automation_tools;
 mod browser_tools;
 mod caller_scope;
 mod chat_tools;
+mod cloud_connect_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod config;
@@ -373,7 +374,7 @@ impl Backend for LiveBackend {
 
     #[cfg(unix)]
     fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
-        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+        super::customize::run_json(&self.global, words, "mcp").map_err(|error| CallFailure {
             kind: FailureKind::Rejected,
             error,
             idempotency_key: None,
@@ -1194,6 +1195,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_connect_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {

@@ -217,6 +217,30 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Chưa có kết nối Cloud nào cung cấp %1$@. Hãy thêm một kết nối trong Cài đặt > Cloud (ChatGPT, Claude hoặc khóa API), rồi chạy lại `%2$@`."}}
       }
     },
+    "cloud.startSession.setupRequired.open": {
+      "comment": "After cloud.startSession.setupRequired: the command that opens the Settings > Cloud row that sets the agent up. %@ is the cmux:// link. Keep the command as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "`cmux link open --url %@` opens it there."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "`cmux link open --url %@` でその設定を開けます。"}}
+      }
+    },
+    "cloud.startSession.setupRequired.claudeLogin": {
+      "comment": "Before cloud.startSession.setupRequired: this Mac is signed in to Claude Code, whose login serves only this Mac, not Cloud. Keep Claude Code and setup token as the app names them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your Claude Code login on this Mac works only on this Mac; Cloud needs a Claude setup token (or an API key)."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac の Claude Code のログインはこの Mac でしか使えません。Cloud には Claude のセットアップトークン(または API キー)が必要です。"}}
+      }
+    },
+    "cloud.startSession.setupRequired.codexLogin": {
+      "comment": "Before cloud.startSession.setupRequired: this Mac is signed in to Codex, whose login serves only this Mac, not Cloud. Keep Codex and ChatGPT as the app names them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your Codex login on this Mac works only on this Mac; Cloud needs a ChatGPT connection (or an API key)."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac の Codex のログインはこの Mac でしか使えません。Cloud には ChatGPT の接続(または API キー)が必要です。"}}
+      }
+    },
     "cloud.startSession.needsMachine": {
       "comment": "cmux cloud start-session run by a script or agent without a machine. %1$@ is the agent (claude). Keep the commands as written.",
       "extractionState": "manual",

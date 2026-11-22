@@ -77,10 +77,12 @@ extension NativeNewTabModel {
     ///   - actions: What the page asks its host to do.
     ///   - list: The page's asks for the palette's actions; one for each page.
     ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
-    public convenience init(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = []) {
+    ///   - favicons: The host's asynchronous favicon source, if it has one.
+    public convenience init(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = [],
+                            favicons: NativeNewTabFavicons? = nil) {
         var shown = page
         let show = list.show(in: &shown)
-        self.init(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats)
+        self.init(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats, favicons: favicons)
         list.model = self
     }
 
@@ -92,10 +94,13 @@ extension NativeNewTabModel {
     ///   - actions: What the page asks its host to do, for the tab it now is.
     ///   - list: The page's asks for the palette's actions; one for each page.
     ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
-    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = []) {
+    ///   - favicons: The host's asynchronous favicon source for the tab it now is.
+    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList, chats: [AgentPaneDeviceChat] = [],
+                      favicons: NativeNewTabFavicons? = nil) {
         var shown = page
         let show = list.show(in: &shown)
         adopt(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats)
+        self.favicons = favicons
         list.model = self
     }
 }

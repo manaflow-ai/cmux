@@ -158,13 +158,11 @@ public final class NativePopupHost {
     /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
     /// active). The popup shows in one frame, with no grow or fade in; its close still fades.
-    /// `tooltipEntrance` is for a page tooltip only (``WebPopupHost``): it fades and grows in
-    /// (``NSWindow/openTooltipWithEntrance(pivot:)``). Menus and popovers never pass it.
     /// Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     tooltipEntrance: Bool = false, sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let frame: CGRect
         let side: PopupPlacement.Side
@@ -195,7 +193,7 @@ public final class NativePopupHost {
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
         if opening {
             let pivot = panel.popupPivot(toward: anchor)
-            if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
+            panel.openPopup(pivot: pivot)
         }
         watch(dismissalWindow ?? window)
         if opening, followsOpeningPress { followHeldPress(buttons: NSEvent.pressedMouseButtons) }

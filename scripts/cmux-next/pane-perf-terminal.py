@@ -81,6 +81,14 @@ parser.add_argument("--content", default="terminal", choices=["terminal", "chrom
 parser.add_argument("--pages", type=int, default=0,
                     help="with --browser: this many more panes of each layout (the first ones split) show a Chromium page "
                          "(a static page beside the probe: every page the window holds is re-placed on a motion frame)")
+parser.add_argument("--page-resize-work-ms", type=float, default=0,
+                    help="with --browser: the probe page's resize handler keeps the page busy this long, as a page that lays "
+                         "itself out again in script does (the AWS console: 2 to 4 frames); the gap counts read it")
+parser.add_argument("--film", type=int, default=0,
+                    help="with --browser: after the rounds, this many takes of each action as a movie of every composited "
+                         "frame (`debug.motion record_*`, ScreenCaptureKit), in <out>/films/ and <out>/films.tgz; the probe "
+                         "page gets a magenta bar on its right and bottom edges, so a frame where the page's backdrop shows "
+                         "past them is a gap frame (scripts/cmux-next/film-page-gap.py counts them)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -150,9 +158,14 @@ header{position:sticky;top:0;display:flex;align-items:center;gap:12px;height:64p
 <div class="grid">""" + "<div></div>" * 240 + """</div>
 <script>
 window.__frames = 0;
+window.__rz = [];
 const spin = document.getElementById('spin');
+window.__work = 0;
+addEventListener('resize', () => { const end = performance.now() + __work; while (performance.now() < end); });
 requestAnimationFrame(function frame() {
   window.__frames++;
+  // After the frame's resize work: the time the page is laid out at this size, not the frame's start.
+  if (__rz.length < 20000) __rz.push([performance.timeOrigin + performance.now(), innerWidth, innerHeight]);
   spin.style.transform = 'rotate(' + (window.__frames * 6 % 360) + 'deg)';
   requestAnimationFrame(frame);
 });
@@ -172,13 +185,57 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
+              ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
-BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+BROWSER_KEYS = ([key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+                + ["gap_frames", "gap_delay_frames", "gap_layout_lag"])
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "rAF", "catch", "reord", "post/f"]
+                 "fencej", "fencems", "rAF", "catch", "reord", "post/f", "gap", "delay", "lag"]
+# --browser: the layout actions whose page gap is measured (`page_gap`): a split, a close, a zoom or unzoom of the panes.
+GAP_ACTIONS = ("split", "close", "split-down", "close-down", "column", "column-close", "zoom", "unzoom")
+
+
+def page_gap(trace, rz, refresh_ms, started_ms):
+    """The probe page's white gap in one layout action (Lawrence 2026-11-20: a zoomed AWS console showed its old,
+    narrower frame beside its backdrop for 2 to 4 frames). Per display frame of `debug.motion trace_*` (`page` rows,
+    CEFHostView+MotionSample: the page area's size at 7 and 12, the browser id at 13) the page's own layout then
+    (`window.__rz`, its last animation frame by that frame's time, as browser_resize.py lines the clocks up) is narrower
+    or shorter than its page area: the page's frame does not cover its pane there. The probe's host is the one whose
+    area had the probe's size when the action began and changed in it (none changed: the first that matched).
+    Returns (gap frames, display frames from the action's call to the area's change, frames from that change to the
+    page's first layout at the area's final size), each None when not measured."""
+    page = sorted((float(r[0]), float(r[1]), float(r[2])) for r in rz or [] if isinstance(r, list) and len(r) >= 3)
+    rows = {}
+    for sample in (trace or {}).get("samples") or []:
+        for row in sample.get("page") or []:
+            if isinstance(row, list) and len(row) >= 14:
+                rows.setdefault(row[13], []).append((float(row[4]), float(row[7]), float(row[12])))
+    if not page or not rows or not refresh_ms:
+        return None, None, None
+    near = lambda a, b: abs(a - b) <= 1.0
+    start = next((p for p in page if p[0] <= started_ms), page[0])
+    matched = [key for key, series in rows.items() if near(series[0][1], start[1]) and near(series[0][2], start[2])]
+    changed = [key for key in matched if any(not near(w, rows[key][0][1]) or not near(h, rows[key][0][2]) for _, w, h in rows[key])]
+    if not matched:
+        return None, None, None
+    series = rows[(changed or matched)[0]]
+    gap = 0
+    for wall, width, height in series:
+        shown = [p for p in page if p[0] <= wall + refresh_ms / 2]
+        if shown and (shown[-1][1] < width - 1.0 or shown[-1][2] < height - 1.0):
+            gap += 1
+    first_w, first_h = series[0][1], series[0][2]
+    change = next((i for i, (_, w, h) in enumerate(series) if not near(w, first_w) or not near(h, first_h)), None)
+    if change is None:
+        return gap, None, None
+    delay = sum(1 for wall, _, _ in series[:change] if wall >= started_ms)
+    final_w, final_h = series[-1][1], series[-1][2]
+    laid = next((t for t, w, h in page if t >= series[change][0] - refresh_ms / 2 and near(w, final_w) and near(h, final_h)), None)
+    lag = round(max(0.0, (laid - series[change][0]) / refresh_ms), 2) if laid is not None else None
+    return gap, delay, lag
 WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
 STILL = ("drag", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
 WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
@@ -263,7 +320,13 @@ def open_page():
     focused (TabLifecycle.newBrowser, PaneController.newBrowserTab). Returns an error, or None once its loop runs."""
     PROBE.clear()
     path = os.path.join(opts.out, "pane-perf-probe.html")
-    open(path, "w").write(PROBE_PAGE)
+    page = PROBE_PAGE.replace("window.__work = 0;", f"window.__work = {max(0.0, opts.page_resize_work_ms)};")
+    if opts.film:
+        # The page's own right and bottom edges, in a color nothing else in the window has (film-page-gap.py).
+        page = page.replace("</style>", "#edge-r{position:fixed;top:0;right:0;bottom:0;width:12px;background:#ff00ff}"
+                            "#edge-b{position:fixed;left:0;right:0;bottom:0;height:12px;background:#ff00ff}</style>"
+                            ).replace("<header>", "<i id=\"edge-r\"></i><i id=\"edge-b\"></i><header>")
+    open(path, "w").write(page)
     # The URL goes under `args` (a top-level `url` opens the New Tab page).
     verb = f"openBrowser.{opts.browser_engine}"
     opened = action(verb, {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
@@ -423,18 +486,33 @@ def perform(name):
 
 def moving_frames(samples):
     """Display frames the layout moved: per frame a screen steps, its `layout.travel` sample (the points its pane and
-    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left). New
+    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left), and the
+    `layout.commit` sample of its commit motion (the animations on the pane layers in flight: a split, a close, a zoom
+    and an unzoom are one commit whose panes move on the render server, PaneCommitMotion, with no spring). New
     Column moves only the camera (a new column never resizes the columns there, column-scroll.md R3b), so a count of
-    `layout.travel` alone read 0 for every New Column. A build without `layout.camera` counts the springs alone."""
+    `layout.travel` alone read 0 for every New Column; a count of the springs and the camera read 0 for every split,
+    close, zoom and unzoom. A tick samples the screen first, then its commit motion (LayoutRootView: `step`, then
+    `zoomDim.step`), so a commit sample right after a counted frame's samples is that frame. A build without
+    `layout.camera` counts the springs alone; one without `layout.commit`, the springs and the camera."""
     samples = samples if isinstance(samples, list) else []
     count = 0
+    counted = -2  # index of the last sample of the last frame counted
     for index, sample in enumerate(samples):
-        if not isinstance(sample, dict) or sample.get("name") != "layout.travel":
+        if not isinstance(sample, dict):
+            continue
+        if sample.get("name") == "layout.commit":
+            if (sample.get("v") or 0) > 0 and counted != index - 1:
+                count += 1
+                counted = index
+            continue
+        if sample.get("name") != "layout.travel":
             continue
         after = samples[index + 1] if index + 1 < len(samples) else None
-        camera = after.get("v") if isinstance(after, dict) and after.get("name") == "layout.camera" else 0
+        paired = isinstance(after, dict) and after.get("name") == "layout.camera"
+        camera = after.get("v") if paired else 0
         if (sample.get("v") or 0) > 0 or (camera or 0) > 0:
             count += 1
+            counted = index + 1 if paired else index
     return count
 
 
@@ -487,9 +565,14 @@ def measure(label, name):
     window_before = window_geometry.get("frame")
     if name == "window-zoom":
         WINDOW_RESTORE = window_before
+    gap_traced = opts.browser and name in GAP_ACTIONS and PROBE.get("tab")
     if name in WINDOW_ACTIONS:
         rpc("debug.motion", {"action": "trace_start", "targets": ["window"]})
         time.sleep(0.05)  # test harness: record the resting geometry before the input
+    elif gap_traced:
+        page_eval("window.__rz.length = 0, true")
+        rpc("debug.motion", {"action": "trace_start", "targets": ["page"]})
+        time.sleep(0.05)  # test harness: record the page at rest before the input
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
@@ -498,6 +581,7 @@ def measure(label, name):
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
+    started_ms = time.time() * 1000
     error = perform(name)
     time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
@@ -505,6 +589,7 @@ def measure(label, name):
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     background_cpu = bench_background.delta(background)
     window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
+    gap_trace = rpc("debug.motion", {"action": "trace_stop"}) if gap_traced else None
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
     # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
@@ -585,17 +670,32 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        # Which fork ran the page, and whether the page was layer-hosted: a fence joins only on fork API 34 and up,
+        # with the page hosted (CEFLayerHosting.pageViewResized).
+        result["cef_fork_api"] = counter(cef_after, "windows", "fork_api")
+        result["cef_hosted_pages"] = counter(cef_after, "tracker", "hosted_pages")
         layers_after = first_window(rpc("debug.layers"))
         for key, field in LAYER_DELTAS:
             result[key] = change(layers_before.get(field), layers_after.get(field))
         # Geometry posts per display frame the springs moved (a still action: per frame of the action).
         span = moving if name not in STILL else (frames.get("frames") or 0)
         result["posts_per_frame"] = round(result["trk_posts"] / span, 2) if isinstance(result["trk_posts"], (int, float)) and span else None
+        rz = None
+        if gap_traced:
+            raw = page_eval("JSON.stringify(window.__rz)")
+            try:
+                rz = json.loads(raw) if isinstance(raw, str) else None
+            except ValueError:
+                rz = None
+        refresh_trace = (gap_trace or {}).get("refresh_ms") if isinstance(gap_trace, dict) else None
+        result["gap_frames"], result["gap_delay_frames"], result["gap_layout_lag"] = (
+            page_gap(gap_trace, rz, refresh_trace, started_ms) if gap_traced else (None, None, None))
         extra += (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
-                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
+                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}  "
+                 f"gap {result['gap_frames']} frames (delay {result['gap_delay_frames']}, lag {result['gap_layout_lag']})")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
@@ -620,6 +720,25 @@ def steps():
     if "close" in wanted and "split" not in wanted:
         names += ["split", "close"]  # a close needs a pane to close: the split before it is timed too
     return names
+
+
+def film(name, label):
+    """One take of `name` as a movie of every frame the window server composited for the app's windows."""
+    folder = os.path.join(opts.out, "films")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, label.replace(" ", "-") + ".mov")
+    started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": 6})
+    if not isinstance(started, dict) or started.get("error"):
+        print(f"  (no film of {label}: {started})", flush=True)
+        return
+    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 5):
+        print(f"  (no film of {label}: the capture never ran)", flush=True)
+    time.sleep(0.4)  # test harness: the film has the window at rest before the act
+    perform(name)
+    time.sleep(1.6)  # test harness: the act and the page's layout land
+    rpc("debug.motion", {"action": "record_stop"})
+    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 10):
+        print(f"  (film of {label}: not written in 10 s)", flush=True)
 
 
 def record(name, label):
@@ -826,7 +945,7 @@ def main():
                     UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
                 if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
+                    row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit's render-server move)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
@@ -838,6 +957,12 @@ def main():
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
+        for take in range(opts.film if opts.browser else 0):
+            for step in sequence:
+                if step in GAP_ACTIONS and not not_applicable(step, columns if name != "stress" else None):
+                    if step not in ("close", "close-down", "column-close", "unzoom"):
+                        focus_page()
+                    film(step, f"{name}-{step}-{take}")
         if opts.record:
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):
@@ -899,6 +1024,8 @@ finally:
     # One artifact with everything (report, samples, pictures, recordings): artifacts/.../out.tgz.
     subprocess.run(["tar", "-czf", os.path.join(opts.out, "out.tgz"), "-C", opts.out]
                    + [p for p in os.listdir(opts.out) if p.endswith((".json", ".txt", ".png")) or p == "frames"], capture_output=True)
+    if opts.film and os.path.isdir(os.path.join(opts.out, "films")):
+        subprocess.run(["tar", "-czf", os.path.join(opts.out, "films.tgz"), "-C", opts.out, "films"], capture_output=True)
     if opts.record and os.path.isdir(os.path.join(opts.out, "frames")):
         # One artifact: the recordings and snapshots beside the report.
         subprocess.run(["tar", "-czf", os.path.join(opts.out, "frames.tgz"), "-C", opts.out, "frames"]

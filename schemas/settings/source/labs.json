@@ -181,26 +181,31 @@
         },
         {
           "key": "labs.agentCustomization",
-          "note": "Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`): Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins) in those agents own files. Off by default; off shows only cmux own servers, as before. Leo 2026-11-19: \"when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing.\"",
+          "name": "agentCustomization",
+          "note": "Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: \"when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing.\"",
           "title": {
             "key": "settings.labs.agentCustomization",
             "text": "Claude Code and Codex Customization"
           },
           "help": {
             "key": "settings.labs.agentCustomization.help",
-            "text": "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+            "text": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."
           },
           "kind": "toggle",
           "default": false,
           "keywords": [
+            "labs",
             "claude",
             "codex",
             "mcp",
             "servers",
+            "skills",
+            "commands",
+            "slash",
             "customize",
             "agent",
-            "config",
-            "labs"
+            "agents",
+            "config"
           ]
         }
       ]

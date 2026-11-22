@@ -11,7 +11,11 @@ extension AgentPaneDisplaySettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.width", "Chat Text Width"),
                 help: SettingsText.keyed("settings.agentPane.display.width.help", "The widest the chat's column gets. On a wider pane the chat stays centered."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
+                kind: .choiceOrNumber([
+                    SettingChoice("narrow", SettingsText.keyed("settings.choice.width.narrow", "Narrow")),
+                    SettingChoice("medium", SettingsText.keyed("settings.choice.editor.medium", "Medium")),
+                    SettingChoice("wide", SettingsText.keyed("settings.choice.width.wide", "Wide")),
+                ], SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.widthDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "width", "max width", "column", "measure", "wide"]
             ),
@@ -171,6 +175,36 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.uiFontDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.uiFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.uiFamily", "Chat Interface Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.uiFamily.help", "A font family or a comma list of them. When set, it replaces the Chat Interface Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "font", "interface", "ui", "family", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.proseFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.proseFamily", "Chat Reply Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.proseFamily.help", "The font of the agent's replies. When set, it replaces the Chat Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "reply", "prose", "family", "serif", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.facesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.fontFaces", "Chat Font Files"),
+                help: SettingsText.keyed("settings.agentPane.display.fontFaces.help", "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["agent", "chat", "display", "font", "file", "woff2", "ttf", "otf", "face", "typeface", "custom"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,
@@ -343,46 +377,6 @@ extension AgentPaneDisplaySettingsSchema {
                 kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
                 keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton", "Jump to Latest While Working"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton.help", "What the Jump to latest button shows while the agent works."),
-                kind: .choice([
-                    SettingChoice("arrow", SettingsText.keyed("settings.choice.thinkingJumpArrow", "Arrow")),
-                    SettingChoice("dots", SettingsText.keyed("settings.choice.dots", "Dots")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.thinkingJumpButtonDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "jump", "latest", "scroll", "button", "arrow", "dots", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.harnessPlacementPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
-                kind: .choice([
-                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
-                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
-                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.railSidePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
-                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
-                kind: .choice([
-                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
-                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
             ),
         ]
     }

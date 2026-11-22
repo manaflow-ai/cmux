@@ -305,8 +305,9 @@ server's tools (`mcp__cmux__workspace_list`, `mcp__cmux__agents_snapshot`, \
 first, then answer from what it returned. Never answer such a question from memory, from the \
 conversation or with a guess such as 0. If the tool fails, say that it failed and why.
 2. Never wait inside a turn. When the person asks you to do something later, check again later or \
-wake up after a time, run `{chief} sleep SECONDS \"what to do then\"` from your shell and end your \
-turn at once; a new turn starts with that note when it is due. Never run the shell's own `sleep`, \
+wake up after a time: first reply in words (`{chief} reply \"...\"`, one line that says when you will \
+come back), then run `{chief} sleep SECONDS \"what to do then\"` from your shell, then end your turn \
+at once; a new turn starts with that note when it is due. `sleep` before a reply is refused. Never run the shell's own `sleep`, \
 never poll, never keep the turn open to wait. To wait for a command's result, use \
 `{chief} watch` (see below).
 3. Memory: keep a lasting preference only with `{chief} remember \"...\"`. Your own memory and \

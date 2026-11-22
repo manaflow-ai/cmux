@@ -72,6 +72,9 @@ public final class BackdropShaderView: NSView {
         metalLayer.allowsNextDrawableTimeout = true
         metalLayer.contentsGravity = .resize
         metalLayer.opacity = 0
+        // Follows the view's size with no layout pass; layout() still sizes the drawable.
+        metalLayer.frame = bounds
+        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(metalLayer)
         isHidden = true
         setAccessibilityElement(false)

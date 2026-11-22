@@ -95,6 +95,7 @@ struct HomeWindowControlsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         split.frame = NSRect(x: 240, y: 0, width: 760, height: 700)
@@ -127,13 +128,18 @@ struct HomeWindowControlsTests {
         win.contentView = root
         column.layoutSubtreeIfNeeded()
         let lights = try Self.lights(in: column)
-        #expect(!compose.frame.intersects(lights), "compose sits on the traffic lights")
-        #expect(compose.frame.minX >= lights.maxX)
-        #expect(abs(compose.frame.midY - lights.midY) <= 1, "compose is not on the lights' line")
-        // Beside the list (clear of the lights) it keeps its inset.
+        // Chats (the list's toggle) leads, compose follows it on the same line.
+        for button in [column.chats as NSView, compose] {
+            #expect(!button.frame.intersects(lights), "\(button) sits on the traffic lights")
+            #expect(button.frame.minX >= lights.maxX)
+            #expect(abs(button.frame.midY - lights.midY) <= 1, "\(button) is not on the lights' line")
+        }
+        #expect(compose.frame.minX > column.chats.frame.maxX, "compose overlaps Chats")
+        // Beside the list (clear of the lights) Chats keeps its inset.
         column.frame = NSRect(x: 320, y: 0, width: 680, height: 700)
         column.layoutSubtreeIfNeeded()
-        #expect(compose.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
+        #expect(compose.frame.minX > column.chats.frame.maxX)
     }
 
     // MARK: The layout alone

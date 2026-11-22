@@ -347,6 +347,8 @@ type Moving = {
   fades: boolean;
   animations: Animation[];
   clip?: number;
+  /// An arriving row's hold: how long into the move its fade starts (when no kept row crosses it).
+  hold?: number;
   end?: number;
   covered?: string;
   crop?: string;
@@ -400,13 +402,24 @@ export function playTurnEnd(
     // that came late (a busy main thread, 130 ms and more: entranceClock.ts) left the timer to finish
     // the fold part way, its rest in one jump (Leo, 2026-11-21: "sometimes animations sprint for no
     // reason"). A hidden page paints no frame and keeps the swap's timer.
-    if (fold.timer !== undefined) {
-      clearTimeout(fold.timer);
-      fold.timer = setTimeout(() => settleTurnEnd(thread, fold), lead + ms + 50);
-    }
+    if (fold.timer !== undefined) arm(lead);
   });
   /// How long until the move starts (negative once it runs).
   const toMove = () => (movesAt === undefined ? lead : movesAt - now());
+  /// How long past the move's end the fold runs: the latest hold of a row that arrives, whose fade
+  /// starts when the kept rows have cleared its box and takes the move's length from there. The
+  /// backstop waits for it: armed at the move's end alone, it finished a held fade part way, the
+  /// reply from 28% ink to full in one step (cmux#48689 F2).
+  let tail = 0;
+  /// A row arrived playing its own entrance, so the fold drew nothing on it. The fold still runs:
+  /// later passes ease that row to its place as the rows above settle (a turn of words alone has no
+  /// other animation at its first pass, and a fold dropped there let the reply step 35 px in a frame).
+  let entering = false;
+  // `wait`: until the move starts, negative once it runs, so a pass mid-move arms what is left.
+  const arm = (wait = toMove()) => {
+    clearTimeout(fold.timer);
+    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, wait + ms + tail + 50));
+  };
   const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
     // On the fold's clock: a pass after its first frame starts each animation part way, in step.
     const delay = (timing.delay ?? 0) + toMove();
@@ -546,10 +559,7 @@ export function playTurnEnd(
       }
       // The clock starts again from this pass: its end moves out with it.
       easing = timing!.easing;
-      if (fold.timer !== undefined) {
-        clearTimeout(fold.timer);
-        fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, toMove()) + ms + 50);
-      }
+      if (fold.timer !== undefined) arm();
     }
     const restart = (
       node: HTMLElement,
@@ -564,7 +574,8 @@ export function playTurnEnd(
         last &&
         Math.abs(last.delta - next.delta) < 0.5 &&
         last.fades === next.fades &&
-        Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5
+        Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5 &&
+        Math.abs((last.hold ?? 0) - (next.hold ?? 0)) < FRAME_MS
       )
         return;
       for (const animation of last?.animations ?? []) {
@@ -603,6 +614,9 @@ export function playTurnEnd(
       }
       return Math.min(1, (last + 1) / 200);
     };
+    /// How far into the move this pass runs, and the latest hold it gives a row that arrives.
+    const elapsed = Math.max(0, -toMove());
+    let holds = 0;
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
@@ -616,11 +630,28 @@ export function playTurnEnd(
         // ink until the move has landed (the move's delay, then its length), and fades in there. This
         // covers a renamed streaming reply, a reply outside the warm window, and rows that arrive with
         // the next turn.
-        const from = starts.get(node)?.opacity ?? 0;
-        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]], {
-          delay: ms * clearFraction(index),
-          fill: "backwards",
-        });
+        // The hold is read again on every pass (cmux#48689 F1): a row above measured shorter, or the
+        // view scrolled, and a kept row now crosses a box it did not at the first pass. The reply then
+        // goes back to no ink until that row has passed. A hold that ends before this pass (nothing
+        // crosses any more) starts the fade now, and a fade already running is left to run.
+        const clear = ms * clearFraction(index);
+        const last = moving.get(node);
+        // Nothing crosses a row that plays its own entrance: that entrance is its only fade.
+        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+          entering = true;
+          return;
+        }
+        const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
+        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : elapsed;
+        holds = Math.max(holds, hold);
+        const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
+        restart(
+          node,
+          moving,
+          { delta: 0, fades: true, animations: [], hold },
+          () => [[{ opacity: from }, { opacity: 1 }]],
+          { delay: hold, fill: "backwards" },
+        );
         return;
       }
       if (!before) {
@@ -658,6 +689,10 @@ export function playTurnEnd(
         ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
       ]);
     });
+    if (Math.abs(holds - tail) >= 1) {
+      tail = holds;
+      if (fold.timer !== undefined) arm();
+    }
     const placedById = new Map(nodes.map((node, index) => [node.dataset.rowId!, { node, index }]));
     type Boundary = { row: Drawn; node: HTMLElement; index: number };
     const boundaries = new Map<HTMLElement, { above?: Boundary; below?: Boundary }>();
@@ -752,7 +787,7 @@ export function playTurnEnd(
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
   pass();
-  if (fold.animations.size === 0) {
+  if (fold.animations.size === 0 && !entering) {
     settleTurnEnd(thread, fold);
     return undefined;
   }
@@ -781,6 +816,6 @@ export function playTurnEnd(
     scroller?.removeEventListener("scroll", pass);
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
-  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), lead + ms + 50);
+  arm(lead);
   return fold;
 }

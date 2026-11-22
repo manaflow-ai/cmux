@@ -209,13 +209,15 @@ import Testing
         column.showsCompose = true
         window.contentView?.addSubview(column)
         column.layoutSubtreeIfNeeded()
-        #expect(column.compose.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.compose.frame.minX > column.chats.frame.maxX)
 
         column.setFrameOrigin(.zero)
         WindowControlsAvoiders.refresh(in: window)
         column.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(column.compose).intersects(lights), "the compose button is under the traffic lights")
+        #expect(!inWindow(column.chats).intersects(lights), "the Chats button is under the traffic lights")
     }
 
     /// The shared measure (`WindowTitlebar.windowControlsMaxX`): only what lies over the shown part counts.

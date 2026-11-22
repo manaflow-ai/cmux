@@ -1,5 +1,5 @@
 #if DEBUG
-import SwiftUI
+import AppKit
 
 /// DEBUG ONLY (Environment Secrets Playground): the four row types of the proposed Environment page.
 /// The playground's labels are DEV-only English, as the other playgrounds' are.
@@ -42,12 +42,12 @@ enum EnvSecretsKind: Int, CaseIterable, Identifiable {
         }
     }
 
-    var tint: Color {
+    var tint: NSColor {
         switch self {
-        case .variable: Color(nsColor: .secondaryLabelColor)
-        case .apiSecret: Color(nsColor: .systemTeal)
-        case .setupSecret: Color(nsColor: .systemIndigo)
-        case .envSecret: Color(nsColor: .systemOrange)
+        case .variable: NSColor.secondaryLabelColor
+        case .apiSecret: NSColor.systemTeal
+        case .setupSecret: NSColor.systemIndigo
+        case .envSecret: NSColor.systemOrange
         }
     }
 

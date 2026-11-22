@@ -61,6 +61,9 @@ class Tree:
     def __init__(self, repo: Path, rev: str | None):
         self.repo, self.rev = repo, rev
         self.cache: dict[str, bytes | None] = {}
+        # path -> blob id, from files()' listing: load() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
+        # path from the root tree again, about 4 ms a file on big-red's cmux mirror (2026-11-21).
+        self.ids: dict[str, str] = {}
 
     def covered(self, path: str) -> None:
         """Stops the check when PATH is outside INPUTS (the gate would skip a push that changes only it)."""
@@ -83,7 +86,7 @@ class Tree:
         wanted = [p for p in paths if p not in self.cache]
         if not wanted or self.rev is None:
             return
-        request = "".join(f"{self.rev}:{p}\n" for p in wanted).encode()
+        request = "".join(f"{self.ids.get(p) or f'{self.rev}:{p}'}\n" for p in wanted).encode()
         # The request goes through a file, never `input=` (git_batch.py): over a pipe, Python can
         # block writing it while git blocks writing a big blob back, and the push hangs for good.
         with tempfile.TemporaryFile() as stdin:
@@ -115,9 +118,19 @@ class Tree:
                 dirs[:] = [d for d in dirs if d not in ("node_modules", "dist")]
                 found += [os.path.relpath(os.path.join(root, n), self.repo).replace(os.sep, "/") for n in names]
             return sorted(found)
-        out = subprocess.run(["git", "-C", str(self.repo), "ls-tree", "-r", "-z", "--name-only", self.rev, "--", prefix],
-                             capture_output=True).stdout.decode()
-        return sorted(p for p in out.split("\0") if p and "/node_modules/" not in p)
+        out = subprocess.run(["git", "-C", str(self.repo), "ls-tree", "-r", "-z", self.rev, "--", prefix],
+                             capture_output=True).stdout
+        found = []
+        for entry in out.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            path = name.decode()
+            if len(fields) != 3 or not path or "/node_modules/" in path:
+                continue
+            found.append(path)
+            if fields[1] == b"blob":
+                self.ids[path] = fields[2].decode()
+        return sorted(found)
 
 
 def blank(match: re.Match) -> str:

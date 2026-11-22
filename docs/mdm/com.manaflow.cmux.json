@@ -80,6 +80,14 @@
       "title" : "Play Sound When Work Finishes",
       "type" : "boolean"
     },
+    "agentPane.display.font.faces" : {
+      "description" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+      "properties" : {
+
+      },
+      "title" : "Chat Font Files",
+      "type" : "object"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -98,6 +106,11 @@
         "mono"
       ],
       "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.proseFamily" : {
+      "description" : "The font of the agent's replies. When set, it replaces the Chat Font.",
+      "title" : "Chat Reply Font Family",
       "type" : "string"
     },
     "agentPane.display.font.size" : {
@@ -126,6 +139,11 @@
         "atkinson"
       ],
       "title" : "Chat Interface Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.uiFamily" : {
+      "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+      "title" : "Chat Interface Font Family",
       "type" : "string"
     },
     "agentPane.display.fullWidth" : {
@@ -331,11 +349,14 @@
     },
     "agentPane.display.width" : {
       "default" : 800,
-      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
-      "maximum" : 4000,
-      "minimum" : 480,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile.",
+      "enum" : [
+        "narrow",
+        "medium",
+        "wide"
+      ],
       "title" : "Chat Text Width",
-      "type" : "number"
+      "type" : "string"
     },
     "agentPane.editedFiles.maxRows" : {
       "default" : 3,
@@ -410,6 +431,17 @@
       "title" : "Scroll to Bottom When I Send",
       "type" : "boolean"
     },
+    "agentPane.sessionWorktrees" : {
+      "default" : "off",
+      "description" : "Choose where to keep worktrees for local chats and forks.",
+      "enum" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "title" : "Session Worktrees",
+      "type" : "string"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -477,6 +509,19 @@
       "minimum" : 10,
       "title" : "Only Above Context Used (%)",
       "type" : "number"
+    },
+    "agents.chats.archiveInactive" : {
+      "default" : "never",
+      "description" : "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+      "enum" : [
+        "never",
+        "1d",
+        "3d",
+        "7d",
+        "30d"
+      ],
+      "title" : "Archive Inactive Chats",
+      "type" : "string"
     },
     "agents.chats.coldArchive" : {
       "default" : false,
@@ -714,6 +759,36 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.language" : {
+      "default" : "system",
+      "description" : "The language of cmux's menus, pages and messages.",
+      "enum" : [
+        "system",
+        "en",
+        "ar",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "nb",
+        "pl",
+        "pt-BR",
+        "tr",
+        "vi",
+        "ru",
+        "uk",
+        "th",
+        "km",
+        "ja",
+        "ko",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "title" : "Language",
+      "type" : "string"
+    },
     "app.quitBehavior" : {
       "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -936,7 +1011,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1095,6 +1188,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Background",
@@ -1260,6 +1371,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1424,6 +1553,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -1433,6 +1580,14 @@
       "description" : "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone.",
       "title" : "Sun Location",
       "type" : "string"
+    },
+    "appearance.backgroundMemory" : {
+      "description" : "The folder and picture each background mode last showed, so switching back restores them.",
+      "properties" : {
+
+      },
+      "title" : "Background Mode Memory",
+      "type" : "object"
     },
     "appearance.backgroundOpacity" : {
       "description" : "How much of the theme color covers the material behind the window.",
@@ -1583,6 +1738,18 @@
       "minimum" : 0.05,
       "title" : "Spring Response",
       "type" : "number"
+    },
+    "appearance.cornerFlush" : {
+      "default" : "flush",
+      "description" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+      "enum" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "title" : "Selected Tab Shape",
+      "type" : "string"
     },
     "appearance.customDensities" : {
       "default" : [
@@ -1823,6 +1990,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -2131,6 +2304,24 @@
         "subtleTone"
       ],
       "title" : "Title Area",
+      "type" : "string"
+    },
+    "appearance.twoTone" : {
+      "default" : "off",
+      "description" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+      "enum" : [
+        "off",
+        "auto",
+        "inkSakura",
+        "charcoalRose",
+        "inkMagenta",
+        "creamForest",
+        "navySand",
+        "boneOxblood",
+        "slateMatcha",
+        "plumAmber"
+      ],
+      "title" : "Two-Tone",
       "type" : "string"
     },
     "appearance.wallpaperTint" : {
@@ -2861,7 +3052,7 @@
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
-      "default" : true,
+      "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
       "type" : "boolean"
@@ -3379,6 +3570,30 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.agentBadges" : {
+      "default" : false,
+      "description" : "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
+      "title" : "Agent Badges",
+      "type" : "boolean"
+    },
+    "experiments.agentBadgesBeam" : {
+      "default" : false,
+      "description" : "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+      "title" : "Agent Badges: Running Beam",
+      "type" : "boolean"
+    },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.glassToolbarGroups" : {
+      "default" : false,
+      "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+      "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3582,6 +3797,12 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
+    "home.chiefDock.sidePanel" : {
+      "default" : false,
+      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+      "title" : "Chief in Side Panel",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -3668,7 +3889,7 @@
     },
     "labs.agentCustomization" : {
       "default" : false,
-      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
@@ -3676,6 +3897,12 @@
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
       "title" : "Live Code",
+      "type" : "boolean"
+    },
+    "labs.liveTree" : {
+      "default" : false,
+      "description" : "Show the shared live-tree path and compile lanes in the agent pane.",
+      "title" : "Live Tree",
       "type" : "boolean"
     },
     "labs.machineJoin" : {
@@ -4253,6 +4480,38 @@
       "title" : "Width",
       "type" : "number"
     },
+    "notifications.delivery.permissionRequest" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.permissionRequest",
+      "enum" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "title" : "Permission Request",
+      "type" : "string"
+    },
+    "notifications.delivery.question" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.question",
+      "enum" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "title" : "Question",
+      "type" : "string"
+    },
+    "notifications.delivery.taskComplete" : {
+      "default" : "banner",
+      "description" : "notifications.delivery.taskComplete",
+      "enum" : [
+        "off",
+        "banner"
+      ],
+      "title" : "Task Complete",
+      "type" : "string"
+    },
     "notifications.desktop" : {
       "default" : "unlessFocused",
       "description" : "notifications.desktop",
@@ -4778,7 +5037,7 @@
       "type" : "number"
     },
     "sidebar.cards.tips" : {
-      "default" : true,
+      "default" : false,
       "description" : "A daily card shows one cmux feature you have not used yet.",
       "title" : "Show Tips",
       "type" : "boolean"
@@ -4858,9 +5117,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
@@ -4980,7 +5240,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.layout" : {
-      "default" : "timeline",
+      "default" : "compact",
       "description" : "What a workspace's hover card shows.",
       "enum" : [
         "timeline",
@@ -5029,6 +5289,18 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
+    },
+    "sidebar.look" : {
+      "default" : "cmux",
+      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Sidebar Look",
+      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,
@@ -5113,6 +5385,12 @@
       "title" : "Session Tree",
       "type" : "boolean"
     },
+    "sidebar.settleFinished" : {
+      "default" : false,
+      "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+      "title" : "Settle Finished Chats",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5150,14 +5428,14 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : true,
+      "default" : false,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
       "default" : false,
-      "description" : "sidebar.showSpaces",
+      "description" : "Spaces show once you have more than one. New Space is in the command palette.",
       "title" : "Show Spaces",
       "type" : "boolean"
     },
@@ -5805,10 +6083,6 @@
       "description" : "The layout of the New Tab page. Terminal opens a terminal instead.",
       "enum" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
@@ -6153,7 +6427,7 @@
       "type" : "boolean"
     },
     "updates.showFeatureTips" : {
-      "default" : true,
+      "default" : false,
       "description" : "A small tip now and then points at a feature an update added.",
       "title" : "Show Feature Tips",
       "type" : "boolean"

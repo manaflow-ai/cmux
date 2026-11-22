@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 661,
   "sections": [
     {
       "id": "general",
@@ -149,6 +149,19 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.sessionWorktrees",
+          "title": "Session Worktrees",
+          "help": "Choose where to keep worktrees for local chats and forks.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Agent Chat",
+          "values": [
+            "off",
+            "shared",
+            "project"
+          ]
+        },
+        {
           "key": "agentPane.showContextUsage",
           "title": "Show Context Usage",
           "help": "The ring beside the model that fills as the chat uses its context window.",
@@ -247,6 +260,21 @@
             "max": 95,
             "unit": "count"
           }
+        },
+        {
+          "key": "agents.chats.archiveInactive",
+          "title": "Archive Inactive Chats",
+          "help": "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+          "kind": "choice",
+          "default": "never",
+          "group": "Chats",
+          "values": [
+            "never",
+            "1d",
+            "3d",
+            "7d",
+            "30d"
+          ]
         },
         {
           "key": "agents.chats.coldArchive",
@@ -519,6 +547,38 @@
           "kind": "toggle",
           "default": false,
           "group": "Window"
+        },
+        {
+          "key": "app.language",
+          "title": "Language",
+          "help": "The language of cmux's menus, pages and messages.",
+          "kind": "choice",
+          "default": "system",
+          "group": "Language",
+          "values": [
+            "system",
+            "en",
+            "ar",
+            "bs",
+            "da",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "nb",
+            "pl",
+            "pt-BR",
+            "tr",
+            "vi",
+            "ru",
+            "uk",
+            "th",
+            "km",
+            "ja",
+            "ko",
+            "zh-Hans",
+            "zh-Hant"
+          ]
         },
         {
           "key": "app.quitBehavior",
@@ -1505,10 +1565,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -1731,7 +1787,7 @@
           "title": "Show Feature Tips",
           "help": "A small tip now and then points at a feature an update added.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1960,6 +2016,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.faces",
+          "title": "Chat Font Files",
+          "help": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+          "kind": "string_map",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -1985,6 +2049,14 @@
             "serif",
             "mono"
           ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "title": "Chat Reply Font Family",
+          "help": "The font of the agent's replies. When set, it replaces the Chat Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.size",
@@ -2020,6 +2092,14 @@
             "hanken",
             "atkinson"
           ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "title": "Chat Interface Font Family",
+          "help": "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -2561,6 +2641,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.backgroundMemory",
+          "title": "Background Mode Memory",
+          "help": "The folder and picture each background mode last showed, so switching back restores them.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2759,6 +2847,20 @@
             "max": 2,
             "unit": "seconds"
           }
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "title": "Selected Tab Shape",
+          "help": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+          "kind": "choice",
+          "default": "flush",
+          "group": "Panes",
+          "values": [
+            "off",
+            "flush",
+            "flush-tight",
+            "flush-goo"
+          ]
         },
         {
           "key": "appearance.customDensities",
@@ -2986,6 +3088,14 @@
             "shared",
             "perPane"
           ]
+        },
+        {
+          "key": "appearance.previousGlass",
+          "title": "Previous Glass Look",
+          "help": "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.rotateFavoriteThemes",
@@ -3454,6 +3564,26 @@
           ]
         },
         {
+          "key": "appearance.twoTone",
+          "title": "Two-Tone",
+          "help": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Panes",
+          "values": [
+            "off",
+            "auto",
+            "inkSakura",
+            "charcoalRose",
+            "inkMagenta",
+            "creamForest",
+            "navySand",
+            "boneOxblood",
+            "slateMatcha",
+            "plumAmber"
+          ]
+        },
+        {
           "key": "appearance.wallpaperTint",
           "title": "Tint with Desktop Wallpaper",
           "help": "The glass takes the colors of your desktop picture.",
@@ -3892,7 +4022,7 @@
           "title": "Show Tips",
           "help": "A daily card shows one cmux feature you have not used yet.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -3982,11 +4112,12 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws. Sections shows plain headings instead.",
+          "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "auto",
+          "default": "folder",
           "group": "Sidebar",
           "values": [
+            "folder",
             "auto",
             "glass",
             "solid",
@@ -4147,7 +4278,7 @@
           "title": "Workspace Card Layout",
           "help": "What a workspace's hover card shows.",
           "kind": "choice",
-          "default": "timeline",
+          "default": "compact",
           "group": "Sidebar",
           "values": [
             "timeline",
@@ -4209,6 +4340,20 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.look",
+          "title": "Sidebar Look",
+          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Sidebar",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
         },
         {
           "key": "sidebar.minimal",
@@ -4316,6 +4461,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.settleFinished",
+          "title": "Settle Finished Chats",
+          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -4368,13 +4521,13 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
           "key": "sidebar.showSpaces",
           "title": "Show Spaces",
-          "help": "",
+          "help": "Spaces show once you have more than one. New Space is in the command palette.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -6006,7 +6159,7 @@
     },
     {
       "id": "home",
-      "title": "Home",
+      "title": "Chief",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
@@ -6197,6 +6350,14 @@
           "key": "home.chiefDock.openBeside",
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefDock.sidePanel",
+          "title": "Chief in Side Panel",
+          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
           "kind": "toggle",
           "default": false,
           "group": "Chief Dock"
@@ -6543,6 +6704,44 @@
             "max": 8,
             "unit": "points"
           }
+        },
+        {
+          "key": "notifications.delivery.permissionRequest",
+          "title": "Permission Request",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.question",
+          "title": "Question",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.taskComplete",
+          "title": "Task Complete",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "banner"
+          ]
         },
         {
           "key": "notifications.desktop",
@@ -6936,9 +7135,41 @@
           "group": "Developer Tools"
         },
         {
+          "key": "experiments.agentBadges",
+          "title": "Agent Badges",
+          "help": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.agentBadgesBeam",
+          "title": "Agent Badges: Running Beam",
+          "help": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.composerV2",
+          "title": "Composer Refresh",
+          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.glassToolbarGroups",
+          "title": "Glass Toolbar Groups",
+          "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "labs.agentCustomization",
           "title": "Claude Code and Codex Customization",
-          "help": "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+          "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -6947,6 +7178,14 @@
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.liveTree",
+          "title": "Live Tree",
+          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

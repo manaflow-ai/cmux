@@ -63,6 +63,10 @@
 //!   the same mark ([`first_send`]).
 //! - A turn that failed because the chat outgrew its model's context window (`context`) is
 //!   compacted first, at once and once, where its harness can compact ([`compact_first`]).
+//! - An agent started on an earlier daemon's vault egress proxy (its `HTTPS_PROXY` port closed,
+//!   its CA gone: `vault/egress.rs`) is restarted before the attempt, between turns, so the
+//!   attempt runs in a process that can reach the model (2026-11-21: 20 chats on one machine
+//!   spent every attempt on `ECONNREFUSED` in the same stale process).
 
 use cmux_json::JsonSet as _;
 
@@ -1343,6 +1347,11 @@ impl Hub {
             text = unread_steers::with_unread(text, &self.unread_steers(&session.id, cut_turn));
         }
         let blocks = vec![json!({"type": "text", "text": text})];
+        // An agent sent through an earlier daemon's vault egress proxy cannot reach it
+        // (`ECONNREFUSED`, or a CA it does not trust): retrying in that process fails the same
+        // way every attempt. It ends first, and this prompt starts a fresh one on the same
+        // conversation (`stale_host_respawn.rs`).
+        self.end_stale_proxy_before_retry(session).await;
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,

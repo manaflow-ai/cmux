@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamPolicyValuesGithubRepoScopeValue {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRepoScope {
     pub value: TeamPolicyValuesGithubRepoScopeValue,

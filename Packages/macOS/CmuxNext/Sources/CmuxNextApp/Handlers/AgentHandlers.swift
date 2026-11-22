@@ -567,8 +567,6 @@ enum AgentHandlers {
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            context.services.editorApps.open(opening.url, withApplicationAt: editor)
-        }
+        context.services.editorApps.open(opening, line: invocation.editorLine)
     }
 }

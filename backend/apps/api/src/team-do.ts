@@ -7,7 +7,19 @@ import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult, type Attachment } from "./owner-do.ts";
 import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, hostInSpace, hostOf, hostSpaceOf, memberOf, TABLE_HOST_BY_INSTALL, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import {
+  can,
+  firstOwner,
+  homeCoMembersOf,
+  hostOf,
+  memberOf,
+  roleOf,
+  TABLE_MEMBER,
+  TEAM_PRIVATE_TABLES,
+  hostInSpace,
+  hostSpaceOf,
+  TABLE_HOST_BY_INSTALL,
+} from "./domains/team-members.ts";
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -17,6 +29,7 @@ import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Ht
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { mintHandoff, redeemHandoff, type HandoffDeps, type Minter, type RedeemAsk } from "./auth-handoff.ts"
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
@@ -773,6 +786,28 @@ export class TeamDO extends OwnerDO<TeamState> {
   async ssoRedeem(entity: string, code: string, clientVerifier: string) {
     this.bind(entity)
     return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
+  }
+
+  private handoffDeps(entity: string): HandoffDeps {
+    const engine = this.bind(entity)
+    return {
+      state: engine.currentState,
+      team: entity,
+      sql: this.ctx.storage.sql,
+      stack: this.stack ?? stackServer(this.env),
+      now: Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }
+  }
+
+  /** RPCs from the sign-in hand-off routes (auth-handoff-routes.ts), on the person's personal team only. */
+  async authHandoffMint(entity: string, minter: Minter) {
+    if (entity !== personalTeamIdFor(minter.user)) return { ok: false as const, code: "auth_handoff.no_account" as const, message: "not this person's team" }
+    return mintHandoff(this.handoffDeps(entity), minter)
+  }
+
+  async authHandoffRedeem(entity: string, ask: RedeemAsk) {
+    return redeemHandoff(this.handoffDeps(entity), ask)
   }
 
   /** Home reach (home-reach.ts): which of `targets` (at most HOME_REACH_MAX_TARGETS) share this team with `adder`. Never binds a team it does not serve. */

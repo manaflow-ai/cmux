@@ -45,7 +45,7 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard && "$cli" action run newTab.default && "$cli" customize library status
+  "$cli" customize discard && "$cli" action run newTab.page && "$cli" customize library status
 }
 
 finish() {
@@ -127,8 +127,9 @@ for file in "${list[@]}"; do
   if [[ $n -gt 1 ]]; then "$cli" customize discard; fi
   printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
   "$cli" customize use "$here/$file"
-  # An already open page belongs to the previous profile. Show this one's page.
-  "$cli" action run newTab.default
+  # An already open page belongs to the previous profile. Show this one's page: newTab.page, not
+  # newTab.default, which gives the CLI a tab of the selected tab's kind (a terminal here), never the page.
+  "$cli" action run newTab.page
   if [[ -n "$auto" ]]; then
     sleep "$auto"
   elif [[ $n -lt ${#list[@]} ]]; then

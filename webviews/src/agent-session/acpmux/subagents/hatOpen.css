@@ -109,7 +109,8 @@
 }
 .acpmux-running-tray__hide {
   position: absolute;
-  top: 0;
+  /* On the header's centre line, as the panel button (subagents.css `--acpmux-tray-head-control-top`). */
+  top: var(--acpmux-tray-head-control-top);
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   width: var(--acpmux-tray-stop-width);

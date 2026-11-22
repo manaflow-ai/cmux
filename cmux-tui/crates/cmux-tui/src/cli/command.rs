@@ -290,7 +290,7 @@ fn parse_server(
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
@@ -298,6 +298,7 @@ fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, Usag
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
+        if_idle: flags.boolean("if-idle"),
     })
 }
 

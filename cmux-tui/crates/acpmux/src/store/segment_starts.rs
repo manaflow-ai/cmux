@@ -35,7 +35,9 @@ pub(crate) struct SegmentStarts {
 #[cfg(unix)]
 fn stamp(path: &Path) -> Option<FileStamp> {
     use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::symlink_metadata(path).ok()?;
+    // Read in the held home: a replacement home at the same path never stamps a segment
+    // (`held_home_reads_tests.rs`).
+    let meta = crate::home_fs::symlink_metadata(path).ok()?;
     meta.is_file().then(|| FileStamp {
         ino: meta.ino() ^ meta.dev().rotate_left(32),
         len: meta.len(),

@@ -8,22 +8,30 @@
 // all (composerPlusRegistry.ts, recentCommands.ts).
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { Picker, PlusIcon, type Section } from "./ComposerPickers";
-import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
+import { isComposerCommand, runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
 
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
-import { composerPlusMenuSections } from "./composerPlusMenuModel";
+import type { PageClient } from "../../pages/shared/pageClient";
+import { Tooltip } from "../../ui/Tooltip";
+import { Button } from "../../ui/Button";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { toolbarButtonsFrom, type ToolbarButton } from "./composer/toolbarButtons";
+import { composerActionIcon, composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
 import { memo, useEffect } from "react";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { registerPicker } from "./pickerOpeners";
 
+const NO_BUTTONS: readonly ToolbarButton[] = [];
+
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
   entries: readonly ComposerPlusEntry[];
+  client?: PageClient | null;
   /** The trigger's extra classes (New Tab's `acpmux-newtab-plus`). */
   className?: string;
   /** Plan is on: its row draws the Build glyph, as its title says Build. */
@@ -49,6 +57,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
+  client,
   planning = false,
   onCommand,
   onExtension,
@@ -74,6 +83,8 @@ const MemoPlusMenu = memo(function PlusMenu({
         : undefined,
     [planEntry, onCommand, onSlash],
   );
+  const buttons = useComposerContribution<readonly ToolbarButton[]>(toolbarButtonsFrom, NO_BUTTONS, client);
+  const handlers = { command: onCommand, extension: onExtension, slash: onSlash };
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(
     entries,
@@ -85,15 +96,11 @@ const MemoPlusMenu = memo(function PlusMenu({
     onPick: (id: string) => {
       const entry = group.entries.find((row) => row.id === id);
       if (!entry) return "keep";
-      const handled = runComposerPlusAction(entry.action, {
-        command: onCommand,
-        ...(onExtension ? { extension: onExtension } : {}),
-        slash: onSlash,
-      });
+      const handled = runComposerPlusAction(entry.action, handlers);
       return handled ? undefined : "keep";
     },
   }));
-  return (
+  const plus = (
     <Picker
       label={t("composer.add")}
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
@@ -105,5 +112,30 @@ const MemoPlusMenu = memo(function PlusMenu({
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
     />
+  );
+  const available = buttons.flatMap(({ action, label }) => {
+    const entry = entries.find((row) => row.action.kind === "command" && row.action.id === action);
+    if (!entry || (!onExtension && !isComposerCommand(action))) return [];
+    const title = label ?? entry.name;
+    return [
+      <Tooltip key={action} label={title}>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon
+          aria-label={title}
+          onClick={() => runComposerPlusAction(entry.action, handlers)}
+        >
+          {composerActionIcon(entry, planning)}
+        </Button>
+      </Tooltip>,
+    ];
+  });
+  if (!available.length) return plus;
+  return (
+    <span className="acpmux-composer-extension-tools">
+      {plus}
+      <span className="acpmux-composer-extension-buttons">{available}</span>
+    </span>
   );
 });

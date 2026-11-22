@@ -75,6 +75,28 @@ pub enum LinkPath {
     NoPath,
 }
 
+impl LinkPath {
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Turn => "turn",
+            Self::TurnTls => "turn-tls",
+            Self::NoPath => "none",
+        }
+    }
+}
+
+impl TransportKind {
+    /// The transport's wire name (`link_stat`): `webrtc` or `wireguard`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WebRtc => "webrtc",
+            Self::WireGuard => "wireguard",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
