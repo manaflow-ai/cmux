@@ -16,7 +16,16 @@
 #
 # env (the step's): TRACK, NIGHTLY_DMG_IMMUTABLE, NIGHTLY_APPCAST, CHANNEL_RELEASE_TAG, CHANNEL_DMG_PREFIX,
 # NIGHTLY_VARIANT, NIGHTLY_BUILD, NIGHTLY_NEXT_FEED_BASE, NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY,
-# SPARKLE_PRIVATE_KEY, SPARKLE_MINIMUM_SYSTEM_VERSION, SPARKLE_CHANNEL
+# SPARKLE_MINIMUM_SYSTEM_VERSION, SPARKLE_CHANNEL, and the key selector's inputs (TRACK, CHANNEL,
+# NEXT_SPARKLE_PRIVATE_KEY, ...): the signing key comes from scripts/ci/nightly-sparkle-key.sh here, as in
+# every nightly signing step (tests/test_nightly_sparkle_key.sh), never from a SPARKLE_PRIVATE_KEY handed in.
+#
+# `prebuild` (nightly-next-one's "Start the nearest deltas", in the background beside the verify steps, the
+# launch smoke and the size budget) does steps 1 and 2 and builds the deltas with no key
+# (SPARKLE_PREBUILD_ONLY_DIR) into $NIGHTLY_NEXT_PREBUILT, and last writes its `done` file: the build number
+# and the DMG's digest. The keyed run after it takes those bases and deltas when `done` names this build and
+# DMG, so only the signing is left; otherwise it fetches and builds as before. Run 44893172356 spent 269 s
+# here, all on the critical path to the feed (2026-11-21).
 set -euo pipefail
 : "${NIGHTLY_DMG_IMMUTABLE:?}" "${NIGHTLY_APPCAST:?}" "${CHANNEL_RELEASE_TAG:?}" "${CHANNEL_DMG_PREFIX:?}"
 : "${NIGHTLY_VARIANT:?}" "${NIGHTLY_BUILD:?}" "${NIGHTLY_NEXT_FEED_BASE:?}"
@@ -25,9 +34,35 @@ export SPARKLE_DELTA_JOBS="${SPARKLE_DELTA_JOBS:-3}"
 export SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-"
 here="$(cd "$(dirname "$0")/.." && pwd)"
 summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+prebuilt="${NIGHTLY_NEXT_PREBUILT:-${RUNNER_TEMP:-/nonexistent}/nightly-next-prebuilt}"
+started=$SECONDS
+this_build() { echo "$NIGHTLY_BUILD $(shasum -a 256 "$NIGHTLY_DMG_IMMUTABLE" | awk '{print $1}')"; }
+
+if [ "${1:-}" = prebuild ]; then
+  [ -z "${SPARKLE_PRIVATE_KEY:-}" ] || { echo "error: the prebuild runs with no Sparkle key" >&2; exit 1; }
+  rm -rf "$prebuilt"
+  mkdir -p "$prebuilt/bases" "$prebuilt/deltas"
+  python3 "$here/nightly_next_previous_dmgs.py" --feed-url "${NIGHTLY_NEXT_FEED_BASE%/}/${NIGHTLY_APPCAST}" \
+    --base "$NIGHTLY_NEXT_FEED_BASE" --prefix "$CHANNEL_DMG_PREFIX" --variant "$NIGHTLY_VARIANT" \
+    --build "$NIGHTLY_BUILD" --count "$NEAREST_BASES" --out "$prebuilt/bases"
+  if [ -n "${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY:-}" ]; then
+    bash "$here/drop-previous-nightlies-with-other-sparkle-key.sh" "$prebuilt/bases" "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY"
+  fi
+  bases="$(find "$prebuilt/bases" -maxdepth 1 -name '*.dmg' | wc -l | tr -d ' ')"
+  echo "prebuild: $bases base(s) fetched in $((SECONDS - started)) s"
+  if [ "$bases" != 0 ]; then
+    SPARKLE_PREBUILD_ONLY_DIR="$prebuilt/deltas" SPARKLE_PREVIOUS_ARCHIVES_DIR="$prebuilt/bases" SPARKLE_MAXIMUM_DELTAS="$bases" \
+      ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
+  fi
+  this_build > "$prebuilt/done"
+  echo "prebuild: done in $((SECONDS - started)) s"
+  exit 0
+fi
+
+SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+export SPARKLE_PRIVATE_KEY
 previous="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-next-nearest.XXXXXX")"
 trap 'rm -rf "$previous"' EXIT
-started=$SECONDS
 
 full_only() {
   rm -f "${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}"-*.delta
@@ -39,13 +74,20 @@ full_only() {
 }
 
 deltas_ok=true
-python3 "$here/nightly_next_previous_dmgs.py" --feed-url "${NIGHTLY_NEXT_FEED_BASE%/}/${NIGHTLY_APPCAST}" \
-  --base "$NIGHTLY_NEXT_FEED_BASE" --prefix "$CHANNEL_DMG_PREFIX" --variant "$NIGHTLY_VARIANT" \
-  --build "$NIGHTLY_BUILD" --count "$NEAREST_BASES" --out "$previous" || deltas_ok=false
-fetched=$((SECONDS - started))
-if [ "$deltas_ok" = true ] && [ -n "${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY:-}" ]; then
-  bash "$here/drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" || deltas_ok=false
+if [ -f "$prebuilt/done" ] && [ "$(cat "$prebuilt/done")" = "$(this_build)" ]; then
+  rm -rf "$previous"
+  previous="$prebuilt/bases"
+  export SPARKLE_PREBUILT_DELTAS_DIR="$prebuilt/deltas"
+  echo "Taking the bases and deltas the keyless prebuild made for $NIGHTLY_BUILD"
+else
+  python3 "$here/nightly_next_previous_dmgs.py" --feed-url "${NIGHTLY_NEXT_FEED_BASE%/}/${NIGHTLY_APPCAST}" \
+    --base "$NIGHTLY_NEXT_FEED_BASE" --prefix "$CHANNEL_DMG_PREFIX" --variant "$NIGHTLY_VARIANT" \
+    --build "$NIGHTLY_BUILD" --count "$NEAREST_BASES" --out "$previous" || deltas_ok=false
+  if [ "$deltas_ok" = true ] && [ -n "${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY:-}" ]; then
+    bash "$here/drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" || deltas_ok=false
+  fi
 fi
+fetched=$((SECONDS - started))
 bases="$(find "$previous" -maxdepth 1 -name '*.dmg' | wc -l | tr -d ' ')"
 if [ "$deltas_ok" != true ] || [ "$bases" = 0 ]; then
   echo "No earlier build to diff from; publishing $NIGHTLY_BUILD full-only"

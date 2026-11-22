@@ -120,6 +120,9 @@ UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
 PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
 
 
+STEP_TABLE = "ci/steps.toml"
+
+
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
     lanes: set[str] = set()
     for line in text.splitlines():
@@ -144,6 +147,10 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     pull request.
     """
     texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
+    # The step table's steps run in pr-pipeline.yml through `ci/run` (ci/steps.toml): its text is workflow text.
+    table = workflows.parents[1] / STEP_TABLE
+    if table.is_file():
+        texts.append(table.read_text(encoding="utf-8"))
     text = "\n".join(texts)
     # A step that runs a workload profile runs that profile's entrypoint and
     # everything the entrypoint names. An unresolvable profile adds nothing,
@@ -241,6 +248,9 @@ def workflow_running(path: str, workflows: Path = WORKFLOWS) -> str | None:
     for workflow in workflow_files(workflows):
         if path in workflow.read_text(encoding="utf-8"):
             return workflow.name
+    table = workflows.parents[1] / STEP_TABLE
+    if table.is_file() and path in table.read_text(encoding="utf-8"):
+        return "pr-pipeline.yml"
     return None
 
 
