@@ -1507,5 +1507,55 @@ class VideoTest(unittest.TestCase):
         self.assertIn("--neutral-shell", args)
 
 
+class LookKitErrorTest(unittest.TestCase):
+    def test_a_kit_runtime_error_still_writes_a_failed_receipt(self):
+        """The kit's window_shot raises a plain RuntimeError when CuaDriver is stopped or its grants are pending: the
+        look ends EXIT_FAILED with a receipt naming it (the CI posts that), never an escaped error and no receipt
+        (2026-11-22: 11 fleet looks on cmuxs-Mac-mini-3 and ultra2 posted nothing)."""
+        class FakeSide:
+            name = "look-test"
+
+            def exists(self):
+                return False
+
+            def run(self, *args, **kwargs):
+                return "look-test: pid 123" if args[0] == "launch" else ""
+
+            def env(self):
+                return {"CMUX_NEXT_CONFIG_FILE": "/nonexistent/config.json"}
+
+            def socket(self):
+                return "/tmp/look-test.sock"
+
+            def stop(self):
+                return []
+
+        def shooter(kit):
+            def shoot(pid, dest):
+                raise RuntimeError("window 7; CuaDriver: daemon is not running")
+            return shoot
+
+        args = type("Args", (), {"kit": None, "state": None, "watch": False, "no_video": True, "source": "sha:x"})()
+        planned = {"layers": ["web"], "head": "x"}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            receipt = {"errors": [], "app": {}}
+            with unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+                    unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
+                    unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
+                    unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
+                    unittest.mock.patch.object(hv, "rules_for", return_value=None), \
+                    unittest.mock.patch.object(hv, "resolve_tree", return_value=None), \
+                    unittest.mock.patch.object(hv, "set_browser_engine"), \
+                    unittest.mock.patch.object(hv, "set_theme"), \
+                    unittest.mock.patch.object(hv, "control_socket", return_value="/tmp/look-test.sock"), \
+                    unittest.mock.patch.object(hv.time, "sleep"):
+                code = hv.look(args, None, planned, FakeSide(), Path(tmp) / "app", out, receipt,
+                               hv.hot().Phases(), 0.0)
+            self.assertEqual(code, hv.EXIT_FAILED)
+            written = json.loads((out / "receipt.json").read_text())
+        self.assertIn("RuntimeError: window 7; CuaDriver: daemon is not running", written["errors"])
+
+
 if __name__ == "__main__":
     unittest.main()
