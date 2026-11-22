@@ -38,6 +38,24 @@ struct FloatingPromptGlassTests {
         #expect(inWindow.glass.tone.style != .prompt)
     }
 
+    /// A floating prompt names who asks in its header (the icon small beside the title) and keeps the text column the
+    /// card's width; a dialog in a window keeps the large icon at the left.
+    @Test func floatingCardsLeadWithAnIdentityHeader() throws {
+        _ = NSApplication.shared
+        let spec = CmuxDialogSpec(title: "Desk Mac asked to control this Mac.", lines: ["Allow control?", "You can change this later."],
+                                  buttons: [CmuxDialogButton(id: "ok", title: "OK", role: .default)])
+        let floating = CmuxDialogView(dialog: .standalone(spec) { _ in }, overApps: true)
+        let inWindow = CmuxDialogView(dialog: .standalone(spec) { _ in })
+        floating.layoutSubtreeIfNeeded()
+        inWindow.layoutSubtreeIfNeeded()
+        func icons(_ view: NSView) -> [NSImageView] {
+            view.subviews.flatMap { ($0 as? NSImageView).map { [$0] } ?? icons($0) }
+        }
+        #expect(icons(floating).map(\.frame.width) == [CmuxDialogMetrics.headerIconSize])
+        #expect(icons(inWindow).map(\.frame.width) == [CmuxDialogMetrics.iconSize])
+        #expect(floating.fittingSize.width == CmuxDialogMetrics.width)
+    }
+
     @Test func promptTextReadsOverAnyAppInEveryBundledTheme() throws {
         let themes = try CardNeverOpaqueTests.bundledThemes()
         #expect(themes.count > 600)

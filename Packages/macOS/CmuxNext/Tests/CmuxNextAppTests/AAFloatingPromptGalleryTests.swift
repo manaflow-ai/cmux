@@ -78,10 +78,8 @@ import Testing
         }
     }
 
-    static func capture(_ prompt: String, look: CmuxDialogView.PromptLook, theme: String, dark: Bool,
-                        backdrop: String) throws -> CGImage {
+    static func capture(_ prompt: String, theme: String, dark: Bool, backdrop: String) throws -> CGImage {
         _ = NSApplication.shared
-        UserDefaults.standard.set(look.rawValue, forKey: "cmux.gallery.promptLook")
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input(theme))
         let panel = CmuxFloatingDialogPanel(identifier: "gallery.floatingPrompt")
@@ -114,10 +112,7 @@ import Testing
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         Motion.reduceMotionOverride = true
-        defer {
-            Motion.reduceMotionOverride = nil
-            UserDefaults.standard.removeObject(forKey: "cmux.gallery.promptLook")
-        }
+        defer { Motion.reduceMotionOverride = nil }
         let root = AANestedGroupsGalleryTests.packageRoot
         _ = NSApplication.shared
         // The app's own window, as the app has one: the floating card keeps its glass's key look from its
@@ -136,17 +131,14 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         for prompt in Self.prompts {
-            // Rows: the looks; columns: each theme over each backdrop.
+            // One row per backdrop; columns: the themes.
             var rows: [[CGImage]] = []
-            for look in CmuxDialogView.PromptLook.allCases {
+            for backdrop in Self.backdrops {
                 var row: [CGImage] = []
                 for (name, theme, dark) in Self.themes {
-                    for backdrop in Self.backdrops {
-                        let image = try Self.capture(prompt, look: look, theme: theme, dark: dark, backdrop: backdrop)
-                        try AAGroupHeaderDensityGalleryTests.write(
-                            image, to: out.appending(path: "\(prompt)-\(look.rawValue)-\(name)-\(backdrop).png"))
-                        row.append(image)
-                    }
+                    let image = try Self.capture(prompt, theme: theme, dark: dark, backdrop: backdrop)
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(prompt)-\(name)-\(backdrop).png"))
+                    row.append(image)
                 }
                 rows.append(row)
             }

@@ -21,18 +21,9 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     private let row = NSStackView()
     private(set) var surface: CmuxDialogCardSurface?
     /// A prompt floating over every app (``CmuxFloatingDialogPanel``): the ``SurfaceRole/prompt`` glass, its inks fit
-    /// over any app's pixels.
+    /// over any app's pixels, and a header that names who asks (the icon small beside the title, the question under
+    /// it, a quieter note last; Leo 2026-11-22: "it didn't seem very intentionally designed").
     public let overApps: Bool
-
-    /// GALLERY ONLY (the floating prompt variants; removed before landing).
-    public enum PromptLook: String, CaseIterable, Sendable { case before, transient, prompt, identity }
-    /// GALLERY ONLY: the look a floating prompt draws (the `cmux.gallery.promptLook` default, read as it builds).
-    private var promptLook: PromptLook? {
-        guard overApps else { return nil }
-        return UserDefaults.standard.string(forKey: "cmux.gallery.promptLook").flatMap(PromptLook.init(rawValue:)) ?? .identity
-    }
-    private var promptInks: Bool { promptLook == .prompt || promptLook == .identity }
-    private var identityHeader: Bool { promptLook == .identity }
 
     /// `overApps`: the card floats over every app (``CmuxFloatingDialogPanel``), not over a cmux window.
     public init(dialog: CmuxDialogPresentation, overApps: Bool = false) {
@@ -173,8 +164,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     private func build() {
         // A floating prompt names who asks in its header: the icon small beside the title, the text the card's width.
-        let headerIcon = identityHeader ? Self.icon(for: spec) : nil
-        let icon = identityHeader ? nil : Self.icon(for: spec)
+        let headerIcon = overApps ? Self.icon(for: spec) : nil
+        let icon = overApps ? nil : Self.icon(for: spec)
         let padding = CmuxDialogMetrics.cardPadding
         let cardWidth = icon == nil ? CmuxDialogMetrics.width : CmuxDialogMetrics.widthWithIcon
         let contentWidth = cardWidth - padding * 2 - (icon == nil ? 0 : CmuxDialogMetrics.iconSize + CmuxDialogMetrics.iconGap)
@@ -216,7 +207,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
             // The first line reads as the title's subtitle, close under it.
-            if spec.origin == nil { body.setCustomSpacing(identityHeader ? CmuxDialogMetrics.spacing : CmuxDialogMetrics.subtitleGap, after: title) }
+            if spec.origin == nil { body.setCustomSpacing(overApps ? CmuxDialogMetrics.spacing : CmuxDialogMetrics.subtitleGap, after: title) }
             body.addArrangedSubview(lines)
         }
         // A safe-default dialog puts its check boxes under the buttons, as NSAlert puts its suppression button.
@@ -280,8 +271,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
         let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook,
-                                            usesTransientMaterial: spec.usesTransientMaterial || promptLook == .transient,
-                                            overApps: promptInks)
+                                            usesTransientMaterial: spec.usesTransientMaterial, overApps: overApps)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface
@@ -303,7 +293,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     private func linesView(width: CGFloat) -> NSView {
         // A floating prompt's later lines (a note under the question) are quieter: caption, tertiary.
         let lines = NSStackView(views: spec.lines.enumerated().map { index, line in
-            identityHeader && index > 0
+            overApps && index > 0
                 ? label(line, font: Typography.caption, role: .tertiary, width: width)
                 : label(line, font: Typography.body, role: .secondary, width: width)
         })
@@ -425,8 +415,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         label.focusRingType = .none
         // Fitted to the dialog's glass card, as its buttons are (GlassTextEveryThemeTests).
         // A floating prompt's inks are fit over any app under it (``SurfaceRole/prompt``).
-        let text: (ThemeInk) -> NSColor = promptInks ? Palette.promptText : Palette.sheetText
-        let overApps = promptInks
+        let text: (ThemeInk) -> NSColor = overApps ? Palette.promptText : Palette.sheetText
+        let overApps = self.overApps
         switch role {
         case .primary: label.themeColor = { text(.primary) }
         case .secondary: label.themeColor = { text(.secondary) }
