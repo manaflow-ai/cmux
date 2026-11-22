@@ -39,6 +39,7 @@ mod rules;
 mod scopes;
 mod toolbar;
 mod web_pane;
+pub mod whats_new;
 
 pub use capabilities::{
     Capabilities, OpCapability, OpClass, OpScope, scope_info, scope_reaches_out,
