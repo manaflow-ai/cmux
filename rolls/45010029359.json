@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45010029359",
+  "recorded_at": "2026-11-22T10:04:22Z",
+  "reason": "cmux-tui 3a3e861f3eff changes the image's cmux-tui (pinned 45ed727f30d1)",
+  "dry_run": false,
+  "cmux_tui": "3a3e861f3effe81f567fd57c3326e11bab9eeb15",
+  "fixes": [
+    {
+      "sha": "d8abd10e4377301d9403f72a7664fecf5d13d4f4",
+      "mergedAt": "2026-11-21T23:20:19-08:00",
+      "subject": "cmux server: end the session's terminals at uninstall; reap closed tabs in the service daemon"
+    },
+    {
+      "sha": "09b70bd009d46d582af6f941100c2bf778c2233d",
+      "mergedAt": "2026-11-22T07:19:59Z",
+      "subject": "acpmux: keep the /app/ws page origin for browser sign-in; ride out a hub blip (#49432)"
+    },
+    {
+      "sha": "2ffca3bab4c98c9d349e2528b232817e3c4cda99",
+      "mergedAt": "2026-11-22T07:17:05Z",
+      "subject": "cmux docs: a guide naming cmux's primitives (resources+operations, events, actions, automations, composition) (#49095)"
+    },
+    {
+      "sha": "411ac68c2610503d9d651fd46e1e5839c3402ca6",
+      "mergedAt": "2026-11-21T23:15:49-08:00",
+      "subject": "cmux-rd-host: LossyCarrier forwards the datagram-frame trait items"
+    },
+    {
+      "sha": "cc4f2da3be0c3dbf59f6d145d95ab20991c14e1f",
+      "mergedAt": "2026-11-22T07:14:42Z",
+      "subject": "Extensions add rows to cmux's own right-click menus (contributes.menus) (#43006)"
+    },
+    {
+      "sha": "a96b744abc8035bf61d02bf2192610d45678cf66",
+      "mergedAt": "2026-11-22T07:14:40Z",
+      "subject": "Open local chat citations at their line in the selected editor (#48831)"
+    },
+    {
+      "sha": "881c032d15618d051311df35ad301c4edbcb5d82",
+      "mergedAt": "2026-11-22T07:14:37Z",
+      "subject": "Agent chat: every answered message forks and edits, also for a custom Claude Code profile and during a config write (#49645)"
+    },
+    {
+      "sha": "8aa3a6a328dc195f6e9a105e5cd576ad289a49ca",
+      "mergedAt": "2026-11-22T07:11:29Z",
+      "subject": "Studio sidebar: a seeded demo state of projects and threads, and title-named row decorations that apply (#46735)"
+    },
+    {
+      "sha": "2bf1f4d367b9185df22a56bb95b41de0316b1d44",
+      "mergedAt": "2026-11-22T07:10:52Z",
+      "subject": "cmux-rd: per-frame stage ledger, so one run shows where each millisecond goes (D8) (#47310)"
+    },
+    {
+      "sha": "c9a8daead8b5b443709c772faff6e28ea85d7633",
+      "mergedAt": "2026-11-22T07:04:35Z",
+      "subject": "cmux app publish, versions, rollback and ls on a Cloud machine (#45079)"
+    },
+    {
+      "sha": "fb5e8c8891079f7ea897f1f8480860428212de5a",
+      "mergedAt": "2026-11-22T06:52:27Z",
+      "subject": "Agent chat: no false 'blocked opening this chat' on reconnect, notices never shift layout; toast corner variants (#49602)"
+    },
+    {
+      "sha": "08bc788bba6ad1ef9908c3641d5f4dfccf91eada",
+      "mergedAt": "2026-11-22T06:45:25Z",
+      "subject": "Allow extensions to add composer toolbar buttons (#48841)"
+    },
+    {
+      "sha": "405601a474b236a40edd1e5b572c81eff6127cda",
+      "mergedAt": "2026-11-22T06:44:47Z",
+      "subject": "acpmux: a send to a Claude Code chat by its id names the register step (#49474)"
+    },
+    {
+      "sha": "ae3dc40552de74e90d90274b7ced09924fdb8709",
+      "mergedAt": "2026-11-21T23:41:21-07:00",
+      "subject": "fix(acpmux): the MCP gateway never gives up a port a chat is configured at (#49751)"
+    },
+    {
+      "sha": "ab15f4576fef60e21fd66f25437be965b6afd73e",
+      "mergedAt": "2026-11-22T06:32:56Z",
+      "subject": "acpmux: an idle Codex session whose leader is the native program hibernates (#49428)"
+    },
+    {
+      "sha": "4f042053b95f935c682be6a81116f058fe3a8709",
+      "mergedAt": "2026-11-21T22:25:50-08:00",
+      "subject": "cmux auth handoff mint|redeem: sign another Mac of yours in with a one-time code (#43394)"
+    },
+    {
+      "sha": "6d7a243ba008452c5b9bcaa02bac85852bec8eb5",
+      "mergedAt": "2026-11-21T22:24:32-08:00",
+      "subject": "cmux-rd: a one-datagram frame on an idle link goes out with a parity copy (#45178)"
+    },
+    {
+      "sha": "28099eab5d72809abfddec311d4e9db759ca11c7",
+      "mergedAt": "2026-11-22T06:18:16Z",
+      "subject": "Screen sharing: choose the ultra profile (Settings > Screen Sharing Profile), carried from the viewer to the host (#47222)"
+    },
+    {
+      "sha": "0715f6fe39d85486a33d5d18acb848a2774a11a1",
+      "mergedAt": "2026-11-22T06:18:14Z",
+      "subject": "Restart-to-settled harness: agent chat and terminal per simulated link (#49660)"
+    },
+    {
+      "sha": "867eb1223679c575e68b5331bed13f3b2d863fc6",
+      "mergedAt": "2026-11-22T06:11:11Z",
+      "subject": "Wallpaper lighting, step 1: the light field in Rust, its C ABI, the glass CSS and a gallery (#45022)"
+    },
+    {
+      "sha": "337d6d5164d3d97aab77439165fe2d40201c4d6e",
+      "mergedAt": "2026-11-22T06:10:17Z",
+      "subject": "Plan usage: open chats get Rust's merged usage_limits as they change (#47885)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-22T10:04:22Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
