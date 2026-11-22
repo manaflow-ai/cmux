@@ -625,15 +625,11 @@ function ThreadMinimapView({
   /// the daemon cursor, so adding or dismissing it never changes the list's height or row pitch.
   const cutoverIndex =
     cutoverSeq === undefined ? -1 : rows.findIndex((row) => typeof row.seq === "number" && row.seq >= cutoverSeq);
+  const cutoverOffset = cutoverIndex < 0 ? undefined : tops(cutoverIndex);
   const cutoverTop =
-    cutoverIndex < 0 || layout.totalHeight <= 0
+    cutoverOffset === undefined || layout.totalHeight <= 0
       ? undefined
-      : (() => {
-        const cutoverOffset = tops(cutoverIndex);
-        return cutoverOffset === undefined
-          ? undefined
-          : Math.max(0, Math.min(height - 2, (cutoverOffset / layout.totalHeight) * height));
-      })();
+      : Math.max(0, Math.min(height - 2, (cutoverOffset / layout.totalHeight) * height));
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
