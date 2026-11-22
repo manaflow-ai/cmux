@@ -4544,6 +4544,17 @@ class FastTierCargoRoute(unittest.TestCase):
                     path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
                     self.assertTrue(self.reaches(path))
 
+    def test_a_path_a_cargo_entry_reads_runs_it(self):
+        # The agent pane policy's tests read the page, the Swift relay and schemas/agent-pane (its `reads`):
+        # #48648's bgTail sent maxBytes the relay refused, and no PR ran them to say so.
+        registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
+        reads = [read for entry in registry["entries"] if entry["kind"] == "cargo" for read in entry.get("reads", [])]
+        self.assertIn("webviews/src/agent-session/acpmux/", reads)
+        for read in reads:
+            with self.subTest(read=read):
+                self.assertTrue(self.reaches(read + ("x.ts" if read.endswith("/") else "")))
+        self.assertFalse(self.reaches("webviews/src/app.tsx"))
+
     def test_a_change_that_reaches_no_entry_skips_it(self):
         self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
                                       "docs/ci/x.md", ".github/workflows/ci-web.yml"))

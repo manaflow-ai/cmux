@@ -4,7 +4,9 @@
 That job runs `scripts/cmux-next/fast-tier.py --kind cargo --kind script`: the cargo tests of cmux-tui crates
 and the script entries of scripts/cmux-next/fast-tier.json. A pull request's change reaches it when a changed
 path is
-- inside a cargo entry's workspace (its `path`), or in a script entry's folder;
+- inside a cargo entry's workspace (its `path`), one of the paths its tests read outside it (its `reads`: the
+  agent pane policy's tests read the page, the Swift relay and schemas/agent-pane, so a page change that the
+  relay refuses runs them), or in a script entry's folder;
 - a cmux-tui build input (scripts/cmux-next/cmux-tui-tree-inputs.txt: a `tree` folder, a `blob` file or a
   `gitlink`; scripts/ci/check_cmux_tui_tree_inputs.py keeps that list complete for the crates' embeds);
 - a file the job's steps or the script entries run (JOB_INPUTS, SCRIPT_INPUTS);
@@ -66,6 +68,7 @@ def inputs(root: Path) -> list[str] | None:
     for entry in registry.get("entries", []):
         if entry.get("kind") == "cargo" and entry.get("path"):
             prefixes.append(entry["path"].rstrip("/") + "/")
+            prefixes.extend(read for read in entry.get("reads", []) if isinstance(read, str) and read)
         elif entry.get("kind") == "script" and entry.get("path"):
             prefixes.append(entry["path"].rsplit("/", 1)[0] + "/")
     for raw in tree.splitlines():

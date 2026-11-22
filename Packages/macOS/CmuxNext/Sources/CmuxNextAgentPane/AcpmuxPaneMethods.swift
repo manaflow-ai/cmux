@@ -43,6 +43,12 @@ nonisolated enum AcpmuxPaneMethods {
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        // The model picker's catalog (direct.ts modelCatalog, ef3e5431: a harness's new models show
+        // the day the feed lists them): acpmux's copy of the public model feed, read-only and the
+        // same for every caller; `catalog.refresh` fetches it now, as acpmux does on its own.
+        // Refused, the picker never showed a model the feed added (Leo's NIGHTLY, 2026-11-21:
+        // `transport.method_refused method=catalog.get`).
+        "catalog.get", "catalog.refresh",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).

@@ -1,0 +1,13 @@
+{
+  "$comment": "Every _acpmux/bg/output the agent page sends (webviews direct.ts bgOutput: the run pane's output from a byte on; bgTail: the last bytes and the task's record, what a \"Background task finished\" line opens to, BackgroundTurnLine.tsx, #48648). cmux-agent-pane-policy tests/typescript.rs holds direct.ts to this file; AcpmuxPaneBgOutputParamsContractTests runs each frame through the app relay's params rule (AcpmuxPaneMethods+Params.swift knownParams), and tests/page_contracts.rs through policy.json's. The rule did not know maxBytes, so every bgTail was refused as transport.intent_invalid.",
+  "output": [
+    {
+      "name": "from byte",
+      "params": {"sessionId": "s", "id": "bg-1", "fromByte": 0}
+    },
+    {
+      "name": "tail",
+      "params": {"sessionId": "s", "id": "bg-1", "maxBytes": 65536}
+    }
+  ]
+}
