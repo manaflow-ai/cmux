@@ -40,10 +40,12 @@ function GalleryLine({ task, status, command, reply }: Props) {
       },
     };
   });
+  // Read the clock once, in the initializer, not on every render (react-hooks purity).
+  const [at] = useState(() => Date.now() - 60_000);
   const row: AcpmuxRow = {
     id: backgroundTurnRowId(task),
     version: 1,
-    at: Date.now() - 60_000,
+    at,
     kind: BACKGROUND_TURN,
     background: {
       id: task,

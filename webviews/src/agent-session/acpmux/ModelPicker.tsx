@@ -62,6 +62,7 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { intl } from "../../ui/intl";
 type ModelChoice = {
   id: string;
   name: string;
@@ -608,10 +609,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(refreshDate))
+    ? intl
+        .DateTimeFormat(currentLanguage(), {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+        .format(new Date(refreshDate))
     : undefined;
   const refreshTitle = (() => {
     const label =
@@ -785,15 +788,21 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [close, open]);
   useEffect(
     () =>
-      registerPicker(modelText, () =>
-        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
-      ),
+      registerPicker(modelText, () => {
+        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+        if (root.current?.closest("[inert]")) return;
+        if (quick === undefined) showRef.current();
+        else if (open) close();
+        else setQuickOpen(true);
+      }),
     [modelText, quick, open, close],
   );
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
+        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
+        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
