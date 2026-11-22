@@ -423,6 +423,11 @@ async fn a_switch_onto_a_spawn_model_harness_reads_harness_slash_model_and_refus
         .err()
         .expect("refused");
     assert_eq!(refused.code, -32602, "{}", refused.message);
-    assert!(refused.message.contains("haiku, opus"), "{}", refused.message);
+    // The models it lists, its profile's among them (the fake also reports its own).
+    assert!(
+        refused.message.contains("haiku") && refused.message.contains("opus"),
+        "{}",
+        refused.message
+    );
     assert_eq!(live(&hub), before, "a refused switch left a fork");
 }
