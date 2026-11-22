@@ -2420,6 +2420,11 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
     
+    /**
+     * Bytes the held scrollback takes.
+     */
+    func historyBytes()  -> UInt64
+    
     func isAlternate()  -> Bool
     
     /**
@@ -2427,6 +2432,12 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      * of the scrollback, as a reset. Empty when the surface has all of it.
      */
     func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
+    
+    /**
+     * The next fetch: up to `chunk` Mac rows just above the oldest held,
+     * never one delivered before. None: nothing older, or the cap is full.
+     */
+    func olderFetch(chunk: UInt32)  -> HistoryFetch?
     
     /**
      * Mac scrollback rows older than what the surface holds (a viewport
@@ -2440,9 +2451,28 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     func paint()  -> [ProjectionSegment]
     
     /**
+     * A fetched page (Mac rows `start..`, each CRLF-ended, at the Mac's
+     * width) goes above the oldest row held, without a reset; rows held
+     * already are skipped. Returns the rows added; ``load_older`` shows them.
+     */
+    func prependHistory(start: UInt64, page: Data)  -> UInt32
+    
+    /**
      * The next paint starts the surface over.
      */
     func requestReset() 
+    
+    /**
+     * Bounds the Mac scrollback the phone holds by rows and by bytes
+     * (0: no byte cap); the oldest rows past either go.
+     */
+    func setHistoryCap(rows: UInt64, bytes: UInt64) 
+    
+    /**
+     * The Mac's scrollback rows above the oldest one held (the attach
+     * replay's `history_rows_omitted`), so fetches number rows as it does.
+     */
+    func setHistoryOrigin(omitted: UInt64) 
     
     /**
      * The Mac's PTY grid changed (its replay follows).
@@ -2547,6 +2577,17 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
 })
 }
     
+    /**
+     * Bytes the held scrollback takes.
+     */
+open func historyBytes() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_history_bytes(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func isAlternate() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_is_alternate(
@@ -2564,6 +2605,19 @@ open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * The next fetch: up to `chunk` Mac rows just above the oldest held,
+     * never one delivered before. None: nothing older, or the cap is full.
+     */
+open func olderFetch(chunk: UInt32) -> HistoryFetch?  {
+    return try!  FfiConverterOptionTypeHistoryFetch.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_older_fetch(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(chunk),$0
     )
 })
 }
@@ -2592,11 +2646,51 @@ open func paint() -> [ProjectionSegment]  {
 }
     
     /**
+     * A fetched page (Mac rows `start..`, each CRLF-ended, at the Mac's
+     * width) goes above the oldest row held, without a reset; rows held
+     * already are skipped. Returns the rows added; ``load_older`` shows them.
+     */
+open func prependHistory(start: UInt64, page: Data) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_prepend_history(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(start),
+        FfiConverterData.lower(page),$0
+    )
+})
+}
+    
+    /**
      * The next paint starts the surface over.
      */
 open func requestReset()  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_request_reset(
             self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Bounds the Mac scrollback the phone holds by rows and by bytes
+     * (0: no byte cap); the oldest rows past either go.
+     */
+open func setHistoryCap(rows: UInt64, bytes: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_history_cap(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(rows),
+        FfiConverterUInt64.lower(bytes),$0
+    )
+}
+}
+    
+    /**
+     * The Mac's scrollback rows above the oldest one held (the attach
+     * replay's `history_rows_omitted`), so fetches number rows as it does.
+     */
+open func setHistoryOrigin(omitted: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_history_origin(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(omitted),$0
     )
 }
 }
@@ -3148,6 +3242,64 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * Mac scrollback rows to fetch: `replay_history_start` and
+ * `replay_history_rows` of a window attach.
+ */
+public struct HistoryFetch: Equatable, Hashable {
+    public var start: UInt64
+    public var rows: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(start: UInt64, rows: UInt32) {
+        self.start = start
+        self.rows = rows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HistoryFetch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHistoryFetch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HistoryFetch {
+        return
+            try HistoryFetch(
+                start: FfiConverterUInt64.read(from: &buf), 
+                rows: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HistoryFetch, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.start, into: &buf)
+        FfiConverterUInt32.write(value.rows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHistoryFetch_lift(_ buf: RustBuffer) throws -> HistoryFetch {
+    return try FfiConverterTypeHistoryFetch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHistoryFetch_lower(_ value: HistoryFetch) -> RustBuffer {
+    return FfiConverterTypeHistoryFetch.lower(value)
 }
 
 
@@ -5009,6 +5161,30 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHistoryFetch: FfiConverterRustBuffer {
+    typealias SwiftType = HistoryFetch?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHistoryFetch.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHistoryFetch.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffer {
     typealias SwiftType = PredictionLayout?
 
@@ -5783,10 +5959,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_history_bytes() != 42517) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_fetch() != 6094) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
@@ -5795,7 +5977,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_paint() != 61759) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_prepend_history() != 4954) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_request_reset() != 536) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_history_cap() != 27149) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_history_origin() != 25773) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_host_grid() != 62931) {
