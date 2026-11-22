@@ -17,6 +17,12 @@ a conflict, written as ordinary conflict markers around that entry.
                generators' format), merged leaf by leaf; an object left empty
                is dropped. A file in any other shape, or an entry both
                sides changed, is a conflict: both whole files between markers.
+  .jsonl       one compact JSON object per line whose `values` maps a value to
+               its count (webviews/scripts/check-design-tokens.ts), keyed by
+               every other field and merged count by count; a row left with no
+               values is dropped. A row both sides changed the same count of is
+               a conflict around that row; a line in any other shape makes the
+               whole file a conflict.
 
 Usage (git): merge-baseline.py %O %A %B %P; writes the result to %A and exits
 1 on a conflict.
@@ -124,6 +130,65 @@ def merge_json(base: str, ours: str, theirs: str) -> tuple[str, bool]:
     return json.dumps(merged, indent=1, sort_keys=True) + "\n", False
 
 
+def compact(row) -> str:
+    return json.dumps(row, separators=(",", ":"), ensure_ascii=False)
+
+
+def split_rows(text: str):
+    """Rows by key (every field but `values`), or None when a line is not such a row in compact
+    form or two rows share a key (one would silently replace the other's counts)."""
+    rows = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return None
+        if (not isinstance(row, dict) or not isinstance(row.get("values"), dict)
+                or compact(row) != line):
+            return None
+        # Sorted, so two rows that list the same fields in another order share one key.
+        key = json.dumps({name: value for name, value in row.items() if name != "values"},
+                         separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+        if key in rows:
+            return None
+        rows[key] = row
+    return rows
+
+
+def merge_jsonl(base: str, ours: str, theirs: str) -> tuple[str, bool]:
+    split = [split_rows(text) for text in (base, ours, theirs)]
+    if any(rows is None for rows in split):
+        return whole_file_conflict(ours, theirs)
+    base_rows, our_rows, their_rows = split
+    ordered = list(our_rows) + [key for key in their_rows if key not in our_rows]
+    out, conflict = [], False
+    for key in ordered:
+        values = {}
+        clash_here = False
+        names = [*our_rows.get(key, {}).get("values", {}),
+                 *(name for name in their_rows.get(key, {}).get("values", {})
+                   if name not in our_rows.get(key, {}).get("values", {})),
+                 *base_rows.get(key, {}).get("values", {})]
+        for name in dict.fromkeys(names):
+            result, clash = merge_value(*(rows.get(key, {}).get("values", {}).get(name, MISSING)
+                                          for rows in (base_rows, our_rows, their_rows)))
+            clash_here = clash_here or clash
+            if result is not MISSING:
+                values[name] = result
+        if clash_here:
+            conflict = True
+            out += ["<<<<<<< ours"]
+            out += [compact(our_rows[key])] if key in our_rows else []
+            out += ["======="]
+            out += [compact(their_rows[key])] if key in their_rows else []
+            out += [">>>>>>> theirs"]
+        elif values:
+            out.append(compact({**json.loads(key), "values": values}))
+    return "\n".join(out) + "\n", conflict
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 5:
         print("usage: merge-baseline.py BASE OURS THEIRS PATH", file=sys.stderr)
@@ -133,7 +198,7 @@ def main(argv: list[str]) -> int:
     for name in (base_path, ours_path, theirs_path):
         with open(name, encoding="utf-8") as handle:
             texts.append(handle.read())
-    merge = merge_json if path.endswith(".json") else merge_lines
+    merge = merge_json if path.endswith(".json") else merge_jsonl if path.endswith(".jsonl") else merge_lines
     result, conflict = merge(*texts)
     with open(ours_path, "w", encoding="utf-8") as handle:
         handle.write(result)

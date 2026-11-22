@@ -47,7 +47,7 @@ enum BrowserHitMenu {
         for section in sections(for: target) {
             let menu = registry.makeContextMenu(
                 for: section.context, target: tab,
-                entries: ContextMenuCatalog.shared.entries(for: section.context, removing: section.hidden),
+                entries: registry.contextMenuEntries(for: section.context, removing: section.hidden),
                 implied: .browserFocused, arguments: section.arguments
             )
             let rows = menu.items
@@ -69,17 +69,10 @@ enum BrowserHitMenu {
     /// Copy Email Address for a `mailto:` link. Nil keeps the action's title.
     static func title(of id: ActionID, for target: BrowserContextMenuTarget, searchEngine: String) -> String? {
         switch id {
-        case "browser.selection.search": BrowserHitStrings.search(engine: searchEngine, snippet(target.selection))
-        case "browser.selection.lookUp": BrowserHitStrings.lookUp(snippet(target.selection))
+        case "browser.selection.search": BrowserHitStrings.search(engine: searchEngine, target.selectionSnippet())
+        case "browser.selection.lookUp": BrowserHitStrings.lookUp(target.selectionSnippet())
         case "browser.link.copy" where target.linkURL?.scheme?.lowercased() == "mailto": BrowserHitStrings.copyEmailAddress
         default: nil
         }
-    }
-
-    /// Pure: `text` on one line, at most `limit` characters (Chrome's
-    /// menu rows quote the selection the same way).
-    static func snippet(_ text: String, limit: Int = 50) -> String {
-        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return line.count > limit ? String(line.prefix(limit - 1)) + "…" : line
     }
 }

@@ -4,6 +4,7 @@
     "status \"committed\": the outputs are still in git, pending the cutover (gitignore them, generate them at build time). A new output of such a generator is allowed (a new settings section, a new protocol type). A status may move from committed to build, never back, and no pull request adds a committed generator or widens one's outputs.",
     "status \"build\": the outputs are made where they are used and gitignored; a pull request that adds one is refused.",
     "inputs: when listed, a pull request that changes an output must also change the generator or one of these (a hand edit is undone by the next run). Without inputs that check is skipped.",
+    "check: arguments that make the generator (a .py script) exit 0 only when every output it writes equals what it writes from the tree's inputs. When the base lists one and it passes at the head, a pull request that changes an output and none of its inputs is a regeneration, not a hand edit (an input that changed on the base without a regeneration), and the inputs rule lets it through.",
     "The exports in scripts/cmux-next/generated_outputs.py OUTPUTS (plans/cmux-next action exports, settings schema, docs/mdm, defaults snapshot, SDK bindings, cloud wire, app-host) count as committed generators too; their hand-edit check is the generated drift job.",
     "conventions: names that mark a file generated wherever it is. committed: files a tool generates that belong in git by design; a new entry needs a \"ruling\" link."
   ],
@@ -17,6 +18,11 @@
     {
       "paths": ["**/Cargo.lock"],
       "why": "A lockfile pins dependency resolution; it is an input to the build, not an output of it."
+    },
+    {
+      "paths": ["webviews/src/ui/deviceGlyphPaths.ts", "webviews/src/ui/deviceGlyphVariants.ts"],
+      "why": "Device glyph outlines exported from SF Symbols on a Mac (scripts/icons/export_sf_symbols.swift, then device_glyph_paths.py). No Linux or web build has that font, so these are vendored icon data, an input to the build.",
+      "ruling": "https://github.com/manaflow-ai/cmuxterm-hq/issues/11397"
     }
   ],
   "generators": [
@@ -27,6 +33,24 @@
       "status": "build"
     },
     {
+      "id": "extension-sdk-customize-types",
+      "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
+      "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
+      "status": "build"
+    },
+    {
+      "id": "feature-tips",
+      "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
+      "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
+      "status": "build"
+    },
+    {
+      "id": "design-scale",
+      "generator": "webviews/scripts/pages/gen-design-scale.mjs",
+      "outputs": ["webviews/src/ui/theme.generated.css", "webviews/src/ui/designTokens.generated.ts"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [
@@ -34,6 +58,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
       ],
       "inputs": ["schemas/settings/**"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -44,6 +69,7 @@
         "webviews/src/motion/scale.generated.ts"
       ],
       "inputs": ["schemas/motion-scale/**"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -51,6 +77,7 @@
       "generator": "scripts/cmux-next/gen-type-scale.py",
       "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
       "inputs": ["schemas/type-scale/**"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -61,6 +88,7 @@
         "webviews/src/ui/statusGlyphs.generated.ts"
       ],
       "inputs": ["schemas/status-glyphs/**"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -68,6 +96,7 @@
       "generator": "scripts/cmux-next/gen-phone-lane-fields.py",
       "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"],
       "inputs": ["cmux-tui/spec/sdk-schema.json", "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -80,17 +109,18 @@
         "webviews/src/agent-session/acpmux/protectedFolders.generated.ts"
       ],
       "inputs": ["cmux-tui/crates/acpmux/data/protected-folders.json"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
       "id": "chrome-styles",
       "generator": "scripts/cmux-next/gen-chrome-styles.py",
       "outputs": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift"
       ],
-      "inputs": ["schemas/settings/chrome-styles.json"],
+      "inputs": ["schemas/settings/chrome-styles.json", "plans/cmux-next/action-catalog.json"],
+      "check": ["--check"],
       "status": "committed"
     },
     {
@@ -159,6 +189,12 @@
       ],
       "inputs": ["config/iroh/managed-relay-catalog.json"],
       "status": "committed"
+    },
+    {
+      "id": "app-store-packages",
+      "generator": "scripts/cmux-next/sync-app-runtime.sh",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"],
+      "status": "build"
     },
     {
       "id": "app-pack",

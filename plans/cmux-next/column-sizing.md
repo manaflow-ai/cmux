@@ -18,8 +18,11 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   ended divider intents once the split succeeded. Interim: two undo entries until `Split` carries
   the sizing policy.
 - `layout.newColumnWidth` (matchCurrent default, fitScreen, fixed; a number means fixed at that
-  share) through `NewColumnWidth.plan(mode:)`; fixed keeps column-scroll.md W4 (a lone full-width column
-  shrinks), the other modes never resize except fitScreen's visible scrolling columns.
+  share) through `NewColumnWidth.plan(mode:)`. Each mode only picks the new column's width: since
+  2026-10-31 (R3b, Lawrence: "creating new columns must never resize existing columns") no mode
+  resizes a column that is there (fixed no longer shrinks a lone full-width column, fitScreen no
+  longer resizes the visible columns). The app sends only the new column's width; a daemon check in
+  the layout reducer follows separately (the reducer is an app FFI input).
 - `layout.dockColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
   bottom), `layout.dockColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
@@ -35,10 +38,12 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   person's New Terminal (and New Browser, with tileBrowsers) takes the Auto Layout path; a browser
   opens as a tab, then moves into its own pane. CLI, MCP and scripts always get a tab. Settings
   window (General > Columns) and cmux.json; `PanePlacementSettingsTests` checks the defaults.
-- New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's
-  text Look Up uses it only in text views). It replaces Cmd-Shift-Opt-N; rebind under
-  `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D stays macOS's
-  Dock shortcut and Split Browser Right.
+- New Column is Ctrl-Cmd-X and New Row Ctrl-Shift-Cmd-X (key set A, Lawrence 2026-11-01). The pattern: X is the second D: Ctrl adds a column / row, Option a browser, Shift means below (PaneCreateKeySetTests).
+  New Column was Ctrl-Cmd-D (2026-10-02), but macOS's Look Up (system hot key 70, on by default)
+  takes a real Ctrl-Cmd-D in every app before cmux sees it, so New Column never ran on a Mac with
+  default settings; Split Browser Right's Opt-Cmd-D was macOS's Dock hiding (hot key 52). It is now
+  Opt-Cmd-X. `MacOSSystemShortcutsTests` keeps every default cmux key off the macOS shortcuts that are on
+  by default. Rebind under `shortcuts.bindings.newColumn` in cmux.json or in Settings > Keyboard.
 - The refusal HUD stays for every action refused from the keyboard or menu (user decision).
 - Not done: `layout.closeSizing` (even/neighbor). The app cannot apply it to closes it does not
   initiate (the last tab exiting, other clients) without inferring from its mirror, which the
@@ -48,7 +53,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 
 - Cmd-D / Cmd-Shift-D always split the focused pane inside its own column: never create a column,
   never scroll. Too narrow at the minimum pane width: refuse with a short HUD message.
-- New Column (default Ctrl-Cmd-D) appends a column right after the
+- New Column (default Ctrl-Cmd-X) appends a column right after the
   current one and scrolls to reveal it; the only creating command that scrolls.
 - `layout.splitSizing`: `even` (default; every pane along the split axis in that column gets equal
   size) | `halve` (only the split pane halves).

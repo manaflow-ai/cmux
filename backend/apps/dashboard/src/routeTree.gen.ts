@@ -21,6 +21,8 @@ import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/
 import { Route as PreviewAiUsageRouteImport } from './routes/preview.ai-usage'
 import { Route as PreviewBillingRouteImport } from './routes/preview.billing'
 import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
+import { Route as ApiAiGatewayChatCompletionsRouteImport } from './routes/api.ai-gateway.chat.completions'
+import { Route as ApiVertexChatCompletionsRouteImport } from './routes/api.vertex.chat.completions'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +84,18 @@ const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
   path: '/og/invite/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAiGatewayChatCompletionsRoute =
+  ApiAiGatewayChatCompletionsRouteImport.update({
+    id: '/api/ai-gateway/chat/completions',
+    path: '/api/ai-gateway/chat/completions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiVertexChatCompletionsRoute =
+  ApiVertexChatCompletionsRouteImport.update({
+    id: '/api/vertex/chat/completions',
+    path: '/api/vertex/chat/completions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +110,8 @@ export interface FileRoutesByFullPath {
   '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
+  '/api/vertex/chat/completions': typeof ApiVertexChatCompletionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +126,8 @@ export interface FileRoutesByTo {
   '/preview/billing': typeof PreviewBillingRoute
   '/integrations': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
+  '/api/vertex/chat/completions': typeof ApiVertexChatCompletionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +143,8 @@ export interface FileRoutesById {
   '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
+  '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
+  '/api/vertex/chat/completions': typeof ApiVertexChatCompletionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +161,8 @@ export interface FileRouteTypes {
     | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
+    | '/api/vertex/chat/completions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +177,8 @@ export interface FileRouteTypes {
     | '/preview/billing'
     | '/integrations'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
+    | '/api/vertex/chat/completions'
   id:
     | '__root__'
     | '/'
@@ -169,6 +193,8 @@ export interface FileRouteTypes {
     | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
+    | '/api/ai-gateway/chat/completions'
+    | '/api/vertex/chat/completions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,6 +210,8 @@ export interface RootRouteChildren {
   PreviewBillingRoute: typeof PreviewBillingRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
   OgInviteCodeRoute: typeof OgInviteCodeRoute
+  ApiAiGatewayChatCompletionsRoute: typeof ApiAiGatewayChatCompletionsRoute
+  ApiVertexChatCompletionsRoute: typeof ApiVertexChatCompletionsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -272,6 +300,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OgInviteCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ai-gateway/chat/completions': {
+      id: '/api/ai-gateway/chat/completions'
+      path: '/api/ai-gateway/chat/completions'
+      fullPath: '/api/ai-gateway/chat/completions'
+      preLoaderRoute: typeof ApiAiGatewayChatCompletionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vertex/chat/completions': {
+      id: '/api/vertex/chat/completions'
+      path: '/api/vertex/chat/completions'
+      fullPath: '/api/vertex/chat/completions'
+      preLoaderRoute: typeof ApiVertexChatCompletionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -288,6 +330,8 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewBillingRoute: PreviewBillingRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
   OgInviteCodeRoute: OgInviteCodeRoute,
+  ApiAiGatewayChatCompletionsRoute: ApiAiGatewayChatCompletionsRoute,
+  ApiVertexChatCompletionsRoute: ApiVertexChatCompletionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -99,7 +99,7 @@ export async function resolveGoPrice(): Promise<string> {
   return resolvePlanPrice(
     GO_PRICING_USD.month,
     "month",
-    env.STRIPE_GO_MONTHLY_10_PRICE_ID,
+    env.STRIPE_STARTER_MONTHLY_15_PRICE_ID,
     resolvedGoPriceIds,
     "go",
   );

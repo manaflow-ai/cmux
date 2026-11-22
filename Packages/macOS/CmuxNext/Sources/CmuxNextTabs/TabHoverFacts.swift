@@ -9,9 +9,10 @@ public struct TabHoverFacts: Hashable, Sendable {
         case other, terminal, browser, agentChat
     }
 
-    /// What the tab is doing, as its card words it.
+    /// What the tab is doing, as its card words it. `done`: a subagent pane's subagent finished
+    /// (`SubagentTabFacts`).
     public enum Activity: Hashable, Sendable {
-        case working, needsInput, idle, failed, running
+        case working, needsInput, idle, failed, running, done
     }
 
     public var kind: Kind = .other

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextComputerUse
 import CmuxNextDaemon
 
 /// The App's ``ComputerUseFocusing``: the target app by pid,

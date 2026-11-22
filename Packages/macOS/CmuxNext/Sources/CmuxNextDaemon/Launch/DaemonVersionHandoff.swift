@@ -8,9 +8,14 @@ import CmuxNextCompat
 public enum DaemonVersionDecision: Sendable, Equatable {
     /// Keep the running daemon; the reason is for the log.
     case keep(String)
-    /// Hand off: the running daemon (`running` commit) exits, keeping its
-    /// terminal hosts, and a daemon of the bundled build (`bundled`) adopts them.
+    /// Hand off: the running daemon (`running` build id, or its commit) exits,
+    /// keeping its terminal hosts, and a daemon of the bundled build (`bundled`)
+    /// adopts them.
     case restart(running: String, bundled: String)
+    /// The same handoff, after the bundled build premigrated the registry beside the running
+    /// daemon (`server premigrate-registry`): the app attaches to the running daemon now, and
+    /// the handoff runs on that connection once the premigration ends, however it ends.
+    case handOffAfterPremigrate(running: String, bundled: String)
 }
 
 /// One launcher's handoff state: the bundled builds it already handed off
@@ -32,6 +37,17 @@ final class DaemonHandoffState: Sendable {
             $0.exiting = pid
             return true
         }
+    }
+
+    /// Claims the one handoff to `bundled` without marking a daemon exiting, so connects go on
+    /// reaching the running daemon until ``exit(pid:)``; false when it was already claimed.
+    func reserve(bundled: String) -> Bool {
+        state.withLock { $0.handedOffTo.insert(bundled).inserted }
+    }
+
+    /// The daemon `pid` is exiting for the handoff ``reserve(bundled:)`` claimed.
+    func exit(pid: Int32) {
+        state.withLock { $0.exiting = pid }
     }
 
     func cancel(pid: Int32) {
@@ -85,34 +101,69 @@ enum ProcessExit {
 }
 
 extension DaemonLauncher {
-    static func versionDecision(running: String?, bundled: String?) -> DaemonVersionDecision {
-        guard let running else { return .keep("running build unknown") }
-        guard let bundled else { return .keep("bundled build unknown") }
-        return running == bundled ? .keep("same build") : .restart(running: running, bundled: bundled)
+    /// Whether the running owner is another build than the bundled binary. The build identity
+    /// (`build_id`) decides when both sides have one: it is the stamped commit for a packaged build
+    /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
+    /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
+    /// commits decide. With neither, the owner is kept and the reason names the unknown side
+    /// (`version_decision`, cmux-daemon-launch-core src/handoff.rs).
+    public static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
+        let stamp = { (stamp: DaemonBuildStamp) -> [String: Any] in
+            ["commit": stamp.commit ?? NSNull(), "id": stamp.id ?? NSNull()]
+        }
+        let decision = DaemonLaunchRules.call("version_decision", [
+            "running": stamp(running), "bundled": bundled.map(stamp) ?? NSNull(),
+        ]) as? [String: Any]
+        if let restart = decision?["restart"] as? [String: String], let from = restart["running"], let to = restart["bundled"] {
+            return .restart(running: from, bundled: to)
+        }
+        return .keep(decision?["keep"] as? String ?? "no decision")
     }
 
     /// After an update the app finds the daemon an older app started: hand
-    /// it off to the bundled build so the update reaches it. Terminals keep
+    /// it off to the bundled build so the update reaches it. A bundled binary first premigrates the
+    /// registry beside the running daemon, in the background: the call returns
+    /// `.handOffAfterPremigrate` at once, the caller attaches to the running daemon, and the
+    /// handoff runs on `connection` once the premigration ends. Terminals keep
     /// running: `shutdown-daemon` without `end_terminals` leaves every
     /// terminal host alive, the connection reconnects through this
     /// launcher's endpoint provider, which waits for the old daemon to exit
     /// and runs `server ensure` from the bundled binary, and the new daemon
-    /// adopts the hosts. `bundledCommit` overrides the bundled binary's own
-    /// commit (tests).
+    /// adopts the hosts. `bundled` overrides the bundled binary's own build
+    /// (the app passes the one it read at launch; tests pass another build). `onHandoffEnd` hears
+    /// whether a `.handOffAfterPremigrate` handoff was accepted, once it was asked.
     public func handOffIfStale(identity: DaemonIdentity, using connection: DaemonConnection,
-                               bundledCommit: String? = nil) async -> DaemonVersionDecision {
-        let bundled: String?
-        if let bundledCommit {
-            bundled = bundledCommit
+                               bundled override: DaemonBuildStamp? = nil,
+                               onHandoffEnd: (@Sendable (Bool) async -> Void)? = nil) async -> DaemonVersionDecision {
+        let bundled: DaemonBuildStamp?
+        if let override {
+            bundled = override
         } else {
-            bundled = try? await bundledBuildCommit()
+            bundled = try? await bundledBuild()
         }
-        let decision = Self.versionDecision(running: identity.buildCommit, bundled: bundled)
+        let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
         guard case .restart(let running, let target) = decision else { return decision }
+        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+        if configuration.binaryIsBundled {
+            // One premigration and one handoff per bundled build (the reservation): a second
+            // launch check while it runs does not start another.
+            guard handoff.reserve(bundled: target) else { return .keep("already handed off to \(target)") }
+            logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); premigrating, then handing off to \(target, privacy: .public)")
+            // task-owner: one per reserved bundled build; the command bounds itself (--max-seconds
+            // default) and ProcessRunner's timeout backs it up
+            Task.detached { [self] in
+                // The bundled build folds what its first start would (a new agent roster version)
+                // while this daemon serves the app.
+                await premigrateRegistry(logger: logger)
+                self.handoff.exit(pid: identity.pid)
+                let handedOff = await requestHandoff(identity: identity, using: connection)
+                await onHandoffEnd?(handedOff)
+            }
+            return .handOffAfterPremigrate(running: running, bundled: target)
+        }
         guard handoff.begin(bundled: target, pid: identity.pid) else {
             return .keep("already handed off to \(target)")
         }
-        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
         // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
         let handoff = handoff
@@ -130,6 +181,22 @@ extension DaemonLauncher {
             }
             return decision
         }, accepted: { $0 == decision })
+    }
+
+    /// Thin call site: `server premigrate-registry` of the bundled binary on this launcher's
+    /// session decides what to fold and for how long (cmux-tui `cli/lifecycle.rs`). A failure is
+    /// logged and left to the new daemon's start.
+    private func premigrateRegistry(logger: Logger) async {
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: ["--session", configuration.session, "--json", "server", "premigrate-registry"],
+                // Only a backstop past the command's own bound.
+                environment: await ensureEnvironment(), timeout: .seconds(900), clock: clock)
+            logger.info("registry premigrate exit \(result.status): \(String(decoding: result.stdout, as: UTF8.self), privacy: .public)")
+        } catch {
+            logger.error("registry premigrate failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// The running owner lacks `capability`, which the bundled build serves (an older build, or a
@@ -158,6 +225,15 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// The running owner works in another cloud build space than this app's (an older build of
+    /// this tag started it without `CMUX_BUILD_SPACE`, so its cloud calls reach nightly's data): hand
+    /// it off once per launcher, the same way, so the next `ensure` starts it with this app's space.
+    /// False when the daemon refused.
+    public func handOffForBuildSpace(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard handoff.begin(bundled: "build-space", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
     /// The person confirmed "Restart cmux-tui" (a server update, plans/cmux-next/server-updates-DESIGN.md):
     /// hand the running daemon off so the next `ensure` starts the bundled build. Terminals keep
     /// running, as in every handoff. Once per daemon process; false for an external binary (it
@@ -168,23 +244,57 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// The handshake refused the running owner: it speaks another protocol or lacks a capability
+    /// this app requires, as an owner an older build started does after an update that changed the
+    /// protocol. Hand it off to the bundled build the same way as an owner of another build
+    /// (`handOffIfStale`), on the refused connection: `shutdown-daemon` without `end_terminals`
+    /// leaves every terminal host alive, the next connect waits for the owner to exit and runs
+    /// `server ensure` from the bundled binary, and the new owner adopts the hosts. Only for the
+    /// bundled binary (an external one would start as itself again), only an owner of this
+    /// launcher's session (never one that serves another build's or home's session), and once per
+    /// launcher (the bundled build is compatible, so a second incompatible owner is not ours to
+    /// restart again). True while that owner is still exiting for this handoff; false when the
+    /// daemon refused, so the refusal shows.
+    func handOffIncompatible(identity: DaemonIdentity, on transport: LineTransport) async -> Bool {
+        guard configuration.binaryIsBundled, identity.pid > 1, identity.session == configuration.session else { return false }
+        if handoff.exiting == identity.pid { return true }
+        guard handoff.begin(bundled: "incompatible", pid: identity.pid) else { return false }
+        return await shutDown(identity) { try await DaemonConnection.perform($0, on: transport) }
+    }
+
+    /// `configuration` with this launcher's incompatible-owner handoff (`handOffIncompatible`), for
+    /// the app's own connections to its local daemon.
+    public func handingOffIncompatibleOwners(_ configuration: DaemonConnection.Configuration) -> DaemonConnection.Configuration {
+        var configuration = configuration
+        let launcher = self
+        configuration.incompatibleOwner = { identity, transport in
+            await launcher.handOffIncompatible(identity: identity, on: transport)
+        }
+        return configuration
+    }
+
     /// Sent with no request of `connection` in flight; requests made meanwhile go to the next
     /// daemon (`DaemonConnection.quietHandoff`), so a handoff never cuts a Home send.
     private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        let handoff = handoff
-        return await connection.quietHandoff {
-            do {
-                let reply = try await connection.request(
-                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
-                guard reply.accepted != false else {
-                    handoff.cancel(pid: identity.pid)
-                    return false
-                }
-            } catch {
+        await connection.quietHandoff { [self] in
+            await shutDown(identity) { try await connection.request($0) }
+        }
+    }
+
+    /// `shutdown-daemon` (no `end_terminals`: the terminals live on) for `identity` through `send`.
+    /// A refusal or a failed request ends the handoff (`DaemonHandoffState.cancel`).
+    private func shutDown(_ identity: DaemonIdentity,
+                          send: (ShutdownDaemonRequest) async throws -> ShutdownDaemonRequest.Response) async -> Bool {
+        do {
+            let reply = try await send(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+            guard reply.accepted != false else {
                 handoff.cancel(pid: identity.pid)
                 return false
             }
-            return true
+        } catch {
+            handoff.cancel(pid: identity.pid)
+            return false
         }
+        return true
     }
 }

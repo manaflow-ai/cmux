@@ -12,6 +12,7 @@ use crate::keypath::dotted;
 use crate::managed::{ManagedSource, Policy};
 use crate::schema::{Row, effective_value};
 use crate::value::value_at;
+use cmux_json::JsonSet as _;
 
 /// Everything a client needs to project the settings.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +31,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// `{revision, schema_hash, effective, file, managed, policy, diagnostics, domains}`.
+    /// The owner adds `path`, the settings file (`ConfigStore::snapshot_json`).
     /// A secret policy value appears as `"<set>"`, as it does in the
     /// cold-start cache: `crate::managed::SECRET_POLICY_KEYS` never leaves
     /// the owner, and this reply goes to every client that may read the
@@ -68,7 +70,10 @@ impl RowView<'_> {
     /// The exported row (without conformance samples) plus `value`,
     /// `default`, `customized` and `managed {source, team, reason}`.
     pub fn to_json(&self) -> Value {
-        let mut members: Map<String, Value> = self.row.raw.as_object().cloned().unwrap_or_default();
+        let mut members = match self.row.raw() {
+            Value::Object(members) => members,
+            _ => Map::new(),
+        };
         members.remove("accepts");
         members.remove("refuses");
         members.insert("value".into(), self.value.clone().unwrap_or(Value::Null));
@@ -105,7 +110,7 @@ impl GetView<'_> {
             "row": self.row.as_ref().map(RowView::to_json),
             "managed": self.managed.as_ref().map(|(key, source)| {
                 let mut info = source.to_json(key);
-                info["key"] = Value::String(key.clone());
+                info.set("key", Value::String(key.clone()));
                 info
             }),
         })

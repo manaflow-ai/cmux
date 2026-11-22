@@ -58,7 +58,7 @@ nonisolated enum GhosttyActionDecoder {
             return .host(payload.prompt_title == GHOSTTY_PROMPT_TITLE_WINDOW ? .promptWindowTitle : .promptTitle)
         case GHOSTTY_ACTION_SET_WINDOW_TITLE:
             // Same payload layout as set_title (apprt SetTitle).
-            return .host(.setWindowTitle(payload.set_title.title.map { String(cString: $0) } ?? ""))
+            return .host(.setWindowTitle(String(cString: payload.set_title.title)))
         case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
         case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
         case GHOSTTY_ACTION_PRESENT_TERMINAL: return .host(.presentTerminal)
@@ -70,9 +70,9 @@ nonisolated enum GhosttyActionDecoder {
 
         case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
             let title = action.tag == GHOSTTY_ACTION_SET_TITLE ? payload.set_title.title : payload.set_tab_title.title
-            return .setTitle(title.map { String(cString: $0) } ?? "")
+            return .setTitle(String(cString: title))
         case GHOSTTY_ACTION_PWD:
-            return .pwd(payload.pwd.pwd.map { String(cString: $0) } ?? "")
+            return .pwd(String(cString: payload.pwd.pwd))
         case GHOSTTY_ACTION_RING_BELL: return .ringBell
         // GHOSTTY_ACTION_DESKTOP_NOTIFICATION stays unhandled: the daemon
         // parses OSC 9/777/99 from every terminal's output, shown or not,
@@ -117,15 +117,14 @@ nonisolated enum GhosttyActionDecoder {
             guard change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND else { return nil }
             return .backgroundColor(red: change.r, green: change.g, blue: change.b)
         case GHOSTTY_ACTION_CONFIG_CHANGE:
-            guard let config = payload.config_change.config else { return nil }
-            return .configChange(UncheckedPointer(raw: ghostty_config_clone(config)))
+            return .configChange(UncheckedPointer(raw: ghostty_config_clone(payload.config_change.config)))
         case GHOSTTY_ACTION_RELOAD_CONFIG: return .reloadConfig(soft: payload.reload_config.soft)
         case GHOSTTY_ACTION_OPEN_CONFIG: return .openConfig
         case GHOSTTY_ACTION_SCROLLBAR:
             let bar = payload.scrollbar
             return .scrollbar(TerminalScrollbar(totalRows: bar.total, offsetRows: bar.offset, visibleRows: bar.len))
         case GHOSTTY_ACTION_START_SEARCH:
-            return .startSearch(payload.start_search.needle.map { String(cString: $0) } ?? "")
+            return .startSearch(String(cString: payload.start_search.needle))
         case GHOSTTY_ACTION_END_SEARCH: return .endSearch
         case GHOSTTY_ACTION_SEARCH_TOTAL:
             let total = payload.search_total.total

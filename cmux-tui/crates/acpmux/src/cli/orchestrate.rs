@@ -10,6 +10,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::sync::Arc;
@@ -74,6 +75,28 @@ pub(crate) enum Matcher {
     Regex(regex::Regex),
 }
 
+fn remaining_timeout(started: tokio::time::Instant, timeout: Option<u64>) -> Option<u64> {
+    timeout.map(|seconds| seconds.saturating_sub(started.elapsed().as_secs()))
+}
+
+async fn resolve_id_after_update(
+    client: &mut Arc<Client>,
+    key: &str,
+    budget: Option<std::time::Duration>,
+) -> Result<String> {
+    match resolve_id(client, key).await {
+        Ok(id) => Ok(id),
+        Err(error) if daemon_closed_error(&error) => {
+            *client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
+            resolve_id(client, key).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl Matcher {
     fn hit(&self, text: &str) -> Option<String> {
         match self {
@@ -96,11 +119,32 @@ fn transcript_text(t: &Transcript) -> String {
 
 /// `acpmux wait`: server-side state wait, or a client-side text match.
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    // One deadline includes name resolution, every reconnect and reply reads.
+    // A phase must never reset the caller's timeout after spending it upstream.
+    match opts.timeout {
+        Some(seconds) => tokio::time::timeout(
+            std::time::Duration::from_secs(seconds),
+            wait_inner(client, opts, json_out),
+        )
+        .await
+        .map_err(|_| AppError::timeout("no session resolved in time"))?,
+        None => wait_inner(client, opts, json_out).await,
+    }
+}
+
+async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    let mut client = client;
+    let started = tokio::time::Instant::now();
     // Resolve names first so a typo is exit 4, not a silent no-op.
     let mut ids: Vec<(String, String)> = Vec::new();
     for key in &opts.sessions {
         let key = expand_session_key(key)?;
-        let id = resolve_id(&client, &key).await?;
+        let id = resolve_id_after_update(
+            &mut client,
+            &key,
+            opts.timeout.map(std::time::Duration::from_secs),
+        )
+        .await?;
         ids.push((key, id));
     }
     if let Some(matcher) = &opts.matcher {
@@ -109,16 +153,43 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
-        return wait_match(client, &ids, matcher, opts.timeout, opts.all, opts.notify, json_out)
-            .await;
+        return wait_match_after_update(
+            client,
+            &ids,
+            matcher,
+            opts.timeout,
+            opts.all,
+            opts.notify,
+            json_out,
+        )
+        .await;
     }
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
         "until": opts.until,
         "all": opts.all,
-        "timeoutMs": opts.timeout.map(|s| s * 1000),
+        "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
     });
-    let v = client.request(method::MUX_WAIT, params).await?;
+    let v = match client.request(method::MUX_WAIT, params.clone()).await {
+        Ok(value) => value,
+        Err(error) if crate::cli::output::daemon_closed_error(&error) => {
+            let budget = opts.timeout.map(|s| {
+                std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+            });
+            client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
+            let params = json!({
+                "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
+                "until": opts.until,
+                "all": opts.all,
+                "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
+            });
+            client.request(method::MUX_WAIT, params).await?
+        }
+        Err(error) => return Err(error),
+    };
     let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let resolved = v.get("resolved").and_then(Value::as_array).cloned().unwrap_or_default();
     let timed_out = v.get("timedOut").and_then(Value::as_bool).unwrap_or(false);
@@ -139,15 +210,21 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
         let failed = failed_turn(s);
-        let reply = match (opts.print || json_out, failed.is_some()) {
-            (false, _) => String::new(),
-            // A failed turn's own output, never the reply of the turn before it.
-            (true, true) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
-                Some(turn) => turn_reply(&client, &id, turn).await.ok().flatten(),
-                None => None,
+        // The last turn's own reply, empty when it said nothing, never the reply of the turn
+        // before it. Only when its start is out of reach (no `lastTurn`, an older daemon, a
+        // trimmed log) does an ended turn fall back to the chat's last reply; a failed one
+        // then prints none.
+        let own = match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
+            Some(turn) if opts.print || json_out => {
+                turn_reply(&client, &id, turn).await.ok().flatten()
             }
-            .unwrap_or_default(),
-            (true, false) => {
+            _ => None,
+        };
+        let reply = match (opts.print || json_out, own, failed.is_some()) {
+            (false, _, _) => String::new(),
+            (true, Some(own), _) => own,
+            (true, None, true) => String::new(),
+            (true, None, false) => {
                 last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
             }
         };
@@ -219,8 +296,10 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
     {
         let cause = match retry["reason"].as_str().unwrap_or_default() {
             "capacity" => "capacity: the provider or the gateway is full",
+            "rate_limit" => "the account's rate limit (the chat holds every turn until its reset)",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
+            "context" => "a chat past its context window (it compacts first)",
             other => other,
         };
         lines.push(format!(
@@ -290,7 +369,46 @@ fn session_exit_code(s: &Value) -> i32 {
 /// Resolve when a session's transcript contains the text (with `all`,
 /// when every session's does). Existing text matches at once; then live
 /// updates are followed.
-async fn wait_match(
+async fn wait_match_after_update(
+    mut client: Arc<Client>,
+    ids: &[(String, String)],
+    matcher: &Matcher,
+    timeout: Option<u64>,
+    all: bool,
+    notify: bool,
+    json_out: bool,
+) -> Result<()> {
+    let started = tokio::time::Instant::now();
+    let mut retried = false;
+    loop {
+        match wait_match_once(
+            client.clone(),
+            ids,
+            matcher,
+            remaining_timeout(started, timeout),
+            all,
+            notify,
+            json_out,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if !retried && daemon_closed_error(&error) => {
+                retried = true;
+                let budget = timeout.map(|s| {
+                    std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+                });
+                client = match budget {
+                    Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                    None => reconnect_after_update().await?,
+                };
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn wait_match_once(
     client: Arc<Client>,
     ids: &[(String, String)],
     matcher: &Matcher,
@@ -365,7 +483,7 @@ async fn wait_match(
             return Err(client.closed("following the session events"));
         }
         let p = params.unwrap_or(Value::Null);
-        let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+        let Ok(sid) = crate::cli::resolve::routed_id(&p) else { continue };
         let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
             continue;
         };
@@ -415,6 +533,10 @@ pub(crate) fn parse_tags(assignments: &[String]) -> Result<Value> {
     Ok(Value::Object(tags))
 }
 
+/// How many times `ensure` reconnects after the daemon closed its connection
+/// during the lookup or the create.
+const ENSURE_RECONNECTS: usize = 2;
+
 pub(crate) async fn ensure(
     client: Arc<Client>,
     name: &str,
@@ -425,6 +547,8 @@ pub(crate) async fn ensure(
     policy: Option<String>,
     effort: Option<String>,
     tags: Vec<String>,
+    harness_from: Option<String>,
+    full_record: bool,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -435,57 +559,95 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    if let (Some(h), Some(from)) = (&host, &harness_from) {
+        return Err(AppError::usage(format!(
+            "--harness-from copies a session on this machine only: run \
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --machine {h}"
+        ))
+        .into());
+    }
     let tags = parse_tags(&tags)?;
-    let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),
     };
-    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
-        a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned()
-    });
-    let (v, created) = match found {
-        Some(s) => (s, false),
-        None => {
-            let mut meta = json!({"name": name});
-            if let Some(a) = &agent {
-                meta["harness"] = json!(a);
+    // A daemon restarted during the lookup or the create closes the connection
+    // with no reply, and the create may already have happened: reconnect and
+    // look for the session by its name again before making it, so a retry finds
+    // that one and never makes a second (`new --reuse` does the same).
+    let mut client = client;
+    let mut reconnects = 0;
+    let (v, created) = loop {
+        let attempt = async {
+            let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
+                a.iter()
+                    .find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str()))
+                    .cloned()
+            });
+            let attempt = match found {
+                Some(s) => (s, false),
+                None => {
+                    if let Some(hint) = crate::session_name::naming_hint(name) {
+                        eprintln!("{hint}");
+                    }
+                    let mut meta = json!({"name": name});
+                    if let Some(a) = &agent {
+                        meta["harness"] = json!(a);
+                    }
+                    if let Some(p) = &preset {
+                        meta["preset"] = json!(p);
+                    }
+                    if let Some(p) = &policy {
+                        meta["policy"] = json!(p);
+                    }
+                    if let Some(h) = &host {
+                        meta["peer"] = json!(h);
+                    }
+                    if let Some(m) = &model {
+                        meta["model"] = json!(m);
+                    }
+                    if let Some(e) = &effort {
+                        meta["effort"] = json!(e);
+                    }
+                    if !tags.as_object().is_none_or(|m| m.is_empty()) {
+                        meta["tags"] = tags.clone();
+                    }
+                    if let Some(p) = &harness_from {
+                        meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
+                    }
+                    meta["argv"] = json!(crate::cli::entry::original_args());
+                    let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+                    let cwd = match (&host, cwd.clone()) {
+                        (_, Some(c)) => Some(c),
+                        (Some(_), None) => None,
+                        (None, None) => Some(default_ensure_cwd(std::env::current_dir()?)),
+                    };
+                    if let Some(c) = cwd {
+                        p.set("cwd", json!(c));
+                    }
+                    let v = client.request(method::SESSION_NEW, p).await?;
+                    crate::cli::run::launch::print_new_warnings(&v);
+                    let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                    (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
+                }
+            };
+            Ok::<_, anyhow::Error>(attempt)
+        }
+        .await;
+        match attempt {
+            Err(error) if reconnects < ENSURE_RECONNECTS && daemon_closed_error(&error) => {
+                reconnects += 1;
+                client = reconnect_after_update().await?;
             }
-            if let Some(p) = &preset {
-                meta["preset"] = json!(p);
-            }
-            if let Some(p) = &policy {
-                meta["policy"] = json!(p);
-            }
-            if let Some(h) = &host {
-                meta["peer"] = json!(h);
-            }
-            if let Some(m) = &model {
-                meta["model"] = json!(m);
-            }
-            if let Some(e) = &effort {
-                meta["effort"] = json!(e);
-            }
-            if !tags.as_object().is_none_or(|m| m.is_empty()) {
-                meta["tags"] = tags;
-            }
-            meta["argv"] = json!(crate::cli::entry::original_args());
-            let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            match (&host, cwd) {
-                (Some(_), Some(c)) => p["cwd"] = json!(c),
-                (Some(_), None) => {}
-                (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
-            }
-            let v = client.request(method::SESSION_NEW, p).await?;
-            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-            (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
+            done => break done?,
         }
     };
     let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     if json_out {
         let mut out = v.clone();
         out["created"] = json!(created);
-        print_json(&out);
+        print_json(&crate::cli::output::session_record(out, full_record));
     } else {
         println!(
             "{} {name} ({})",
@@ -494,6 +656,56 @@ pub(crate) async fn ensure(
         );
     }
     Ok(())
+}
+
+/// The folder `ensure` starts a session in when none is named: the current
+/// one, or the home folder when this user cannot read the current one (run from
+/// `/root` through a root exec that switched user, the harness's start failed
+/// as `spawn harness process …: Permission denied`). Said on stderr.
+fn default_ensure_cwd(current: std::path::PathBuf) -> std::path::PathBuf {
+    match unreadable_fallback(&current, dirs::home_dir()) {
+        Some(home) => {
+            eprintln!(
+                "note: {} is not readable by this user; the session starts in {} (--cwd names another)",
+                current.display(),
+                home.display()
+            );
+            home
+        }
+        None => current,
+    }
+}
+
+/// `home` when `current` cannot be listed and `home` can.
+fn unreadable_fallback(
+    current: &std::path::Path,
+    home: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    let denied = matches!(std::fs::read_dir(current), Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied);
+    home.filter(|h| denied && std::fs::read_dir(h).is_ok())
+}
+
+#[cfg(all(test, unix))]
+mod ensure_cwd_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn an_unreadable_current_folder_falls_back_to_home() {
+        let root = std::env::temp_dir().join(format!("acpmux-ensure-cwd-{}", uuid::Uuid::now_v7()));
+        let (shut, home) = (root.join("shut"), root.join("home"));
+        std::fs::create_dir_all(&shut).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(unreadable_fallback(&shut, Some(home.clone())), None, "a readable folder stays");
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // root reads every folder: nothing to fall back from there.
+        if std::fs::read_dir(&shut).is_err() {
+            assert_eq!(unreadable_fallback(&shut, Some(home.clone())), Some(home.clone()));
+            assert_eq!(unreadable_fallback(&shut, None), None);
+        }
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 /// `acpmux history NAME`.
@@ -514,24 +726,50 @@ pub(crate) async fn history(
         println!("no turns yet");
         return Ok(());
     }
-    println!("{:<5} {:<10} {:>7} {:>5} {:>8} PROMPT", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS");
-    for t in turns {
-        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let wall = t
-            .get("wallMs")
+    let secs = |t: &Value, k: &str| {
+        t.get(k)
             .and_then(Value::as_u64)
             .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
-            .unwrap_or_else(|| "-".into());
+            .unwrap_or_else(|| "-".into())
+    };
+    // The chat's own start, when its first turn is listed: what a slow first answer waited on
+    // before its prompt reached the agent (`hub/history_timing.rs`).
+    if let Some(start) = turns.iter().find_map(|t| t.get("agentStart")) {
+        let steps: Vec<String> = start
+            .get("steps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|s| format!("{} {}", s["method"].as_str().unwrap_or("?"), secs(s, "ms")))
+            .collect();
+        println!(
+            "agent start: first prompt {} after the chat was created, agent ready at {}{}",
+            secs(start, "firstPromptMs"),
+            secs(start, "readyMs"),
+            if steps.is_empty() { String::new() } else { format!(" ({})", steps.join(", ")) }
+        );
+    }
+    // START: the prompt accepted to the prompt written to the agent (an agent start inside it).
+    // MODEL: the prompt written to the model's first output (the route and the API).
+    println!(
+        "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} PROMPT",
+        "SEQ", "STATUS", "WALL", "START", "MODEL", "TOOLS", "TOKENS"
+    );
+    for t in turns {
+        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let wall = secs(&t, "wallMs");
         let tokens = t
             .get("tokens")
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "-".into());
         println!(
-            "{:<5} {:<10} {:>7} {:>5} {:>8} {}",
+            "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} {}",
             t.get("seq").and_then(Value::as_u64).unwrap_or(0),
             g("status"),
             wall,
+            secs(&t, "toAgentMs"),
+            secs(&t, "firstModelMs"),
             t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
             tokens,
             short(&g("prompt"), 60)
@@ -679,6 +917,7 @@ pub(crate) async fn compare(
                     &id,
                     &prompt,
                     CollectOpts {
+                        deadline: None,
                         timeout,
                         on_permission: OnPermission::Wait,
                         stall_secs: 0,
@@ -763,71 +1002,7 @@ async fn turn_stats(client: &Arc<Client>, id: &str) -> (Option<u64>, u64) {
     )
 }
 
-/// `acpmux session tail NAME [--since CURSOR] [--last N] [-f]`.
-pub(crate) async fn tail(
-    client: Arc<Client>,
-    key: &str,
-    last: u64,
-    since: Option<String>,
-    follow: bool,
-    suppress_reads: bool,
-) -> Result<()> {
-    let id = resolve_id(&client, &expand_session_key(key)?).await?;
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let events: Vec<Value> = match since {
-        Some(cursor) => {
-            let seq = parse_cursor(&cursor, &id)?;
-            // Subscribe before reading from the cursor, so an event written
-            // in between arrives live; the seq check below drops repeats.
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            events_after(&client, &id, seq, usize::MAX).await?
-        }
-        None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
-    };
-    let stdout = std::io::stdout();
-    let mut sup = ReadSuppressor::default();
-    let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
-    // The newest seq printed: a live event at or below it was in the page.
-    let mut printed_seq = 0u64;
-    for e in events {
-        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
-        let mut lock = stdout.lock();
-        let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
-    }
-    if !follow {
-        return Ok(());
-    }
-    while let Some(m) = notes.recv().await {
-        if let Message::Notification { method: m, params } = m {
-            if m == method::MUX_DISCONNECTED {
-                return Err(client.closed("following the session"));
-            }
-            let p = params.unwrap_or(Value::Null);
-            if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
-                continue;
-            }
-            let seq = if m == method::MUX_EVENT {
-                p.get("seq").and_then(Value::as_u64)
-            } else {
-                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
-            };
-            if seq.is_some_and(|s| s <= printed_seq) {
-                continue;
-            }
-            let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT {
-                with_cursor(&id, filter(&mut sup, p))
-            } else if m == method::SESSION_UPDATE && suppress_reads {
-                json!({"method": m, "params": sup.apply_update(p)})
-            } else {
-                json!({"method": m, "params": p})
-            };
-            let _ = writeln!(lock, "{line}");
-        }
-    }
-    Ok(())
-}
+// `acpmux session tail` streams a chat's events: `session_tail.rs`.
 
 /// A cursor is `<sessionId>:<seq>` or a bare seq.
 pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
@@ -853,13 +1028,6 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         )
         .into()
     })
-}
-
-fn with_cursor(id: &str, mut e: Value) -> Value {
-    if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
-    }
-    e
 }
 
 /// --suppress-reads: blank read-tool payloads but keep the message shape.

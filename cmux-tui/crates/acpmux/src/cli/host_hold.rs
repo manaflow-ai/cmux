@@ -124,7 +124,7 @@ impl Holds {
             why.push_str(&format!(" until {until}"));
         }
         why.push_str(&format!(
-            ", so host update leaves it alone (`acpmux host hold {key} --release` ends it)"
+            ", so machine update leaves it alone (`acpmux machine hold {key} --release` ends it)"
         ));
         Some(why)
     }
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(h.why("mini-b", "mini-b.tail0.ts.net", NOW), None);
         let why = h.why("mini-a", "mini-a", NOW).unwrap();
         assert!(why.contains("(reserved for a teammate)"), "{why}");
-        assert!(why.contains("acpmux host hold mini-a --release"), "{why}");
+        assert!(why.contains("acpmux machine hold mini-a --release"), "{why}");
         let fqdn = holds(&[("mini-a.tail0.ts.net", None, None)]);
         assert!(fqdn.why("x", "cmux@mini-a.tail0.ts.net", NOW).is_some());
     }

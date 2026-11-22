@@ -145,18 +145,49 @@ export interface PumpHost {
   onRetryWait(at: number): void | Promise<void>;
   /** Why compaction is off for this object (no model it may use), or undefined: then pump starts nothing and schedules nothing. */
   off?(): string | undefined;
+  /**
+   * Where the shared hold lives across restarts (the object's storage). Without it a restart starts
+   * every node again at once: the 2026-10-28 staging drain, where a bad credential made each
+   * restarted Chief call the model about once a second per node.
+   */
+  readonly hold?: CompactorHold;
   /** First retry delay in ms (default RETRY_BASE_MS); tests make it small. */
   readonly retryBaseMs?: number;
   /** Random number in [0, 1) for the jitter (default Math.random; tests inject one). */
   readonly random?: () => number;
 }
 
+/** The compactor's shared hold, as stored: no node starts before `until`; `streak` failures in a row so far. */
+export interface CompactorHold {
+  read(): { readonly until: number; readonly streak: number } | undefined;
+  write(hold: { readonly until: number; readonly streak: number }): void;
+}
+
+/** The hold in a Chief object's `cb_config` (row `compactor_hold`, JSON), for `PumpHost.hold`. */
+export const compactorHold = (sql: SqlStorage): CompactorHold => ({
+  read: () => {
+    const v = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'compactor_hold'`).toArray()[0]?.value;
+    if (!v) return undefined;
+    try {
+      const h = JSON.parse(v) as { until?: unknown; streak?: unknown };
+      return typeof h.until === "number" && typeof h.streak === "number" ? { until: h.until, streak: h.streak } : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  write: (h) => void sql.exec(`INSERT INTO cb_config (name, value) VALUES ('compactor_hold', ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, JSON.stringify(h)),
+});
+
 /** First retry delay and the cap of the exponential backoff (spec 4.1 retries forever; this spaces them). */
 export const RETRY_BASE_MS = 2_000
 export const RETRY_CAP_MS = 5 * 60_000
+/** A failure the next try hits again (credential, account): the first wait and the cap of its backoff. */
+export const AUTH_RETRY_BASE_MS = 60_000
+export const AUTH_RETRY_CAP_MS = 30 * 60_000
 
-/** A provider's rate limit (Workers AI "rate limiting ... rate reached", HTTP 429, capacity errors). */
-export const isRateLimit = (msg: string): boolean => /\b429\b|rate[ -]?limit|too many requests|capacity temporarily exceeded|\b3040:/i.test(msg)
+/** The provider refused the caller, not the request: a bad or expired credential, or no access (HTTP 401/403). */
+export const isAuthFailure = (msg: string): boolean =>
+  /^\s*40[13]\b|\b(?:status|HTTP)\s*40[13]\b|security token|unauthori[sz]ed|forbidden|invalid (?:api[ -]?)?key|access ?denied|expired token/i.test(msg)
 
 /** A Retry-After the error names (seconds, or "retry after N s"), in ms; undefined when it names none. */
 export const retryAfterMs = (msg: string): number | undefined => {
@@ -179,12 +210,27 @@ export const backoffMs = (n: number, msg: string, base: number, random: () => nu
 }
 
 /**
+ * The whole compactor's wait after `n` failures in a row (any node). Same as `backoffMs`, but a
+ * failure the next try hits again (`isAuthFailure`) waits AUTH_RETRY_BASE_MS doubling to
+ * AUTH_RETRY_CAP_MS, at least half of it (no near-zero jitter: every node would fail the same way).
+ */
+export const sharedWaitMs = (n: number, msg: string, base: number, random: () => number): number => {
+  if (retryAfterMs(msg) !== undefined || !isAuthFailure(msg)) return backoffMs(n, msg, base, random)
+  const ceiling = Math.min(AUTH_RETRY_CAP_MS, AUTH_RETRY_BASE_MS * 2 ** Math.min(n - 1, 20))
+  return Math.floor(ceiling / 2 + (random() * ceiling) / 2)
+}
+
+/**
  * The background compactor (spec 4.1). `pump()` starts every node the core says may start (rule 1
  * not built or running, rule 2 sources built, rule 3 everything before it summarized), up to JOBS
  * model calls; the host calls it after every append, and it calls itself after every node finishes.
  * A failed node is reported once, stays busy for its backoff (exponential with full jitter, capped
- * at 5 min, or the error's Retry-After), then is released and pumped again, forever. A rate limit
- * also holds every new node until the wait ends, so 8 jobs do not hammer a limited provider.
+ * at 5 min, or the error's Retry-After), then is released and pumped again, forever. Every failure
+ * also holds every new node until a shared wait ends (it grows with the failures in a row, and a
+ * success resets it), so a fault all nodes share (a rate limit, a bad credential) costs one batch of
+ * at most JOBS calls per wait, not one retry chain per node. A credential failure (401/403) waits
+ * minutes (AUTH_RETRY_BASE_MS up to AUTH_RETRY_CAP_MS). The hold is kept in `host.hold`, so an
+ * object restart does not start the nodes again before it ends.
  * `settle()` is spec 6: it resolves when every view line is a summary, checked again after every fit.
  */
 export class Compactor {
@@ -196,10 +242,16 @@ export class Compactor {
   /** After a rate limit: no new node starts before this time. */
   private coolUntil = 0;
   private coolTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Rate limits in a row, for the whole compactor (a success resets it): the shared wait grows with it. */
+  /** Failures in a row, for the whole compactor (a success resets it): the shared wait grows with it. */
   private rateTries = 0;
 
-  constructor(private readonly host: PumpHost) {}
+  constructor(private readonly host: PumpHost) {
+    const kept = host.hold?.read();
+    if (kept && Number.isFinite(kept.until) && Number.isFinite(kept.streak)) {
+      this.coolUntil = kept.until;
+      this.rateTries = Math.max(0, kept.streak);
+    }
+  }
 
   /** The wait before a cooled pump; 0 when not cooling. */
   cooling(now = Date.now()): number {
@@ -215,11 +267,15 @@ export class Compactor {
     if (this.off()) return;
     const cool = this.cooling();
     if (cool > 0) {
-      // A provider said "slow down": take no new node until the wait ends (the core would mark it busy).
-      this.coolTimer ??= setTimeout(() => {
-        this.coolTimer = undefined;
-        this.pump();
-      }, cool);
+      // A recent failure holds every node: take no new one until the wait ends (the core would mark it busy).
+      if (this.coolTimer === undefined) {
+        // The object may be evicted before the timer fires: the host wakes it when the hold ends.
+        void this.host.onRetryWait(this.coolUntil);
+        this.coolTimer = setTimeout(() => {
+          this.coolTimer = undefined;
+          this.pump();
+        }, cool);
+      }
       return;
     }
     let work: ReturnType<Memory["pump"]> = [];
@@ -252,7 +308,11 @@ export class Compactor {
         () => {
           this.failing.delete(key);
           this.tries.delete(key);
-          this.rateTries = 0;
+          if (this.rateTries > 0 || this.coolUntil > 0) {
+            this.rateTries = 0;
+            this.coolUntil = 0;
+            this.host.hold?.write({ until: 0, streak: 0 });
+          }
           this.running.delete(key);
           this.host.onBuilt(l, i);
           this.pump();
@@ -265,13 +325,15 @@ export class Compactor {
           }
           const n = (this.tries.get(key) ?? 0) + 1;
           this.tries.set(key, n);
-          const wait = backoffMs(n, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
-          if (isRateLimit(msg) || retryAfterMs(msg) !== undefined) {
-            this.rateTries++;
-            const shared = backoffMs(this.rateTries, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
-            this.coolUntil = Math.max(this.coolUntil, Date.now() + Math.max(wait, shared));
-          }
-          void this.host.onRetryWait(Date.now() + wait);
+          const base = this.host.retryBaseMs ?? RETRY_BASE_MS;
+          const random = this.host.random ?? Math.random;
+          const wait = backoffMs(n, msg, base, random);
+          // Every failure holds every node (see the class note): the nodes in flight still finish, none starts.
+          this.rateTries++;
+          const shared = sharedWaitMs(this.rateTries, msg, base, random);
+          this.coolUntil = Math.max(this.coolUntil, Date.now() + Math.max(wait, shared));
+          this.host.hold?.write({ until: this.coolUntil, streak: this.rateTries });
+          void this.host.onRetryWait(Math.max(Date.now() + wait, this.coolUntil));
           // The node stays busy during the wait, as the spec's pump does.
           setTimeout(() => {
             this.running.delete(key);

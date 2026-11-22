@@ -163,3 +163,7 @@ mod shell_args_tests;
 #[cfg(test)]
 #[path = "daemon_env_tests.rs"]
 mod daemon_env_tests;
+
+#[cfg(test)]
+#[path = "create_terminal_scope_tests.rs"]
+mod create_terminal_scope_tests;

@@ -10,6 +10,21 @@ import { AppsStore } from "./store";
 import { APP_STORE_ID, HOME_ID } from "./types";
 import { fromListing } from "./wire";
 
+test("fallback initials preserve emoji and combining graphemes", () => {
+  const icon = (name: string) => renderToStaticMarkup(<AppIcon name={name} size={40} />);
+  expect(icon("🦊 Fox")).toContain(">🦊F<");
+  expect(icon("👩🏽‍💻 Developer")).toContain(">👩🏽‍💻D<");
+  expect(icon("🇯🇵日")).toContain(">🇯🇵日<");
+  expect(icon("Álvaro Perez")).toContain(">ÁP<");
+  expect(icon("王秀英")).toContain(">王秀<");
+  expect(icon("أحمد محمد")).toContain(">أم<");
+  expect(icon("Aleksandra Wiśniewska-Kowalczyk")).toContain(">AW<");
+  expect(icon("Jo")).toContain(">JO<");
+  expect(icon("J")).toContain(">J<");
+  expect(icon("")).toContain(">?<");
+  expect(icon("   ")).toContain(">?<");
+});
+
 test("a symbol icon draws as the host's glyph mask, never as initials", () => {
   const listing = fromListing({
     app: "cmux/cloud",

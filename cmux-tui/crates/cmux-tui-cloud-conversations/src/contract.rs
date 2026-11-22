@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::CloudError;
 use super::service::HttpReply;
+use cmux_json::JsonSet as _;
 
 /// Op kinds `cloud-conversation-op` forwards. Every other kind is refused
 /// before any network call (default deny).
@@ -282,7 +283,7 @@ fn error_fields(body: &Value) -> Option<(String, String, bool)> {
 }
 
 /// HTTP status handling shared by reads and mutations.
-fn classify(reply: &HttpReply) -> Result<(), CloudError> {
+pub(crate) fn classify(reply: &HttpReply) -> Result<(), CloudError> {
     match reply.status {
         200..=299 => Ok(()),
         401 => Err(CloudError::Unauthenticated),
@@ -359,7 +360,13 @@ pub(crate) fn inbox_list_data(value: Value, revision: Value) -> Result<Value, Cl
         .filter(|entries| entries.is_array())
         .cloned()
         .ok_or_else(|| CloudError::Unavailable("inbox.list without entries".into()))?;
-    Ok(json!({"entries": entries, "revision": revision}))
+    // The owner's keyset cursor of the next page; null on the last page (and from an older owner).
+    let next_cursor = value
+        .get("next_cursor")
+        .filter(|cursor| cursor.is_string())
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok(json!({"entries": entries, "revision": revision, "next_cursor": next_cursor}))
 }
 
 /// `home.requests.list` data: `{requests}` with only rows whose
@@ -461,7 +468,7 @@ pub(crate) fn snapshot_data(frame: &Value) -> Result<Value, CloudError> {
 /// when the owner sent them (an older owner does not).
 fn with_threads(mut data: Value, owner: &Value) -> Value {
     if let Some(threads) = owner.get("threads").filter(|threads| threads.is_array()) {
-        data["threads"] = threads.clone();
+        data.set("threads", threads.clone());
     }
     data
 }

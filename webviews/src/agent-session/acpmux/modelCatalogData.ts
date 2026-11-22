@@ -1,7 +1,11 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { FEED_PROVIDERS } from "./feedHarnesses";
+import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
+import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
+import { replacedFrom } from "./sessionIndex";
 import { agentKey } from "../shared/agentKey";
 import { agentBrand } from "../shared/agentBrands.generated";
 
@@ -12,7 +16,8 @@ import { agentBrand } from "../shared/agentBrands.generated";
 // reads only `PickerCatalog`; it never matches model ids itself.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-export type ModelStatus = "preview" | "deprecated";
+/** `disabled`: the catalog withdrew the model; it never shows (see `readModelCatalog`). */
+export type ModelStatus = "preview" | "deprecated" | "disabled";
 
 export type ModelInfo = {
   name: string;
@@ -79,6 +84,21 @@ export type ModelUserLayer = {
   overrides?: Record<string, Partial<HarnessModel> & { hidden?: boolean }>;
 };
 
+// Identity-only rows are useful in the bundled/offline catalog, but a connected account's
+// probed list is authoritative. Keep these IDs sourced from the same family file so a feed lag
+// cannot make an unverified release appear selectable for a live account.
+const currentFamilyIds = new Set(
+  Object.values(currentFamilies)
+    .flat()
+    .map((model) => model.id),
+);
+const isIdentityOnlyCurrentModel = (model: HarnessModel) =>
+  currentFamilyIds.has(model.id) &&
+  model.ref === undefined &&
+  model.efforts === undefined &&
+  model.fast === undefined &&
+  model.aliases === undefined;
+
 export type PickerModel = {
   id: string;
   name: string;
@@ -86,6 +106,9 @@ export type PickerModel = {
   family?: string;
   providerName?: string;
   efforts: EffortValue[];
+  /** Whether the catalog/profile explicitly declared this model's effort capability.
+   * An empty array is meaningful only when this is true; omitted capabilities may use live session options. */
+  effortsDeclared?: boolean;
   defaultEffort?: EffortValue;
   fast: boolean;
   inlineFast?: boolean;
@@ -110,6 +133,8 @@ export type PickerHarness = {
   topModels?: string[];
   id: string;
   name: string;
+  /** acpmux family, when this profile was reported (for family-specific picker behavior). */
+  family?: string;
   /** AgentMark brand id; null = no brand (use `iconUrl`, else the generic glyph). */
   brand: string | null;
   /** A host-served icon an acpmux profile declared (`_acpmux/harnesses` `icon` that is not a brand). */
@@ -148,8 +173,20 @@ const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium"
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
-  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness);
+  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness).map(withoutDisabled);
   return { ...(value as ModelCatalog), harnesses };
+}
+
+/** Drops the models the catalog disabled, and a default model that is one of them. */
+function withoutDisabled(harness: CatalogHarness): CatalogHarness {
+  const disabled = new Set(harness.models.filter((m) => m?.status === "disabled").map((m) => m.id));
+  if (disabled.size === 0) return harness;
+  const { defaultModel, ...rest } = harness;
+  return {
+    ...rest,
+    models: harness.models.filter((m) => !disabled.has(m.id)),
+    ...(defaultModel && !disabled.has(defaultModel) ? { defaultModel } : {}),
+  };
 }
 
 /** Applies cmux.json `agentPane.models` to a catalog. Bad entries are skipped and reported. */
@@ -254,16 +291,54 @@ export type PickerInputs = {
   provisional?: boolean;
 };
 
+type Worked = { harness?: string; updatedAt?: number; worked?: boolean };
+/// Each profile's newest chat whose last turn completed: its time and place in the list.
+type WorkedBest = ReadonlyMap<string, { time: number; at: number }>;
+/// What `workedProfiles` found per list it read, which a list made from one in place (sessionIndex.ts
+/// `noteReplaced`) updates at the replaced entries.
+const workedOf = new WeakMap<readonly Worked[], WorkedBest>();
+
 /** The profiles of the chats whose last turn completed, most recently updated first, each once. */
-export function workedProfiles(sessions: readonly { harness?: string; updatedAt?: number; worked?: boolean }[]) {
-  return [
-    ...new Set(
-      sessions
-        .filter((session) => session.worked && session.harness)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .map((session) => session.harness!),
-    ),
-  ];
+export function workedProfiles(sessions: readonly Worked[]) {
+  // A stable sort of the completed chats, newest first, and each profile's first: each profile at
+  // its newest chat (the first in the list of those as new), ordered by that chat's time, then its
+  // place. Kept per profile, so one chat's change costs that chat, not a sort of every listed chat.
+  let best = workedOf.get(sessions);
+  if (!best) workedOf.set(sessions, (best = workedBest(sessions)));
+  return [...best].sort(([, a], [, b]) => b.time - a.time || a.at - b.at).map(([harness]) => harness);
+}
+
+function workedBest(sessions: readonly Worked[]): WorkedBest {
+  const made = replacedFrom(sessions, (list) => list !== sessions && workedOf.has(list));
+  if (made) {
+    const best = new Map(workedOf.get(made.from)!);
+    let whole = false;
+    for (const at of made.at) {
+      const before = made.from[at];
+      const was = before?.worked && before.harness ? best.get(before.harness) : undefined;
+      const entry = sessions[at]!;
+      const time = entry.updatedAt ?? 0;
+      if (was?.at === at) {
+        // A profile's newest chat changed: it stays so only while still newest (same profile, completed, no older).
+        if (entry.worked && entry.harness === before!.harness && time >= was.time)
+          best.set(entry.harness!, { time, at });
+        else whole = true;
+        continue;
+      }
+      if (!entry.worked || !entry.harness) continue;
+      const now = best.get(entry.harness);
+      if (!now || time > now.time || (time === now.time && at < now.at)) best.set(entry.harness, { time, at });
+    }
+    if (!whole) return best;
+  }
+  const best = new Map<string, { time: number; at: number }>();
+  sessions.forEach((entry, at) => {
+    if (!entry.worked || !entry.harness) return;
+    const time = entry.updatedAt ?? 0;
+    const now = best.get(entry.harness);
+    if (!now || time > now.time) best.set(entry.harness, { time, at });
+  });
+  return best;
 }
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
@@ -277,7 +352,9 @@ export function buildPickerCatalog({
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
-  acpmux = acpmux.filter((entry) => !entry.folder);
+  // A router can report the same family as a real launcher. Exclude it before choosing that
+  // family's representative, so it cannot replace or hide the actual harness.
+  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,
@@ -381,27 +458,32 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
-  const probed = chosen?.models ?? [];
-  const listed = harness.modelSource === "catalog" ? harness.models : [];
+  const probed = chosen?.models ?? (harness.modelSource === "probe" ? feedModels(harness.id, join.catalog) : []);
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  const listed =
+    harness.modelSource === "catalog"
+      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs, harness.id, join))
+      : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
+    if (!includeReportedIdentity(probe, chosen, harness.id, runs, join)) continue;
     if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, runs, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
-  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
   );
   return {
     id: harness.id,
     name: harness.name,
+    ...(chosen?.family ? { family: chosen.family } : {}),
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
@@ -409,6 +491,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       harness.pickable !== false &&
       harness.kind !== "terminal" &&
       harness.kind !== "unknown" &&
+      !isModelRouterKind(harness.kind) &&
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
@@ -419,8 +502,23 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   };
 }
 
+/**
+ * What a probe harness this Mac does not have runs, from the model feed, so the picker's search
+ * finds its models before its probe can name them (Lawrence 2026-11-07: "search for any model ...
+ * download the relevant harness"). Deprecated models stay out; once acpmux lists the harness, its
+ * own probe replaces these.
+ */
+function feedModels(harnessId: string, catalog: ModelCatalog): AcpmuxModel[] {
+  const providers = FEED_PROVIDERS[harnessId];
+  if (!providers) return [];
+  return Object.entries(catalog.models)
+    .filter(([id, info]) => providers.includes(id.slice(0, id.indexOf("/"))) && info.status !== "deprecated")
+    .map(([id, info]) => ({ id, name: info.name }));
+}
+
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const live = entry.id === join.session?.harness ? join.session.configOptions : undefined;
+  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
   // name the release its session pins, and the aliases the agent names as one fold into it.
   const key = agentKey(familyOf(entry));
@@ -433,15 +531,21 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
+      includeCatalogIdentity(model, entry, runs, kin?.id ?? entry.id, join) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
   const models = entry.models
+    .filter((probe) => includeReportedIdentity(probe, entry, kin?.id ?? entry.id, runs, join))
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
-    .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
+    .map((probe) => probedModel(probe, entry.id, join, kin?.id));
+  for (const model of listed) {
+    if (![model.id, ...(model.aliases ?? [])].some((id) => userDeclaresModel(id, entry.id, kin?.id ?? entry.id, join)))
+      continue;
+    if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
+  }
+  addSessionModels(models, live, entry.id, listed, join, entry.models, runs, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
-  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
         aliasRow(listed, release, alias, entry.id, entry.models, join),
@@ -452,6 +556,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   return {
     id: entry.id,
     name: agentName(entry.id, entry.name),
+    ...(entry.family ? { family: entry.family } : {}),
     brand: declaredBrand ?? agentBrand(entry.id) ?? null,
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
@@ -560,7 +665,16 @@ function foldAliases(
   for (const model of models) {
     if (releaseIds.has(model.id)) continue;
     const name = reported.get(model.id) ?? model.name;
-    const release = releases.find((candidate) => !takenBy.has(candidate.id) && namesRelease(name, candidate, join));
+    const release = releases.find(
+      (candidate) =>
+        !takenBy.has(candidate.id) &&
+        (namesRelease(name, candidate, join) ||
+          // A 1M option for a release whose normal context is already 1M (Fable 5.1) is the
+          // same model. Keep the harness's launch ID and use the release's plain name.
+          (model.id.endsWith("[1m]") &&
+            model.id.slice(0, -4) === candidate.id &&
+            candidate.contextWindow === 1_000_000)),
+    );
     if (release) takenBy.set(release.id, model);
   }
   const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));
@@ -643,24 +757,32 @@ function addSessionModels(
   harnessId: string,
   listed: HarnessModel[],
   join: Join,
+  probed: AcpmuxModel[],
+  current: string | undefined,
   hiddenReleases: Set<string> = new Set(),
+  identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
-  if (!option) return;
-  const choices: { id: string; name?: string }[] = (option.options ?? []).map((choice) => ({
+  const choices: { id: string; name?: string }[] = (option?.options ?? []).map((choice) => ({
     id: choice.value,
     name: choice.name || undefined,
   }));
-  if (option.currentValue) choices.push({ id: option.currentValue });
+  if (current) choices.push({ id: current });
   for (const choice of choices) {
     if (!choice.id || models.some((model) => model.id === choice.id)) continue;
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
     if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
+    const probe = probed.find((model) => model.id === choice.id);
     models.push(
       pinned
-        ? pickerModel(layeredModel(pinned, harnessId, undefined, join), join.catalog)
-        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join),
+        ? pickerModel(layeredModel(pinned, harnessId, probe, join), join.catalog, probe?.unavailable)
+        : probedModel(
+            { ...probe, id: choice.id, name: choice.name ?? probe?.name },
+            harnessId,
+            join,
+            identityHarnessId,
+          ),
     );
   }
 }
@@ -677,6 +799,8 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(model.family ? { family: model.family } : {}),
     ...(providerName ? { providerName } : {}),
     efforts: model.efforts ?? [],
+    // Keep provenance when the normalized picker model materializes an omitted capability as [].
+    effortsDeclared: model.efforts !== undefined || Boolean(model.own?.efforts),
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
     ...(model.inlineFast === true ? { inlineFast: true } : {}),
@@ -696,19 +820,74 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
 
 /** A model acpmux probed that the catalog does not list: described by its ref ("provider/model",
  *  as OpenCode and Pi report it) when the catalog knows it, else by the name the harness gave. */
-function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerModel {
+function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identityHarnessId = harnessId): PickerModel {
   const info = join.catalog.models[probe.id];
   const provider = probe.id.includes("/") ? probe.id.slice(0, probe.id.indexOf("/")) : undefined;
-  const name = info?.name ?? probe.name ?? probe.id;
+  const catalogModel = catalogIdentity(probe.id, identityHarnessId, join);
+  const name = info?.name ?? catalogModel?.name ?? probe.name ?? probe.id;
   const base: HarnessModel = {
     id: probe.id,
-    ...(info ? { ref: probe.id } : {}),
+    ...(catalogModel?.ref ? { ref: catalogModel.ref } : info ? { ref: probe.id } : {}),
     name,
-    shortName: name,
-    ...(provider ? { provider } : {}),
-    ...(info?.family ? { family: info.family } : {}),
+    shortName: catalogModel?.shortName || name,
+    ...(catalogModel?.family || info?.family ? { family: catalogModel?.family || info?.family } : {}),
+    ...(catalogModel?.provider || provider ? { provider: catalogModel?.provider || provider } : {}),
   };
   return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
+}
+
+/** Once a profile is present, its models own availability. With no profile, the catalog remains
+ * an offline fallback; the session's running model remains reachable through an empty probe. */
+function includeCatalogIdentity(
+  model: HarnessModel,
+  profile: AcpmuxHarness | undefined,
+  runs: string | undefined,
+  harnessId: string,
+  join: Join,
+): boolean {
+  if (!isIdentityOnlyCurrentModel(model)) return true;
+  if (model.id === runs) return true;
+  if (userDeclaresModel(model.id, profile?.id, harnessId, join)) return true;
+  return profile === undefined;
+}
+
+/** User overrides also add models; their explicit entries outrank fallback availability. */
+function userDeclaresModel(id: string, profileId: string | undefined, harnessId: string, join: Join): boolean {
+  const scopes = ["*", harnessId, ...(profileId ? [profileId] : [])];
+  return scopes.some((scope) => {
+    const override = join.overrides[`${scope}/${id}`];
+    return override !== undefined && override.hidden !== true;
+  });
+}
+
+/** Recover identity metadata even when the host's catalog predates the daemon's bundle.
+ * A newer catalog's real metadata wins; missing metadata never verifies account availability. */
+function catalogIdentity(id: string, harnessId: string, join: Join): HarnessModel | undefined {
+  const model = [join.sourceCatalog, BUNDLED_MODEL_CATALOG]
+    .map((catalog) =>
+      catalog.harnesses.find((harness) => harness.id === harnessId)?.models.find((row) => row.id === id),
+    )
+    .find((row) => row !== undefined);
+  return model && isIdentityOnlyCurrentModel(model) ? model : undefined;
+}
+
+/** The daemon also returns curated fallback rows when a probe has no answer. Only its
+ * reported menu, an explicit profile declaration, or the running session verifies those IDs. */
+function includeReportedIdentity(
+  probe: AcpmuxModel,
+  profile: AcpmuxHarness | undefined,
+  harnessId: string,
+  runs: string | undefined,
+  join: Join,
+): boolean {
+  return (
+    !probe.curated ||
+    probe.declared === true ||
+    userDeclaresModel(probe.id, profile?.id, harnessId, join) ||
+    probe.id === runs ||
+    profile?.topModels?.includes(probe.id) === true ||
+    catalogIdentity(probe.id, harnessId, join) === undefined
+  );
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
@@ -787,7 +966,9 @@ function isCatalogHarness(value: unknown): value is CatalogHarness {
 
 function entryPickable(entry: AcpmuxHarness): boolean {
   const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
-  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
+  return (
+    value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown" && !isModelRouterKind(value.kind)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

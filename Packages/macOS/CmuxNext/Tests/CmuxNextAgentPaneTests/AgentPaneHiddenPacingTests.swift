@@ -51,9 +51,9 @@ struct AgentPaneHiddenPacingTests {
 
         /// Frames arrive (`urgent`: the page waits on them); the flush delivers them in one call,
         /// and says `more` the next `capped` times.
-        func arrive(urgent: Bool = false, capped: Int = 0) {
+        func arrive(urgent: Bool = false, answers: Bool = false, capped: Int = 0) {
             self.capped = capped
-            pacer.schedule(urgent: urgent) { [unowned self] in
+            pacer.schedule(urgent: urgent || answers, answers: answers) { [unowned self] in
                 self.calls += 1
                 self.capped -= 1
                 return AgentPaneFlush(delivered: true, more: self.capped >= 0)
@@ -76,6 +76,46 @@ struct AgentPaneHiddenPacingTests {
         rig.clock += 0.2
         rig.deadline.fire()
         #expect(rig.calls == 2)
+    }
+
+    /// A chat opening while nobody saw it (behind its cover, in a covered window) read its attach,
+    /// permission groups and handoff about 280 ms late, and each later page of history 250 ms late
+    /// (chat-open bench, 2026-10-31): replies to the page's own requests skip the hidden interval.
+    @Test func aHiddenPaneGetsRepliesToItsOwnRequestsAtOnce() {
+        let rig = Rig(hidden: true)
+        rig.arrive(answers: true)
+        #expect(rig.calls == 1)
+        rig.clock += 0.0625
+        rig.pacer.delivered()
+        rig.arrive(answers: true)
+        #expect(rig.calls == 2, "a hidden pane's reply waited out the hidden interval")
+        #expect(rig.deadline.delay == nil)
+    }
+
+    @Test func aReplyCutsARunningHiddenWaitShort() {
+        let rig = Rig(hidden: true)
+        rig.arrive(urgent: true)
+        rig.clock += 0.0625
+        rig.pacer.delivered()
+        // A turn's end waits out the interval...
+        rig.arrive(urgent: true)
+        #expect(rig.calls == 1)
+        #expect(rig.deadline.delay != nil)
+        // ...until a reply arrives: both go now.
+        rig.arrive(answers: true)
+        #expect(rig.calls == 2)
+        #expect(rig.deadline.delay == nil)
+    }
+
+    @Test func aHiddenPaneStreamAfterAReplyStillWaits() {
+        let rig = Rig(hidden: true)
+        rig.arrive(answers: true)
+        rig.clock += 0.0625
+        rig.pacer.delivered()
+        // The reply went; a turn's end after it keeps the hidden interval.
+        rig.arrive(urgent: true)
+        #expect(rig.calls == 1)
+        #expect(rig.deadline.delay == .nanoseconds(187_500_000))
     }
 
     @Test func aVisiblePaneStillGetsFramesAtOnce() {

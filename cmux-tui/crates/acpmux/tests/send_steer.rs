@@ -45,6 +45,10 @@ impl Drop for Busy {
 }
 
 async fn busy(steering: bool) -> Busy {
+    busy_with_goal(steering, false).await
+}
+
+async fn busy_with_goal(steering: bool, goal: bool) -> Busy {
     let env = if steering { json!({"FAKE_CLAUDE_STEER": "1"}) } else { json!({}) };
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
@@ -53,6 +57,8 @@ async fn busy(steering: bool) -> Busy {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let tag =
@@ -74,8 +80,71 @@ async fn busy(steering: bool) -> Busy {
     // SAFETY: a valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     let b = Busy { hub, id, gate, socket, scratch, person };
+    if goal {
+        b.person
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": b.id, "prompt": [{"type": "text", "text": "goal: Ship the fix"}]}),
+            )
+            .await
+            .unwrap();
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+    }
     b.run_gated().await;
     b
+}
+
+/// A goal is ongoing work, never an admission lock on the person's next message. Exercise
+/// steering, an explicitly queued message, and a harness without steering through the CLI.
+#[tokio::test]
+async fn an_active_goal_accepts_the_persons_steered_and_queued_sends() {
+    for (steering, steer) in [(true, true), (true, false), (false, true)] {
+        let b = busy_with_goal(steering, true).await;
+        let pid = prompt_id();
+        let flag = if steer { "--steer" } else { "--no-steer" };
+        let mut cmd = b.send(&[
+            "send",
+            "--no-wait",
+            flag,
+            "--prompt-id",
+            &pid,
+            &b.id,
+            "follow my correction",
+        ]);
+        let (sent, _) = done(tokio::spawn(async move { cmd.output().await })).await;
+        if steering && steer {
+            let message = b.record("user_message", &pid).await;
+            assert_eq!(message["steer"], true, "{sent}");
+            b.agent_said("steer: follow my correction").await;
+            assert!(!b.queued(&pid));
+        } else {
+            b.record("queued", &pid).await;
+        }
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+        b.open_gate();
+        if !(steering && steer) {
+            b.agent_said("follow my correction").await;
+        }
+        let finished = b
+            .person
+            .request(
+                method::MUX_WAIT,
+                json!({"sessions": [b.id], "until": ["ready"], "timeoutMs": 30000}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished["timedOut"], false, "{finished}");
+    }
 }
 
 impl Busy {
@@ -163,7 +232,8 @@ async fn done(send: tokio::task::JoinHandle<std::io::Result<Output>>) -> (Value,
 async fn an_agents_waiting_send_steers_and_answers_with_the_turns_final_reply() {
     let b = busy(true).await;
     let pid = prompt_id();
-    let mut cmd = b.send(&["send", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
+    let mut cmd =
+        b.send(&["send", "--wait", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
     let send = tokio::spawn(async move { cmd.output().await });
     let sent = b.record("user_message", &pid).await;
     assert_eq!(sent["steer"], true, "into the running turn, not the queue: {sent}");
@@ -179,7 +249,7 @@ async fn an_agents_waiting_send_steers_and_answers_with_the_turns_final_reply() 
     // The same send again (a resend after a lost connection) is answered by the first run's
     // `steered`, after the turn ended: it answers with that turn's end from the log at once.
     let mut again =
-        b.send(&["send", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
+        b.send(&["send", "--wait", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
     let (resent, _) = done(tokio::spawn(async move { again.output().await })).await;
     assert_eq!(resent["stopReason"], "end_turn", "{resent}");
     assert_eq!(resent["reply"], reply["reply"], "{resent}");
@@ -198,7 +268,7 @@ async fn an_agent_in_a_session_steers_and_its_stream_waits_for_the_turns_end() {
         .to_owned();
     let pid = prompt_id();
     let mut cmd = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
-    cmd.args(["send", "--prompt-id", &pid, &b.id, "rebase first"])
+    cmd.args(["send", "--wait", "--prompt-id", &pid, &b.id, "rebase first"])
         .env("ACPMUX_SOCKET", &b.socket)
         .env("ACPMUX_SESSION_ID", &lane)
         .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&lane))
@@ -215,7 +285,7 @@ async fn an_agent_in_a_session_steers_and_its_stream_waits_for_the_turns_end() {
     // A resend after the turn ended streams nothing of it: the reply comes from the log.
     let mut again = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
     again
-        .args(["send", "--prompt-id", &pid, &b.id, "rebase first"])
+        .args(["send", "--wait", "--prompt-id", &pid, &b.id, "rebase first"])
         .env("ACPMUX_SOCKET", &b.socket)
         .env("ACPMUX_SESSION_ID", &lane)
         .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&lane))
@@ -233,7 +303,8 @@ async fn an_agent_in_a_session_steers_and_its_stream_waits_for_the_turns_end() {
 async fn to_an_agent_that_does_not_steer_an_agents_send_queues_named() {
     let b = busy(false).await;
     let pid = prompt_id();
-    let mut cmd = b.send(&["send", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
+    let mut cmd =
+        b.send(&["send", "--wait", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
     let send = tokio::spawn(async move { cmd.output().await });
     assert_eq!(b.record("queued", &pid).await["fromAgent"], "lane-a");
     let session = b.hub.resolve(&b.id).unwrap();
@@ -252,8 +323,17 @@ async fn to_an_agent_that_does_not_steer_an_agents_send_queues_named() {
 async fn a_no_steer_send_and_the_persons_waiting_send_queue() {
     let b = busy(true).await;
     let pid = prompt_id();
-    let args =
-        ["send", "--from", "lane-a", "--no-steer", "--prompt-id", &pid, &b.id, "rebase first"];
+    let args = [
+        "send",
+        "--wait",
+        "--from",
+        "lane-a",
+        "--no-steer",
+        "--prompt-id",
+        &pid,
+        &b.id,
+        "rebase first",
+    ];
     let mut cmd = b.send(&args);
     let send = tokio::spawn(async move { cmd.output().await });
     assert_eq!(b.record("queued", &pid).await["fromAgent"], "lane-a");

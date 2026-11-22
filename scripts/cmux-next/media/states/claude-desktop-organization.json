@@ -1,0 +1,15 @@
+{
+  "title": "Claude desktop organization: an answered question, a checklist, then \"Ran 5 commands\" opened to its step rows with one step open to its command and output (debug seed_rows fixture \"organization\", webviews organizationFixture.ts). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/claude-desktop-organization.json --video",
+  "launch_args": ["--showcase"],
+  "frameInterval": 0.5,
+  "steps": [
+    {"title": "Open a main workspace", "cmux": ["action", "run", "newTab", "--name", "Organization capture", "--focus", "--cwd", "/tmp"]},
+    {"title": "Open a chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"]},
+    {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}},
+    {"title": "Start the chat's session (the showcase mock answers)", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Show the organized turn"}}, "wait": 4},
+    {"title": "The organized turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "organization"}}, "record": true, "wait": 2},
+    {"title": "Open the finished turn's fold", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".cv-worked[aria-expanded=\"false\"]"}}, "record": true, "wait": 1.5, "optional": "the turn's fold is already open"},
+    {"title": "Open \"Ran 5 commands\": one bordered group of step rows", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "text": "Ran 5 commands"}}, "record": true, "wait": 2},
+    {"title": "Open one step: its command highlighted over its output", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "text": "Listed every caller of fetchWithRetry"}}, "record": true, "wait": 2}
+  ]
+}

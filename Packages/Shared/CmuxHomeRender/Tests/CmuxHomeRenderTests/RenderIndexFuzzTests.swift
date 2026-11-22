@@ -51,10 +51,11 @@ import Testing
     }
 
     @Test func randomRowSetsKeepPositionsConsistent() {
-        var rng = SplitMix(state: 0xC0FFEE)
+        let fuzz = FuzzSeed(default: 0xC0FFEE)
+        var rng = SplitMix(state: fuzz.seed)
         let model = TranscriptModel()
         var t = 0.0
-        for _ in 0..<400 {
+        for _ in 0..<fuzz.iterations(400) {
             t += Double.random(in: 0...2, using: &rng)
             if Bool.random(using: &rng) {
                 let count = Int.random(in: 0...12, using: &rng)
@@ -70,15 +71,15 @@ import Testing
             } else {
                 model.dropGhosts(before: t - Double.random(in: 0...3, using: &rng))
             }
-            #expect(model.offsets.count == model.count + 1)
+            #expect(model.offsets.count == model.count + 1, "\(fuzz)")
             for i in -2..<(model.count + 2) {
                 let top = model.contentTop(i)
-                #expect(top.isFinite)
+                #expect(top.isFinite, "\(fuzz)")
             }
             let lo = Self.odd.randomElement(using: &rng) ?? 0, hi = Self.odd.randomElement(using: &rng) ?? 0
             for (a, b) in [(lo, hi), (CGFloat(-50), model.total + 50)] {
                 let r = model.range(a, b)
-                #expect(r.lowerBound >= 0 && r.upperBound <= model.count)
+                #expect(r.lowerBound >= 0 && r.upperBound <= model.count, "\(fuzz)")
             }
         }
     }
@@ -95,11 +96,12 @@ import Testing
     }
 
     @Test func randomViewportsHitsAndScrollsDoNotTrap() {
-        var rng = SplitMix(state: 0x5EED)
+        let fuzz = FuzzSeed(default: 0x5EED)
+        var rng = SplitMix(state: fuzz.seed)
         let c = Fixtures.controller(width: 628, height: 900)
         let sizes: [CGSize] = [CGSize(width: 1, height: 1), CGSize(width: 0, height: 0), CGSize(width: 320, height: 200),
                                CGSize(width: 4000, height: 3000), CGSize(width: 628, height: 900)]
-        for round in 0..<60 {
+        for round in 0..<fuzz.iterations(60) {
             let count = Int.random(in: 0...30, using: &rng)
             let messages = Fixtures.conversation(count, firstSeq: Seq(Int.random(in: 1...5, using: &rng)))
             c.update(items: Fixtures.items(messages), summary: Fixtures.summary(), typing: round % 3 == 0 ? [Fixtures.chief] : [],

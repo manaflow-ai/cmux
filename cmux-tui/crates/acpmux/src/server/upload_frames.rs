@@ -15,8 +15,8 @@
 //! order they came, by one worker with a queue of [`WINDOW`]: a sender may keep that many in
 //! flight, and a sender past it is slowed by the socket, so memory stays at a few frames whatever
 //! the file's size. Each answer is small (a header is at most 16 KiB, and only a short id is
-//! echoed), and the worker waits for room in the connection's bounded answer queue, so a client
-//! that stops reading stops its own frames. A frame whose offset is not the upload's end is `upload.offset {offset}`.
+//! echoed), and it goes into the connection's byte-bounded outbound queue (`outbound.rs`), in
+//! order with every other line: a client that stops reading is disconnected past the bound. A frame whose offset is not the upload's end is `upload.offset {offset}`.
 //!
 //! A text message after a frame on the same connection is read only once every frame before it is
 //! written and answered ([`InFlight`]): a finish, a status or a prompt sent right after the last
@@ -27,13 +27,14 @@
 //! `filePut.remote` as its answer, never silence. A chat on a peer gets the bytes there, as
 //! base64 `file_put_chunk` requests of at most `CHUNK_BYTES` over the peer link.
 
+use super::outbound::Outbound;
 use super::{ConnAuth, Hub, Origin};
 use crate::hub::file_uploads::{self, CHUNK_BYTES};
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::{Notify, mpsc};
+use std::sync::{Arc, Weak};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio_tungstenite::tungstenite::Bytes;
 
 /// The `initialize` feature of a daemon that takes binary upload frames and
@@ -94,13 +95,18 @@ impl Frames {
     }
 }
 
-/// Starts `origin`'s frame worker; frames sent to it are written in order and answered on `out`.
-/// It ends when the sender is dropped (the connection's reader ended) or `out` closes.
+/// Where the frame worker's answers go: the connection's outbound queue, named once the
+/// connection made it (`serve_connection_from`). Weak: the worker never keeps the queue open.
+pub(super) type Replies = watch::Sender<Option<Weak<Outbound>>>;
+
+/// Starts `origin`'s frame worker; frames sent to it are written in order and answered into the
+/// connection's outbound queue ([`Replies`]). It ends when the sender is dropped (the connection's
+/// reader ended), or the queue is gone or will send nothing more.
 pub(super) fn spawn(
     hub: Arc<Hub>,
     origin: Origin,
     auth: ConnAuth,
-    out: mpsc::Sender<String>,
+    mut replies: watch::Receiver<Option<Weak<Outbound>>>,
 ) -> Frames {
     let (tx, mut rx) = mpsc::channel::<Bytes>(WINDOW);
     let in_flight = Arc::new(InFlight::default());
@@ -108,7 +114,11 @@ pub(super) fn spawn(
     tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
             let reply = handle(&hub, origin, auth, frame).await;
-            let answered = out.send(reply.to_value().to_string()).await.is_ok();
+            let out = match replies.wait_for(Option::is_some).await {
+                Ok(out) => out.as_ref().and_then(Weak::upgrade),
+                Err(_) => None,
+            };
+            let answered = out.is_some_and(|out| out.push(reply.to_value().to_string()));
             counted.done();
             if !answered {
                 break;
@@ -129,15 +139,18 @@ fn parse(frame: &[u8]) -> Result<(Value, Value, usize), (Value, RpcError)> {
     if frame.get(..4) != Some(MAGIC) {
         return Err(bad("it does not begin with AMUP"));
     }
-    let len = frame.get(4..8).ok_or_else(|| bad("no header length"))?;
-    let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+    let len = frame
+        .get(4..8)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .ok_or_else(|| bad("no header length"))?;
+    let len = u32::from_be_bytes(len) as usize;
     if len > MAX_HEADER {
         return Err(bad("the header is over 16 KiB"));
     }
     let start = 8usize.checked_add(len).filter(|&end| end <= frame.len());
     let start = start.ok_or_else(|| bad("the header is longer than the frame"))?;
-    let header: Value =
-        serde_json::from_slice(&frame[8..start]).map_err(|e| bad(&format!("header: {e}")))?;
+    let header: Value = serde_json::from_slice(frame.get(8..start).unwrap_or_default())
+        .map_err(|e| bad(&format!("header: {e}")))?;
     // Every answer is small: an id a client chose is echoed only when it is short.
     let id = match header.get("id") {
         Some(id @ Value::Number(_)) => id.clone(),
@@ -198,6 +211,8 @@ async fn write(
         Err(e) => e,
     };
     let Some((peer, id, _)) = hub.resolve_remote(key) else { return Err(missing) };
+    // No wait for a reconnecting link here: this frame holds back every later message on the app's
+    // connection (`InFlight`). The upload's begin already waited for it (`peer_forward.rs`).
     if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }

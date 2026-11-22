@@ -31,6 +31,8 @@
 
 use super::{Hub, PromptOptions};
 use crate::rpc::RpcError;
+use cmux_json::JsonGet as _;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -104,7 +106,7 @@ pub(crate) fn result(params: &Value, state: &str, by: &str) -> Result<Value, Rpc
         "at": crate::store::now_ms(), "by": by,
     });
     if let Some(why) = why {
-        result["why"] = json!(why);
+        result.set("why", json!(why));
     }
     Ok(result)
 }
@@ -145,15 +147,12 @@ pub(crate) fn brief_text(row: &Value) -> String {
 /// The card's text: the result as the giver reads it, and who ended the task when its lane
 /// (named `lane`) did not.
 fn card_text(row: &Value, result: &Value, lane: &str) -> String {
-    fn field<'a>(v: &'a Value, key: &str) -> &'a str {
-        v.get(key).and_then(Value::as_str).unwrap_or_default()
-    }
     let mut text = format!(
         "Task {} \"{}\" {}: {}",
-        field(row, "briefId"),
-        field(row, "title"),
-        field(result, "state"),
-        field(result, "summary"),
+        row.get_str("briefId").unwrap_or_default(),
+        row.get_str("title").unwrap_or_default(),
+        result.get_str("state").unwrap_or_default(),
+        result.get_str("summary").unwrap_or_default(),
     );
     for (key, label) in [("prs", "PR"), ("shas", "SHA")] {
         for item in result[key].as_array().into_iter().flatten().filter_map(Value::as_str) {
@@ -163,7 +162,7 @@ fn card_text(row: &Value, result: &Value, lane: &str) -> String {
     if let Some(why) = result.get("why").and_then(Value::as_str) {
         text.push_str(&format!("\nWhy: {why}"));
     }
-    let by = field(result, "by");
+    let by = result.get_str("by").unwrap_or_default();
     if !by.is_empty() && by != lane {
         text.push_str(&format!("\nEnded by: {by}"));
     }
@@ -265,11 +264,14 @@ impl Hub {
     /// Whether chat `id` moved to another daemon: its log's latest move record is its commit
     /// here (`transferred`), not an arrival (`transferred_in`). Read from the log, so it holds
     /// after a restart, when `moving` is gone.
-    fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
+    pub(super) fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
         let mut away = false;
         let kinds = ["transferred", "transferred_in"];
         self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
-            away = e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            if e.dir == "mux" {
+                away = e.kind == "transferred";
+            }
             true
         })?;
         Ok(away)
@@ -282,7 +284,7 @@ impl Hub {
         // The start's pass runs before the hub is handed out: a card a crash left owed.
         self.send_owed_cards(true);
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("orphan-cards", async move {
             loop {
                 match events.recv().await {
                     Ok(ev) => {
@@ -321,7 +323,7 @@ impl Hub {
             let mut mine = false;
             let row = self.briefs.update(id, |r| {
                 if owed(r) && (start || r["result"]["cardSending"] != true) {
-                    r["result"]["cardSending"] = json!(true);
+                    r.set_path(&["result", "cardSending"], json!(true));
                     mine = true;
                 }
             });
@@ -360,7 +362,7 @@ impl Hub {
     fn result_undelivered(&self, id: &str, at: &Value, why: &str) {
         self.briefs.update(id, |r| {
             if &r["result"]["at"] == at {
-                r["result"]["undelivered"] = json!(why);
+                r.set_path(&["result", "undelivered"], json!(why));
             }
         });
         // An owed card stays owed, for a later pass.

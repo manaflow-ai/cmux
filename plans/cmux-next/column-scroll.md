@@ -67,7 +67,9 @@ re-fits. Focusing any other column forgets it.
 
 L6. Resizing: the focused column's left edge stays (L1); widening it at the right edge
 reveals the new edge. During a column-edge or divider drag the view holds and the reveal
-runs once the drag ends.
+runs once the drag ends. A Resize Pane Left/Right press that trades width between two
+columns keeps the left one of them in place and reveals nothing (`ColumnScrollState.keptColumn`):
+only the divider between them moves, and it stops at the edge of the strip the window shows.
 
 L7. Window resize: frames snap; the focused column keeps its screen x, then F1 fits it. No
 animation during live resize.
@@ -85,7 +87,10 @@ view (`set-viewport-pane-width`); a fixed width would change on each window resi
 W3. Proportions include the gaps: `(view - gap) * p - gap` (`ColumnStripGeometry.pixelWidth`).
 Two columns with `p + q = 1` fill the view exactly.
 
-W4. (Since 2026-10-02 only with `layout.newColumnWidth` = fixed; the default matchCurrent never
+W4. Removed 2026-10-31 (R3b, Lawrence: "creating new columns must never resize existing
+columns"): a new column never resizes a column that is there, in any mode; a lone full-width
+column stays full width and the strip scrolls to the new column. The text below is the old rule.
+(Since 2026-10-02 only with `layout.newColumnWidth` = fixed; the default matchCurrent never
 resizes a column, plans/cmux-next/column-sizing.md.) A lone full-width column changes to
 `1 - new width` (1/2 with the default) when a second column opens next to it, so both
 columns are fully visible and the view does not move. Reason: a cmux workspace starts as
@@ -94,7 +99,8 @@ column out, and only its empty right part shows. W4 does not apply when the lone
 not full width, when there are two or more columns, when the new column is wider than 0.9
 of the view, or when the lone column closes in the same step (its only tab moves out).
 
-W5b. Order and shape (found live on tag nxset, 2026-09-30). A workspace that never had
+W5b. Removed 2026-10-31 with W4 (R3b): no width change goes with a new column, so there is
+no order to keep. The text below is the old rule. Order and shape (found live on tag nxset, 2026-09-30). A workspace that never had
 a second column is a split tree in cmux-tui: its root is a leaf, not a viewport, and the
 app mirrors it as `.splits`, not as one column. W4 treats that shape as a lone
 full-width column. cmux-tui refuses `set-viewport-pane-width` while the root is not a
@@ -103,12 +109,11 @@ viewport, so the width change goes out after the new column exists
 new-column command succeeded). Sent first, it was refused and the first column stayed
 full width, scrolled off screen.
 
-W5. Every path that opens a column uses W1 to W4: the New Column action, a split with no
-room, and a tab or tab group dropped into a new column (`AppServices.newColumnWidth`,
-`LayoutModel.prepareNewColumn`, rules in `NewColumnWidth.plan`). The width change is a
-daemon intent (`set-viewport-pane-width`) with an optimistic patch
-(architecture.md section 1), sent before the new column. Workspace blueprints keep their
-own widths. A workspace that no window shows gets W1 only.
+W5. Every path that opens a column uses W1 to W3: the New Column action and a tab or tab
+group dropped into a new column (`AppServices.newColumnWidth`,
+`LayoutModel.newColumnWidth`, rules in `NewColumnWidth.plan`). The app sends only the new
+column's width, with the create; no other column's width changes (R3b, 2026-10-31).
+Workspace blueprints keep their own widths. A workspace that no window shows gets W1 only.
 
 ## Trackpad and wheel
 

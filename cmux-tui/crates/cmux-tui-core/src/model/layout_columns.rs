@@ -98,6 +98,7 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
             ratio,
             a: Box::new(root),
             b: Box::new(column.root.clone()),
+            divider_hidden: false,
         };
         viewport_splits.insert(column.id, column.width);
         width_before += column.width;
@@ -279,6 +280,33 @@ pub(crate) fn is_lone_pinned(columns: &[LayoutColumn]) -> bool {
     matches!(columns, [column] if column.dock.is_some_and(|flag| flag.pinned))
 }
 
+/// The width a lone pinned column (`pinned-dock-alone-v1`: Home's dock) takes
+/// once a column opens beside it: half the viewport. With
+/// [`LONE_DOCK_NEIGHBOR_WIDTH`] beside it the two are an even split
+/// (https://github.com/manaflow-ai/cmux/issues/37391): the dock's own width
+/// is a share of the whole viewport (the frontend's `pixelWidth` makes two
+/// half columns and three gaps fill it exactly).
+pub(crate) const LONE_DOCK_WIDTH: f32 = 0.5;
+
+/// The width of the column that opens beside a lone pinned column
+/// (`pinned-dock-alone-v1`): a column width is a share of the strip right of
+/// the dock, so 1.0 fills that space; 0.5 left half of it empty.
+pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 1.0;
+
+/// Makes the first column beside a lone pinned dock an even split: the dock
+/// at [`LONE_DOCK_WIDTH`], the newcomer at [`LONE_DOCK_NEIGHBOR_WIDTH`].
+/// Alone, the dock draws across the whole screen whatever width it stores,
+/// and that width can be anything: a screen's base column is 1.0 when it
+/// first becomes columns, and a drag may leave it near the dock's 0.75 cap.
+/// Kept as it was, a link from Home's chat opened at 3/4 chat, 1/4 page
+/// (https://github.com/manaflow-ai/cmux/issues/37391). Every path that
+/// opens a column there (a split, a link, a conversation split, a tab move or
+/// drop) inserts through [`Screen::insert_layout_column_beside`], which calls this.
+fn even_lone_dock_split(dock: &mut LayoutColumn, neighbor: &mut LayoutColumn) {
+    dock.width = LONE_DOCK_WIDTH;
+    neighbor.width = LONE_DOCK_NEIGHBOR_WIDTH;
+}
+
 /// Restore the docked invariants after a structural change removed or
 /// reordered columns: a second column on an edge loses its flag, and when no
 /// scrolling column remains every flag but a pinned one is cleared (the
@@ -333,6 +361,11 @@ pub(crate) enum LayoutMutationKey {
         owner: LayoutResizeOwner,
         transaction: u64,
     },
+    /// `float-pane` changes with one connection's transaction: the frames of one drag are one undo entry.
+    FloatingPane {
+        owner: LayoutResizeOwner,
+        transaction: u64,
+    },
 }
 
 impl Screen {
@@ -353,6 +386,19 @@ impl Screen {
         base_id: SplitId,
         column: LayoutColumn,
     ) -> bool {
+        self.insert_layout_column_beside(target, base_id, column, false)
+    }
+
+    /// Inserts `column` beside the column of `target`: before it when
+    /// `before` (`new-pane-right {side: "left"}`, `column-left-v1`), else
+    /// after it. A split screen first becomes the column `base_id`.
+    pub(crate) fn insert_layout_column_beside(
+        &mut self,
+        target: PaneId,
+        base_id: SplitId,
+        column: LayoutColumn,
+        before: bool,
+    ) -> bool {
         if self.layout_columns.is_empty() {
             if !self.root.contains(target) {
                 return false;
@@ -367,7 +413,13 @@ impl Screen {
         else {
             return false;
         };
-        self.layout_columns.insert(index + 1, column);
+        let mut column = column;
+        if is_lone_pinned(&self.layout_columns)
+            && let Some(dock) = self.layout_columns.first_mut()
+        {
+            even_lone_dock_split(dock, &mut column);
+        }
+        self.layout_columns.insert(if before { index } else { index + 1 }, column);
         self.sync_layout_column_projection();
         true
     }

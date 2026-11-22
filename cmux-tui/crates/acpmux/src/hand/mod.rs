@@ -87,19 +87,57 @@ pub enum HandCmd {
     Status,
 }
 
-pub async fn run(cmd: HandCmd) -> anyhow::Result<()> {
+fn pair_summary(cfg: &config::HandConfig) -> Value {
+    json!({"paired": true, "hand": cfg.hand, "api": cfg.api, "profile": cfg.profile,
+        "roots": cfg.roots, "agentPolicy": cfg.agent_policy, "config": config::path()})
+}
+
+pub async fn run(cmd: HandCmd, json_out: bool) -> anyhow::Result<()> {
     match cmd {
         HandCmd::Pair { code, api, profile, roots, agent_policy, name } => {
             let cfg = pair::pair(&code, &api, &profile, roots, agent_policy, name).await?;
-            println!("paired: {} ({:?}) -> {}", cfg.hand, cfg.profile, cfg.api);
+            if json_out {
+                println!("{}", pair_summary(&cfg));
+            } else {
+                println!("paired: {} ({:?}) -> {}", cfg.hand, cfg.profile, cfg.api);
+            }
             Ok(())
         }
         HandCmd::Run => link::run(config::load()?).await,
         HandCmd::Status => {
             let cfg = config::load()?;
             let shown = json!({ "hand": cfg.hand, "api": cfg.api, "profile": cfg.profile, "roots": cfg.roots, "allow": cfg.allow, "agent_policy": cfg.agent_policy, "config": config::path() });
-            println!("{}", serde_json::to_string_pretty(&shown)?);
+            if json_out {
+                println!("{}", serde_json::to_string(&shown)?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&shown)?);
+            }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hand::config::{HandConfig, Profile};
+    use std::path::PathBuf;
+
+    #[test]
+    fn pair_json_summary_is_safe_and_machine_readable() {
+        let cfg = HandConfig {
+            api: "https://cloud.example".into(),
+            hand: "hand_test".into(),
+            key: "secret-key-must-not-leak".into(),
+            profile: Profile::Sandbox,
+            roots: vec![PathBuf::from("/")],
+            allow: Vec::new(),
+            agent_policy: "approve-edits".into(),
+        };
+        let summary = pair_summary(&cfg);
+        assert_eq!(summary["paired"], true);
+        assert_eq!(summary["hand"], "hand_test");
+        assert!(summary.get("key").is_none());
+        assert!(!summary.to_string().contains("secret-key"));
     }
 }

@@ -7,6 +7,9 @@
 // shows: text that cannot be selected (`user-select: none`) or is hidden stays out. A selection
 // with no math, one across replies, or one that holds highlighted code (drawn in a shadow root
 // the copy cannot read) copies as the page would copy it. Installed when KaTeX first loads.
+// A cmux link's chip in it copies as its link, as every copy of a chip does (chipCopy.ts).
+
+import { chipsAsLinks, LINK_CHIP, withWholeChips } from "./chipCopy";
 
 const MATH = "[data-tex]";
 const BLOCK = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|FIGURE)$/;
@@ -24,19 +27,31 @@ function elementOf(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
 }
 
-function onCopy(event: ClipboardEvent) {
-  const selection = document.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !event.clipboardData) return;
-  const range = selection.getRangeAt(0).cloneRange();
+/**
+ * The range this copy puts on the clipboard for `selected`, reaching to each equation and chip an end
+ * is inside, and its text; null when this copy does not take it (no math, across replies, a shadow
+ * root, or not installed). selectionCopy.ts asks it too, so a selection with math this copy declines
+ * still copies its chips as their links there.
+ */
+export function mathCopyOf(selected: Range): { range: Range; text: string } | null {
+  if (!installed) return null;
+  const range = withWholeChips(selected).cloneRange();
   const first = elementOf(range.startContainer)?.closest<HTMLElement>(MATH);
   if (first) range.setStartBefore(first);
   const last = elementOf(range.endContainer)?.closest<HTMLElement>(MATH);
   if (last) range.setEndAfter(last);
-  if (!elementOf(range.commonAncestorContainer)?.closest(".cv-md")) return;
+  if (!elementOf(range.commonAncestorContainer)?.closest(".cv-md")) return null;
   const text = plainText(range);
-  if (text === null) return;
-  event.clipboardData.setData("text/plain", text);
-  event.clipboardData.setData("text/html", html(range));
+  return text === null ? null : { range, text };
+}
+
+function onCopy(event: ClipboardEvent) {
+  const selection = document.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !event.clipboardData) return;
+  const copy = mathCopyOf(selection.getRangeAt(0));
+  if (!copy) return;
+  event.clipboardData.setData("text/plain", copy.text);
+  event.clipboardData.setData("text/html", html(copy.range));
   event.preventDefault();
 }
 
@@ -72,6 +87,10 @@ function plainText(range: Range): string | null {
       shadow = true;
       return;
     }
+    if (element.matches(LINK_CHIP)) {
+      out += element.getAttribute("href") ?? "";
+      return;
+    }
     if (element.matches(MATH)) {
       math = true;
       const tex = element.dataset.tex ?? "";
@@ -101,6 +120,7 @@ function plainText(range: Range): string | null {
 function html(range: Range): string {
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
+  chipsAsLinks(holder);
   for (const element of holder.querySelectorAll<HTMLElement>(MATH)) {
     const tex = element.dataset.tex ?? "";
     const display = element.classList.contains("cv-math-display") || element.classList.contains("cv-math--display");

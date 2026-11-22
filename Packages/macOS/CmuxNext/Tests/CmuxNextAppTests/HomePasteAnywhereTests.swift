@@ -3,6 +3,7 @@ import AppKit
 import CmuxHomeCore
 @testable import MessagesLabHome
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-20: "Make sure that pasting in general into the chat area works. I'm using
 /// Wispr Flow right now and I did a paste while I was talking. I stopped talking but I was not
@@ -18,7 +19,7 @@ import Testing
 ///
 /// The box reads a private pasteboard and its intake records each paste: the CI Macs' pasteboard
 /// server answers reads inconsistently (`HomeKeyboardTests`), and the user's clipboard is never touched.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomePasteAnywhereTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomePasteAnywhereTests {
     /// The pastes the message box's intake took.
     final class Pastes { var count = 0 }
 
@@ -57,7 +58,7 @@ import Testing
 
         func close() {
             board.releaseGlobally()
-            window.orderOut(nil)
+            window.closeWithHomePopovers()
         }
     }
 

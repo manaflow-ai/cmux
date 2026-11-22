@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// animation when it moves. It distracts me." A model change nobody in this window asked for (an
 /// agent's status, a workspace an agent made or grouped, another client) shows in place with no
 /// spring, and waits while the pointer is over the rows; the user's own changes still move.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarBackgroundChangeCalmTests {
     /// The local machine's section with the workspaces `ids`, in that order.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -75,7 +76,7 @@ struct SidebarBackgroundChangeCalmTests {
         let start = Self.sections([1, 2, 3, 4])
         let model = SidebarModel(sections: start)
         let (sidebar, window) = Self.sidebar(model, onScreen: true)
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(window.screen != nil)
         sidebar.list.pointerIsOverList = { _ in false }
         Motion.reduceMotionOverride = false
@@ -96,7 +97,7 @@ struct SidebarBackgroundChangeCalmTests {
         let start = Self.sections([1, 2, 3, 4])
         let model = SidebarModel(sections: start)
         let (sidebar, window) = Self.sidebar(model, onScreen: true)
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }

@@ -154,6 +154,67 @@ extension AgentQuestion {
 }
 
 extension AgentQuestion {
+    /// The answer an owner recorded for this question, read back from the harness-shaped
+    /// `answers` it put into the tool's input (what `reply(_:)` sends) or, for an ACP
+    /// question, from the chosen option. The inverse of `reply(_:)`: a client that did not
+    /// answer (another device, or a chat opened on its history) shows what was chosen.
+    /// A value matching no option is the item's Other text.
+    public func recordedAnswer(_ answers: AgentQuestionJSON?, optionId: String?) -> AgentQuestionAnswer {
+        var selections: [String: AgentQuestionAnswer.Selection] = [:]
+        switch source.harness {
+        case .acp:
+            if let item = items.first, let optionId, item.options.contains(where: { $0.id == optionId }) {
+                selections[item.id] = .init(optionIDs: [optionId])
+            }
+        case .claude, .chief:
+            for item in items {
+                guard case .string(let value)? = answers?[item.prompt] else { continue }
+                selections[item.id] = Self.selection(item, values: Self.split(value, item: item))
+            }
+        case .codex:
+            for item in items {
+                guard case .array(let values)? = answers?[item.id]?["answers"] else { continue }
+                selections[item.id] = Self.selection(item, values: values.compactMap {
+                    if case .string(let value) = $0 { value } else { nil }
+                })
+            }
+        }
+        return AgentQuestionAnswer(selections: selections.filter { !$0.value.isEmpty })
+    }
+
+    /// Claude's one string for an item: the labels `reply(_:)` joined with ", ", with the
+    /// Other text last. A label may itself hold ", ", so the longest run of parts that is a
+    /// label wins; parts that make no label are the Other text, joined back.
+    static func split(_ value: String, item: Item) -> [String] {
+        guard item.multiSelect else { return [value] }
+        let labels = Set(item.options.map(\.label))
+        let parts = value.components(separatedBy: ", ")
+        var values: [String] = []
+        var other: [String] = []
+        var index = 0
+        while index < parts.count {
+            let run = (index + 1...parts.count).reversed().first { end in
+                labels.contains(parts[index..<end].joined(separator: ", "))
+            }
+            if let run {
+                values.append(parts[index..<run].joined(separator: ", "))
+                index = run
+            } else {
+                other.append(parts[index])
+                index += 1
+            }
+        }
+        return other.isEmpty ? values : values + [other.joined(separator: ", ")]
+    }
+
+    static func selection(_ item: Item, values: [String]) -> AgentQuestionAnswer.Selection {
+        let ids = item.options.filter { values.contains($0.label) }.map(\.id)
+        let other = values.filter { value in !item.options.contains { $0.label == value } }.joined(separator: ", ")
+        return .init(optionIDs: ids, other: other)
+    }
+}
+
+extension AgentQuestion {
     /// The question answered with `answer`, as an owner commits it: the
     /// answer must be valid (`problems`), the respondent and time come from
     /// the owner. Option ids keep the items' order.

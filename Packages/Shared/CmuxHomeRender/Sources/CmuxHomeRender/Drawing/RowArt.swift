@@ -17,9 +17,13 @@ enum RowArt {
     /// Sender names start over the bubble's text.
     static func nameLeft(_ metrics: Metrics) -> CGFloat { metrics.leftEdge + Style.bubblePadX }
 
-    /// The typing bubble without its spinner (a separate animated layer).
+    /// The typing bubble without its dots (the dots are animated layers).
     static let typingBubble = CGRect(x: 20, y: Style.rowMargin + 4, width: 44, height: 27.5)
     static let typingWidth: CGFloat = 140
+
+    static func typingDotCenter(_ i: Int) -> CGPoint {
+        CGPoint(x: typingBubble.minX + 12.25 + CGFloat(i) * 9.5, y: typingBubble.midY)
+    }
 
     /// Body rect of a part row in row coordinates.
     static func bodyRect(_ spec: RowSpec, metrics: Metrics) -> CGRect {

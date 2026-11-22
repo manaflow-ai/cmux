@@ -16,7 +16,7 @@ extension FilePageProvider {
     /// is not this file's, has no lines or no comment, or nothing could store it.
     @discardableResult
     func addComment(_ quote: ChatQuote, id: String = UUID().uuidString) async -> Bool {
-        guard kind == .markdown, let file, Self.canonical(URL(fileURLWithPath: quote.source)) == file else { return false }
+        guard kind == .markdown, let file, canonical(URL(fileURLWithPath: quote.source)) == file else { return false }
         guard let comments, let result = await comments.add(quote, id: id, at: file.path) else { return false }
         await publishComments(result, for: file)
         return result.written.attribute || result.written.fallback
@@ -25,7 +25,7 @@ extension FilePageProvider {
     /// `cmux.markdown.deleteComment {path, id}`: forgets one comment; answers whether it was there.
     func deleteComment(_ params: JSONValue) async throws -> JSONValue {
         let url = try path(params["path"])
-        guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
+        guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id must be a string") }
         guard let comments, let result = await comments.remove(id, at: file.path) else { return ["removed": false] }
         await publishComments(result, for: file)

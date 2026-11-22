@@ -16,6 +16,9 @@ extension AgentTimeline {
                 || (started != nil && started != oldDetail?.turnStartedAtMs)
             guard newTurn else { return [] }
             let at = started ?? laneSince ?? nowMs
+            // acpmux's inbox notice is no prompt: the turn started working, and the History of
+            // what was asked leaves it out (Leo 2026-11-01: "the details aren't even very useful").
+            if newDetail?.promptIsNotice == true { return [AgentTimelineEvent(kind: .started, atMs: at, isNotice: true)] }
             if let prompt = newDetail?.prompt { return [AgentTimelineEvent(kind: .prompt, atMs: at, text: prompt)] }
             return [AgentTimelineEvent(kind: .started, atMs: at)]
         case .needsInput?:

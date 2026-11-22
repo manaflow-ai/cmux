@@ -23,7 +23,13 @@ nonisolated enum AgentActivityWire {
             startedAt: date(json["started_at_ms"]), lastActionAt: date(json["last_action_at_ms"]),
             endedAt: (json["ended_at_ms"] as? NSNumber).map { date($0) },
             acts: int(counters["acts"]), observes: int(counters["observes"]), errors: int(counters["errors"]),
-            foregroundOnly: json["delivery"] as? String == "foreground_only")
+            foregroundOnly: json["delivery"] as? String == "foreground_only",
+            acpSession: nonEmpty(agent["acp_session"]), harnessSessionID: nonEmpty(agent["harness_session_id"]),
+            workspaceID: nonEmpty(agent["workspace_id"]), targetApp: targets.last.flatMap { nonEmpty($0["app_name"]) },
+            targetBundleID: targets.last.flatMap { nonEmpty($0["app_bundle_id"]) },
+            targetPID: targets.last.flatMap { ($0["pid"] as? NSNumber)?.int32Value }.flatMap { $0 > 0 ? $0 : nil },
+            targetWindowTitle: targets.last.flatMap { nonEmpty($0["title_redacted"]) },
+            recording: AgentActivityRecording(rawValue: json["recording"] as? String ?? "") ?? .events)
     }
 
     static func status(_ json: [String: Any]) -> AgentActivityStatus {
@@ -69,7 +75,15 @@ nonisolated enum AgentActivityWire {
                 .compactMap { $0 }.joined(separator: " · ").nilIfEmpty,
             ok: (result?["ok"] as? Bool ?? true) && json["reject"] == nil, errorCode: errorCode,
             durationMs: (json["duration_ms"] as? NSNumber)?.intValue,
-            redactedTextLength: redactedLength(json["args_redacted"]), beforeFrame: before, afterFrame: after, clickPoint: click)
+            redactedTextLength: redactedLength(json["args_redacted"]), beforeFrame: before, afterFrame: after, clickPoint: click,
+            window: window(target))
+    }
+
+    /// The target's window when it names a live process and a window id (the live preview streams it).
+    static func window(_ target: [String: Any]?) -> AgentActivityTargetWindow? {
+        guard let pid = (target?["pid"] as? NSNumber)?.int64Value, pid > 0, pid <= Int64(Int32.max),
+              let id = (target?["window_id"] as? NSNumber)?.int64Value, id > 0, id <= Int64(UInt32.max) else { return nil }
+        return AgentActivityTargetWindow(pid: Int32(pid), windowID: UInt32(id))
     }
 
     /// Length of the first `{"redacted": "text", "length": n}` in the args.
@@ -81,6 +95,29 @@ nonisolated enum AgentActivityWire {
             for child in array { if let found = redactedLength(child) { return found } }
         }
         return nil
+    }
+
+    /// The size to ask the host for: `full` only when the page wants it and the
+    /// session records full frames (thumbnails are always there), so a viewer
+    /// on an `events` session costs one request per frame, not two.
+    static func frameSize(requested: AgentActivityFrameSize, recording: AgentActivityRecording?) -> AgentActivityFrameSize {
+        requested == .full && recording?.keepsFullFrames == true ? .full : .thumb
+    }
+
+    /// `activity_frame` arguments; `id` lets `full` find the full frame of a thumbnail.
+    static func frameArgs(blob: String, size: AgentActivityFrameSize, session: String?) -> [String: Any] {
+        var args: [String: Any] = ["blob": blob, "size": size.rawValue]
+        if let session { args["id"] = session }
+        return args
+    }
+
+    /// An `activity_frame` reply (`{mime, data_base64}`) as the page's image bytes,
+    /// untouched. A reply with no data or a non-image type is nil.
+    static func frameData(_ reply: [String: Any]) -> AgentActivityFrameData? {
+        guard let base64 = reply["data_base64"] as? String, !base64.isEmpty else { return nil }
+        let mime = (reply["mime"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "image/jpeg"
+        guard mime.hasPrefix("image/"), !mime.contains(";"), !mime.contains(",") else { return nil }
+        return AgentActivityFrameData(mime: mime, base64: base64)
     }
 
     static func agentName(_ kind: String) -> String {
@@ -128,6 +165,8 @@ nonisolated enum AgentActivityWire {
     }
 
     private static func int(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
+
+    private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 private extension String {

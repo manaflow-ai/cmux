@@ -321,7 +321,9 @@ fn a_stopped_timer_is_said_and_started() {
     assert!(r.detail.contains("not running"), "{r:?}");
 }
 
-/// The real probe, run by `sh` against a fake `systemctl` in a scratch home.
+/// The real probe, run by `sh` against a fake `systemctl` in a scratch home (unix: modes,
+/// symlinks and a shell).
+#[cfg(unix)]
 mod probe_in_a_shell {
     use super::*;
     use std::fs;
@@ -506,8 +508,7 @@ mod probe_in_a_shell {
         let manager = root.join(u.manager_dir);
         if u.no_sed {
             for tool in ["sed", "tr"] {
-                fs::write(bin.join(tool), "#!/bin/sh\nexit 127\n").unwrap();
-                fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
+                crate::test_exec::write_executable(bin.join(tool), "#!/bin/sh\nexit 127\n");
             }
         }
         let loginctl = bin.join("loginctl");
@@ -516,9 +517,10 @@ mod probe_in_a_shell {
         } else {
             "echo yes;; enable-linger) exit 0"
         };
-        fs::write(&loginctl, format!("#!/bin/sh\ncase \"$1\" in show-user) {linger};; esac\n"))
-            .unwrap();
-        fs::set_permissions(&loginctl, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &loginctl,
+            format!("#!/bin/sh\ncase \"$1\" in show-user) {linger};; esac\n"),
+        );
         if let Some(name) = u.dangling {
             std::os::unix::fs::symlink(root.join("nowhere"), units.join(name)).unwrap();
         }
@@ -556,8 +558,7 @@ mod probe_in_a_shell {
         } else {
             format!("printf '%s\\n' '{}'", listed.replace('\n', "' '"))
         };
-        fs::write(&analyze, format!("#!/bin/sh\n{analyzed}\n")).unwrap();
-        fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&analyze, format!("#!/bin/sh\n{analyzed}\n"));
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
             r#"#!/bin/sh
@@ -586,8 +587,7 @@ esac
             unit_path = unit_path,
         );
         let systemctl = bin.join("systemctl");
-        fs::write(&systemctl, fake).unwrap();
-        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&systemctl, fake);
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         let mut sh = Command::new("sh");
         sh.arg("-c").arg(script).env("HOME", &home).env("PATH", path).env_remove("XDG_CONFIG_HOME");
@@ -797,6 +797,23 @@ esac
         fs::remove_dir_all(&dir).unwrap();
         assert!(found.cloud_unknown && !found.cloud, "{found:?}");
         assert!(probe_script().contains("[ -e /etc/cmux ] && [ ! -x /etc/cmux ]"));
+    }
+
+    /// The Cloud VM mark is read through `hosts::cloud_vm_check`, so a Cloud VM
+    /// with no acpmux.service of acpmux's own is `cloud` (cmux moves it) and
+    /// one whose daemon is that unit's gets the timer as any Linux host does
+    /// (a fleet lane host, 2026-10-30). The check itself: `host_update_tests.rs`.
+    #[test]
+    fn a_cloud_vm_is_said_through_the_shared_check() {
+        let dir = std::env::temp_dir().join(format!("acpmux-cloud-mark-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("vm-kind"), "team\n").unwrap();
+        let script = probe_script().replace("/etc/cmux", &dir.display().to_string());
+        let found = parse(&run(NONE, &script).0);
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(found.cloud && !found.cloud_unknown, "{found:?}");
+        assert!(probe_script().contains(&hosts::cloud_vm_check()));
+        assert!(probe_script().contains("if [ -n \"$acpmux_cloud\" ]; then echo ACPMUX_AU=cloud"));
     }
 
     /// A unit that is not a regular file (a FIFO, which `cmp` would wait on

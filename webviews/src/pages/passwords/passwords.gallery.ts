@@ -93,7 +93,23 @@ export default passwordsPageEntry({
   widths: { narrow: 360, normal: 900, wide: 1440 },
   covers: ["page:cmux.passwords", "pages/passwords/PasswordsPage.tsx"],
   variants: {
-    lists: variant({ note: "Passwords, passkeys and exceptions; metadata only, no secrets." }),
+    lists: variant({
+      note: "Passwords, passkeys and exceptions; metadata only, no secrets.",
+      // Capture the real control hover state for every fixture row. The pointer only visits the
+      // action buttons; it never sweeps the row's blank padding, so the stills prove the wash is
+      // contained by the control. The gallery runner records one before/after still per hover.
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".pw-title" });
+        const buttons = [...ctx.document.querySelectorAll<HTMLButtonElement>(".pw-row[data-id] .pw-row-button")];
+        for (const button of buttons) {
+          const row = button.closest<HTMLElement>(".pw-row");
+          const id = row?.dataset.id;
+          if (!id || !row) continue;
+          const index = [...row.querySelectorAll(".pw-row-button")].indexOf(button);
+          await ctx.hover({ selector: `.pw-row[data-id="${id}"] .pw-row-button:nth-child(${index + 1})` });
+        }
+      },
+    }),
     empty: variant({}, empty),
     loading: variant({ loading: true }),
     "single-entry": variant(
@@ -159,7 +175,12 @@ export default passwordsPageEntry({
       note: "Native confirmation declined; the saved entry remains.",
     }),
     "delete-completed": variant({
-      steps: [click(action(4)), wait('[data-site="atlas.example.test"]:not(:has([data-id="atlas"]))')],
+      // The list is windowed: a site's header and its logins are siblings, so "the site still shows, its
+      // deleted login does not" is asked of the list, not of a site element that holds its rows.
+      steps: [
+        click(action(4)),
+        wait('.pw-list:has(.pw-site-head[data-site="atlas.example.test"]):not(:has(.pw-row[data-id="atlas"]))'),
+      ],
     }),
     "reveal-completed": variant({
       steps: [click(action(1))],

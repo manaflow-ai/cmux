@@ -13,8 +13,13 @@ import { cardCost, MODELS, modelById, routeCost, type ModelEntry, type ProviderI
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
-import { includedMicrosFor, includedReached } from "./included-stop.ts"
+import { includedMicrosFor, includedModeFor, includedReached, teamCapReached } from "./included-stop.ts"
+import { poolsMachineTime, teamCapApplies } from "../billing-catalog.ts"
+import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
+import { Effect, Result } from "effect"
+import { allowedModels, fitToRoutes, omittedImagePlaceholder, validateChat } from "./chat-request.ts"
+import { killedRouterModels } from "../models-catalog/store.ts"
 
 const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
@@ -39,7 +44,11 @@ export type Caller =
 export const ACCESS_ACTIONS = ["add_credits", "add_api_key", "see_plans"] as const
 const TOPUP_PATH = "/v1/credits/topup"
 
-const MAX_BODY_BYTES = 8 * 1024 * 1024
+// A memory-safe bound, not a send limit we chose: a Worker isolate has 128 MB of memory
+// (https://developers.cloudflare.com/workers/platform/limits/#memory), and the body is held as text
+// and then as parsed JSON (readBody drops the byte buffer first). Every route's published body limit
+// is higher (DeepSeek 48 MiB, Particle 144 MiB, OpenAI 512 MB), so nothing past this point is cut for size.
+const MAX_BODY_BYTES = 32 * 1024 * 1024
 
 /** Body fields passed upstream; everything else (provider routing fields, n, logit_bias...) is dropped. */
 const PASS_FIELDS = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "stop", "stream", "response_format", "seed", "frequency_penalty", "presence_penalty", "reasoning_effort"] as const
@@ -54,7 +63,10 @@ const disabledProviders = (env: Env) => new Set((env.INFERENCE_DISABLED_PROVIDER
 export const liveRoutes = (env: Env, m: ModelEntry) => {
   const off = disabledProviders(env)
   // Cheapest first (paid-plan.md §2); sort is stable, so equal or unpriced routes keep catalog order.
-  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => routeCost(a) - routeCost(b))
+  // The primary provider (staging and production: Vercel AI Gateway, funded: user 2026-10-28) goes first, then cheapest first.
+  const primary = env.INFERENCE_PRIMARY_PROVIDER
+  const rank = (r: { provider: string }) => (r.provider === primary ? 0 : 1)
+  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => rank(a) - rank(b) || routeCost(a) - routeCost(b))
 }
 
 /**
@@ -98,7 +110,7 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   if (p.kind === "install" && !(p.grant_classes ?? []).some(spends)) return err(403, "auth.forbidden", "this install's grant cannot spend on AI models")
   // A machine install acts in its bound team without team selection's lookup: check the member's role there now (review P2).
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && p.team !== personalTeamIdFor(p.user)) {
-    const role = await (env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }).memberRole(p.team, p.user).catch(() => undefined)
+    const role = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).memberRole(p.team, p.user).catch(() => undefined)
     if (role === undefined) return err(503, "owner.unreachable", "team membership could not be checked; retry", { retryable: true })
     if (!roleHas(role ?? undefined, "team.resources")) return err(403, "team.not_member", "not a member of this team")
   }
@@ -120,11 +132,13 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd), plan: plan.plan ?? null }
 }
 
-export const handleInferenceModels = (env: Env): Response => {
+export const handleInferenceModels = async (env: Env): Promise<Response> => {
   const on = switchOn(env.INFERENCE_ENABLED)
   const freeOn = on && switchOn(env.INFERENCE_FREE_ENABLED)
+  const allowed = allowedModels(env)
+  const killed = on ? await killedRouterModels(env) : new Set<string>()
   const data = on
-    ? MODELS.filter((m) => liveRoutes(env, m).length > 0).map((m) => ({
+    ? MODELS.filter((m) => allowed.has(m.id) && !killed.has(m.id) && liveRoutes(env, m).length > 0).map((m) => ({
         id: m.id,
         object: "model",
         created: 0,
@@ -133,6 +147,7 @@ export const handleInferenceModels = (env: Env): Response => {
         context_length: m.context,
         max_output_tokens: m.maxOutput,
         tools: m.tools,
+        vision: Boolean(m.vision),
         free: Boolean(m.free && freeOn),
         pricing: { input_per_million_usd: m.card.input, output_per_million_usd: m.card.output }
       }))
@@ -149,24 +164,6 @@ export const handleInferenceStatus = async (env: Env, request: Request): Promise
 
 export const guard = (env: Env) => env.SPEND_GUARD_DO.get(env.SPEND_GUARD_DO.idFromName("global"))
 
-/**
- * Message content is text only: a string, or parts of type "text". Images, files, audio and video
- * are refused, because their token cost has no bound we can compute from the body (a file part can
- * pull in a large document). Then every prompt token is at least one byte of the body, so the body
- * size bounds the prompt tokens. Tools must be plain functions (no billed server-side tools).
- */
-const contentRefusal = (messages: ReadonlyArray<unknown>, tools: unknown): string | undefined => {
-  for (const m of messages) {
-    if (!m || typeof m !== "object") return "each message must be an object"
-    const content = (m as { content?: unknown }).content
-    if (content === undefined || content === null || typeof content === "string") continue
-    if (!Array.isArray(content)) return "message content must be a string or an array of text parts"
-    for (const part of content as Array<{ type?: unknown }>) if (part?.type !== "text") return "only text content parts are accepted"
-  }
-  if (tools !== undefined && (!Array.isArray(tools) || (tools as Array<{ type?: unknown }>).some((t) => t?.type !== "function"))) return "tools must be an array of function tools"
-  return undefined
-}
-
 /** Switch, caller and a JSON object body of at most MAX_BODY_BYTES (shared by both API shapes). */
 export const admitRequest = async (env: Env, request: Request): Promise<{ caller: Caller; body: Record<string, unknown>; bytes: number } | Response> => {
   if (!switchOn(env.INFERENCE_ENABLED)) return err(503, "inference.disabled", "the model router is off on this deployment")
@@ -174,16 +171,22 @@ export const admitRequest = async (env: Env, request: Request): Promise<{ caller
   if (caller instanceof Response) return caller
   const length = Number(request.headers.get("content-length") ?? "0")
   if (length > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.byteLength > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
+  const read = await readBody(request)
+  if (read.bytes > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
   let body: Record<string, unknown>
   try {
-    body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
+    body = JSON.parse(read.text) as Record<string, unknown>
   } catch {
     return err(400, "validation.invalid", "body must be JSON")
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return err(400, "validation.invalid", "body must be a JSON object")
-  return { caller, body, bytes: bytes.byteLength }
+  return { caller, body, bytes: read.bytes }
+}
+
+/** The body's size and text; its byte buffer is not kept past the decode (MAX_BODY_BYTES). */
+const readBody = async (request: Request): Promise<{ readonly bytes: number; readonly text: string }> => {
+  const buffer = await request.arrayBuffer()
+  return { bytes: buffer.byteLength, text: new TextDecoder().decode(buffer) }
 }
 
 export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
@@ -197,25 +200,32 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
  * tokens (one token is at least one byte of the request).
  */
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
-  const model = typeof body.model === "string" ? modelById(body.model) : undefined
-  if (!model) return err(404, "model.not_found", `unknown model; the catalog allowlist is: ${MODELS.map((m) => m.id).join(", ")}`)
-  if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
-  if (body.tools !== undefined && !model.tools) return err(400, "validation.invalid", "this model does not take tools")
-  if (body.n !== undefined && body.n !== 1) return err(400, "validation.invalid", "n must be 1")
-  const refused = contentRefusal(body.messages as ReadonlyArray<unknown>, body.tools)
-  if (refused) return err(400, "validation.invalid", refused)
+  const checked = await Effect.runPromise(Effect.result(validateChat(env, body)))
+  if (Result.isFailure(checked)) return err(checked.failure.status, checked.failure.code, checked.failure.message)
+  const { model } = checked.success
+  // The live catalog's kill switch (models-catalog/): a killed model is refused before any money moves.
+  if ((await killedRouterModels(env)).has(model.id)) return err(403, "model.disabled", `${model.name} is turned off for now`)
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"
+  if (free && checked.success.images.length > 0) return err(403, "free.images", "the free tier takes text only; sign in to send images")
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
   const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
-  const routes = servingRoutes(env, model, free, pinned)
-  if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
-  if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
+  const serving = servingRoutes(env, model, free, pinned)
+  if (pinned !== undefined && serving.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
+  if (serving.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
+  // Images: fitted to the highest limit of the routes that can serve the request; a route that takes
+  // fewer is skipped, never the cause of a refusal (chat-request.ts fitImages).
+  const fitted = await Effect.runPromise(Effect.result(fitToRoutes(body.messages as ReadonlyArray<unknown>, checked.success.images, model, serving)))
+  if (Result.isFailure(fitted)) return err(fitted.failure.status, fitted.failure.code, fitted.failure.message)
+  const { images, omittedImages, messages, limit, routes } = fitted.success
 
   const id = crypto.randomUUID()
-  const promptBound = promptBytes
+  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling. An
+  // omitted image's placeholder may be longer than its part was (a short https URL): count it too.
+  const placeholderBytes = omittedImages * omittedImagePlaceholder(limit).length
+  const promptBound = promptBytes + placeholderBytes + images * (model.vision?.tokensPerImage ?? 0)
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 
@@ -234,9 +244,12 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     const check = await meter.check(caller.team)
     if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
-    // A team whose usage above the plan's included amount cannot be billed stops at that amount, checked in the
-    // reservation's own transaction (cx-y79zh S5).
-    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller))
+    // A team whose usage above the plan's included amount cannot be billed stops at that amount, and under price set v2
+    // a team at its spending cap (team-cap.ts: billing period, billed prices, machine time pooled) stops for every
+    // member; both are checked in the reservation's own transaction (cx-y79zh S5; Leo 2026-11-09).
+    const set = usagePriceSet(env)
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(set), teamCapApplies(set) ? set : undefined)
+    if (!held.ok && "team_cap" in held) return teamCapReached(held.spent_usd, held.cap_usd, held.period_end)
     if (!held.ok && held.included) return includedReached(held.spent_usd, held.limit_usd)
     if (!held.ok) {
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })
@@ -258,6 +271,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
+  upstreamBody.messages = messages
   upstreamBody.max_tokens = maxTokens
   if (body.stream === true) upstreamBody.stream_options = { include_usage: true }
 
@@ -297,7 +311,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
         log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: r.status, attempt, input: r.usage?.input ?? null, output: r.usage?.output ?? null, usd, priced_by: r.usage?.costUsd !== undefined ? "provider" : r.usage ? "card" : "reservation", ttfb_ms: r.ttfbMs, stream: body.stream === true })
       }
     })
-    if (outcome.kind === "response") return outcome.response
+    if (outcome.kind === "response") return withOmittedImages(outcome.response, omittedImages)
     if (outcome.kind === "charged") {
       // The provider may have billed (a timeout or a broken body after the request was sent): the
       // full reservation is spent and there is no fallback, so a client cannot repeat it for free.
@@ -320,6 +334,17 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
   await settleMember(null)
   return last ?? err(503, "provider.unavailable", "no provider can serve this model now")
+}
+
+/** Names the answer's count of older images left out to fit the model's per-request limit. */
+export const IMAGES_OMITTED_HEADER = "x-cmux-images-omitted"
+
+/** `response` with `IMAGES_OMITTED_HEADER` when images were left out, so the cut is never silent. */
+const withOmittedImages = (response: Response, omitted: number): Response => {
+  if (omitted === 0) return response
+  const headers = new Headers(response.headers)
+  headers.set(IMAGES_OMITTED_HEADER, String(omitted))
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
 const log = (env: Env, fields: Record<string, unknown>) => console.log(JSON.stringify({ msg: "inference.request", environment: env.ENVIRONMENT, ...fields }))

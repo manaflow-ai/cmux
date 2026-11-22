@@ -33,8 +33,8 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
     let mut handoff_fd = None;
     let mut proxy_port = None;
     let mut api_port = None;
-    while index < values.len() {
-        match values[index].as_str() {
+    while let Some(arg) = values.get(index) {
+        match arg.as_str() {
             "--handoff-fd" => {
                 index += 1;
                 let value = values.get(index).ok_or("--handoff-fd needs a value")?;
@@ -65,7 +65,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
             "--" => {
                 index += 1;
                 let program = values.get(index).cloned().ok_or("missing program after --")?;
-                let args = values[index + 1..].to_vec();
+                let args = values.get(index + 1..).unwrap_or_default().to_vec();
                 let handoff_fd = handoff_fd.ok_or("missing --handoff-fd")?;
                 let proxy_port = proxy_port.ok_or("missing --proxy-port")?;
                 return Ok(Options { handoff_fd, proxy_port, api_port, program, args });

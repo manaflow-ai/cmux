@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -48,14 +49,11 @@ const { SubsessionContext, SubsessionStore } = await import("../src/agent-sessio
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
   setChipHost(undefined);
   resetLinkStore();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const PNG =
@@ -102,7 +100,7 @@ async function render(
       </SubsessionContext.Provider>,
     ),
   );
-  await act(async () => host.querySelector<HTMLButtonElement>(".cv-received__toggle")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!.click());
   // The chips ask the host in a microtask; their answers draw on the next.
   for (let i = 0; i < 4; i++) await act(async () => await new Promise((done) => setTimeout(done, 0)));
   return asked;
@@ -110,7 +108,7 @@ async function render(
 
 test("a message's signature is out, its PR one chip, its SHA quiet", async () => {
   await render({}, [{ sessionId: "lane-1", name: "agent-message-style", cwd: "/w/cmux", hostKind: "local" }]);
-  const body = host.querySelector(".cv-received__body")!;
+  const body = host.querySelector(".cv-received__text")!;
   expect(body.textContent!.startsWith("MERGED")).toBe(true);
   expect(body.textContent).not.toContain("[agent-message-style]");
   // #23825 written twice in a row is one chip; the SHA is quiet text linking its commit.
@@ -124,7 +122,7 @@ test("a message's signature is out, its PR one chip, its SHA quiet", async () =>
 
 test("a message from another machine names its files on hover, without a lock or local file access", async () => {
   const asked = await render({ sessionId: undefined, remote: true }, []);
-  const body = host.querySelector(".cv-received__body")!;
+  const body = host.querySelector(".cv-received__text")!;
   expect(body.querySelector("button.cv-chip.is-path")).toBeNull();
   const elsewhere = [...body.querySelectorAll<HTMLElement>(".cv-chip.is-elsewhere")];
   expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png"]);
@@ -139,6 +137,6 @@ test("a message from another machine names its files on hover, without a lock or
   await render({ remote: true }, [
     { sessionId: "lane-1", name: "agent-message-style", peer: "air-blue", cwd: "/Users/x/lane" },
   ]);
-  const named = host.querySelector<HTMLElement>(".cv-received__body .cv-chip.is-elsewhere")!;
+  const named = host.querySelector<HTMLElement>(".cv-received__text .cv-chip.is-elsewhere")!;
   expect(named.getAttribute("title")).toBe("On air-blue: /tmp/lane/before.png");
 });

@@ -1,0 +1,249 @@
+{
+ "title": "App Theme TokyoNight over every element (sidebar rows and dots, tab bar, titlebar, Markdown, Update card, What's New, palette, Home chat, Settings): one still per element",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {
+  "appearance": {
+   "theme": "Rose Pine"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Showcase rows: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 4,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "Workspace Themes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Themes"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Write a Markdown file",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf '# Release notes\\n\\nEvery **App Theme** colors every element.\\n\\n- [x] Sidebar and rows\\n- [ ] Popovers\\n\\n> A quote with a [link](https://cmux.com).\\n\\n| Element | Color |\\n| --- | --- |\\n| Tab bar | theme |\\n| Cards | theme |\\n\\n```swift\\nlet tokens = ThemeTokens.derive(from: input)\\n```\\n' > /tmp/cmux-all-themes.md; clear\r"
+   ],
+   "wait": 2,
+   "daemon": true
+  },
+  {
+   "title": "Open it in a tab",
+   "cmux": [
+    "open",
+    "/tmp/cmux-all-themes.md",
+    "--focus",
+    "true"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "A staged update: the Update card",
+   "rpc": {
+    "method": "debug.updater",
+    "params": {
+     "action": "stage",
+     "version": "1.0.0-nightly.3932981759301",
+     "changes": 3
+    }
+   },
+   "wait": 2,
+   "optional": "debug.updater is DEBUG only"
+  },
+  {
+   "title": "App Theme TokyoNight",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.appTheme",
+    "TokyoNight"
+   ],
+   "wait": 0.5
+  },
+  {
+   "title": "TokyoNight: system dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "TokyoNight: the workspace",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "TokyoNight dark: workspace",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "tokyonight-dark-workspace.png"
+  },
+  {
+   "title": "Settings (focus: a socket command opens it behind otherwise)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "openSettings",
+     "args": {
+      "setting": "appearance.appTheme"
+     },
+     "focus": true
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "TokyoNight dark: Settings",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "tokyonight-dark-settings.png"
+  },
+  {
+   "title": "TokyoNight: Home chat",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 2.5,
+   "optional": "the Home fixture is DEBUG only"
+  },
+  {
+   "title": "TokyoNight dark: Home chat",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "tokyonight-dark-home.png"
+  },
+  {
+   "title": "TokyoNight: palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "theme"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "TokyoNight dark: palette",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "tokyonight-dark-palette.png"
+  },
+  {
+   "title": "TokyoNight: close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "TokyoNight: the workspace again",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "TokyoNight: What's New popover",
+   "rpc": {
+    "method": "debug.update_surfaces",
+    "params": {
+     "action": "show-popover"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.update_surfaces is DEBUG only"
+  },
+  {
+   "title": "TokyoNight dark: What's New popover",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "tokyonight-dark-whatsnew.png"
+  }
+ ]
+}

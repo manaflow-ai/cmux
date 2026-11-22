@@ -45,3 +45,125 @@ describe("image harness VMs pause on their own when a run is lost (Lawrence, 202
     expect(await deleteLiveVms()).toEqual(["vm-idle"]);
   });
 });
+
+describe("image VM delete retries a provider 5xx (run 44112930938: a passing smoke failed on its cleanup's 503)", () => {
+  const providerError = (status: number) => Object.assign(new Error(`FreestyleApiError: ${status}`), { status });
+
+  test("a 503 on delete is retried and the VM is deleted", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-5xx-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-delete-503";
+    const name = "cmuxnp-dev-vmimg-t-503";
+    let attempts = 0;
+    const waits: number[] = [];
+    const vm = {
+      delete: async () => {
+        attempts++;
+        if (attempts === 1) throw providerError(503);
+      },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+
+    await deleteVm(vm, id, name, ledger, { sleep: async (ms) => void waits.push(ms) });
+    expect(attempts).toBe(2);
+    expect(waits.length).toBe(1);
+    expect(ledger.live()).toEqual([]);
+    expect(await deleteLiveVms()).toEqual([]);
+  });
+
+  test("a 5xx that never clears still fails after the bounded retries, and the VM stays tracked", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-5xx-out-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-delete-500";
+    const name = "cmuxnp-dev-vmimg-t-500";
+    let attempts = 0;
+    let down = true;
+    const vm = {
+      delete: async () => {
+        attempts++;
+        if (down) throw providerError(500);
+      },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+
+    await expect(deleteVm(vm, id, name, ledger, { sleep: async () => {}, delaysMs: [1, 1] })).rejects.toThrow("500");
+    expect(attempts).toBe(3);
+    expect(ledger.live()).toEqual([{ id, kind: "vm", name }]);
+    down = false;
+    expect(await deleteLiveVms()).toEqual([id]);
+  });
+});
+
+describe("image VM cleanup when provider deletion fails", () => {
+  test("keeps a failed VM tracked and the second exact-id delete succeeds", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-retry-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-delete-retry";
+    const name = "cmuxnp-dev-vmimg-t-retry";
+    let attempts = 0;
+    const vm = {
+      delete: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("temporary provider refusal");
+      },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+
+    await expect(deleteVm(vm, id, name, ledger)).rejects.toThrow("temporary provider refusal");
+    expect(ledger.live()).toEqual([{ id, kind: "vm", name }]);
+    expect(readFileSync(ledger.file, "utf8")).toContain("delete-failed");
+    expect(await deleteLiveVms()).toEqual([id]);
+    expect(attempts).toBe(2);
+    expect(ledger.live()).toEqual([]);
+  });
+
+  test("failed signal cleanup retries, names the still-live VM and completes others", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-fault-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    let fail = true;
+    let attempts = 0;
+    let successful = 0;
+    const failing = {
+      delete: async () => {
+        attempts++;
+        if (fail) throw new Error("provider outage");
+      },
+    } as unknown as Vm;
+    const passing = {
+      delete: async () => { successful++; },
+    } as unknown as Vm;
+    for (const [vm, id] of [[failing, "vm-stuck"], [passing, "vm-other"]] as const) {
+      const name = `cmuxnp-dev-vmimg-t-${id}`;
+      ledger.record(id, "vm", name);
+      trackLiveVm({ vm, vmId: id, name, ledger });
+    }
+    try {
+      await expect(deleteLiveVms()).rejects.toThrow("vm-stuck");
+      expect(attempts).toBe(2);
+      expect(successful).toBe(1);
+      expect(ledger.live().map((row) => row.id)).toEqual(["vm-stuck"]);
+    } finally {
+      fail = false;
+      expect(await deleteLiveVms()).toEqual(["vm-stuck"]);
+    }
+    expect(ledger.live()).toEqual([]);
+  });
+
+  test("a provider 404 is a confirmed already-gone image VM", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-gone-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-already-gone";
+    const name = "cmuxnp-dev-vmimg-t-gone";
+    const vm = {
+      delete: async () => { throw Object.assign(new Error("gone"), { status: 404 }); },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+    await deleteVm(vm, id, name, ledger);
+    expect(ledger.live()).toEqual([]);
+    expect(await deleteLiveVms()).toEqual([]);
+  });
+});

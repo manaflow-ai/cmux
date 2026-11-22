@@ -7,7 +7,7 @@ import type { LinkClaims } from "../src/link-token.ts"
  * Used by backend/packages/protocol/scripts/export-link-token-vectors.ts; never by the Worker.
  */
 export const rawSignLinkToken = async (c: LinkClaims, kid: string, typ: string, privateJwk: JWK): Promise<string> =>
-  new SignJWT({ svc: [...c.svc], epoch: c.epoch, team: c.team })
+  new SignJWT({ svc: [...c.svc], epoch: c.epoch, team: c.team, ...(c.vmk === undefined ? {} : { vmk: c.vmk as string }) })
     .setProtectedHeader({ alg: "EdDSA", kid, typ })
     .setIssuer(c.iss)
     .setAudience(c.aud)

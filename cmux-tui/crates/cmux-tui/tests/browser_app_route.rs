@@ -182,20 +182,24 @@ fn fake_daemon(socket: &Path) -> JoinHandle<()> {
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             line.clear();
-            let operation = request["operation"].as_str().unwrap_or_default().to_owned();
-            let response = if operation.starts_with("browser.") {
-                json!({"protocol": "cmux.protocol/2", "type": "response", "id": request["id"],
-                    "ok": false, "error": {"code": "operation.failed",
-                    "message": "the cmux app draws this browser",
-                    "details": {"operation": operation, "reason": "the cmux app draws this browser",
-                        "extra": {"code": "browser_rendered_by_app", "tab_id": TAB,
-                            "browser_id": BROWSER}},
-                    "retryable": false}})
+            let response = if request["cmd"] == "set-client-info" {
+                json!({"id": request["id"], "ok": true, "data": {}})
             } else {
-                json!({"protocol": "cmux.protocol/2", "type": "response", "id": request["id"],
-                    "ok": false, "error": {"code": "resource.not_found",
-                    "message": format!("unexpected {operation}"), "details": {},
-                    "retryable": false}})
+                let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+                if operation.starts_with("browser.") {
+                    json!({"protocol": "cmux.protocol/2", "type": "response", "id": request["id"],
+                        "ok": false, "error": {"code": "operation.failed",
+                        "message": "the cmux app draws this browser",
+                        "details": {"operation": operation, "reason": "the cmux app draws this browser",
+                            "extra": {"code": "browser_rendered_by_app", "tab_id": TAB,
+                                "browser_id": BROWSER}},
+                        "retryable": false}})
+                } else {
+                    json!({"protocol": "cmux.protocol/2", "type": "response", "id": request["id"],
+                        "ok": false, "error": {"code": "resource.not_found",
+                        "message": format!("unexpected {operation}"), "details": {},
+                        "retryable": false}})
+                }
             };
             if writeln!(writer, "{response}").and_then(|()| writer.flush()).is_err() {
                 break;

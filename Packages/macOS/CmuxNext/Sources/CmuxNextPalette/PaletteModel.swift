@@ -24,6 +24,7 @@ public final class PaletteModel {
             selectsQuery = false
             // A tree page reads `~` or `/` as a jump, not a filter.
             if jump(for: query) { return }
+            queryFrames.edited(scope: nav.top?.scope.rawValue ?? "")
             send(.setQuery(query))
         }
     }
@@ -63,6 +64,8 @@ public final class PaletteModel {
     public internal(set) var fieldHint: String?
     /// The footer title's clickable segments (`PalettePageSpec.crumbs`).
     public internal(set) var pageCrumbs: [String] = []
+    /// The current page's chosen values, drawn as chips before the query (`PalettePageSpec.tokens`).
+    public internal(set) var pageTokens: [PaletteToken] = []
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
@@ -133,9 +136,18 @@ public final class PaletteModel {
     /// one never writes the cache.
     @ObservationIgnored var emptyRankRequests: [String: PaletteEmptyRankRequest] = [:]
     @ObservationIgnored var emptyRankRequestCounter = 0
-    /// The usage history's owner; `frecency` mirrors its `history`.
+    /// The usage history's owner; `frecency` mirrors its `history` (only its hidden rows while
+    /// ``remembersSearches`` is off).
     @ObservationIgnored let usage: any PaletteUsageStore
+    /// cmux.json `palette.searchHistory`: off, runs are not recorded and nothing ranks by history.
+    @ObservationIgnored public var remembersSearches = true {
+        didSet {
+            if remembersSearches != oldValue { syncHistory() }
+        }
+    }
     @ObservationIgnored public internal(set) var nav = PaletteNavState()
+    /// The typed query's frame signposts (key.palette_query_rows, key.palette_query_answer).
+    @ObservationIgnored var queryFrames = PaletteQueryFrameMarks()
     /// One page per level, by level id.
     @ObservationIgnored var pages: [Int: PageState] = [:]
     /// Pages a caller supplied for the next level of that scope.
@@ -183,8 +195,7 @@ public final class PaletteModel {
         self.usage = usage
         self.frecency = usage.history
         usage.onChange = { [weak self] in
-            guard let self else { return }
-            frecency = self.usage.history
+            self?.syncHistory()
         }
     }
 
@@ -313,8 +324,12 @@ public final class PaletteModel {
     /// Reloads every provider of the current page (after a keep-open command
     /// or when the App's data changed). The selection stays on its row.
     public func reload() {
+        reload(reading: [])
+    }
+
+    private func reload(reading providerIDs: Set<String>) {
         guard let current else { return }
-        load(current)
+        load(current, reading: providerIDs)
         send(.refresh)
     }
 
@@ -323,8 +338,20 @@ public final class PaletteModel {
     /// Records a use of `key` (an item's `frecencyKey`) from outside the
     /// palette, so actions run by shortcut or menu also rank higher here.
     public func recordUse(_ key: String, query: String = "") {
+        guard remembersSearches else { return }
         usage.recordUse(key: key, query: query, at: now())
-        frecency = usage.history
+        syncHistory()
+    }
+
+    /// Clear Search History (`palette.clearSearchHistory`): forgets every use and learned pick.
+    public func clearSearchHistory() {
+        usage.clearHistory()
+        syncHistory()
+    }
+
+    /// Mirrors the usage store's history into ``frecency``, the one history every rank reads.
+    func syncHistory() {
+        frecency = remembersSearches ? usage.history : usage.history.keepingOnlyHidden()
     }
 
     /// Runs `command` for `item`, recording usage.
@@ -347,7 +374,10 @@ public final class PaletteModel {
             perform(handler, rowID: item.id, closing: true)
         case .performKeepingOpen(let handler):
             perform(handler, rowID: item.id, closing: false)
-            reload()
+            // The run row's own provider reads now: a hidden one's kept Recent row was kept before the run,
+            // so a toggled setting showed its old value for a frame (Leo, 2026-11-05: "It goes like on and off").
+            let owners = current.map { Set($0.providerItems.filter { $0.value.contains { $0.id == item.id } }.keys) }
+            reload(reading: owners ?? [])
         case .push(let page):
             push(page)
         case .replace(let page):

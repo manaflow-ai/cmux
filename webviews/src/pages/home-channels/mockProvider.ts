@@ -4,6 +4,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
+import { fixtureRank, type PaletteRankRequest } from "./paletteRank";
 import {
   HomeOps,
   type HomeAttachment,
@@ -99,7 +100,10 @@ function conversation(
   };
 }
 
-export function sampleHome(): { conversations: HomeConversation[]; messages: Map<string, HomeMessage[]> } {
+export function sampleHome(): {
+  conversations: HomeConversation[];
+  messages: Map<string, HomeMessage[]>;
+} {
   const messages = new Map<string, HomeMessage[]>();
   const chiefDM = [
     text("c-chief", 1, me, BASE, "What is left on the release?"),
@@ -264,13 +268,13 @@ const DRAFT_TEXT = ["Checking the release: ", "Builder's fix is merged, ", "Revi
 
 /** Sample agent runs (`MockRuns`): none, the Chief's finished run on its last DM reply, or that
  * plus a run that works now and streams its steps. */
-export type MockRuns = "none" | "done" | "live";
+export type MockRuns = "none" | "done" | "live" | "messages";
 
 const RUN_TURN = "turn:mock:c-chief-m4";
 const LIVE_TURN = "turn:mock:c-chief-m6";
 const SESSION = { kind: "acpmux", id: "01a139a8-f91e-7be2-86aa-516bf4c7e5e5" };
 
-function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
+function sampleRun(messages = false): { run: HomeRun; steps: HomeRunStep[] } {
   const at = BASE + 2 * MINUTE + 4_000;
   const tool = (
     seq: number,
@@ -343,6 +347,37 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       links: [{ label: "Agent session", url: `cmux://chief/5176e030/session/${SESSION.id}` }],
     },
   ];
+  if (messages) {
+    steps.unshift(
+      tool(
+        0,
+        "tell",
+        "mcp__optchat__tell",
+        "other",
+        "Tell a1",
+        {
+          id: "a1",
+          message:
+            "Please verify the release checklist and report the result. Keep the existing settings and check the fresh Home launch before finishing.",
+        },
+        "delivered",
+      ),
+      {
+        id: "report:a1:1:0",
+        seq: 1,
+        at,
+        rev: 1,
+        kind: "note",
+        text: "[a1] Verified the release checklist. The fresh Home launch passed and the existing settings are unchanged.",
+        attachments: [],
+        links: [],
+      },
+    );
+    steps.forEach((step, index) => {
+      step.seq = index + 1;
+      step.rev = index + 1;
+    });
+  }
   return {
     run: {
       id: RUN_TURN,
@@ -460,6 +495,12 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** The link the mock answers for a video (gallery `video`: a sample MP4 as a data URL); none:
+   * the video cannot be had, as from an owner without attachment reads. */
+  videoUrl: string | undefined = undefined;
+  /** The Cloud inbox read fails with this reason (gallery `cloudError`): the inbox answers its rows
+   * with `cloudError`, as the daemon does with the last good Cloud list. */
+  cloudError: string | undefined = undefined;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,
@@ -523,7 +564,24 @@ export class MockHomeProvider implements PageClient {
     if (media) addMedia(this.data);
     if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
-      const done = sampleRun();
+      const done = sampleRun(runMode === "messages");
+      if (runMode === "messages") {
+        const reports = done.steps.filter((step) => step.kind === "note");
+        done.steps = done.steps.filter((step) => step.kind !== "note");
+        done.run.stepCount = done.steps.length;
+        const reportRun: HomeRun = {
+          id: `reports:${RUN_TURN}`,
+          conversation: done.run.conversation,
+          author: done.run.author,
+          status: "done",
+          startedAt: done.run.startedAt,
+          updatedAt: done.run.updatedAt,
+          rev: 1,
+          stepCount: reports.length,
+          answers: done.run.answers,
+        };
+        this.runs.set(reportRun.id, { run: reportRun, steps: reports });
+      }
       this.runs.set(done.run.id, done);
       const list = this.data.messages.get("c-chief") ?? [];
       const reply = list.find((m) => m.id === "c-chief-m4");
@@ -680,7 +738,13 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
+        return {
+          me,
+          conversations: this.data.conversations,
+          rev: 1,
+          inboxState: true,
+          ...(this.cloudError ? { cloudError: this.cloudError } : {}),
+        } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -721,7 +785,16 @@ export class MockHomeProvider implements PageClient {
           conversation: id,
           pinned,
           markedUnread,
-          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+          ...(pinned
+            ? {
+                pinPosition:
+                  op === HomeOps.pin && typeof params.position === "number"
+                    ? params.position
+                    : op === HomeOps.pin && !current.pinned
+                      ? Date.now()
+                      : current.pinPosition,
+              }
+            : {}),
         };
         const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
         this.data.conversations[index] = updated;
@@ -787,7 +860,26 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true } as R;
+        return { start: true, invite: true, chiefs: true, chiefWork: true } as R;
+      case HomeOps.chiefWork:
+        if (!this.chiefs.has(String(params.chief))) throw pageError("cmux.page.invalid_params", "unknown Chief");
+        return {
+          agents: [
+            { id: "builder", name: "Builder", state: "working", task: "Build a hello page" },
+            { id: "reviewer", name: "Reviewer", state: "waiting", task: "Review the finished preview" },
+          ],
+          tasks: [
+            {
+              id: "builder/preview",
+              sessionId: "builder",
+              title: "Preview server",
+              command: "bun run dev",
+              status: "running",
+            },
+          ],
+          taskSources: ["harness"],
+          truncated: false,
+        } as R;
       case HomeOps.directory:
         return { people: this.directory() } as R;
       case HomeOps.startConversation: {
@@ -845,6 +937,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatar:
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case HomeOps.avatar:
+        return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
+      case HomeOps.paletteRank:
+        // The fixture ranker (a case-insensitive substring filter in row order), not the daemon's.
+        return fixtureRank(params as unknown as PaletteRankRequest) as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {
@@ -994,7 +1091,8 @@ export class MockHomeProvider implements PageClient {
         return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
       }
       case HomeOps.attachmentUrl:
-        // No video bytes in the mock: the player shows its poster.
+        // Without a sample video the mock serves no bytes: the player shows its poster.
+        if (this.videoUrl && params.hash === "f".repeat(64)) return { url: this.videoUrl, expiresInMs: 600_000 } as R;
         throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];

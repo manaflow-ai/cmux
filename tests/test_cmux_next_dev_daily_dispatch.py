@@ -85,7 +85,7 @@ check("run.conclusion === 'success'" in text and "run.status" in text,
 publish_text = PUBLISH_WORKFLOW.read_text()
 verify = re.search(r"^  verify:\n(.*?)(?=^  publish:\n)", publish_text, re.MULTILINE | re.DOTALL)
 verify_text = verify.group(1) if verify else ""
-check("needs: [sign, runner]" in verify_text,
+check("needs: [sign, runner, sign-blacksmith]" in verify_text,
       "DEV verify must wait for the owned-Mac placement job")
 check("needs.runner.outputs.label" in verify_text and "blacksmith-6vcpu-macos-26" in verify_text,
       "DEV verify must prefer the picked owned Mac and retain a Blacksmith fallback")

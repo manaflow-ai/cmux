@@ -31,6 +31,9 @@ ALLOWED: dict[str, str] = {
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
+    "ci-shed-superseded-runs.yml: Cancel queued runs nobody will read":
+        "every 10 minutes (#47662): reads the queued list once, then one cancel per picked run, spaced by "
+        "--spacing so the writes stay under the secondary limit; it stops at a primary rate limit. Not a poll",
     "cmux-tui-release.yml: Dispatch registry publishers": "a release, by hand: finds the publisher runs it dispatched",
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "
@@ -40,8 +43,6 @@ ALLOWED: dict[str, str] = {
     "ios-testflight.yml: Decide whether a TestFlight upload is needed":
         "orders uploads: waits only while an earlier TestFlight run is active, listing runs and jobs "
         "each pass; a candidate for a concurrency group",
-    "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
-        "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
     "cmux-next.yml: Decide the fleet build's REF capture":
@@ -57,8 +58,10 @@ ALLOWED: dict[str, str] = {
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
-    'published-in.yml: Comment the release on its PRs':
-        'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
+    "app-ffi-release.yml: Watch the build and rescue it":
+        "per feat-cmux-next app-ffi-release run (app_ffi_rescue.py, #45076, #45176, hq#3690): one jobs page every "
+        "120 s, at most 50 reads, ending once the build has a runner; a candidate for the owned-pool rescue's one "
+        "sweeper",
     'nightly.yml: Comment the build on its PRs':
         'per published nightly-next build: one comment per PR, 7.5 s apart; stops at the first rate-limit refusal',
     'auto-resume-nightly-notarization.yml: Prepare publication notes':
@@ -95,25 +98,26 @@ ALLOWED: dict[str, str] = {
         'uses the minted App token: its mint has no continue-on-error, so the github.token fallback never applies',
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
+    'nightly.yml: Build the tip while its tree publishes':
+        "the scan reads every loop of a script the step runs; the step reads pin-cmux-tui.sh runs-state once per same-key candidate and active-publisher once, no polling; github_get sleeps only through a rate-limit refusal",
     'nightly.yml: Resolve cmux-tui client commit':
         "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
+    'cmux-next-hot-verify.yml: Dispatch the look':
+        'retry only (#45104): a look dispatch that failed is tried again, at most 6 tries in 20 minutes, 30 s doubling; '
+        'a rate limit waits for its reset, read from the rate_limit endpoint (no quota)',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
-        'watches owned-pool runs (up to 5 h for a sweeper): reads on the glaeda-route App token (READ_TOKEN); GITHUB_TOKEN takes cancels, re-runs and a read the App may not make',
+        'watches owned-pool runs (up to 5 h for a sweeper): reads and mutations use the existing cmux-bot token, with github.token fallback; the routing App is never used',
     'cmux-next-batch.yml: Run the batch':
         'a batch, only when CMUX_NEXT_BATCH_ENABLED=1: the flagged loop pages GraphQL with one 10 s retry on a timeout; the batch also waits for its dispatched runs, one read every 15 s to find a run (10 min) and every 90 s for it to finish',
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
-    'cmux-next-defaults-guard.yml: Judge the default changes':
-        "only while the pull request's head has not caught up with the event: at most four GraphQL re-reads (five in all), 5 s apart",
     "gallery-advisory.yml: Update the PR's gallery section":
-        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
@@ -191,6 +195,11 @@ class PythonTests(unittest.TestCase):
         multiline = ("import time\ndef state(\n    a,\n    b,\n):\n    return urllib.request.urlopen(a)\n"
                      "while True:\n    state(1, 2)\n    time.sleep(5)\n")
         self.assertTrue(python_polls(multiline))
+        # The deadline transport is an HTTP call too, buffered or streamed (scripts/ci/deadline_http.py).
+        for call in ("deadline_http.request(u, 30)",
+                     "with deadline_http.stream(u, 30) as answer:\n        answer.read()"):
+            with self.subTest(call=call):
+                self.assertTrue(python_polls(f"import time\nwhile True:\n    {call}\n    time.sleep(5)\n"))
 
     def test_a_nested_helper_does_not_hide_the_global_one(self) -> None:
         py = ("import time\ndef state():\n    return gh_json('api', 'x')\ndef unused():\n    def state():\n"

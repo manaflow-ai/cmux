@@ -27,6 +27,7 @@ use crate::git_ops::diff;
 use crate::git_ops::write_run::{Bound, WriteGit};
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.checkpoint.diff";
 /// Building a files tree writes nothing a reader depends on, so it may stop.
@@ -52,6 +53,9 @@ pub(super) fn diff(
     };
     let (from_object, from_complete) = load(from_id)?;
     let to_object = to_id.map(load).transpose()?;
+    if let Some(value) = diff::continuation(&target.repository, &request.fields, OPERATION)? {
+        return Ok(value);
+    }
     let hooks = store.hooks();
     let git = writer(&target, &hooks);
     let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;
@@ -60,23 +64,37 @@ pub(super) fn diff(
     let (mut value, to_complete) = match &to_object {
         Some((to_object, to_complete)) => {
             let to_tree = files_tree(&git, &scratch, "to", to_object)?;
-            let value = diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?;
+            let value = diff::between(
+                repository,
+                from_tree,
+                to_tree,
+                &request.fields,
+                OPERATION,
+                from_complete && *to_complete,
+            )?;
             (value, *to_complete)
         }
         None => {
             let (live, live_complete) = live_files(&git, &target, &scratch)?;
             let to_tree = files_tree(&git, &scratch, "live", &live)?;
-            let value = diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?;
+            let value = diff::between(
+                repository,
+                from_tree,
+                to_tree,
+                &request.fields,
+                OPERATION,
+                from_complete && live_complete,
+            )?;
             (value, live_complete)
         }
     };
     drop(scratch);
-    value["from"] = json!(from_id);
+    value.set("from", json!(from_id));
     // A side that left eligible files out (too large, over the file limit)
     // cannot show their changes, so the comparison is incomplete.
-    value["complete"] = json!(from_complete && to_complete);
+    value.set("complete", json!(from_complete && to_complete));
     if let Some(to_id) = to_id {
-        value["to"] = json!(to_id);
+        value.set("to", json!(to_id));
     }
     Ok(value)
 }

@@ -55,32 +55,37 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
 
 @MainActor
 @Suite struct LinkProbeTests {
-    /// The app's probes (the 15 s heartbeat, a foreground, a presence change)
+    /// The app's probes (the heartbeat, a foreground, a presence change)
     /// keep a link whose Mac is sending, even when its pong is late. Live on
     /// 2026-10-23 the phone closed such links ("peer closed the link" 22 to
     /// 24 s after link up, with the Mac's tunnel still delivering) and redialed
     /// for 4 to 9 s each time.
     @Test func aBusyLinkWithALatePongIsKept() async throws {
         let dialer = BusyDialer()
-        let controller = LinkController(transport: .wireGuard, dialer: dialer) { _ in "token" }
+        let clock = LinkTestClock()
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock, beat: .off) { _ in "token" }
+        defer { controller.send(.target(nil)); clock.stop() }
         controller.endpoint = { mac in
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: mac)
         }
+        let driver = LinkClockDriver(clock: clock, controller: controller)
         controller.send(.target(.init(macID: "m1", name: "Mac", isOnline: true)))
-        for _ in 0..<200 where !controller.phase.isConnected {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(controller.phase.isConnected)
+        try await pollUntil { controller.phase.isConnected }
+        try await driver.settle()
         // A foreground probe (2 s) and a presence probe (1.5 s), as after a signaling reset.
         controller.send(.foreground)
         controller.send(.macSignaled)
-        // Past both probes' timeouts (and the bound's grace): a ping-only probe would have failed by now.
-        try await Task.sleep(for: .milliseconds(2700))
+        try await driver.settle()
+        // Hints can coalesce with the link-up probe; then the heartbeat probes on its beat.
+        try await driver.run(until: clock.now.advanced(by: .seconds(10))) { (dialer.first?.probeCount ?? 0) >= 2 }
+        try #require((dialer.first?.probeCount ?? 0) >= 2)
+        // Past the probe deadline and grace after the last probe started: a ping-only probe
+        // would close the link; traffic-only success must not.
+        try await driver.run(until: clock.now.advanced(by: LinkController.probeTimeout + LinkController.probeGrace + .milliseconds(200)))
         #expect(controller.phase.isConnected, "\(controller.phase)")
         #expect(dialer.dials == 1)
         #expect(dialer.first?.isClosed == false)
-        // The foreground's and the presence change's probes both ran (the adopt's
-        // own foreground comes before the link counts as connected, so it probes nothing).
+        // Initial liveness and the heartbeat ran; overlapping hints coalesce.
         #expect((dialer.first?.probeCount ?? 0) >= 2)
     }
 }

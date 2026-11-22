@@ -8,6 +8,7 @@
 //! was set, never a value: `ls` reads it, and the app's `cloud deliver-secrets` uses the times to
 //! deliver a changed value again. Values reach a machine only over its daemon link.
 
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use acpmux::cli::harness_secret::{read_value, run_store, store_item};
@@ -17,6 +18,23 @@ use super::{OutputMode, UsageError};
 
 /// The Keychain service of every Cloud secret (`CloudMachineSecrets.service` in the app).
 pub(super) const SERVICE: &str = "cmux-cloud-secret";
+/// Names a DEV build's own Keychain service (Swift `BuildStatePaths.cloudSecretsService`), so its
+/// values never overwrite or read nightly's.
+pub(crate) const SERVICE_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_SERVICE";
+
+/// This build's Keychain service: [`SERVICE_OVERRIDE`], else [`SERVICE`]; a `cmux` bundled in
+/// another app than the terminal's ignores the variable.
+fn service() -> String {
+    let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+    service_from(|key| std::env::var(key).ok().filter(|v| !v.trim().is_empty()), other_app)
+}
+
+fn service_from(env: impl Fn(&str) -> Option<String>, other_app: bool) -> String {
+    if !other_app && let Some(service) = env(SERVICE_OVERRIDE) {
+        return service;
+    }
+    SERVICE.to_owned()
+}
 
 /// `Some(exit code)` when `args` is `cloud secret …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -50,6 +68,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Command {
+    Help,
     Set { account: String },
     Ls,
     Rm { account: String },
@@ -78,7 +97,10 @@ const USAGE: &str =
     "usage: cmux cloud secret set|rm NAME [--repo OWNER/NAME], or cmux cloud secret ls";
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
-    let Some((verb, rest)) = args.split_first() else { return Err(UsageError::new(USAGE)) };
+    let Some((verb, rest)) = args.split_first() else { return Ok(Command::Help) };
+    if rest.is_empty() && matches!(verb.as_str(), "--help" | "-h" | "help") {
+        return Ok(Command::Help);
+    }
     if verb == "ls" || verb == "list" {
         return if rest.is_empty() { Ok(Command::Ls) } else { Err(UsageError::new(USAGE)) };
     }
@@ -94,6 +116,12 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         "rm" | "remove" => Ok(Command::Rm { account }),
         _ => Err(UsageError::new(USAGE)),
     }
+}
+
+/// [`valid_name`] for `cmux machine vault`: the same names, so a vault var can always be set on a
+/// machine.
+pub(super) fn check_name(name: &str) -> Result<(), UsageError> {
+    valid_name(name)
 }
 
 /// The machine config's own name rules (`[A-Za-z_][A-Za-z0-9_]*`, at most 128, not a name the
@@ -118,6 +146,7 @@ fn valid_name(name: &str) -> Result<(), UsageError> {
         "RPS2", "NULLCMD", "READNULLCMD", "HISTCHARS", "WATCHFMT", "PERIOD", "KEYTIMEOUT", "SAVEHIST", "STTY",
         "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+        "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL",
     ];
     let reserved = RESERVED.contains(&upper.as_str())
         || [
@@ -157,8 +186,25 @@ fn repo_scope(repo: &str) -> Result<String, UsageError> {
     }
 }
 
+/// Names this build's index: a DEV app sets it for its terminals (Swift `BuildStatePaths`), so a dev
+/// build never reads or changes nightly's or another tag's list.
+pub(crate) const INDEX_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_FILE";
+
 fn index_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/cmux/cloud-secrets.json"))
+    let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+    index_path_from(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
+}
+
+/// `$CMUX_NEXT_CLOUD_SECRETS_FILE`, else `$HOME/.config/cmux/cloud-secrets.json`. A `cmux` bundled
+/// in another app than the terminal's (`other_app`) ignores the variable: it is that app's index.
+fn index_path_from(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+    other_app: bool,
+) -> Option<PathBuf> {
+    if !other_app && let Some(path) = env(INDEX_OVERRIDE) {
+        return Some(PathBuf::from(path));
+    }
+    env("HOME").map(|home| PathBuf::from(home).join(".config/cmux/cloud-secrets.json"))
 }
 
 /// The index's `secrets` object: empty when there is no file (nothing set yet); an error for a file
@@ -231,13 +277,63 @@ impl IndexLock {
     }
 }
 
+/// Stores `value` as the cloud secret `account` (`<scope>/<NAME>`, as [`parse`] makes it) in the Keychain and
+/// marks it in the index, so `cmux vm deliver-secrets` and the machine vault deliver it. `cmux cloud secret
+/// set` and `cmux keys mint --store keychain:...` both store through here. The value reaches `security -i`
+/// on stdin only.
+pub(super) fn store_value(account: &str, value: &str) -> Result<(), String> {
+    if std::env::consts::OS != "macos" {
+        return Err(
+            "cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into(),
+        );
+    }
+    if !valid_account(account) {
+        return Err(format!("{account:?} is not a cloud secret account (<scope>/<NAME>)"));
+    }
+    value_size(value)?;
+    let path = index_path().ok_or("HOME is not set")?;
+    let _lock = IndexLock::take(&path).map_err(|e| format!("cannot lock the index: {e}"))?;
+    let mut secrets = read_index(&path)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // Strictly later than every mark the index holds: two sets in the same millisecond still differ,
+    // so a machine that has the first one gets the second. Worked out before anything is stored.
+    let newest = secrets.values().filter_map(Value::as_u64).max().unwrap_or(0);
+    let mark = now.max(newest + 1);
+    if mark > i64::MAX as u64 {
+        return Err(
+            "the index's newest mark is too large; remove the index and set the secrets again"
+                .into(),
+        );
+    }
+    let store =
+        store_item("macos", &service(), account, &format!("cmux cloud secret {account}"), value)
+            .map_err(|e| e.to_string())?;
+    run_store(&store).map_err(|e| e.to_string())?;
+    secrets.insert(account.to_owned(), json!(mark));
+    write_index(&path, secrets).map_err(|e| format!("stored, but the index was not written: {e}"))
+}
+
 fn run(command: Command, output: OutputMode) -> Result<i32, String> {
     let fail = |message: String| message;
-    let path = index_path().ok_or_else(|| fail("HOME is not set".into()))?;
-    let _lock = IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
-    let mut secrets = read_index(&path)?;
+    let load_index = || -> Result<_, String> {
+        let path = index_path().ok_or_else(|| fail("HOME is not set".into()))?;
+        let lock =
+            IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
+        let secrets = read_index(&path)?;
+        Ok((path, lock, secrets))
+    };
     let answer = match command {
+        Command::Help => {
+            let description = crate::localization::catalog().app_control.cloud_secret_help;
+            let mut stdout = std::io::stdout().lock();
+            writeln!(stdout, "{USAGE}\n\n{description}").map_err(|e| e.to_string())?;
+            return Ok(0);
+        }
         Command::Ls => {
+            let (_, _lock, secrets) = load_index()?;
             let rows: Vec<Value> = secrets
                 .iter()
                 .map(|(account, at)| {
@@ -251,42 +347,22 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             if std::env::consts::OS != "macos" {
                 return Err(fail("cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into()));
             }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            // Strictly later than every mark the index holds: two sets in the same millisecond still differ,
-            // so a machine that has the first one gets the second. Worked out before anything is stored.
-            let newest = secrets.values().filter_map(Value::as_u64).max().unwrap_or(0);
-            let mark = now.max(newest + 1);
-            if mark > i64::MAX as u64 {
-                return Err(fail("the index's newest mark is too large; remove the index and set the secrets again".into()));
-            }
+            // A damaged index fails before the prompt, as it always has.
+            drop(load_index()?);
             let (_, name) = account.rsplit_once('/').unwrap_or(("*", &account));
             let value = read_value(name).map_err(|e| fail(e.to_string()))?;
-            value_size(value.as_str())?;
-            let store = store_item(
-                "macos",
-                SERVICE,
-                &account,
-                &format!("cmux cloud secret {account}"),
-                value.as_str(),
-            )
-            .map_err(|e| fail(e.to_string()))?;
+            store_value(&account, value.as_str())?;
             drop(value);
-            run_store(&store).map_err(|e| fail(e.to_string()))?;
-            secrets.insert(account.clone(), json!(mark));
-            write_index(&path, secrets)
-                .map_err(|e| fail(format!("stored, but the index was not written: {e}")))?;
-            json!({"stored": account, "next": "cmux cloud deliver-secrets --target machine:<id>"})
+            json!({"stored": account, "next": "cmux vm deliver-secrets --target vm:<id>"})
         }
         Command::Rm { account } => {
+            let (path, _lock, mut secrets) = load_index()?;
             if std::env::consts::OS != "macos" {
                 return Err(fail("cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into()));
             }
             // The account is a checked name and scope, never a value: argv is fine here.
             let status = cmux_process::Command::new("/usr/bin/security")
-                .args(["delete-generic-password", "-s", SERVICE, "-a", &account])
+                .args(["delete-generic-password", "-s", &service(), "-a", &account])
                 .stdout(cmux_process::Stdio::null())
                 .stderr(cmux_process::Stdio::null())
                 .status()
@@ -311,6 +387,17 @@ mod tests {
 
     fn words(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn secret_help_forms_parse_and_succeed_without_a_secret_operation() {
+        for suffix in ["", "--help", "-h", "help"] {
+            assert_eq!(parse(&words(suffix)), Ok(Command::Help), "{suffix:?} should be help");
+            assert_eq!(run_if_requested(&words(&format!("cloud secret {suffix}"))), Some(0));
+        }
+        for bad in ["help extra", "--help extra", "-h extra", "set", "rm", "unknown"] {
+            assert!(parse(&words(bad)).is_err(), "{bad:?} is still invalid");
+        }
     }
 
     #[test]
@@ -349,6 +436,11 @@ mod tests {
             "set BASH_FUNC_x",
             "set LC_ALL",
             "set TZ",
+            // The gateway's endpoints for Gemini and Grok: the platform withholds them (hq#11225).
+            "set GOOGLE_GEMINI_BASE_URL",
+            "set GROK_MODELS_BASE_URL",
+            "set grok_models_list_url",
+            "set GROK_XAI_API_BASE_URL",
             "set A-B",
             "set API_KEY --repo ../x",
             "set API_KEY --repo owner",
@@ -357,6 +449,41 @@ mod tests {
         ] {
             assert!(parse(&words(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_dev_builds_keychain_service_is_its_own() {
+        let dev = |key: &str| {
+            (key == SERVICE_OVERRIDE)
+                .then(|| "cmux-cloud-secret.com.cmuxterm.app.debug.dev".to_owned())
+        };
+        assert_eq!(service_from(dev, false), "cmux-cloud-secret.com.cmuxterm.app.debug.dev");
+        assert_eq!(service_from(dev, true), SERVICE, "another app's service in its terminal");
+        assert_eq!(service_from(|_| None, false), SERVICE);
+    }
+
+    #[test]
+    fn a_dev_builds_index_is_its_own() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |key: &str| {
+                pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| std::ffi::OsString::from(*v))
+            }
+        };
+        let dev: &[(&str, &str)] =
+            &[("HOME", "/h"), (INDEX_OVERRIDE, "/s/builds/dev/config/cloud-secrets.json")];
+        assert_eq!(
+            index_path_from(env(dev), false),
+            Some(PathBuf::from("/s/builds/dev/config/cloud-secrets.json"))
+        );
+        assert_eq!(
+            index_path_from(env(dev), true),
+            Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json")),
+            "another app's index in its terminal"
+        );
+        assert_eq!(
+            index_path_from(env(&[("HOME", "/h")]), false),
+            Some(PathBuf::from("/h/.config/cmux/cloud-secrets.json"))
+        );
     }
 
     #[test]

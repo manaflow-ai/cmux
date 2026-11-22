@@ -12,6 +12,7 @@
 //! `resetsAt` unix seconds. The stream names no plan, so `plan` is never set.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// Claude Code's limit windows and the ids acpmux names them by. The overage
@@ -36,7 +37,7 @@ fn window(id: &str, utilization: Option<&Value>, resets_at: Option<&Value>) -> O
     let percent = ((used * 100.0).clamp(0.0, 100.0) * 100.0).round() / 100.0;
     let mut w = json!({"id": id, "usedPercent": percent});
     if let Some(at) = resets_at.and_then(Value::as_i64).filter(|at| *at > 0) {
-        w["resetsAt"] = json!(at);
+        w.set("resetsAt", json!(at));
     }
     Some(w)
 }
@@ -77,9 +78,19 @@ pub fn merge_usage_limits(saved: Option<&Value>, newer: &Value) -> Value {
     }
     let mut merged = json!({"windows": windows});
     if let Some(plan) = newer.get("plan").or_else(|| saved?.get("plan")).filter(|p| p.is_string()) {
-        merged["plan"] = plan.clone();
+        merged.set("plan", plan.clone());
     }
     merged
+}
+
+/// Whether saved `usageLimits` (Claude's or Codex's) say a window is used up at `now_secs`: one
+/// at 100% whose reset time, if reported, has not passed. Reported limits alone are not a limit
+/// reached; every Claude Code chat reports them.
+pub fn usage_limit_reached(limits: Option<&Value>, now_secs: i64) -> bool {
+    limits.and_then(|l| l.get("windows")).and_then(Value::as_array).into_iter().flatten().any(|w| {
+        w.get("usedPercent").and_then(Value::as_f64).is_some_and(|u| u >= 100.0)
+            && w.get("resetsAt").and_then(Value::as_i64).is_none_or(|at| at > now_secs)
+    })
 }
 
 impl Translator {

@@ -132,7 +132,10 @@ import Testing
         let refusal: LinkError?
         let data: [Data]
         private var index = 0
-        init(refusal: LinkError?, data: [Data] = []) { self.refusal = refusal; self.data = data }
+        init(refusal: LinkError?, data: [Data] = []) {
+            self.refusal = refusal
+            self.data = refusal == nil ? [Data("{\"size\":\(data.reduce(0) { $0 + $1.count })}".utf8)] + data : data
+        }
         func send(_ data: Data) async throws {}
         func receive() async throws -> Data? {
             defer { index += 1 }
@@ -160,7 +163,7 @@ import Testing
             Issue.record("a refused read must not load")
         } catch let error as ArtifactUnavailable {
             #expect(error.message == "sample.md is outside the folders Studio shares with this phone. "
-                    + "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
+                + "Open a workspace in that folder on the Mac, or add it in Settings › General › Chats › Chat Folders.")
         } catch {
             Issue.record("unexpected \(error)")
         }
@@ -173,8 +176,8 @@ import Testing
             _ = try await source.load(TerminalArtifact(reference: "notes.md", kind: .markdown))
             Issue.record("a refused read must not load")
         } catch let error as ArtifactUnavailable {
-            #expect(error.message == "Studio isn't sharing any folders with this phone yet, so notes.md can't be opened here. "
-                    + "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
+            #expect(error.message == "Studio isn't sharing folders with this phone. "
+                + "Open a workspace in that folder on the Mac, or add it in Settings › General › Chats › Chat Folders.")
         } catch {
             Issue.record("unexpected \(error)")
         }

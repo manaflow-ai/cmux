@@ -49,7 +49,7 @@ impl Mux {
         }
         Some(ResourceError::operation_failed(
             operation,
-            "no browser engine: neither the cmux app nor a cmux-browser provider is attached to this session, so a browser tab cannot start; open the cmux app (it renders browser tabs for every session it shows), or launch cmux-browser",
+            "no browser engine: neither the cmux app nor a cmux-browser provider is attached to this session, so a browser tab cannot start here. An agent cannot fix this: tell the person to open this session in the cmux app (it renders browser tabs for every session it shows) and stop; another session's socket or browser is not this one",
             serde_json::json!({"code":"engine_unavailable"}),
         ))
     }
@@ -211,10 +211,10 @@ impl Mux {
                                                 mux.emit(MuxEvent::Status(format!(
                                                     "cmux-browser provider unavailable: {message}"
                                                 )));
-                                                mux.emit(MuxEvent::TitleChanged {
-                                                    surface: id,
-                                                    title: thread_surface.title().into(),
-                                                });
+                                                mux.emit(MuxEvent::page_title(
+                                                    id,
+                                                    thread_surface.title().into(),
+                                                ));
                                                 mux.emit(MuxEvent::SurfaceOutput(id));
                                             }
                                         }
@@ -261,10 +261,7 @@ impl Mux {
                         && !thread_surface.is_dead()
                     {
                         mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: thread_surface.title().into(),
-                        });
+                        mux.emit(MuxEvent::page_title(id, thread_surface.title().into()));
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }

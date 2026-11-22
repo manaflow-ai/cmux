@@ -20,7 +20,7 @@ afterEach(() => {
 
 const card = (page: Rendered) => page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
 const themeRow = (page: Rendered, kind: string) => card(page).querySelector<HTMLElement>(`[data-theme-row="${kind}"]`);
-const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent"];
+const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
 
 test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
   page = await renderPage({ path: "/settings/theme" });
@@ -31,25 +31,21 @@ test("the Theme page draws each theme key once, in one card, with no second App 
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => card(page!).contains(row))).toBe(true);
   }
-  expect(page.container.querySelector(".domain-button")).toBeNull();
-  // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent.
+  // The theme card has no plain "Filter" list; Appearance's other cards may draw one.
+  expect(card(page).querySelector(".domain-button")).toBeNull();
+  // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent, then Open Theme File.
   expect([...card(page).querySelectorAll("[data-theme-row]")].map((row) => row.getAttribute("data-theme-row"))).toEqual(
-    ["match", "single", "app-match", "app", "accent"],
+    ["match", "single", "app-match", "app", "accent", "themeFileOpen"],
   );
 });
 
-test("every popup is the same fixed-width button, and every row has its Reset slot after the control", async () => {
+test("every popup is the same fixed-width button, and no row has a Reset button", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const buttons = [...card(page).querySelectorAll("[data-theme-picker], [data-accent-picker]")];
   expect(buttons.length).toBe(3);
   for (const button of buttons) expect(button.classList.contains("theme-button")).toBe(true);
-  for (const row of card(page).querySelectorAll("[data-theme-row]")) {
-    expect(row.querySelector(".row-control > :last-child")?.classList.contains("reset-slot")).toBe(true);
-  }
-  // At the defaults no Reset shows; a changed accent shows its own, in the slot that was there.
-  expect(card(page).querySelector(".reset-slot[data-shown]")).toBeNull();
   await run(() => page!.store.set("appearance.accent", "blue"));
-  expect(themeRow(page, "accent")!.querySelector(".reset-slot[data-shown]")).not.toBeNull();
+  expect(card(page).querySelector(".reset-slot, [data-reset]")).toBeNull();
 });
 
 test("the accent is a swatch popup: each choice has its swatch, the check is on the right, a pick writes it", async () => {
@@ -226,4 +222,67 @@ test("the card's rows show the key's notice, managed reason and refused write", 
   expect(themeRow(page, "app-match")!.hasAttribute("data-managed")).toBe(true);
   await run(() => page!.store.set("appearance.accent", "not-an-accent"));
   expect(themeRow(page, "accent")!.querySelector(".row-error")).not.toBeNull();
+});
+
+// Leo, 2026-10-20: "you should also be able to star themes and pick from them and maybe even be able
+// to have them rotate". Every theme picker shares appearance.favoriteThemes.
+test("a row's star stars the theme without picking it, and starred themes list first under their heading", async () => {
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.theme": "Dracula" } } });
+  await click(themeRow(page, "single")!.querySelector("[data-theme-picker]")!);
+  const star = document.querySelector<HTMLButtonElement>('[data-theme-star="Solarized Light"]')!;
+  expect(star.getAttribute("aria-pressed")).toBe("false");
+  expect(star.getAttribute("aria-label")).toBe(t("settingsPage.theme.star", "Solarized Light"));
+  expect(document.querySelector(".theme-group-heading")).toBeNull();
+  await fire(star, "mousedown");
+  await click(star);
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.favoriteThemes", value: ["Solarized Light"] },
+  ]);
+  // The list stays open and nothing was picked.
+  expect(document.querySelector(".theme-popover input")).not.toBeNull();
+  const rows = [...document.querySelectorAll<HTMLElement>("[data-theme-option]")];
+  expect(rows[0]!.dataset.themeOption).toBe("Solarized Light");
+  expect(rows[0]!.hasAttribute("data-starred-row")).toBe(true);
+  expect(rows[0]!.querySelector(".theme-group-heading")?.textContent).toBe(t("settingsPage.theme.starred"));
+  expect(rows[1]!.hasAttribute("data-starred-row")).toBe(false);
+  expect(rows[1]!.querySelector(".theme-group-heading")?.textContent).toBe(t("settingsPage.theme.allThemes"));
+  const starred = document.querySelectorAll<HTMLButtonElement>('[data-theme-star="Solarized Light"]');
+  expect([...starred].map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+  // A pick from the starred group writes the theme itself.
+  await click(rows[0]!.closest("li")!);
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "Solarized Light" });
+  // The last star off resets the key.
+  await click(themeRow(page, "single")!.querySelector("[data-theme-picker]")!);
+  await click(document.querySelector("[data-starred-row] [data-theme-star]")!);
+  expect(ops(page.provider, "cmux.settings.reset").at(-1)).toEqual({ key: "appearance.favoriteThemes" });
+});
+
+test("Cmd-S stars the highlighted row", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  await click(themeRow(page, "single")!.querySelector("[data-theme-picker]")!);
+  const input = document.querySelector<HTMLInputElement>(".theme-popover input")!;
+  await changeValue(input, "Solarized Light");
+  await fire(input, "keydown", { key: "ArrowDown" });
+  await fire(input, "keydown", { key: "s", metaKey: true });
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.favoriteThemes", value: ["Solarized Light"] },
+  ]);
+});
+
+test("Rotate Starred Themes shows once a theme is starred, and works from two", async () => {
+  const rotate = (page: Rendered) =>
+    card(page).querySelector<HTMLElement>('[data-row-key="appearance.rotateFavoriteThemes"]');
+  const control = (page: Rendered) =>
+    rotate(page)!.querySelector<HTMLButtonElement>(".row-control input, .row-control button, .row-control select")!;
+  page = await renderPage({ path: "/settings/theme" });
+  expect(rotate(page)).toBeNull();
+  expect(page.container.querySelector('[data-row-key="appearance.favoriteThemes"]')).toBeNull();
+  page.unmount();
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.favoriteThemes": ["Dracula"] } } });
+  expect(rotate(page)).not.toBeNull();
+  expect(control(page).disabled).toBe(true);
+  await run(() => page!.store.set("appearance.favoriteThemes", ["Dracula", "Nord"]));
+  expect(control(page).disabled).toBe(false);
+  // Drawn once, in the card: the schema's App Theme group draws no second copy.
+  expect(page.container.querySelectorAll('[data-row-key="appearance.rotateFavoriteThemes"]').length).toBe(1);
 });

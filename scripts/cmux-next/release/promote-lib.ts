@@ -318,13 +318,23 @@ export const readSmokeOutcome = (out: string, status: number | null, tag: string
   return { passed: status === 0 && report?.passed === true, ...ledger, detail: `exit ${status}; report ${reportFile}${report?.error ? `; ${report.error}` : ""}` }
 }
 
+/** The compat gate's test profile and GitHub token: promote's own compat step needs them, the image smoke does not. */
+const COMPAT_ONLY = ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD", "GH_TOKEN", "GITHUB_TOKEN"] as const
+
+/** The environment the image smoke runs with: this process's, without the compat gate's credentials. */
+export const smokeEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const out = { ...env }
+  for (const name of COMPAT_ONLY) delete out[name]
+  return out
+}
+
 /** The real smoke: `bun ../images/cmux-vm/smoke.ts` from web/ (Freestyle key from FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE). */
 export const runImageSmoke = async (snapshotId: string, tag: string): Promise<SmokeOutcome> => {
   const out = mkdtempSync(join(tmpdir(), `cmux-promote-${tag}-`))
   const run = spawnSync("bun", ["../images/cmux-vm/smoke.ts", "--snapshot", snapshotId, "--tag", tag, "--clones", "2", "--out-dir", out], {
     cwd: join(REPO_ROOT, "web"),
     stdio: ["ignore", "inherit", "inherit"],
-    env: process.env,
+    env: smokeEnv(process.env),
   })
   return readSmokeOutcome(out, run.status, tag)
 }

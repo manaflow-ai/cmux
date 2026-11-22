@@ -1,5 +1,4 @@
 import CmuxNextResources
-import CmuxNextWakeups
 import Foundation
 
 /// The Task Manager's samples: every tab and the shared processes through
@@ -23,19 +22,7 @@ final class AppTaskManagerSource: TaskManagerSampleSource {
         guard let services else { return .empty }
         var resources = await services.resources.sample(.everything)
         let daemons = localDaemonPIDs.sorted().map { ProcessKey(pid: $0) }
-        for (key, sample) in await Self.sampleLocal(daemons.map(\.pid)) { resources.samples[key] = sample }
+        for (key, sample) in await ProcessSample.sampleLocal(daemons.map(\.pid)) { resources.samples[key] = sample }
         return TaskManagerSampleSet(resources: resources, daemons: daemons)
-    }
-
-    @concurrent
-    private static func sampleLocal(_ pids: [Int32]) async -> [ProcessKey: ProcessSample] {
-        var samples: [ProcessKey: ProcessSample] = [:]
-        for pid in pids {
-            guard let usage = ProcessUsage.sample(pid) else { continue }
-            let key = ProcessKey(pid: pid)
-            samples[key] = ProcessSample(key: key, name: usage.name, cpuNanos: usage.cpuNanos,
-                                         memoryBytes: usage.physFootprint, sampledAtNanos: usage.uptimeNanos)
-        }
-        return samples
     }
 }

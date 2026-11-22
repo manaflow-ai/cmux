@@ -20,14 +20,17 @@ import { retryModelSections, type RetryModel } from "./retryModelSections";
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 
-/** A row's name and its detail after " · " ("Fable 5.1 · 1M context"), the detail in secondary text. */
+/** A row's name and its detail after " · " ("Fable 5.1 · 1M context"), the detail in secondary text.
+ *  One label cell, as the composer's model menu draws it (QuickModelMenu's QuickModelLabel): a row with
+ *  a check is a two-column grid (modelPicker.css), so a bare detail would fall into the 16px check
+ *  column of an unchecked row and run past the menu's edge. */
 function ModelName({ name }: { name: string }) {
   const [label = name, ...detail] = name.split(" · ");
   return (
-    <>
+    <span className="acpmux-quick-label">
       <span className="acpmux-menu-label">{label}</span>
       {detail.length > 0 && <span className="acpmux-quick-value">{detail.join(" · ")}</span>}
-    </>
+    </span>
   );
 }
 
@@ -56,7 +59,7 @@ export function RetryModelMenu({
         label={t("turn.retryWith")}
         title={t("turn.retryWith")}
       >
-        <ChevronDown size={12} />
+        <ChevronDown size={16} />
       </MenuButton>
       <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-quick-menu acpmux-retry-menu">
         <MenuGroup label={t("turn.retryWith")}>{rows(latest)}</MenuGroup>
@@ -65,7 +68,7 @@ export function RetryModelMenu({
             <MenuSeparator />
             <Submenu
               className="acpmux-quick-item acpmux-quick-sub"
-              popupClassName="acpmux-quick-menu acpmux-quick-more"
+              popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-more"
               label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
             >
               {rows(more)}

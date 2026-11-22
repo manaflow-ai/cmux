@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// where it drops by the rows making room (the gap, as Finder and Mail do), and by the group header's fill for a
 /// drop into a group. Nothing else draws over the rows: no accent line, no dot, no outline, at any step of the
 /// drag, and nothing is left after the drop or a cancel.
-@MainActor @Suite(.serialized) struct SidebarDragNoStrayLineTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragNoStrayLineTests {
     static let section = "sec"
 
     static func list() -> (SidebarListView, NSWindow) {

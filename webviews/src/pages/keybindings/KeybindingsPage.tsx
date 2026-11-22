@@ -4,6 +4,7 @@
 import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import {
   canEditWhen,
   displayStrokes,
@@ -85,6 +86,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const disconnected = snap.connection === "disconnected";
+  // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
+  // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
+  const downLasting = useLasting(disconnected);
   const searchRecording = snap.recording?.target === "search";
   const selected = snap.rows.find((row) => identity(row) === snap.selection);
   // The recording row's keys, read each time the recorder is placed.
@@ -143,7 +147,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             />
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
-              <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
+              <span
+                className="keys-search-badge"
+                aria-description={t("keybindings.page.recordingExit")}
+                aria-hidden="true"
+              >
                 {t("keybindings.page.recordingKeys")}
               </span>
             )}
@@ -218,11 +226,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           store={store}
         />
       )}
-      {disconnected ? (
+      {downLasting ? (
         <div className="keys-empty">{t("keybindings.page.disconnected")}</div>
       ) : snap.rows.length === 0 ? (
         <div className="keys-empty">
-          {snap.loading
+          {snap.loading || disconnected
             ? ""
             : t(snap.text || snap.conflictsOnly ? "keybindings.page.emptySearch" : "keybindings.page.empty")}
         </div>
@@ -479,9 +487,7 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <span className="keys-recorder-command" title={binding.title}>
-          {binding.title}
-        </span>
+        <span className="keys-recorder-command">{binding.title}</span>
         {prompt ? (
           // The app's recorder answers Escape (Close) and Return (Overwrite); a new shortcut
           // drops the question.
@@ -561,7 +567,6 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
             aria-label={
               binding.display ? `${t("keybindings.page.change")}: ${binding.display}` : t("keybindings.page.change")
             }
-            title={t("keybindings.page.change")}
             aria-pressed={recording}
             onClick={(event) => {
               event.stopPropagation();

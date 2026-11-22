@@ -81,7 +81,14 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
 
   const inPrompt = (page: Page) =>
     page.evaluate(() => document.activeElement?.closest(".acpmux-composer-prompt") != null);
-  const promptText = (page: Page) => page.locator(PROMPT).evaluate((node) => node.textContent ?? "");
+  /// The prompt's typed text: an attachment in it is its chip, whose own text (a failed original's Retry,
+  /// #28833) is no text of the prompt's.
+  const promptText = (page: Page) =>
+    page.locator(PROMPT).evaluate((node) => {
+      const copy = node.cloneNode(true) as Element;
+      for (const chip of copy.querySelectorAll("[data-inline-attachment]")) chip.remove();
+      return copy.textContent ?? "";
+    });
 
   /// Dispatches the paste the app's Paste sends to the focused element, carrying `clipboard`; a PNG
   /// drawn in the page stands for a copied image. Returns whether the page cancelled it.
@@ -149,9 +156,11 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
             plain: '![Screenshot · 778×696]([image] "Screenshot · 778×696")',
           }),
         ).toBe(true);
-        const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
+        // The image goes in the prompt at the caret (the default inline view), not the strip as well.
+        const chips = page.locator(`${PROMPT} [data-inline-attachment] img`);
         await chips.first().waitFor();
         expect(await chips.count()).toBe(1);
+        expect(await page.locator(".acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
         expect(await promptText(page)).toBe("");
         expect(await inPrompt(page)).toBe(true);
         await page.close();
@@ -165,9 +174,10 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
           html: '<img src="https://example.com/shot.png" alt="Screenshot · 778×696">',
           plain: 'see ![Screenshot · 778×696]([image] "Screenshot · 778×696")',
         });
-        const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
+        const chips = page.locator(`${PROMPT} [data-inline-attachment] img`);
         await chips.first().waitFor();
         expect(await chips.count()).toBe(1);
+        expect(await page.locator(".acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
         expect((await promptText(page)).trim()).toBe("see");
         await page.close();
       });

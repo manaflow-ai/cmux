@@ -65,6 +65,9 @@ fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let url = text(tab, "url");
     let cwd = text(tab, "cwd");
     let closed_kind = match item.get("kind")?.as_str()? {
+        "tab" if text(tab, "kind").as_deref() == Some("conversation") => {
+            ClosedKind::ConversationTab
+        }
         "tab" if text(tab, "kind").as_deref() == Some("browser") => ClosedKind::BrowserTab,
         "tab" => ClosedKind::TerminalTab,
         "screen" => ClosedKind::Screen,
@@ -85,6 +88,16 @@ fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     entry.closed_kind = Some(closed_kind);
     entry.url = url;
     entry.cwd = cwd;
+    // A closed tab can be an agent chat (Swift `HistoryService.closedAgentSession`): the row
+    // carries its session id and harness, so the search finds it by them and a client names
+    // and brands it. A screen, workspace or window stays its container kind, even when the
+    // first tab it would reopen is a chat.
+    if item.get("kind").and_then(Value::as_str) == Some("tab")
+        && let Some(agent) = tab.and_then(|tab| tab.get("agent_session"))
+    {
+        entry.session_id = text(Some(agent), "session");
+        entry.provider = text(Some(agent), "harness");
+    }
     Some(entry)
 }
 
@@ -117,3 +130,7 @@ fn decimal(value: &Value) -> Option<i64> {
         other => other.as_i64(),
     }
 }
+
+#[cfg(test)]
+#[path = "sources_tests.rs"]
+mod tests;

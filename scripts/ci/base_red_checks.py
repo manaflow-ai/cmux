@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Classify push check-job reds against the immediately previous tip.
 
-The checks job is warning-only for failures already present on the previous push;
-missing or unreadable base evidence fails closed so a new red cannot be excused.
+The checks job stays red for every red check; this only names, in annotations, which reds
+the push added and which the previous tip already had (or had not finished), so the commit
+that broke a check is the one told to fix it.
 """
 from __future__ import annotations
 
@@ -67,7 +68,7 @@ def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
         raise RuntimeError("previous tip has no cmux-next checks job")
     # A push can start before the previous tip's checks job has finished.  Leo's
     # feat-cmux-next rule is that pending and queued base checks never block a
-    # landing, so let the caller classify this push's reds as warning-only until
+    # landing, so let the caller name this push's reds as inherited until
     # the next completed tip provides comparable evidence.
     status = runs[0].get("status")
     if status in PENDING:
@@ -102,7 +103,7 @@ def main() -> int:
         print(f"base-red: unable to read previous tip {args.before}: {error}", file=sys.stderr)
         return 2
     if previous is None:
-        print(f"base-red: previous tip {args.before} is still pending; current reds are warning-only",
+        print(f"base-red: previous tip {args.before} is still pending; current reds are named as inherited",
               file=sys.stderr)
         for name in sorted(current):
             print(f"BASE_RED {name}")

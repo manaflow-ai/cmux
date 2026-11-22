@@ -163,6 +163,64 @@ public struct ApprovalPayload: Sendable, Equatable {
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 }
 
+/// What the phone's approval key signs for an Allow or answer of a chat that runs on one
+/// of the Mac's acpmux peers. The peer enrolled this Mac's paired phones next to the Mac
+/// (`acpmux host enroll`, `cli/host_approvals.rs`) and checks the enrolled Mac's message
+/// (acpmux `hub/mac_approvers.rs`): its domain, then the peer's daemon run, the phone's id
+/// there, the session, the permission, the tool call id, the option, the nonce, the expiry
+/// and the answers digest. The peer counts it only as a one-time allow.
+public struct PeerApprovalPayload: Sendable, Equatable {
+    public static let domain = "acpmux-mac-approver-decision-v1"
+
+    public var instance: String
+    /// The phone's id on the peer (`peerID(macDevice:phone:)`).
+    public var approver: String
+    public var session: String
+    public var permission: String
+    /// The prompt's `toolCall.toolCallId`, empty for none.
+    public var toolCall: String
+    public var option: String
+    public var nonce: String
+    /// Unix seconds.
+    public var expiresAt: Int
+    public var answers: JSONValue?
+
+    public init(instance: String, approver: String, session: String, permission: String, toolCall: String,
+                option: String, nonce: String, expiresAt: Int, answers: JSONValue? = nil) {
+        self.instance = instance
+        self.approver = approver
+        self.session = session
+        self.permission = permission
+        self.toolCall = toolCall
+        self.option = option
+        self.nonce = nonce
+        self.expiresAt = expiresAt
+        self.answers = answers
+    }
+
+    /// The phone's id in a peer's enrolled Macs: `phone:`, the first 6 bytes of SHA-256 of
+    /// the Mac's device id as hex, `:`, the phone's id (acpmux `approvers::peer_phone_id`).
+    public static func peerID(macDevice: String, phone: String) -> String {
+        "phone:" + ApprovalPayload.hex(Data(SHA256.hash(data: Data(macDevice.utf8)).prefix(6))) + ":" + phone
+    }
+
+    public var message: Data {
+        ApprovalPayload.joined(Self.domain, [instance, approver, session, permission, toolCall, option, nonce,
+                                             String(expiresAt), ApprovalPayload.answersDigest(answers)])
+    }
+
+    /// The same `_meta.acpmux` shape as `ApprovalPayload.meta`; the peer tells them apart by the id.
+    public func meta(signature: Data) -> JSONValue {
+        .object(["acpmux": .object([
+            "decisionNonce": .string(nonce),
+            "approverDecision": .object([
+                "approver": .string(approver), "expiresAt": .number(Double(expiresAt)),
+                "signature": .string(ApprovalPayload.hex(signature)),
+            ]),
+        ])])
+    }
+}
+
 /// What the phone's identity key signs for one link's pairing challenge
 /// (cmux-mobile-host `pairing.rs`).
 public struct LinkAuthPayload: Sendable, Equatable {

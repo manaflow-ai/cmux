@@ -1,27 +1,35 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { shownCategories } from "../categories";
-import { useSettingsState } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
 
 /**
- * Matching (or changed) rows from every category, editable in place, grouped by category. Every
+ * Matching rows from every category, editable in place, grouped by category. Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
-export function SearchResults({ query, changedOnly = false }: { query: string; changedOnly?: boolean }) {
+export function SearchResults({ query }: { query: string }) {
   const state = useSettingsState();
-  const matches = filterRows({
-    query,
-    changedOnly,
-    valueOf: (key) => valueOf(state, key),
-    isChanged: (key) => state.rows.get(key)?.customized ?? false,
-    devBuild: state.host?.dev_build === true,
-  });
-  const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
+  const store = useStore();
+  const devBuild = state.host?.dev_build === true;
+  const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
+  const matches = useMemo(
+    () =>
+      filterRows({
+        query,
+        valueOf: (key) => valueOf(state, key),
+        devBuild,
+        scope: "user",
+        revision: state.revision,
+      }),
+    [devBuild, query, state],
+  );
+  const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   const empty = shown.size === 0;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
@@ -30,12 +38,13 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
   if ([...shown].some((key) => !mounted.has(key))) setMounted(new Set([...mounted, ...shown]));
   return (
     <div className="search-results" data-search-results="">
-      <p className="empty collapse" data-open={empty ? "" : undefined}>
-        <span className="collapse-body">
-          {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
-        </span>
-      </p>
-      {shownCategories(state.host?.dev_build === true).map((category) => {
+      <div className="empty collapse" data-open={empty ? "" : undefined}>
+        <div className="collapse-body">
+          <p>{t("settingsPage.noResults")}</p>
+          {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
+        </div>
+      </div>
+      {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
         const petRows = pet

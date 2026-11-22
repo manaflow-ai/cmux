@@ -8,7 +8,10 @@
 #
 # Rule sets:
 #   everywhere: waits, sleeps, sync hops to main, raw locks, nested run-loop
-#               spinning, synchronous XPC, blocking FileHandle reads,
+#               spinning, synchronous XPC, blocking FileHandle reads, pipe writes
+#               on the caller's thread (PipeFeed; a write end under another name
+#               in the same file too), dlopen
+#               (dyld's loader lock), whole-file code signature validation,
 #               unbounded AsyncStream buffers, and deadlines raced inside a
 #               task group (the group waits for a loser that ignores
 #               cancellation, so the deadline becomes a hang).
@@ -60,14 +63,27 @@
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   pipe reads: `availableData` inside a `readabilityHandler` closure. A
+#               failed read(2) (EBADF, EIO) raises an Objective-C exception
+#               Swift cannot catch, which aborts the app (cmuxterm-hq#4753);
+#               use CmuxNextCompat's `handle.readReady()`. A reviewed
+#               exception carries `// pipe-read-allow: <reason>`.
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
-#               generic-class deinit, task-local and workspace-open rules; CI
-#               blocks on it.
+#               generic-class deinit, task-local, workspace-open and pipe-read
+#               rules; CI blocks on it.
 #   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
 #               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
 #               is current, a task local lives in the thread's fallback storage,
 #               and an isolated deinit run inline there makes the Swift 6.2
 #               runtime free() a marker its global task allocator made (cx-bpcj).
+#
+#   closure-holding locks (#40144): no `withLock` on a Mutex or
+#               OSAllocatedUnfairLock whose value is a closure, an optional
+#               one or a tuple holding one (each call wraps the stored closure
+#               in two more thunks; the watchdog's onStall grew 74,661 frames
+#               deep and overflowed the main thread's stack). Use `load()` /
+#               `store(_:)` or keep the closure in a struct
+#               (scripts/cmux-next/check-closure-mutex.py; also in crash-class).
 #
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
@@ -121,10 +137,25 @@ EVERYWHERE = [
     ("nested run loop", r"\bCFRunLoopRunInMode\(|\bRunLoop\.(current|main)\.run\(|\.run\(mode:[^)]*before:"),
     ("synchronous XPC", r"synchronousRemoteObjectProxy"),
     ("blocking FileHandle read", r"readDataToEndOfFile\(|readData\(ofLength:|\.availableData\b|\breadToEnd\(\)"),
+    # A pipe write can wait however few the bytes: a child that never reads, or a fresh pipe when
+    # the kernel's pipe memory is used up. ProcessRunner wrote two tokens to a child's stdin on the
+    # main actor and the NIGHTLY main thread waited in write(2) for 391 s (2026-11-09). Feed stdin
+    # with CmuxNextCompat's PipeFeed (its own queue; writes and close in order).
+    ("pipe write on the caller's thread (use PipeFeed)", r"\bfileHandleForWriting\.write\("),
     ("infinite poll", r"\bpoll\([^)]*,\s*-1\s*\)"),
     # Both resolve every local name through DNS/mDNS and have blocked the
     # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
     ("blocking host-name lookup (Host.current / ProcessInfo.hostName)", r"\bHost\.current\(\)|\bprocessInfo\.hostName\b"),
+    # dlopen holds dyld's loader lock while it maps, validates and fixes up the image; every
+    # main-thread dlopen, dladdr and image lookup waits for that lock, on any thread's load.
+    # The CEF framework's off-main load held it ~2 s on a cold cache and hung the main thread
+    # (Sentry MainThreadHang in dyld4::APIs::dlopen_from). Read the file into the cache first,
+    # and say why the load is short.
+    ("dlopen (holds dyld's loader lock: main-thread dlopen/dladdr wait on it from any thread)", r"(?:^|[^.\w]|Darwin\.)dlopen\s*\("),
+    # Static code validation hashes the whole file (72 MB acpmux, the 367 MiB CEF framework):
+    # seconds on a cold file cache. Never on the main thread; cache the verdict by file identity.
+    ("SecStaticCodeCheckValidity (hashes the whole file; never on the main thread)",
+     r"\bSecStaticCodeCheckValidity(WithErrors)?\s*\("),
     # architecture.md 5a: no unbounded buffers. `makeStream()` without a
     # policy and the `AsyncStream { }` initializer default to unbounded.
     ("unbounded AsyncStream buffer (give it a cap and an overflow policy)",
@@ -156,6 +187,14 @@ WAKEUP_ALLOW = re.compile(r"//\s*wakeup-allow:\s*\S")
 # Files another agent is rewriting right now, so they cannot take an inline
 # comment without a conflict. Temporary: remove the entry when that work lands.
 WAKEUP_PENDING_FILES: set[str] = set()
+# KNOWN main-thread signature checks, moved off main by #22814 (a high-risk-tier PR
+# that waits for a person: acpmux trust and the updater). Only the rule for
+# SecStaticCodeCheckValidity is waived here; #22814 removes these entries.
+SIGNATURE_PENDING_FILES: set[str] = {
+    "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+    "CmuxNextUpdater/UpdateDropBack.swift",
+}
+SIGNATURE_RULE = "SecStaticCodeCheckValidity (hashes the whole file; never on the main thread)"
 
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8
@@ -200,9 +239,180 @@ TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
 WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
-COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+# The pipe-write rule above, through another name: a write end bound to a name in the same file
+# (`let writer = pipe.fileHandleForWriting`, `$0.input = input.fileHandleForWriting`, then
+# `self.input = writer`) and written there (`writer.write(contentsOf:)`, `Darwin.write(writer.fileDescriptor, ...)`,
+# or a descriptor bound from it: `let fd = stdin.fileHandleForWriting.fileDescriptor; write(fd, ...)`).
+# PhoneProcess, ChildProcess and MobileHostProcess wrote stdin this way on the main actor after #39998
+# caught only the direct spelling (cmuxterm-hq#8608).
+PIPE_WRITE_RULE = "pipe write on the caller's thread (use PipeFeed)"
+PIPE_WRITE_HANDLE = re.compile(r"(?:\$0\.|\b)(\w+)\s*(?::\s*FileHandle\??\s*)?=\s*[\w.$\[\]?]*\bfileHandleForWriting\b(\.fileDescriptor\b)?(?!\s*\.(?!fileDescriptor\b))")
+PIPE_WRITE_REBIND = re.compile(r"(?:\$0\.|\b)(\w+)\s*=\s*(?:self\.|state\.|\$0\.)?(\w+)\s*(?:$|[,;)}])")
 
-def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared):
+
+def pipe_write_names(lines):
+    """The names a file binds to a pipe's write end, and to that end's descriptor, followed through plain rebinds."""
+    handles, descriptors = set(), set()
+    for line in lines:
+        if COMMENT_ONLY.match(line):
+            continue
+        for match in PIPE_WRITE_HANDLE.finditer(line):
+            (descriptors if match.group(2) else handles).add(match.group(1))
+    changed = True
+    while changed:
+        changed = False
+        for line in lines:
+            if COMMENT_ONLY.match(line):
+                continue
+            for match in PIPE_WRITE_REBIND.finditer(line):
+                name, source = match.group(1), match.group(2)
+                for names in (handles, descriptors):
+                    if source in names and name not in names and name != source:
+                        names.add(name)
+                        changed = True
+    handles.discard("fileHandleForWriting")
+    return handles, descriptors
+
+
+def pipe_write_alias_rule(lines):
+    handles, descriptors = pipe_write_names(lines)
+    patterns = []
+    if handles:
+        names = "|".join(sorted(map(re.escape, handles)))
+        patterns.append(rf"(?<![.\w])(?:self\.|state\.|\$0\.)?(?:{names})\??\.write\(")
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\??\.fileDescriptor\b")
+    if descriptors:
+        names = "|".join(sorted(map(re.escape, descriptors)))
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\s*,")
+    return re.compile("|".join(patterns)) if patterns else None
+COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+# A readability handler's closure literal, and `availableData` read inside one (cmuxterm-hq#4753).
+READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
+# `readabilityHandler =` at the end of a line: the closure's `{` opens the next code line.
+READABILITY_HANDLER_PENDING = re.compile(r"\breadabilityHandler\s*=\s*$")
+AVAILABLE_DATA = re.compile(r"\bavailableData\b")
+PIPE_READ_ALLOW = re.compile(r"//\s*pipe-read-allow:\s*\S")
+
+
+def swift_code_mask(text):
+    """`text` with comment and string-literal characters turned to spaces (newlines kept), so only
+    code is left: `//` and nested `/* */` comments, "..." and multiline literals, raw `#"..."#`
+    literals, and an interpolation `\\(...)` inside a literal stays code."""
+    out = list(text)
+    n = len(text)
+    i = 0
+    # The open contexts, innermost last: ("block", depth), ("string", quotes, hashes) or
+    # ("interp", paren depth) for an interpolation, which is code inside a string.
+    stack = []
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        top = stack[-1] if stack else None
+        if top is None or top[0] == "interp":
+            if text.startswith("//", i):
+                j = text.find("\n", i)
+                j = n if j < 0 else j
+                blank(i, j)
+                i = j
+            elif text.startswith("/*", i):
+                stack.append(["block", 1])
+                blank(i, i + 2)
+                i += 2
+            elif text[i] == '"' or (text[i] == "#" and re.match(r'#+"', text[i:])):
+                hashes = len(re.match(r"#*", text[i:]).group(0))
+                quotes = 3 if text.startswith('"""', i + hashes) else 1
+                stack.append(["string", quotes, hashes])
+                blank(i, i + hashes + quotes)
+                i += hashes + quotes
+            else:
+                if top is not None:
+                    if text[i] == "(":
+                        top[1] += 1
+                    elif text[i] == ")":
+                        top[1] -= 1
+                        if top[1] == 0:
+                            stack.pop()
+                            blank(i, i + 1)
+                i += 1
+        elif top[0] == "block":
+            if text.startswith("/*", i):
+                top[1] += 1
+                blank(i, i + 2)
+                i += 2
+            elif text.startswith("*/", i):
+                top[1] -= 1
+                blank(i, i + 2)
+                i += 2
+                if top[1] == 0:
+                    stack.pop()
+            else:
+                blank(i, i + 1)
+                i += 1
+        else:
+            _, quotes, hashes = top
+            escape = "\\" + "#" * hashes
+            close = '"' * quotes + "#" * hashes
+            if text.startswith(escape + "(", i):
+                stack.append(["interp", 1])
+                blank(i, i + len(escape) + 1)
+                i += len(escape) + 1
+            elif text.startswith(escape, i):
+                blank(i, i + len(escape) + 1)
+                i += len(escape) + 1
+            elif text.startswith(close, i):
+                stack.pop()
+                blank(i, i + len(close))
+                i += len(close)
+            elif quotes == 1 and text[i] == "\n":
+                stack.pop()  # an unterminated literal ends at the line
+                i += 1
+            else:
+                blank(i, i + 1)
+                i += 1
+    return "".join(out)
+
+
+def readability_handler_code(lines):
+    """For each line inside a `readabilityHandler = { ... }` closure (the line that opens one counts),
+    its code with comments and string literals blanked (swift_code_mask), so a match is code, not
+    text; None for a line outside one. The closure's extent is found by brace depth over that code."""
+    inside = [None] * len(lines)
+    text = "\n".join(lines)
+    if "readabilityHandler" not in text:
+        return inside  # most files: skip the character scan
+    masked = swift_code_mask(text).split("\n")
+    depth = 0
+    open_handlers = []  # the depth of each enclosing handler's opening brace
+    pending = False  # the previous code line ended `readabilityHandler =`
+    for index, code in enumerate(masked):
+        opening = {match.end() - 1 for match in READABILITY_HANDLER.finditer(code)}
+        stripped = code.lstrip()
+        if pending and stripped:
+            if stripped.startswith("{"):
+                opening.add(len(code) - len(stripped))
+            pending = False
+        if READABILITY_HANDLER_PENDING.search(code):
+            pending = True
+        was_inside = bool(open_handlers)
+        for column, char in enumerate(code):
+            if char == "{":
+                depth += 1
+                if column in opening:
+                    open_handlers.append(depth)
+                    was_inside = True
+            elif char == "}":
+                if open_handlers and open_handlers[-1] == depth:
+                    open_handlers.pop()
+                depth -= 1
+        if was_inside:
+            inside[index] = code
+    return inside
+
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared, handler_code):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
@@ -226,6 +436,11 @@ def crash_class_hits(code, lines, index, default_main, main_lines, relative, gen
     if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
         hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
                     "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
+    if handler_code[index] is not None and AVAILABLE_DATA.search(handler_code[index]) \
+            and not allowed(lines, index, PIPE_READ_ALLOW):
+        hits.append("availableData in a readabilityHandler (a failed read raises an Objective-C exception Swift "
+                    "cannot catch, which aborts the app, cmuxterm-hq#4753); switch on handle.readReady(): "
+                    ".bytes, .retry (return), .end (clear the handler)")
     return hits
 
 
@@ -274,6 +489,8 @@ for dirpath, _, files in os.walk(sources):
         default_main = swift_scope.default_isolation(
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
+        handler_code = readability_handler_code(lines)
+        pipe_alias = pipe_write_alias_rule(lines)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -287,7 +504,7 @@ for dirpath, _, files in os.walk(sources):
             if ONLY == "synchronization":
                 continue
             hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
-                                    generic_declared)
+                                    generic_declared, handler_code)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
@@ -295,7 +512,11 @@ for dirpath, _, files in os.walk(sources):
                     failures += 1
                 continue
             hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
-                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
+                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")
+                     and not (name == SIGNATURE_RULE and relative.replace(os.sep, "/") in SIGNATURE_PENDING_FILES)]
+            if (pipe_alias is not None and PIPE_WRITE_RULE not in hits and pipe_alias.search(code)
+                    and not allowed(lines, index)):
+                hits.append(PIPE_WRITE_RULE)
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -354,6 +575,20 @@ for dirpath, _, files in ([] if ONLY else os.walk(tests)):
                       "(declare it `@Suite(.serialized) nonisolated struct`)")
                 print(f"    {line.strip()}")
                 failures += 1
+
+# Closure-holding locks (#40144, a crash class: CHECK_CONCURRENCY_ONLY=crash-class runs it too): `withLock` on a lock
+# whose value is a closure, an optional one or a tuple holding one wraps the stored closure in two more thunks per
+# call, until calling it overflows the stack. check-closure-mutex.py is the one detector; it scans this package's
+# Sources and the shared packages'.
+if ONLY != "synchronization":
+    _spec = importlib.util.spec_from_file_location(
+        "check_closure_mutex", os.path.join(os.path.dirname(sys.argv[2]), "check-closure-mutex.py"))
+    check_closure_mutex = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(check_closure_mutex)
+    closure_roots = [root] + ([shared_root] if os.path.isdir(shared_root) else [])
+    for finding in check_closure_mutex.check(closure_roots):
+        print(f"concurrency: {finding}")
+        failures += 1
 
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "

@@ -117,9 +117,10 @@ package nonisolated struct RipgrepSearch {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        let exited = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+        // The exit status, and whether a signal ended rg (this code's stop, below) and not rg itself.
+        let exited = AsyncStream.makeStream(of: (Int32, Bool).self, bufferingPolicy: .bufferingNewest(1))
         process.terminationHandler = { process in
-            exited.continuation.yield(process.terminationStatus)
+            exited.continuation.yield((process.terminationStatus, process.terminationReason == .uncaughtSignal))
             exited.continuation.finish()
         }
         do {
@@ -127,18 +128,22 @@ package nonisolated struct RipgrepSearch {
         } catch {
             return .failed(status: -1)
         }
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, so one that
+        // waits on a quiet pipe elsewhere would hold this search (``FileHandle/readyChunks()``).
+        let reader = output.fileHandleForReading
+        let (chunks, stopReading) = reader.readyChunks()
         // The reading task and its cancellation handler both stop rg. The Process (not Sendable on
         // the Xcode 26 SDK) moves into the lock, so each side reaches it only under the lock: a
         // short synchronous critical section called from the synchronous cancellation handler
         // (CLAUDE.md lock carve-out).
         let running = Mutex(process)
-        let (matches, limited) = await withTaskCancellationHandler {
+        let (matches, atLimit) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
             var line: [UInt8] = []
-            // Split on "\n" only: `bytes.lines` also breaks at U+2028,
-            // U+2029 and U+0085, which rg's JSON leaves unescaped.
-            do {
-                for try await byte in output.fileHandleForReading.bytes {
+            // Split on "\n" only: rg's JSON leaves U+2028, U+2029 and U+0085
+            // unescaped, and a line reader would break there too.
+            for await chunk in chunks {
+                for byte in chunk {
                     guard byte == UInt8(ascii: "\n") else {
                         line.append(byte)
                         continue
@@ -148,14 +153,23 @@ package nonisolated struct RipgrepSearch {
                     matches.append(match)
                     if matches.count >= limit { return (matches, true) }
                 }
-            } catch {}
+            }
             return (matches, false)
         } onCancel: {
             stop(running)
         }
-        if limited { stop(running) }
+        // The reading is over (rg's exit, the limit, a cancel, or a reader that fell too far
+        // behind): stop it, close our read end and stop rg if it still runs, so rg never writes
+        // into a pipe nobody reads and the wait below always ends.
+        stopReading()
+        try? reader.close()
+        stop(running)
         var status: Int32 = -1
-        for await code in exited.stream { status = code }
+        var signalled = false
+        for await (code, bySignal) in exited.stream { (status, signalled) = (code, bySignal) }
+        // A signal ended rg before its own end, and the caller did not cancel: the reading stopped
+        // early (the limit, or a reader that fell too far behind), so these are not all the matches.
+        let limited = atLimit || (signalled && !Task.isCancelled)
         // rg exits 0 with matches, 1 with none, 2 on an error (matches found
         // before an unreadable file still count).
         if !limited, !Task.isCancelled, status > 1, matches.isEmpty { return .failed(status: status) }

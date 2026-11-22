@@ -5,7 +5,7 @@
 import { chromium } from "playwright"
 const base = process.argv[2] ?? "http://127.0.0.1:3010"
 const out = process.env.ARTIFACTS_DIR ?? "/tmp"
-const browser = await chromium.launch()
+const browser = await chromium.launch({ channel: "chrome" })
 const results = []
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"} ${name} ${detail}`) }
 for (const scheme of ["light", "dark"]) {

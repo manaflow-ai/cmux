@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import SwiftUI
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// With `.thinScrollers()` on its content, the scroll view is overlay, and stays overlay when
 /// AppKit resets it to the system's style on a change of the setting. The same for a `List`.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 struct ThinSwiftUIScrollersTests {
     @Test func aSwiftUIScrollViewStaysOverlayWhenTheSystemSaysAlways() throws {
         try expectOverlay(ScrollView {
@@ -28,6 +29,7 @@ struct ThinSwiftUIScrollersTests {
         let host = NSHostingView(rootView: content.frame(width: 240, height: 120))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         let scrollView = try #require(Self.scrollView(in: host))

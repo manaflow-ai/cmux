@@ -10,6 +10,7 @@ use super::super::GlobalArgs;
 use super::super::agent_message;
 use super::super::agents::{self, AgentCommand, AgentFailure, chat};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use cmux_json::JsonSet as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verb {
@@ -146,8 +147,8 @@ pub(super) const TOOLS: &[AgentTool] = &[
         verb: Verb::ChatState,
         title: "Read a chat's state",
         description: "What an agent chat of this cmux session is doing (`cmux agents chat \
-            state`): status, running, pending_permissions, queued, harness, model, mode. \
-            Changes nothing.",
+            state`): status, running, pending_permissions, held_messages (other sessions' \
+            messages its Claude Code holds), queued, harness, model, mode. Changes nothing.",
     },
     AgentTool {
         name: "agents_chat_interrupt",
@@ -161,6 +162,12 @@ pub(super) const TOOLS: &[AgentTool] = &[
 
 pub(super) fn find(name: &str) -> Option<&'static AgentTool> {
     TOOLS.iter().find(|tool| tool.name == name)
+}
+
+fn attachments_schema(description: &str) -> Value {
+    json!({"type": "array", "minItems": 1,
+           "items": {"type": "string", "minLength": 2, "pattern": "^/"},
+           "description": description})
 }
 
 fn id_schema(description: &str) -> Value {
@@ -257,6 +264,11 @@ impl AgentTool {
                     "empty".into(),
                     json!({"type": "boolean", "description": "Create it with no terminal."}),
                 );
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
             }
             Verb::TabSelect | Verb::TerminalFocus => {
                 properties.insert(
@@ -322,6 +334,14 @@ impl AgentTool {
                         "description": "The prompt, at most 32 KiB of UTF-8.",
                     }),
                 );
+                properties.insert(
+                    "attachments".into(),
+                    attachments_schema(
+                        "Not carried by a message to a running chat yet: a send with any is \
+                         refused (chat.attach_send_unsupported) and sends nothing. Give files to \
+                         agents_chat_new instead.",
+                    ),
+                );
                 required.extend(["target", "text"]);
             }
             Verb::ChatRead => {
@@ -345,11 +365,18 @@ impl AgentTool {
                 properties.insert(
                     "workspace".into(),
                     id_schema(
-                        "The workspace whose focused pane (else its first) gets the chat (ws_ id).",
+                        "The workspace whose focused pane (else its first) gets the chat (ws_ id, unique prefix or name).",
                     ),
                 );
-                properties
-                    .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                properties.insert(
+                    "pane".into(),
+                    id_schema("The pane that gets the chat (pane_ id or name)."),
+                );
+                properties.insert(
+                    "top".into(),
+                    json!({"type": "boolean",
+                           "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
                 for (name, description) in [
                     ("harness", "The harness: claude, codex or another acpmux profile."),
                     ("model", "The model, as the harness names it."),
@@ -372,6 +399,15 @@ impl AgentTool {
                         "maxLength": agent_message::MAX_BODY_BYTES,
                         "description": "A first prompt, at most 32 KiB of UTF-8.",
                     }),
+                );
+                properties.insert(
+                    "attachments".into(),
+                    attachments_schema(
+                        "Files the first prompt carries (needs prompt), each an absolute path: \
+                         any type and size, inline when small, else uploaded to the chat first. A \
+                         missing or unreadable file starts no chat (attach.not_found, \
+                         attach.not_a_file, attach.unreadable).",
+                    ),
                 );
             }
             Verb::ChatState | Verb::ChatInterrupt => {
@@ -426,7 +462,7 @@ impl AgentTool {
                 // Stored but not handed to the chat: an error that keeps its
                 // receipt, so a retry can name the message.
                 if failed {
-                    result["isError"] = json!(true);
+                    result.set("isError", json!(true));
                 }
                 result
             }
@@ -460,6 +496,9 @@ impl AgentTool {
                 }
                 if args.flag("empty")? {
                     words.push("--empty".into());
+                }
+                if args.flag("top")? {
+                    words.push("--top".into());
                 }
             }
             Verb::TabSelect => words.extend(["tab".into(), "select".into(), args.word("tab")?]),
@@ -509,6 +548,7 @@ impl AgentTool {
                 words.extend(["chat".into(), "send".into(), args.word("target")?]);
                 let text =
                     args.text("text")?.ok_or_else(|| format!("{}: text is required", self.name))?;
+                words.extend(args.attachments()?);
                 // After `--`, so text that starts with a dash stays text.
                 words.extend(["--".into(), text]);
             }
@@ -541,6 +581,10 @@ impl AgentTool {
                         words.push(format!("--{name}={value}"));
                     }
                 }
+                if args.flag("top")? {
+                    words.push("--top".into());
+                }
+                words.extend(args.attachments()?);
                 if let Some(prompt) = args.text("prompt")? {
                     words.extend(["--".into(), prompt]);
                 }
@@ -606,6 +650,25 @@ impl Arguments<'_> {
         }
     }
 
+    /// `attachments` as `--attach=PATH` words: absolute paths, since the tool's folder is not
+    /// the caller's.
+    fn attachments(&self) -> Result<Vec<String>, String> {
+        let Some(value) = self.values.get("attachments") else { return Ok(Vec::new()) };
+        let Value::Array(items) = value else {
+            return Err(format!("{}: attachments must be an array of absolute paths", self.tool));
+        };
+        items
+            .iter()
+            .map(|item| match item {
+                Value::String(path) if path.starts_with('/') => Ok(format!("--attach={path}")),
+                _ => Err(format!(
+                    "{}: attachments must hold absolute file paths (starting with /)",
+                    self.tool
+                )),
+            })
+            .collect()
+    }
+
     fn flag(&self, name: &str) -> Result<bool, String> {
         match self.values.get(name) {
             None => Ok(false),
@@ -621,7 +684,7 @@ impl Arguments<'_> {
 pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
-        receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});
+        receipt.set("state", json!({"truncated": true, "hint": "call agents_snapshot"}));
     }
     receipt
 }

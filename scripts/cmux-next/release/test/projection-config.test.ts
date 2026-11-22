@@ -38,6 +38,21 @@ describe("projection switches in wrangler.jsonc", () => {
     })
   }
 
+  // Every environment runs on Vitess (cmuxterm-hq#4767 steps 3 and 5): MySQL takes projection writes and
+  // reads, Postgres stays the shadow for rollback, and the hourly full read-only verify
+  // (projection-compare-full-cron.ts) shows whether that shadow kept up.
+  for (const name of ["development", "staging", "production"]) {
+    it(`${name}: runs on Vitess with a Postgres shadow`, () => {
+      const vars = doc.env[name]!.vars ?? {}
+      expect([vars.PROJECTION_PRIMARY, vars.PROJECTION_READS, vars.PROJECTION_SHADOW]).toEqual(["mysql", "mysql", "postgres"])
+    })
+  }
+  for (const name of ["staging", "production"]) {
+    it(`${name}: runs the hourly full projection verify`, () => {
+      expect(doc.env[name]!.triggers?.crons ?? []).toContain("7 * * * *")
+    })
+  }
+
   it("a MySQL switch without the PlanetScale bindings is refused", () => {
     expect(neededBindings({})).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO"])
     expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO", "PS_MYSQL", "PS_MYSQL_RO"])

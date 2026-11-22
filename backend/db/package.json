@@ -30,6 +30,7 @@
   "exports": {
     "./schema": "./schema/index.ts",
     "./schema-mysql": "./schema-mysql/index.ts",
-    "./projection-compare": "./projection-compare.ts"
+    "./projection-compare": "./projection-compare.ts",
+    "./projection-compare-full": "./projection-compare-full.ts"
   }
 }

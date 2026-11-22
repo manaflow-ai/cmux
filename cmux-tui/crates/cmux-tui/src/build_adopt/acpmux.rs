@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{LEGACY_TAG, Outcome, RECORD, Steps};
+use cmux_json::JsonSet as _;
 
 /// How long a stopped daemon may take to let go of its lock.
 const STOP_WAIT: Duration = Duration::from_secs(45);
@@ -97,6 +98,16 @@ fn adopt_locked(
             Err(why) => return Outcome::Deferred(why),
         }
     }
+    // A post-update daemon that stopped without a shutdown left
+    // changes that only its journal holds (a new chat's `session.json` is written by a
+    // checkpoint), and the merge below moves the home's `sessions/` alone. Replayed first, under
+    // its daemon lock; nothing has moved if it fails.
+    if new_exists && let Err(error) = catch_up_journal(home) {
+        return Outcome::Deferred(format!(
+            "replay the event journal of {}: {error:#}",
+            home.display()
+        ));
+    }
     let (stamp, at) = super::now_stamps();
     let mut record = serde_json::json!({
         "from": legacy, "at": at, "by": by, "mode": "rename",
@@ -142,10 +153,10 @@ fn adopt_locked(
                 aside.clone()
             }
         };
-        record["mode"] = "merge".into();
-        record["merged_sessions"] = merged.0.into();
-        record["renamed_sessions"] = serde_json::json!(merged.1);
-        record["post_update_kept"] = serde_json::json!(kept);
+        record.set("mode", "merge".into());
+        record.set("merged_sessions", merged.0.into());
+        record.set("renamed_sessions", serde_json::json!(merged.1));
+        record.set("post_update_kept", serde_json::json!(kept));
     }
     // Asides a crash left between the two renames of an earlier run.
     let leftovers: Vec<PathBuf> = std::fs::read_dir(&builds)
@@ -159,6 +170,14 @@ fn adopt_locked(
         })
         .collect();
     for aside in leftovers {
+        if let Err(error) = catch_up_journal(&aside) {
+            steps.step(format!(
+                "an earlier run left {}: kept for a later run, its event journal did not replay: \
+                 {error:#}",
+                aside.display()
+            ));
+            continue;
+        }
         steps.step(format!("an earlier run left {}: merging it", aside.display()));
         merge_sessions(&aside, home, steps);
         let kept = home.join(format!(
@@ -175,12 +194,18 @@ fn adopt_locked(
         Ok(()) => steps.step(format!("{} is now a link to {}", legacy.display(), link.display())),
         Err(error) => steps.step(format!("no link at {}: {error}", legacy.display())),
     }
-    record["steps"] = serde_json::json!(steps.lines);
+    record.set("steps", serde_json::json!(steps.lines));
     if let Err(error) = super::write_record(&home.join(RECORD), &record) {
         steps.step(format!("record not written: {error}"));
     }
     drop(locks);
     Outcome::Adopted(if new_exists { "merge" } else { "rename" })
+}
+
+/// Writes the event journal a daemon of `home` left into its chat folders (acpmux
+/// `store::catch_up_journal`), so moving `sessions/` moves every acknowledged change.
+fn catch_up_journal(home: &Path) -> anyhow::Result<()> {
+    acpmux::store::catch_up_journal(&acpmux::config::StoreConfig::default(), home)
 }
 
 /// A real folder (not a link: an adopted old path is a link).
@@ -301,6 +326,6 @@ fn new_session_id() -> String {
 fn set_session_id(path: &PathBuf, id: &str) {
     let Ok(text) = std::fs::read_to_string(path) else { return };
     let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { return };
-    value["id"] = id.into();
+    value.set("id", id.into());
     let _ = super::write_record(path, &value);
 }

@@ -39,6 +39,7 @@ impl HistoryKind {
 pub enum ClosedKind {
     TerminalTab,
     BrowserTab,
+    ConversationTab,
     Screen,
     Workspace,
 }

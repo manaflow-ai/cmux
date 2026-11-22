@@ -1,12 +1,16 @@
 // The parts of Spaces & Profiles and Machines that are not schema rows (R82 commit 2): the app's
 // live lists (`cmux.settings.host.lists`, updated by `cmux.settings.host.changed`) and the browser
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
-import { useState, type ReactNode } from "react";
+import { Input } from "../../../ui/Input";
+import { Button } from "../../../ui/Button";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
+import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
+import { graphemePrefix } from "../../../ui/initials";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -19,7 +23,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
     return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
   }
   if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
-  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+  return <>{graphemePrefix(name, 1).toUpperCase() || "?"}</>;
 }
 
 function ListRows({
@@ -57,28 +61,42 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
+        {trailing?.(row)}
       </div>
-      {trailing?.(row)}
       {below?.(row)}
     </div>
   ));
 }
 
-/** Spaces (General): the active window's spaces, or why the host has none. */
+/** The schema rows about spaces (Sidebar > Sidebar Buttons and Spaces). With one space the page
+ * draws none of them (Hide Spaces); search still finds them. */
+export const SPACE_ROWS: ReadonlySet<string> = new Set([
+  "sidebar.showSpaces",
+  "sidebar.spacesPosition",
+  "sidebar.spacesVisibility",
+]);
+
+/** Whether the active window has a second space: until then no Settings page names spaces. */
+export function useSeveralSpaces(): boolean {
+  const { host } = useSettingsState();
+  return (host?.rooms?.length ?? 0) > 1;
+}
+
+/**
+ * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
+ * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
+ */
 export function SpacesSection() {
   const { host } = useSettingsState();
-  if (!host) return null;
+  const rooms = host?.rooms ?? [];
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(rooms.length > 1);
+  if (rooms.length < 2) return null;
   return (
-    <section className="group" data-card="rooms">
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
-        {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
-        ) : (
-          <div className="row">
-            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-          </div>
-        )}
+        <ListRows rows={rooms} empty={t("settingsWindow.roomsEmpty")} marks />
       </div>
     </section>
   );
@@ -90,15 +108,25 @@ export function BrowserProfiles() {
   return host ? <BrowserProfilesSection host={host} /> : null;
 }
 
-export function MachinesSection({ title }: { title: string }) {
+/** `reveal`: the route opens Settings at Machines (`#/settings/machines`). The card moves to the top
+ * in the commit that draws it (or that turns `reveal` on), before the frame paints, so the page
+ * never shows the top of Accounts first. */
+export function MachinesSection({ title, reveal = false }: { title: string; reveal?: boolean }) {
   const { host } = useSettingsState();
   const store = useStore();
   const colors = useRowState(MACHINE_COLORS_KEY);
+  const card = useRef<HTMLElement>(null);
+  const drawn = host !== null;
+  useLayoutEffect(() => {
+    if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal]);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(host));
   if (!host) return null;
   const picks = stringMap(colors.value);
   return (
     <>
-      <section className="group" data-card="machines">
+      <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="machines" ref={card}>
         <h3 className="group-title">{title}</h3>
         <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
           <ListRows
@@ -119,14 +147,14 @@ export function MachinesSection({ title }: { title: string }) {
         <div className="host-footer">
           {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
             off to Add Machine or Add Server, and the page passes nothing, so it never approves. */}
-          <button
+          <Button
             type="button"
             className="button"
             data-add-device=""
             onClick={() => void store.runAction("device.add")}
           >
             {host.devices?.add_title ?? t("action.device.add")}
-          </button>
+          </Button>
         </div>
       </section>
       {host.devices && <DevicesSection devices={host.devices} />}
@@ -142,7 +170,17 @@ export function MachinesSection({ title }: { title: string }) {
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [setting, setSetting] = useState<string | null>(null);
+  // Rows with a Full access request in flight: each row holds its own, so a second row's request
+  // neither frees the first nor is freed by it.
+  const [setting, setSetting] = useState<ReadonlySet<string>>(() => new Set());
+  const markSetting = (id: string, pending: boolean) =>
+    setSetting((current) => {
+      if (current.has(id) === pending) return current;
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -165,7 +203,7 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   {confirming === row.id && <div className="row-help">{devices.remove_help}</div>}
                 </div>
                 {row.removable && (
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     data-remove-device={row.id}
@@ -177,7 +215,7 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                     onBlur={() => setConfirming((current) => (current === row.id ? null : current))}
                   >
                     {confirming === row.id ? devices.remove_confirm_title : devices.remove_title}
-                  </button>
+                  </Button>
                 )}
               </div>
               {typeof row.full_access === "boolean" && (
@@ -191,11 +229,14 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   <div className="row-control">
                     <Switch
                       checked={row.full_access}
-                      disabled={setting === row.id}
+                      disabled={setting.has(row.id)}
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
-                        setSetting(row.id);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                        markSetting(row.id, true);
+                        void store
+                          .setDeviceFullAccess(row.id, on)
+                          .finally(() => markSetting(row.id, false))
+                          .catch(() => undefined);
                       }}
                     />
                   </div>
@@ -329,7 +370,7 @@ function MachineColor({
         disabled={disabled}
       />
       {pick !== undefined && (
-        <button
+        <Button
           type="button"
           className="button"
           data-machine-color-reset=""
@@ -337,7 +378,7 @@ function MachineColor({
           onClick={() => write(rest)}
         >
           {t("settingsPage.automatic")}
-        </button>
+        </Button>
       )}
     </span>
   );
@@ -361,14 +402,14 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
         ))}
       </div>
       <div className="host-footer">
-        <button
+        <Button
           type="button"
           className="button"
           data-new-profile=""
           onClick={() => void store.runAction("browserProfile.new")}
         >
           {t("settingsWindow.newBrowserProfile")}
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -416,7 +457,7 @@ function ProfileRow({
         <div className="host-form">
           <label className="host-field">
             <span className="row-help">{t("settingsWindow.profileName")}</span>
-            <input
+            <Input
               className="field"
               aria-label={t("settingsWindow.profileName")}
               value={name}
@@ -450,7 +491,7 @@ function ProfileRow({
           </div>
           <label className="host-field">
             <span className="row-help">{t("settingsWindow.profileIcon")}</span>
-            <input
+            <Input
               className="field"
               aria-label={t("settingsWindow.profileIcon")}
               value={icon}
@@ -464,18 +505,19 @@ function ProfileRow({
           </label>
           <ClearBrowsingData target={target} />
           <div className="host-actions">
-            <button type="button" className="button" onClick={() => run("browserProfile.manageExtensions")}>
+            <Button type="button" className="button" onClick={() => run("browserProfile.manageExtensions")}>
               {t("action.browserProfile.manageExtensions").replace(/…$/, "")}
-            </button>
+            </Button>
             {!profile.is_default && (
-              <button
+              <Button
+                danger
                 type="button"
                 className="button danger"
                 data-delete-profile=""
                 onClick={() => run("browserProfile.delete")}
               >
                 {t("settingsWindow.deleteProfile")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -501,16 +543,22 @@ function ClearBrowsingData({ target }: { target: string }) {
     cache: true,
   });
   const [cleared, setCleared] = useState(false);
+  const [error, setError] = useState<WireError | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
-  // "Cleared" once the app took the run; a refused run shows nothing.
+  // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
-    try {
-      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
-      setCleared(true);
-    } catch {
-      setCleared(false);
+    setError(null);
+    const reply = await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+    if (!reply.ok) {
+      setError(reply.error);
+      return;
     }
+    if (typeof reply.value === "object" && reply.value !== null && "ran" in reply.value && reply.value.ran === false) {
+      setError({ code: "cmux.app.action_refused", message: "action refused" });
+      return;
+    }
+    setCleared(true);
   };
   return (
     <div className="host-field" data-clear-browsing-data="">
@@ -546,7 +594,8 @@ function ClearBrowsingData({ target }: { target: string }) {
         </label>
       ))}
       <span className="host-actions">
-        <button
+        <Button
+          danger
           type="button"
           className="button danger"
           data-clear=""
@@ -554,13 +603,22 @@ function ClearBrowsingData({ target }: { target: string }) {
           onClick={() => void clear()}
         >
           {title}
-        </button>
+        </Button>
         {cleared && (
           <output className="row-help" data-cleared="">
             {t("settingsWindow.browsingDataCleared")}
           </output>
         )}
       </span>
+      {error && (
+        <output className="row-error clear-browsing-data-error" data-clear-error="" role="alert">
+          {t(
+            error.code === "cmux.browser.clear_refused"
+              ? "settingsWindow.browsingDataClearRefused"
+              : "settingsWindow.browsingDataClearFailed",
+          )}
+        </output>
+      )}
     </div>
   );
 }

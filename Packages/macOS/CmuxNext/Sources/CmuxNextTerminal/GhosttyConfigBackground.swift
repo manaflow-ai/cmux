@@ -1,3 +1,5 @@
+public import CmuxNextDesign
+
 /// The Ghostty config files' own `background-opacity` and `background-blur`,
 /// before cmux.json's window background (`GhosttyRuntime.backgroundOverride`)
 /// replaces them: the values Settings' Material "Ghostty" stands for.
@@ -17,8 +19,22 @@ public struct GhosttyConfigBackground {
         self.blur = blur
     }
 
-    /// The values of the last load of the user's config (tests set it).
+    /// The values of the last load of the user's config. Every load of it records them again, so a test passes
+    /// its own values to their reader (`TerminalThemeSetting.ghostty`) instead of setting these.
     public static var loaded = GhosttyConfigBackground()
+
+    /// `override` over these values: the opacity and blur the window and the surfaces use.
+    public func resolved(_ override: WindowBackgroundOverride) -> (backgroundOpacity: Double, backgroundBlur: Int) {
+        override.resolved(backgroundOpacity: opacity, backgroundBlur: blur)
+    }
+
+    /// Whether a change of cmux.json's window background from `old` to `new` needs the terminals' config reload at
+    /// once: the window turns translucent or opaque (the surfaces' default background changes) or its material changes.
+    public func surfacesChange(from old: WindowBackgroundOverride, to new: WindowBackgroundOverride) -> Bool {
+        let (before, after) = (resolved(old), resolved(new))
+        return (before.backgroundOpacity >= 1) != (after.backgroundOpacity >= 1)
+            || WindowMaterialChoice(ghosttyBlur: before.backgroundBlur) != WindowMaterialChoice(ghosttyBlur: after.backgroundBlur)
+    }
 
     /// The lines that put cmux.json's window background over a config load's
     /// values; a load of the user's own config (no `theme`) also records them.

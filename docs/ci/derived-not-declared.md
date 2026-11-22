@@ -65,7 +65,7 @@ Ordered by blast radius times likelihood.
 | --- | --- | --- | --- | --- | --- |
 | 1 | `scripts/ci/required_status_checks.py` `REQUIRED_CHECKS` | the `required_status_checks` rule of the `main` ruleset, which is not in the tree | an admin adds a required check, nobody edits the tuple, the guard passes and every pull request waits on a context nothing produces | **everyone**, with no red check anywhere | Not derivable, but **reconcilable** — implemented, see below |
 | 2 | `.github/workflows/merge-group-fail-fast.yml:17` | the `name:` of `merge-group-policy-checks.yml` | renaming it silently stops fail-fast; the workflow just never triggers | **everyone** (queue latency), detected by nobody | Partially. `workflow_run` requires the literal display name, but a test can pin it against the producer's `name:`; #13793 proposes identifying the producer by file instead |
-| 3 | `tests/test-execution.toml` | every `tests/test_*.py` on disk | an unregistered test fails validation; a duplicated entry is `registered more than once` | everyone, until #13745 lands | Partially. Discovery is derivable; the lane assignment is a judgment |
+| 3 | `tests/test-execution.d/*.toml` (was `tests/test-execution.toml`) | every `tests/test_*.py` on disk | an unregistered test fails validation; a duplicated entry is `registered more than once` | everyone, until #13745 lands | Partially. Discovery is derivable; the lane assignment is a judgment |
 | 4 | `.github/workflows/ci-artifact-transport.yml:4-40` | its own `pull_request.paths` list, written again under `push.paths` | previously drifted: nine files were guarded on pull requests and not on main | **everyone**, silently — main can regress with no signal | Yes — **implemented** in #13789; parity guard and explicit exemptions |
 | 5 | `scripts/ci/detect_linux_guard_changes.py` `WORKFLOW_TEST_INPUTS`, `CLI_INPUTS`, `HISTORY_INPUTS` | what each guard job's steps run in `ci-guards.yml` | a renamed step leaves the path routed to a guard that no longer reads it; also stale the expensive way (31 of 137 paths named) | offending PR, then silent under-coverage | Yes — **implemented**, see below |
 | 6 | `.github/workflows/ci.yml:341-345,218` bash `case` lists | `workflow_guard_groups.ROUTING_POLICY_PATHS` (a third and fourth copy) | a routing-policy file missing from one copy takes the wrong fast path | offending PR | Yes. The router already owns the set |
@@ -139,6 +139,19 @@ paths twice and is currently in sync — the not-yet-drifted twin of row 4.
   written down: `web-complexity.yml` diverges deliberately, because syncing it
   would let a PR editing that workflow self-queue a job running
   contributor-controlled install scripts.
+
+- **Row 3 — derive the linux-guard lane from the workflows** (2026-11-16, after
+  #30360 registered a test as linux-guard with no step that ran it and base
+  went red). linux-guard means "a workflow step runs this file", so the
+  workflows are its one source of truth: `derived_lanes()` in
+  `validate_test_execution_registry.py` computes it, `--write` rewrites any
+  entry that disagrees (a test no step runs becomes manual with how to run it;
+  that derived manual moves back when a step runs it again; a person's manual
+  reason is never touched), and the pre-commit hook runs it for the tests a
+  commit's workflow lines add or remove. Adding or removing the step is the only
+  edit. Detector: "Validate Python test execution registry" (ci-guards.yml
+  preflight) and cmux-next guards / tooling-tests fail the change that makes the
+  two disagree, judged against the base.
 
 ## Not implemented, and what it would take
 

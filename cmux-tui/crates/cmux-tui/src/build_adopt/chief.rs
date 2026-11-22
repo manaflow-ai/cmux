@@ -27,11 +27,12 @@ use super::copy;
 use super::{NEXT_BUNDLE_ID, Outcome, RECORD, Steps};
 
 /// Files of the Chief session folder that belong to the session, not the Chief.
-const SESSION_RUNTIME: [&str; 4] = [
+const SESSION_RUNTIME: [&str; 5] = [
     "workspace-registry.sqlite3",
     "writer.lock",
     "launch-snapshot.json",
     "workspace-registry.owner-shutdown",
+    cmux_tui_core::startup_timings::STARTUP_TIMINGS_FILE,
 ];
 /// The largest text file whose home path is rewritten.
 const REWRITE_LIMIT: u64 = 4 << 20;

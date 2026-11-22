@@ -12,8 +12,9 @@ import Foundation
 /// `browser.page.downloads` and `browser.page.download.wait` read the app's
 /// downloads list for `cmux browser <tab|page> download …`.
 extension BrowserPageService {
-    /// The most bytes one upload sends into the page (the files ride in a page script).
-    static let uploadLimit = 25 * 1024 * 1024
+    /// A page-script fallback sends one chunk per evaluation. The chooser path
+    /// still hands the browser the original URLs without reading them here.
+    static let uploadChunkBytes = 256 * 1024
 
     func browserUseMethods() -> [ControlMethod] {
         let engine = engine
@@ -44,12 +45,10 @@ extension BrowserPageService {
                                        message: ControlStrings.format("control.error.uploadNoChooser", "Clicking %@ opened no file chooser", selector),
                                        data: ["selector": .string(selector)])
                 case "withdrawn"?, "unsupported"?, nil:
-                    // A file input whose page opened no chooser (or an engine without one): the files go in
-                    // through the page, as before (at most ``uploadLimit`` bytes).
-                    let inline = try Self.uploadFiles(call)
-                    return try await Self.runInput(engine, call, BrowserPageScripts.upload(selector, files: inline)) {
-                        .from(kind: .click, answer: $0)
-                    }
+                    // A file input whose page opened no chooser (or an engine without one): stream
+                    // the files through successive page evaluations instead of putting the whole
+                    // payload in one script or refusing it at an arbitrary size.
+                    return try await Self.streamUpload(engine, call, selector: selector)
                 case let refusal?:
                     throw ControlError(code: refusal, message: Self.refusalMessage(refusal), data: ["selector": .string(selector)])
                 }
@@ -173,28 +172,64 @@ extension BrowserPageService {
         }
     }
 
-    /// Reads `params.files` (absolute paths of regular files, at most
-    /// ``uploadLimit`` bytes in all) as name, MIME type and base64.
-    static func uploadFiles(_ call: ControlCall) throws -> [(name: String, type: String, base64: String)] {
+    /// Reads and validates `params.files` as regular files without imposing a
+    /// total-size limit. The page fallback reads each file incrementally via
+    /// ``streamUpload``.
+    static func uploadFiles(_ call: ControlCall) throws -> [(url: URL, name: String, type: String)] {
         let paths = (call.request.params["files"]?.arrayValue ?? []).compactMap(\.stringValue)
         guard !paths.isEmpty else {
             throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@",
                                                                    call.request.method, "files"))
         }
-        var total = 0
         return try paths.map { path in
             let url = URL(fileURLWithPath: path)
             var isDirectory: ObjCBool = false
-            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue,
-                  let data = FileManager.default.contents(atPath: path) else {
+            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.uploadFileMissing", "No file to upload at %@", path))
             }
-            total += data.count
-            guard total <= uploadLimit else {
-                throw ControlError(code: "too_large", message: ControlStrings.text("control.error.uploadTooLarge", "The files to upload are larger than 25 MB"))
+            // A FIFO can block the open beyond cancellation's reach and a device like /dev/zero never
+            // ends, so only a regular file (after its links resolve) is streamed.
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
+            guard attributes?[.type] as? FileAttributeType == .typeRegular else {
+                throw ControlError(code: "not_regular_file",
+                                   message: ControlStrings.format("control.error.uploadNotRegularFile", "Only regular files can be uploaded: %@", path))
             }
-            return (url.lastPathComponent, mimeType(url.pathExtension), data.base64EncodedString())
+            return (url, url.lastPathComponent, mimeType(url.pathExtension))
         }
+    }
+
+    /// Streams regular files into the page's file input in bounded evaluations.
+    /// The browser assembles the chunks into `File` objects only at the end.
+    static func streamUpload(_ engine: any BrowserPageEngine, _ call: ControlCall, selector: String) async throws -> JSONValue {
+        let files = try Self.uploadFiles(call)
+        let metadata = files.map { (name: $0.name, type: $0.type) }
+        let uploadID = UUID().uuidString
+        do {
+            try Task.checkCancellation()
+            _ = try await Self.runInput(engine, call, BrowserPageScripts.startUpload(selector, id: uploadID, files: metadata)) { _ in nil }
+            for (index, file) in files.enumerated() {
+                let handle = try FileHandle(forReadingFrom: file.url)
+                defer { try? handle.close() }
+                while let chunk = try Self.readUploadChunk(handle) {
+                    let encoded = chunk.base64EncodedString()
+                    _ = try await Self.runInput(engine, call, BrowserPageScripts.uploadChunk(selector, id: uploadID, index: index, base64: encoded)) { _ in nil }
+                }
+            }
+            try Task.checkCancellation()
+            return try await Self.runInput(engine, call, BrowserPageScripts.finishUpload(selector, id: uploadID)) {
+                .from(kind: .click, answer: $0)
+            }
+        } catch {
+            _ = try? await Self.runInput(engine, call, BrowserPageScripts.cancelUpload(selector, id: uploadID)) { _ in nil }
+            throw error
+        }
+    }
+
+    /// Cancellation is checked before every file read, including the EOF read.
+    private static func readUploadChunk(_ handle: FileHandle) throws -> Data? {
+        try Task.checkCancellation()
+        guard let chunk = try handle.read(upToCount: uploadChunkBytes), !chunk.isEmpty else { return nil }
+        return chunk
     }
 
     /// A MIME type for a file extension; `application/octet-stream` when unknown.

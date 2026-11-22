@@ -70,7 +70,7 @@ export default componentEntry<Props>({
   },
   load: async () => Placed,
   widths: { narrow: 400, normal: 620, wide: 760 },
-  height: 560,
+  height: 900,
   checks: {
     // The filter moves the rows it keeps up into the places of the rows it drops ("relay" rises two
     // rows): that is the filter's result, not the popover moving. The open's scale animation hid
@@ -103,6 +103,30 @@ export default componentEntry<Props>({
         onNewChat: () => undefined,
       },
       play: filterKeepsSide,
+    },
+    "below-when-room": {
+      note: "Both sides have room for the full folder list; the shared placement rule prefers below.",
+      props: {
+        top: 350,
+        started: true,
+        projectChoices: projects,
+        summary: {
+          sessionId: "gallery-side-below",
+          harness: "claude",
+          cwd: projects[1]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-location-menu [role="option"]').length >= 6);
+        await nextFrames();
+        const opened = placement(ctx.document);
+        if (opened.side !== "bottom" || !opened.below || !opened.inView)
+          throw new Error(`the folder list should prefer below when both sides fit: ${opened.text}`);
+      },
     },
   },
 });

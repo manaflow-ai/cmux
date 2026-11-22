@@ -19,13 +19,14 @@ import Testing
     }
 
     @Test func targetRefsAndEnvelopesParseOrThrowForAnyText() throws {
-        var rng = Rng(state: 0xC0_17)
+        let fuzz = FuzzSeed(default: 0xC0_17)
+        var rng = Rng(state: fuzz.seed)
         let alphabet: [Character] = ["t", "a", "b", ":", " ", "-", "_", "w", "é", "1"]
-        for _ in 0..<3_000 {
+        for _ in 0..<fuzz.iterations(3_000) {
             let text = rng.text(alphabet, 16)
             _ = try? ControlRouter.target(from: .string(text), allowedKinds: ["tab"], knownKinds: ["tab", "workspace"], action: "x")
             let line = ["_cmux_capability_v1 ", "__cmux_automation_origin ", ""][rng.below(3)] + text
-            #expect(line.hasSuffix(ControlAuthorizer.unwrapEnvelopes(line)))
+            #expect(line.hasSuffix(ControlAuthorizer.unwrapEnvelopes(line)), "\(fuzz)")
         }
         #expect(ControlAuthorizer.unwrapEnvelopes("_cmux_capability_v1 abc rest") == "rest")
         #expect(ControlAuthorizer.unwrapEnvelopes("_cmux_capability_v1 abc") == "_cmux_capability_v1 abc")

@@ -20,7 +20,7 @@ struct DebugSettingsSidebar: View {
                         .accessibilityIdentifier("cmux.debugSettings.search")
                     if !model.query.isEmpty {
                         Button { model.query = "" } label: { Icon(.fieldClear, size: 13) }
-                            .buttonStyle(.plain).foregroundStyle(SettingsStyle.tertiary)
+                            .buttonStyle(.cmuxPressFill).foregroundStyle(SettingsStyle.tertiary)
                             .accessibilityLabel(DebugSettingsStrings.clearSearch)
                     }
                 }
@@ -80,7 +80,7 @@ private struct DebugSidebarRow: View {
                         in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .onHover { hovering = $0 }
     }
 }

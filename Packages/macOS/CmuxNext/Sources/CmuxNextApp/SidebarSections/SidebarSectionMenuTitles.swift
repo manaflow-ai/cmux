@@ -13,7 +13,7 @@ enum SidebarSectionMenuTitles {
         let services = context.services
         let doc = { services.sidebarLayout.document }
         ActionTargetTitles.set("sidebar.item.toggleLabel", in: registry) { invocation in
-            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc()) else { return nil }
+            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc(), document: services.sidebarDoc.store) else { return nil }
             return item.showsLabel ? SidebarSectionStrings.hideLabel : SidebarSectionStrings.showLabel
         }
         ActionTargetTitles.set("sidebar.section.toggleTitle", in: registry) { invocation in

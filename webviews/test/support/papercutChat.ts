@@ -19,21 +19,27 @@ const update = (update: Record<string, unknown>) => ({
 export type PapercutStep = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
 type Step = PapercutStep;
 
-/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `session`
-/// adds to or replaces the chat's summary fields (a queue, say).
+/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
+/// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
+/// queue, say). `answer` writes turn n's reply (it should start `Answer n:`, which the lanes wait for).
 export function papercutEvents({
   turns,
   running,
   extra = [],
+  lead = [],
   session: fields = {},
+  answer = (n) => `Answer ${n}: the checks on the merged head are green.`,
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
+  lead?: Step[];
   session?: Record<string, unknown>;
+  answer?: (n: number) => string;
 }) {
   const steps: Step[] = [];
   let clock = START;
+  for (const [dir, kind, msg, at] of lead) steps.push([dir, kind, msg, at ?? clock]);
   for (let n = 1; n <= turns; n++) {
     steps.push(["mux", "user_message", { text: `Question ${n}` }, clock]);
     steps.push(["mux", "turn_started", {}, clock]);
@@ -43,7 +49,7 @@ export function papercutEvents({
       "agent_message_chunk",
       update({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Answer ${n}: the checks on the merged head are green.` },
+        content: { type: "text", text: answer(n) },
       }),
       clock,
     ]);
@@ -95,35 +101,111 @@ export function papercutEvents({
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open`, `close` and `methods`. `open` waits
+/// Starts the stand-in daemon and the dev server; returns `open`, `close`, `drop` and `methods`. `open` waits
 /// for the last answer, or for `ready` (a selector) when the chat's end shows something else;
-/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`).
+/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`);
+/// `drop` closes every page's socket, as an acpmux restart does, and the pages connect again.
 export async function papercutPane(
   browser: () => Browser,
   options: {
     turns: number;
     running: boolean;
     extra?: PapercutStep[];
+    lead?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Attach sends only the newest `attachPage` records and pages older ones in through
+    /// `_acpmux/events` (`beforeSeq`, `limit`), as acpmux does for a long chat. Unset, attach sends all.
+    attachPage?: number;
+    /// Each `_acpmux/events` answer (an older page) is sent this many ms late, as a read from a
+    /// remote or busy acpmux lands. Unset, it is answered at once.
+    eventsLatencyMs?: number;
+    /// Answer as acpmux does for a long chat: the prompt index (`hub/paging.rs` `prompt_index`, every
+    /// prompt before `beforeSeq` in one reply) and the attach's `turnOpener`. Unset, the index is
+    /// answered as a page and the attach names no opener (the lanes written against that keep it).
+    daemonIndexes?: boolean;
+    /// Serve a production build of the pane (vite build of its dev entry) instead of the dev server,
+    /// for timing: the dev server runs React's development build. `minify: false` keeps function
+    /// names for a profile.
+    production?: { minify?: boolean };
+    /// Additional chats reuse these fixture events with their own identity and folder.
+    otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
+    /// Delay older-history replies to exercise the native scroll path while a page is in flight.
+    historyDelayMs?: number;
+    /// Older pages (`_acpmux/events` with `beforeSeq`) honor the asked `limit` and `maxBytes` as acpmux
+    /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
+    /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
+    askedPageSize?: boolean;
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
-  const answer = (method: string): unknown => {
+  const history = { requests: [] as (number | undefined)[], inFlight: 0, maxInFlight: 0 };
+  const sockets = new Set<{ close(code?: number, reason?: string): void }>();
+  const sessions = [session, ...(options.otherSessions ?? []).map((other) => ({ ...session, ...other }))];
+  const answer = (method: string, params?: Record<string, any>): unknown => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return { sessions };
+      case "_acpmux/attach": {
+        const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
+        const from = options.attachPage ? Math.max(0, events.length - options.attachPage) : 0;
+        // acpmux names the opener of the turn its page starts inside with the page
+        // (`server/requests/turn_opener.rs`); without it the pane waits on a read of its own.
+        let turnOpener: (typeof events)[number] | null = null;
+        for (let at = from - 1; options.daemonIndexes && at >= 0 && from > 0; at--) {
+          const event = events[at]!;
+          if (event.kind === "user_message" && event.dir === "mux") {
+            turnOpener = { ...event, sessionId: selected.sessionId };
+            break;
+          }
+        }
+        return {
+          session: selected,
+          lastSeq: events.length,
+          events: events.slice(from).map((event) => ({ ...event, sessionId: selected.sessionId })),
+          hasMore: from > 0,
+          ...(options.daemonIndexes && options.attachPage ? { turnOpener } : {}),
+        };
+      }
+      case "_acpmux/events": {
+        const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
+        if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
+        // The prompt index (`hub/paging.rs` `prompt_index`): every prompt before `beforeSeq`, in one
+        // reply. Answered as a page instead, the rail and the room above the rows read a long chat
+        // as a few prompts long.
+        if (options.daemonIndexes && params?.promptIndex === true)
+          return {
+            events: events.filter(
+              (event) => event.seq < before && event.kind === "user_message" && event.dir === "mux",
+            ),
+            hasMore: false,
+            lastSeq: events.length,
+          };
+        const end = Math.max(0, before - 1);
+        if (options.askedPageSize) {
+          // Newest first back from `beforeSeq`, to `limit` records or `maxBytes` of them (at least one).
+          const limit = Number(params?.limit) || options.attachPage;
+          const maxBytes = Number(params?.maxBytes) || Infinity;
+          let start = end;
+          let bytes = 0;
+          while (start > 0 && end - start < limit) {
+            const size = JSON.stringify(events[start - 1]).length;
+            if (end - start > 0 && bytes + size > maxBytes) break;
+            bytes += size;
+            start -= 1;
+          }
+          return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
+        }
+        const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
+        return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
+      }
       default:
         return null;
     }
@@ -139,13 +221,29 @@ export async function papercutPane(
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
-  const drop = () => socket?.close();
+  const drop = () => {
+    for (const socket of sockets) socket.close(1012, "restart");
+  };
   /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
   /// more than `after` times (an event, not a poll).
   const waiters: { method: string; after: number; done: () => void }[] = [];
   const count = (method: string) => methods.filter((sent) => sent === method).length;
   const sent = (method: string, after: number) =>
     count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
+  /// Requests whose replies the stand-in holds, as a busy acpmux does: `stall(methods)` holds each
+  /// later request of those methods unanswered, and `stall([])` answers every held one, in order.
+  const stalled = { methods: new Set<string>(), held: [] as (() => void)[] };
+  const stall = (methods: string[]) => {
+    stalled.methods = new Set(methods);
+    if (methods.length) return;
+    for (const reply of stalled.held.splice(0)) {
+      try {
+        reply();
+      } catch {
+        // The page's socket closed meanwhile: its reconnect asks again.
+      }
+    }
+  };
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -153,32 +251,102 @@ export async function papercutPane(
       return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
     },
     websocket: {
+      open(ws) {
+        sockets.add(ws);
+      },
+      close(ws) {
+        sockets.delete(ws);
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        if (message.method === "_acpmux/events") {
+          history.requests.push(typeof message.params?.beforeSeq === "number" ? message.params.beforeSeq : undefined);
+        }
         for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
           waiters.splice(waiters.indexOf(waiter), 1);
           waiter.done();
         }
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
-        if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+        if (message.id !== undefined) {
+          const reply = () =>
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+          if (stalled.methods.has(message.method)) stalled.held.push(reply);
+          else if (message.method === "_acpmux/events" && options.historyDelayMs) {
+            history.inFlight += 1;
+            history.maxInFlight = Math.max(history.maxInFlight, history.inFlight);
+            setTimeout(() => {
+              history.inFlight -= 1;
+              reply();
+            }, options.historyDelayMs);
+          } else if (message.method === "_acpmux/events" && options.eventsLatencyMs) {
+            // The page as it stood when asked, sent after the latency.
+            const answered = JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              result: answer(message.method, message.params),
+            });
+            // fixed-wait: the page read's latency is the condition under test.
+            setTimeout(() => ws.send(answered), options.eventsLatencyMs);
+          } else reply();
+        }
       },
     },
   });
-  const vite = await createServer({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    server: { port: 0, host: "127.0.0.1", strictPort: false },
-    logLevel: "error",
-    plugins: options.vitePlugins,
-  });
-  await vite.listen();
-  await warmViteServer(vite, "/");
-  const open = async (viewport = { width: 900, height: 700 }): Promise<Page> => {
-    const page = await browser().newPage({ viewport });
+  let pagePort: number;
+  let stopPages: () => Promise<void>;
+  if (options.production) {
+    const { build } = await import("vite");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "papercut-pane-"));
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: { outDir: out, emptyOutDir: true, ...(options.production.minify === false ? { minify: false } : {}) },
+      logLevel: "error",
+      plugins: options.vitePlugins,
+    });
+    const statics = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+        return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+      },
+    });
+    pagePort = statics.port!;
+    stopPages = async () => {
+      await statics.stop(true);
+      fs.rmSync(out, { recursive: true, force: true });
+    };
+  } else {
+    const vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+      plugins: options.vitePlugins,
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/");
+    pagePort = (vite.httpServer!.address() as { port: number }).port;
+    stopPages = () => vite.close();
+  }
+  /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say). `scale` and
+  /// `colorScheme` are for stills: a 2x page, light or dark.
+  const open = async (
+    viewport: { width: number; height: number; scale?: number; colorScheme?: "light" | "dark" } = {
+      width: 900,
+      height: 700,
+    },
+    prepare?: (page: Page) => Promise<void>,
+  ): Promise<Page> => {
+    const { scale, colorScheme, ...size } = viewport;
+    const page = await browser().newPage({ viewport: size, deviceScaleFactor: scale, colorScheme });
     await installPaintedFrames(page);
-    const { port } = vite.httpServer!.address() as { port: number };
+    await prepare?.(page);
+    const port = pagePort;
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
@@ -212,20 +380,23 @@ export async function papercutPane(
     return page;
   };
   const close = async () => {
-    await vite.close();
+    await stopPages();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop, sent };
+  /// The chat's page address, for a page this helper does not open (support/frames120.ts's 120 Hz one).
+  const address = () =>
+    `http://127.0.0.1:${pagePort}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  return { open, close, methods, prompts, record, drop, sent, address, history, stall };
 }
 
-/// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`
-/// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
-export async function inspectorPushAlways(page: Page, on = true) {
+/// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`
+/// event sets it (chatDisplay.ts). By default Session Info floats and never takes a column.
+export async function sessionInfoPushAlways(page: Page, on = true) {
   await page.evaluate(async (on) => {
     // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
     // so this is the module the page already loaded.
     const url = "/chatDisplay.ts";
     const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
-    display.setChatDisplay({ "agentPane.display.inspector.placement": on ? "push" : "overlay" });
+    display.setChatDisplay({ "agentPane.display.sessionInfo.placement": on ? "push" : "overlay" });
   }, on);
 }

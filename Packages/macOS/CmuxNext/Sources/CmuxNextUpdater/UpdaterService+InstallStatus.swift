@@ -41,12 +41,17 @@ extension UpdaterService {
             guard !installGaveUp else { return }
             installGaveUp = true
             log.append("install: no relaunch after \(status.seconds) s; the windows come back")
-            installAbandoned?()
+            abandonInstall()
             return
         }
         if status.seconds == Int(UpdateInstallStatus.slowAfter.components.seconds) {
             log.append("install: still waiting after \(status.seconds) s")
         }
         scheduleInstallTick()
+    }
+    /// The install ended with this app running: its relaunch record goes (``UpdateInstallCheck``), the windows come back.
+    func abandonInstall() {
+        UpdateInstallCheck.write(nil, defaults: defaults)
+        installAbandoned?()
     }
 }

@@ -28,7 +28,9 @@ Usage:
   merge_freeze.py expire --repo OWNER/REPO [--dry-run]
 
 `check` exits 0 when nothing blocks the merge, 1 when a freeze does (it prints which), and
-2 when GitHub can't be read: an unknown freeze state never reads as clear.
+2 when GitHub can't be read: an unknown freeze state never reads as clear. On a lane VM, where gh
+goes through the lane-gh broker, a broker refusal of the GraphQL fallback is also 2, never 1, and
+says that the broker refused the read, with the broker's words: it is not a freeze.
 """
 
 from __future__ import annotations
@@ -183,10 +185,14 @@ def repo_role(repo: str, login: str) -> str | None:
 
 
 def last_edited(repo: str, number: int) -> str | None:
+    """When the issue body was last edited. Read as `issueOrPullRequest(number:) { ... on Issue { lastEditedAt } }`:
+    the lane-gh broker refuses Repository.issue, and REST has no body-edit time (`updated_at` also moves on a
+    comment or on the label itself, which would read every fresh freeze as edited after its label)."""
     owner, name = repo.split("/", 1)
-    query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
-    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}")
-    return json.loads(out)["data"]["repository"]["issue"]["lastEditedAt"]
+    query = ("query($owner:String!,$name:String!,$i:Int!){repository(owner:$owner,name:$name)"
+             "{issueOrPullRequest(number:$i){... on Issue{lastEditedAt}}}}")
+    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"i={number}")
+    return ((json.loads(out)["data"]["repository"]["issueOrPullRequest"]) or {}).get("lastEditedAt")
 
 
 def check_authority(freeze: Freeze, labeler: str | None, role: str | None, labeled_at: str | None,
@@ -201,15 +207,94 @@ def check_authority(freeze: Freeze, labeler: str | None, role: str | None, label
         freeze.problems.append(f"edited after @{labeler} added `{LABEL}`; a maintainer must add it again")
 
 
-def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
-    if issues_file is not None:
+# The gh error text of a spent or throttled quota: a primary or secondary rate limit, GraphQL's
+# RATE_LIMITED, the HTTP 403/429 GitHub answers them with, or the gh quota shim's own refusal of a
+# tool's hourly budget ("gh-quota: refused for tool:..."), which names no rate limit.
+RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)|gh-quota: refused", re.I)
+
+ISSUES_QUERY = (
+    "query($owner:String!,$name:String!,$label:String!){repository(owner:$owner,name:$name){"
+    "issues(states:OPEN,labels:[$label],first:100){pageInfo{hasNextPage}"
+    "nodes{number title body state createdAt author{login} labels(first:50){nodes{name}}}}}}"
+)
+
+
+def rate_limited(error: subprocess.CalledProcessError) -> bool:
+    return bool(RATE_LIMIT.search(f"{error.stderr or ''} {error.stdout or ''}"))
+
+
+# The lane VM gh shim's words for a call the lane-gh broker refused (its Refused answer, "refused: REASON"):
+# "gh: lane-gh call graphql OWNER/REPO: refused: graphql: field ... is refused ...". Only that: a broker outage, a
+# lost socket or a GitHub error on the same path is no refusal, and keeps the plain "cannot read" report.
+BROKER_REFUSAL = re.compile(r"lane-gh call graphql \S+: refused: ")
+
+
+class BrokerRefused(Exception):
+    """The lane-gh broker refused the GraphQL fallback read: the freeze state is unknown, not frozen."""
+
+
+def broker_refusal(error: subprocess.CalledProcessError) -> str | None:
+    """The broker's refusal, one line, when ERROR is one (and not a spent quota); else None."""
+    text = f"{error.stderr or ''} {error.stdout or ''}".strip()
+    if not BROKER_REFUSAL.search(text) or rate_limited(error):
+        return None
+    return " ".join(text.split())[:600]
+
+
+def graphql_open_issues(repo: str) -> list[dict]:
+    """The open merge-freeze issues over GraphQL, in the REST shape parse_issue reads. Used when
+    the REST quota is spent. The variables are named `owner` and `name` so a broker can scope the
+    call. A list past one page raises: a list cut short never reads as "no freeze"."""
+    owner, name = repo.split("/", 1)
+    out = gh("api", "graphql", "-f", f"query={ISSUES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+             "-f", f"label={LABEL}")
+    issues = json.loads(out)["data"]["repository"]["issues"]
+    if issues["pageInfo"]["hasNextPage"]:
+        raise ValueError(f"{repo} has more open `{LABEL}` issues than one GraphQL page; "
+                         "refusing to read a list cut short (it has a next page) as complete")
+    return [{
+        "number": n["number"],
+        "title": n.get("title") or "",
+        "body": n.get("body") or "",
+        "state": (n.get("state") or "").lower(),
+        "created_at": n["createdAt"],
+        "user": {"login": (n.get("author") or {}).get("login", "")},
+        "labels": [{"name": label["name"]} for label in n["labels"]["nodes"]],
+    } for n in issues["nodes"]]
+
+
+def open_freezes(repo: str, issues_file: str | None = None, graphql_first: bool = False) -> list[Freeze]:
+    issues = None
+    if issues_file is None and graphql_first:
+        # merge-freeze.yml: one read per pull request event (about 141 an hour on 2026-11-21) from GraphQL's own
+        # quota, not the repository's GITHUB_TOKEN REST hour every workflow shares. Any failure reads REST below.
+        try:
+            issues = graphql_open_issues(repo)
+        except (subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
+            print(f"warning: the GraphQL freeze list failed ({type(error).__name__}); reading it over REST",
+                  file=sys.stderr)
+    if issues is not None:
+        pass
+    elif issues_file is not None:
         # Recorded issues carry what the API calls below would return: labeled_by,
         # labeler_role, labeled_at and last_edited_at.
         issues = [i for i in read_json_list(issues_file)
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        try:
+            issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        except subprocess.CalledProcessError as error:
+            # A spent REST quota is not an unknown freeze state: GraphQL has its own quota.
+            if not rate_limited(error):
+                raise
+            try:
+                issues = graphql_open_issues(repo)
+            except subprocess.CalledProcessError as fallback:
+                refusal = broker_refusal(fallback)
+                if refusal is None:
+                    raise
+                raise BrokerRefused(refusal) from None
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -277,6 +362,8 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--files", help="changed paths, one per line (default: read from GitHub)")
     check.add_argument("--issues-file", help="the open issues as JSON, instead of reading GitHub")
     check.add_argument("--events-file", help="the pull request's issue events as JSON, instead of reading GitHub")
+    check.add_argument("--graphql-first", action="store_true",
+                       help="read the open freezes over GraphQL first, REST only if that fails (merge-freeze.yml)")
     for name in ("list", "expire"):
         p = sub.add_parser(name)
         p.add_argument("--repo", required=True)
@@ -286,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
 
     try:
-        freezes = open_freezes(args.repo, getattr(args, "issues_file", None))
+        freezes = open_freezes(args.repo, getattr(args, "issues_file", None), getattr(args, "graphql_first", False))
         if args.mode == "list":
             for freeze in freezes:
                 print(describe(freeze, now))
@@ -302,6 +389,9 @@ def main(argv: list[str] | None = None) -> int:
                     gh("issue", "close", str(freeze.number), "--repo", args.repo, "--comment",
                        f"This freeze {state} {lapsed:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
                        f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).")
+            return 0
+        if not freezes:
+            # No freeze is open, so nothing can block: one read for the common case.
             return 0
         if args.files:
             with open(args.files) as handle:
@@ -320,6 +410,13 @@ def main(argv: list[str] | None = None) -> int:
             events = (read_json_list(args.events_file) if args.events_file is not None
                       else gh_items(f"repos/{args.repo}/issues/{args.pr}/events"))
             labeler = ok_labeler(events)
+    except BrokerRefused as refusal:
+        # Fail closed, as any unread freeze list does, but name the cause: nothing here says a freeze exists.
+        target = f"{args.repo}#{args.pr}" if args.mode == "check" else args.repo
+        print(f"cannot read merge freezes for {target}: REST is rate limited and the lane-gh broker refused the "
+              f"GraphQL fallback read of the open `{LABEL}` issues (not a freeze; the freeze state is unknown, so "
+              f"the merge waits): {refusal}", file=sys.stderr)
+        return 2
     # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
     # timestamp, say). Still unknown, not frozen.
     except (subprocess.CalledProcessError, OSError, KeyError, ValueError, TypeError, AttributeError) as error:

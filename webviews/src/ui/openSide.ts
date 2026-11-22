@@ -9,6 +9,19 @@ import { resolveUiSide } from "./anchor";
 
 export type UiPopupSide = "top" | "bottom";
 
+/// How a portaled popup keeps clear of the window's edges. `true`: it flips to the other side when
+/// this one has no room (Base UI's default). `false`: it keeps `side` and fits the room it got
+/// (`useOpenSide` chose the side). `"shift"`: it keeps `side` and slides along it, over its own
+/// anchor, to stay in the window: a composer's location menu that must not open onto the chat.
+export type UiPopupFlip = boolean | "shift";
+
+/// Base UI's `collisionAvoidance` for a `UiPopupFlip` (undefined: Base UI's default, which flips).
+export function popupCollision(flip: UiPopupFlip) {
+  if (flip === true) return undefined;
+  if (flip === "shift") return { side: "shift", align: "shift", fallbackAxisSide: "none" } as const;
+  return { side: "none" } as const;
+}
+
 /// `open` and `setOpen` for a popover whose side is chosen when `setOpen(true)` runs: `preferred`
 /// when `height` fits there or it has the more room, else the other side.
 export function useOpenSide(

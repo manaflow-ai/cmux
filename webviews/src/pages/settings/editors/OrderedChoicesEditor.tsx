@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t, text } from "../strings";
@@ -23,24 +24,30 @@ export function OrderedChoicesEditor({ row, value, disabled, labelId }: EditorPr
       {order.map((choice, index) => (
         <span key={choice} className="folder-item" data-choice={choice}>
           <span className="folder-path">{titles.get(choice) ?? choice}</span>
-          <button
+          <Button
             type="button"
+            icon
+            size="sm"
+            variant="ghost"
             className="icon-button"
             aria-label={`${t("settingsPage.moveUp")} ${titles.get(choice) ?? choice}`}
             disabled={disabled || index === 0}
             onClick={() => move(index, -1)}
           >
             <Icon name="chevron" className="icon-up" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            icon
+            size="sm"
+            variant="ghost"
             className="icon-button"
             aria-label={`${t("settingsPage.moveDown")} ${titles.get(choice) ?? choice}`}
             disabled={disabled || index === order.length - 1}
             onClick={() => move(index, 1)}
           >
             <Icon name="chevron" />
-          </button>
+          </Button>
         </span>
       ))}
     </span>

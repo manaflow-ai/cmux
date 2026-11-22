@@ -1,4 +1,6 @@
+import { foldFind } from "./fold";
 import type { FindMatch } from "./model";
+import { clearAdaptiveFind, paintAdaptiveFind, releaseAdaptiveFind, type FindColors } from "../ui/findPaint";
 
 export const FIND_HIGHLIGHT_NAME = "cmux-find-match";
 export const FIND_ACTIVE_HIGHLIGHT_NAME = "cmux-find-active";
@@ -17,6 +19,14 @@ const highlightCSS = `
   color: #1a1208;
 }
 `;
+
+/** highlightCSS's colors, fit to the surface under each match (an added or removed line's tint,
+ * the file header, the page: ui/findPaint.ts); the rules above are the fallback. */
+const findColors: FindColors = {
+  match: "light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34))",
+  current: "light-dark(#ff9632, #e8821e)",
+  currentInk: "#1a1208",
+};
 
 /**
  * What the painter reads on every pass. `activeItemSpan` is the active
@@ -56,6 +66,7 @@ function clearHighlights(): void {
   }
   CSS.highlights.delete(FIND_HIGHLIGHT_NAME);
   CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT_NAME);
+  clearAdaptiveFind(FIND_HIGHLIGHT_NAME);
 }
 
 /**
@@ -228,7 +239,7 @@ export function collectFindPaintRanges(
   const activeRow = findActiveRow(container, rows, snapshot);
   for (const row of rows) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLowerCase();
+    const haystack = foldFind(rowText.text);
     let from = 0;
     let occurrence = 0;
     for (;;) {
@@ -265,7 +276,7 @@ export function collectQueryRanges(
   if (query === "") return ranges;
   for (const row of collectRows(container, shadowRoots)) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLocaleLowerCase();
+    const haystack = foldFind(rowText.text);
     for (let start = haystack.indexOf(query); start !== -1; start = haystack.indexOf(query, start + query.length)) {
       const range = rangeFor(rowText, start, start + query.length);
       if (range != null) ranges.push(range);
@@ -299,6 +310,7 @@ function paint(
   const activeHighlight = new Highlight(...activeRanges);
   activeHighlight.priority = 1;
   CSS.highlights.set(FIND_ACTIVE_HIGHLIGHT_NAME, activeHighlight);
+  paintAdaptiveFind(container.ownerDocument, FIND_HIGHLIGHT_NAME, findColors, matchRanges, activeRanges, shadowRoots);
 }
 
 /**
@@ -382,6 +394,7 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
       container.removeEventListener("scroll", schedule);
       observer.disconnect();
       clearHighlights();
+      releaseAdaptiveFind(FIND_HIGHLIGHT_NAME);
       // A later painter adopts its own sheet; drop this one's.
       for (const root of styledRoots)
         root.adoptedStyleSheets = root.adoptedStyleSheets.filter((sheet) => sheet !== highlightSheet);

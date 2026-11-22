@@ -14,6 +14,9 @@
 //    d. else the folder's repository (or the transcript's, transcriptRepositories.ts).
 // 3. A number that is a pull request in two or more candidates names its repository on the chip
 //    (`leo-workspace#843`).
+// 4. Rules c and d only take a candidate whose numbers the chat named are no longer than N: a cmux
+//    chat that named #27262 means no pull request by "#1 / #2" (Leo 2026-10-29: "these auto
+//    render to the pr instead of just #1 #2..."). With no candidate left, N is text.
 import { createContext } from "react";
 import { githubReferences, isGithubOwner } from "../../../githubReferences";
 import type { AcpmuxRow } from "../model";
@@ -26,6 +29,8 @@ export type ReferenceEvidence = {
   mentions: ReadonlyMap<number, readonly Mention[]>;
   /** Rule c's candidates after the folder's: the repositories the chat linked, latest first. */
   linked: readonly string[];
+  /** Rule 4: the smallest number the chat named in each repository, by its lowercase name. */
+  smallest: ReadonlyMap<string, number>;
 };
 
 /** A turn's evidence: the transcript's, its own (rule a), and where it starts. */
@@ -88,6 +93,7 @@ function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Nam
 type Reading = {
   mentions: Map<number, readonly Mention[]>;
   repos: Map<string, Mention>;
+  smallest: Map<string, number>;
   turns: Map<string, { at: number; named: Map<number, string> }>;
   turn: string;
 };
@@ -114,13 +120,25 @@ export const newReferenceScopeCache = (): ReferenceScopeCache => ({
   scopes: new Map(),
 });
 
-const empty = (): Reading => ({ mentions: new Map(), repos: new Map(), turns: new Map(), turn: "" });
+const empty = (): Reading => ({
+  mentions: new Map(),
+  repos: new Map(),
+  smallest: new Map(),
+  turns: new Map(),
+  turn: "",
+});
 
 const copy = (reading: Reading): Reading => {
   const turns = new Map(reading.turns);
   const open = turns.get(reading.turn);
   if (open) turns.set(reading.turn, { at: open.at, named: new Map(open.named) });
-  return { mentions: new Map(reading.mentions), repos: new Map(reading.repos), turns, turn: reading.turn };
+  return {
+    mentions: new Map(reading.mentions),
+    repos: new Map(reading.repos),
+    smallest: new Map(reading.smallest),
+    turns,
+    turn: reading.turn,
+  };
 };
 
 function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "items">, at: number) {
@@ -135,6 +153,7 @@ function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "i
     reading.repos.delete(key);
     reading.repos.set(key, { repo: spelled, at });
     if (number === undefined) continue;
+    if (!(number >= (reading.smallest.get(key) ?? Infinity))) reading.smallest.set(key, number);
     reading.mentions.set(number, [...(reading.mentions.get(number) ?? []), { at, repo: spelled }]);
     if (!reading.turns.has(reading.turn)) reading.turns.set(reading.turn, { at: 0, named: new Map() });
     reading.turns.get(reading.turn)!.named.set(number, spelled);
@@ -155,8 +174,10 @@ export function referenceScopes(
     cache.generation += 1;
     cache.rowTurn.clear();
   }
-  const reading = kept ? copy(cache.prefix!) : empty();
   const last = source.length - 1;
+  // The kept reading is only read from when no row before the last is new: copied only when the
+  // loop below reads more into it (a copy is O(turns), once per snapshot).
+  const reading = kept ? (cache.prefixLength < last ? copy(cache.prefix!) : cache.prefix!) : empty();
   for (let index = kept ? cache.prefixLength : 0; index < last; index++) {
     read(reading, source[index]!, index);
     cache.rowTurn.set(source[index]!.id, reading.turn);
@@ -164,10 +185,14 @@ export function referenceScopes(
   cache.source = source;
   cache.prefix = reading;
   cache.prefixLength = Math.max(0, last);
-  const whole = last >= 0 ? copy(reading) : reading;
-  if (last >= 0) {
-    read(whole, source[last]!, last);
-    cache.rowTurn.set(source[last]!.id, whole.turn);
+  // The last row read over a copy, unless reading it changes nothing (no prompt, nothing named: a
+  // running call's output that names no pull request), so a snapshot copies no O(turns) reading.
+  const lastRow = last >= 0 ? source[last]! : undefined;
+  const changes = lastRow !== undefined && (lastRow.kind === "user" || rowNamed(lastRow).length > 0);
+  const whole = changes ? copy(reading) : reading;
+  if (lastRow) {
+    if (changes) read(whole, lastRow, last);
+    cache.rowTurn.set(lastRow.id, whole.turn);
   }
   // The prefix's reading changes only with a new generation or a longer prefix; the last row is
   // the rest of what the evidence depends on.
@@ -175,7 +200,7 @@ export function referenceScopes(
   const evidenceKey = `${cache.generation}:${cache.prefixLength}:${tail}`;
   if (cache.evidence?.key !== evidenceKey) {
     const linked = [...whole.repos.values()].map(({ repo }) => repo).reverse();
-    cache.evidence = { key: evidenceKey, value: { mentions: whole.mentions, linked } };
+    cache.evidence = { key: evidenceKey, value: { mentions: whole.mentions, linked, smallest: whole.smallest } };
     cache.scopes.clear();
   }
   const evidence = cache.evidence.value;
@@ -217,24 +242,33 @@ export function namedRepository(number: number, scope: ReferenceScope | null): s
   return before;
 }
 
-/** Rule c's candidates: `fallback` (rule d's) first, then the chat's repositories, latest first. */
-export function candidateRepositories(fallback: string, scope: ReferenceScope | null): string[] {
+/** Rule 4: whether `number` is as long as every number the chat named in `repo`; a repository
+ *  the chat named no number in has no range, so any number is in it. */
+export function inNamedRange(number: number, repo: string, scope: ReferenceScope | null): boolean {
+  const smallest = scope?.evidence.smallest.get(repo.toLowerCase());
+  return smallest === undefined || String(number).length >= String(smallest).length;
+}
+
+/** Rule c's candidates: `fallback` (rule d's) first, then the chat's repositories, latest first,
+ *  each only if `number` is in its range (rule 4). */
+export function candidateRepositories(fallback: string, scope: ReferenceScope | null, number: number): string[] {
   const out = [fallback];
   for (const repo of scope?.evidence.linked ?? []) {
     if (out.length >= MAX_CANDIDATES) break;
     if (!out.some((kept) => kept.toLowerCase() === repo.toLowerCase())) out.push(repo);
   }
-  return out;
+  return out.filter((repo) => inNamedRange(number, repo, scope));
 }
 
 /** Rules c and d: the first candidate with pull request N, and the others that have it too;
- *  `existing` is undefined (or has none) until the cache answers, and then rule d stands. */
+ *  `existing` is undefined (or has none) until the cache answers, and then rule d stands when
+ *  `fallback` (the folder's repository) is still a candidate; without it, N is text. */
 export function chooseRepository(
   candidates: readonly string[],
   existing: readonly boolean[] | undefined,
-): { repository: string; alternatives: string[] } {
+  fallback = candidates[0],
+): { repository: string; alternatives: string[] } | undefined {
   const found = existing ? candidates.filter((_, index) => existing[index]) : [];
-  return found.length
-    ? { repository: found[0]!, alternatives: found.slice(1) }
-    : { repository: candidates[0]!, alternatives: [] };
+  if (found.length) return { repository: found[0]!, alternatives: found.slice(1) };
+  return fallback !== undefined && candidates[0] === fallback ? { repository: fallback, alternatives: [] } : undefined;
 }

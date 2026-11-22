@@ -150,7 +150,11 @@ pub(super) fn list_agents(
         Some(state) => Some(parse_agent_state(&state)?),
         None => None,
     };
-    let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+    let agents = mux
+        .list_agents(surface, state)
+        .iter()
+        .map(|record| agent_json(record, mux.agent_status(record)))
+        .collect::<Vec<_>>();
     Ok(json!({ "agents": agents }))
 }
 
@@ -181,6 +185,8 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
             .map(|(row, acknowledged)| {
                 let post = mux.notification_post(&row.id);
                 let poster = post.as_ref().and_then(|post| post.poster.as_ref());
+                // What the row's agent said, while this daemon keeps it (memory only).
+                let texts = mux.agent_feed_texts(row.id.as_str());
                 json!({
                     "id": row.id,
                     "notification": post.as_ref().map(|post| post.notification),
@@ -202,16 +208,31 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                         .as_ref()
                         .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
                         .as_deref(),
+                    // The approval the row's agent still waits on (memory only).
+                    "approval": row
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal| mux.pending_agent_approval(terminal, row.id.as_str()))
+                        .as_deref(),
+                    "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
+                    "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
+                    "detail": texts.as_ref().map(|texts| &*texts.detail),
                 })
             })
             .collect::<Vec<_>>(),
     }))
 }
 
-fn agent_json(record: &AgentRecord) -> Value {
+/// One `list-agents` row. `state` is the roster state (`done` there is an
+/// ended session); `status` is what the person sees (`working`, `blocked`,
+/// `done` for a finished turn not yet seen, `idle`, `unknown`), `null` for an
+/// ended session.
+fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
+        "terminal_id": record.terminal_id.as_str(),
         "state": record.state.as_str(),
+        "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
@@ -264,10 +285,14 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     }
 }
 
+/// A roster state word. The older CLI words are aliases: `busy` is
+/// `working`, `waiting-for-input` is `blocked` and `ended` is `done` (the
+/// roster's word for an ended session).
 fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
     match state {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
+        "working" | "busy" => Ok(AgentState::Working),
+        "blocked" | "waiting-for-input" => Ok(AgentState::Blocked),
+        "ended" => Ok(AgentState::Done),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
         "unknown" => Ok(AgentState::Unknown),

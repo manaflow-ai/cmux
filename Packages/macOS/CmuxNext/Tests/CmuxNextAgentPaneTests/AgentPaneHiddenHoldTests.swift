@@ -28,6 +28,36 @@ struct AgentPaneHiddenHoldTests {
         #expect(rig.calls == 1)
     }
 
+    /// The transport leaves other chats' rows out while nobody sees the pane (AcpmuxPaneSocket.setAsleep):
+    /// the pacer tells it each change of sight its probe sees, once per change.
+    @Test func thePacerTellsEachChangeOfSightOnce() {
+        let rig = Rig(hidden: true)
+        var told: [Bool] = []
+        rig.pacer.onSightChange = { told.append($0.unseen) }
+        rig.pacer.reportSight()
+        rig.pacer.visibilityChanged()
+        #expect(told == [true])
+        rig.hidden = false
+        rig.pacer.visibilityChanged()
+        rig.pacer.visibilityChanged()
+        #expect(told == [true, false])
+        rig.hidden = true
+        rig.pacer.visibilityChanged()
+        #expect(told == [true, false, true])
+    }
+
+    /// The pacer's report reaches the transport: a pane nobody sees has its other chats' rows left out.
+    @Test func anUnseenPaneTellsItsTransport() {
+        let transport = AgentPaneTransport()
+        let rig = Rig(hidden: true)
+        rig.pacer.onSightChange = { [weak transport] in transport?.pageSight = $0 }
+        rig.pacer.reportSight()
+        #expect(transport.pageUnseen)
+        rig.hidden = false
+        rig.pacer.visibilityChanged()
+        #expect(!transport.pageUnseen)
+    }
+
     @Test func heldFramesGoWhenThePaneShows() {
         let rig = Rig(hidden: true)
         rig.arrive()
@@ -81,8 +111,25 @@ struct AgentPaneHiddenHoldTests {
         // Its absence 5 s after Stop says the stop was forced.
         #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_end","msg":{}}}"#))
         #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_result","msg":{}}}"#))
+        // A prompt sent behind a running turn: acpmux takes it with a `queued` record and sends no
+        // `prompt_accepted` (hub/turns.rs accepts only a prompt that starts at once), so a held pane
+        // left it "Still sending" until the turn ended (session claude-7, 2026-10-30, the repro on
+        // cmux-austin-mini-1, 2026-10-31). A refusal or a removal from the queue answers a send too.
+        for kind in ["queued", "dequeued", "queue_removed", "prompt_refused"] {
+            #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"\#(kind)","msg":{}}}"#), "\(kind)")
+        }
         #expect(!waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":8,"kind":"agent_message_chunk","msg":{}}}"#))
         #expect(!waits(AcpmuxStandInServer.benchFrame(1)), "a streamed session/update")
+    }
+
+    @Test func whatAnswersThePage() {
+        let answers = { (text: String) -> Bool in
+            AcpmuxPaneSocket.answersPage((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:])
+        }
+        #expect(answers(#"{"jsonrpc":"2.0","id":3,"result":{}}"#), "a reply")
+        #expect(answers(#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"no"}}"#), "an error reply")
+        #expect(!answers(#"{"jsonrpc":"2.0","id":4,"method":"session/request_permission","params":{}}"#), "a daemon request")
+        #expect(!answers(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_end","msg":{}}}"#))
     }
 
     /// The page's events, one entry per bridge call, awaited as they arrive.

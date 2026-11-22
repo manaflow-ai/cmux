@@ -29,9 +29,10 @@ struct FileOpenKindTests {
         #expect(FileOpenKind(fileName: "Library.photoslibrary", isDirectory: true, isPackage: true) == .app)
     }
 
-    @Test func onlyWebAndOtherNeedTheUsersClick() {
-        // A page runs script and `.other` leaves cmux: an agent's open never picks them.
-        #expect(FileOpenKind.web.needsUserChoice)
+    @Test func onlyAppsNeedTheUsersClick() {
+        // An app runs code outside cmux: an agent's open never picks it. A web page renders in a
+        // browser tab for an agent too (u18051), as any URL an agent opens does.
+        #expect(!FileOpenKind.web.needsUserChoice)
         #expect(FileOpenKind.app.needsUserChoice)
         #expect(!FileOpenKind.preview.needsUserChoice)
         #expect(!FileOpenKind.editor.needsUserChoice)

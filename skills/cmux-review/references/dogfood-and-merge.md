@@ -34,9 +34,10 @@ every pushed fix. On either branch, a PR merges when an independent review
 subagent passes it and it causes no red of its own; base reds, flakes and pending
 checks don't hold it. Don't wait for a person, for app, runtime and UI changes
 too. Ship risky user-visible behavior behind a setting or Debug toggle, and fix a
-bad default in the next nightly. Into `feat-cmux-next`, label it `ready-to-land`
-after the review (again after any later push) and `next-autoland` merges that
-exact head. The `risk:high` tier and merge freezes still hold.
+bad default in the next nightly. Into `feat-cmux-next`, merge it yourself after
+the review with a squash pinned to the reviewed head; `ready-to-land` is only a
+fallback hand-off. The `risk:high` tier, a `HOLD:` line or hold label, and merge
+freezes still hold.
 
 **Red base.** A base that doesn't compile, or CI that's red on every PR, is
 priority zero. Fix it directly in its own PR instead of noting it and leaving it

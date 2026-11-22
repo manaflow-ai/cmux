@@ -31,8 +31,11 @@ public struct ControlArgumentInfo: Sendable, Hashable {
     public var range: ClosedRange<Int>?
     /// For `.target`: the target kind's CLI prefix (`workspace-group`).
     public var targetKind: String?
+    /// For `.target`: the run's target, when of this kind, is the argument's value (`ActionArgument.isSuppliedByTarget`).
+    public var isSuppliedByTarget: Bool
 
-    public init(name: String, title: String, kind: Kind, isRequired: Bool, choices: [Choice] = [], range: ClosedRange<Int>? = nil, targetKind: String? = nil) {
+    public init(name: String, title: String, kind: Kind, isRequired: Bool, choices: [Choice] = [], range: ClosedRange<Int>? = nil, targetKind: String? = nil,
+                isSuppliedByTarget: Bool = false) {
         self.name = name
         self.title = title
         self.kind = kind
@@ -40,6 +43,15 @@ public struct ControlArgumentInfo: Sendable, Hashable {
         self.choices = choices
         self.range = range
         self.targetKind = targetKind
+        self.isSuppliedByTarget = isSuppliedByTarget
+    }
+
+    /// Whether `target` gives this argument its value, so a run that names only the target misses nothing (the
+    /// registry's rule for a menu's target, `ActionRegistry.target(of:supplies:for:)`: `cmux space switch Work`
+    /// sends `--target room:Work`).
+    func isSupplied(by target: ControlTargetRef?) -> Bool {
+        guard isSuppliedByTarget, let target, let targetKind else { return false }
+        return ControlRouter.normalizedKind(target.kind) == ControlRouter.normalizedKind(targetKind)
     }
 
     var json: JSONValue {
@@ -203,10 +215,10 @@ public struct ControlActionInfo: Sendable, Hashable {
         if let kind = supplying.first {
             members["available_with_target"] = .array(supplying.map(JSONValue.string))
             let format = String(localized: "control.action.needsContextOrTarget",
-                                defaultValue: "Needs %1$@ in the focused window, or pass --target %2$@:<id>.", bundle: .module)
+                                defaultValue: "Needs %1$@ in the focused window, or pass --target %2$@:<id>.", bundle: .localizedModule)
             members["context_reason"] = .string(String(format: format, listed, kind))
         } else {
-            let format = String(localized: "control.action.needsContext", defaultValue: "Needs %@ in the focused window.", bundle: .module)
+            let format = String(localized: "control.action.needsContext", defaultValue: "Needs %@ in the focused window.", bundle: .localizedModule)
             members["context_reason"] = .string(String(format: format, listed))
         }
         return members
@@ -289,11 +301,29 @@ public struct ControlCatalog: Sendable {
     }
 
     /// Availability for a run with an explicit target, which stands in for
-    /// the facts it implies (`ActionContext.implied(byTargetKind:)`).
+    /// the facts it implies (`ActionContext.implied(byTargetKind:)`) and
+    /// leaves the facts only the App can read to the registry
+    /// (`deferredToRegistry(byTargetKind:)`).
     func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?) -> Bool {
         let kind = target.flatMap { ActionTargetKind(rawValue: $0.kind) }
         let mask = contextMask | ActionContext.implied(byTargetKind: kind).rawValue
+            | Self.deferredToRegistry(byTargetKind: kind).rawValue
         return action.isAvailable(contextMask: mask, debugActionsAvailable: debugActionsAvailable)
+    }
+
+    /// The facts a pane or tab target may bring that only the App knows live:
+    /// whether it shows an agent chat (`agentPaneFocused`, so `cmux agent
+    /// set-model --target pane:<id>` runs with no chat focused) and whether it
+    /// sits on a canvas screen (`canvasLayout`). This snapshot can lag the
+    /// App's tabs (at startup, or just after a chat opened), so `action.run`
+    /// does not decide them here. The registry reads them on the main actor
+    /// (`ActionRegistry.targetContext`) and refuses a target without them as
+    /// `unavailable` before the handler runs.
+    static func deferredToRegistry(byTargetKind kind: ActionTargetKind?) -> ActionContext {
+        switch kind {
+        case .pane, .tab: .decidedByPaneOrTabTarget
+        default: []
+        }
     }
 
     func json(_ action: ControlActionInfo) -> JSONValue {

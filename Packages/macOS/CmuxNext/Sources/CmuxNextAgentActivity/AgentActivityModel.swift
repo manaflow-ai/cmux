@@ -13,6 +13,10 @@ public protocol AgentActivitySource: AnyObject {
     func follow(session: String, _ on: Bool)
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
+    /// A frame's encoded bytes for the page, as the host stores them (no
+    /// decode on the main actor), or nil when unavailable. `session` is the
+    /// frame's session, which `full` needs to find the full frame.
+    func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize, session: String?) async -> AgentActivityFrameData?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
 }
@@ -160,6 +164,7 @@ public final class AgentActivityModel {
     public func scrub(to seq: UInt64?) {
         guard let seq, let last = selectedEvents.last, seq != last.seq else {
             scrubSeq = nil
+            notifyChange()
             return
         }
         scrubSeq = selectedEvents.contains { $0.seq == seq } ? seq : nil

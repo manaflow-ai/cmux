@@ -72,12 +72,12 @@ struct AccountRowView: View {
     @ViewBuilder private var buttons: some View {
         HStack(spacing: Metrics.space3) {
             if row.canReauthenticate {
-                Button(reauthTitle) { model.reauthenticate(row.provider) }
+                Button(reauthTitle) { Task { await model.reauthenticate(row.provider) } }
                     .disabled(row.isBusy)
                     .accessibilityIdentifier("cmux.accounts.reauth.\(row.provider.rawValue)")
             }
             if row.canSignOut {
-                Button(AccountsStrings.signOut, role: .destructive) { model.signOut(row.provider) }
+                Button(AccountsStrings.signOut, role: .destructive) { Task { await model.signOut(row.provider) } }
                     .disabled(row.isBusy)
                     .accessibilityIdentifier("cmux.accounts.signOut.\(row.provider.rawValue)")
             }

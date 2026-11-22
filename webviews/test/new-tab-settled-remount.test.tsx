@@ -7,6 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -48,17 +49,17 @@ afterAll(async () => {
   globalThis.localStorage?.clear();
   const { resetSettledChatsForTests } = await import("../src/agent-session/acpmux/newtab/settledCache");
   resetSettledChatsForTests();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const row = (key: string, updatedAt: number) => ({ key, harness: "claude", title: key, cwd: "/tmp/cmux", updatedAt });
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
 let reads = 0;
-let page = { chats: [row("cg-next-reds", 3), row("cg-lane-adopt", 2)], ready: true };
+let page: { chats: ReturnType<typeof row>[]; nextCursor?: string; ready: boolean } = {
+  chats: [row("cg-next-reds", 3), row("cg-lane-adopt", 2)],
+  ready: true,
+};
 // After the first read a reply never comes: whatever the list draws then is what it already knew.
 let answer = true;
 const load = () => {
@@ -141,7 +142,9 @@ test("a list mounted again with nothing changed since keeps its rows when a late
   await mountList();
   await settle();
   expect(reads).toBe(before);
-  page = { chats: [row("cg-newer", 6)], ready: true };
+  // The first page still has a cursor: a row it does not name may be on a later page, so it stays.
+  // A first page with no cursor is the whole list and drops what it omits (AllChatsList.test.tsx).
+  page = { chats: [row("cg-newer", 6)], nextCursor: "older", ready: true };
   act(() => setDeviceChats([{ key: "cg-newer", harness: "claude", updatedAt: 6 }]));
   await settle();
   expect(reads).toBe(before + 1);

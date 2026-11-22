@@ -22,6 +22,9 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     public var url: String
     public var engine: BrowserEngine
     public var pane: PaneID?
+    /// `frontend-browser-tab-workspace-v1`, instead of `pane`: the tab goes in this workspace's pane, or in a
+    /// first pane the daemon makes when it has none, so no terminal is needed to host it.
+    public var workspace: WorkspaceHandle?
     public var title: String?
     public var faviconURL: String?
     public var profileID: String?
@@ -36,12 +39,17 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// `frontend-browser-tab-keys-v1`: a request with the same key answers
     /// the tab the first one made (`replayed`), so a retry never makes two.
     public var idempotencyKey: String?
+    /// `frontend-browser-tab-split-v1`, with `pane`: the tab opens in a new pane split from it, in
+    /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
+    public var split: ConversationTabSplit?
 
-    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
-                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil) {
+    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, workspace: WorkspaceHandle? = nil, title: String? = nil, faviconURL: String? = nil,
+                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
+                split: ConversationTabSplit? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
+        self.workspace = workspace
         self.title = title
         self.faviconURL = faviconURL
         self.profileID = profileID
@@ -49,6 +57,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         self.rows = size?.rows
         self.activate = activate
         self.after = after
+        self.split = split
     }
 }
 

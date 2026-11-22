@@ -2,8 +2,9 @@
 // snaps an inset box-shadow's inner edge to whole device pixels but not its rounded outer clip, so
 // a rim thinner than one device pixel (the 0.5px rim on a 1x display, a 1px ring at 125% zoom)
 // loses whole edges and the arcs next to them. Linux engines draw such a rim fine, so this checks
-// the geometry contract instead: at each device scale, every inset ring on these boxes is a whole
-// number of device pixels (the rim one at 1x and 2x), and the composer's rim clears with
+// the geometry contract instead: at each device scale, every crisp inset ring on these boxes (not
+// the glass material's blurred highlights) is a whole number of device pixels (the rim one at 1x
+// and 2x), and the composer's rim clears with
 // `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim: a
 // focused box keeps its one rim at the same width, a step brighter (Leo 2026-10-21: "a subtle
 // hairline border that brightens slightly on focus"; agent-pane-hairline-focus.test.ts).
@@ -19,7 +20,7 @@ type Inset = { offsetY: number; spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   /** The composer edge's alpha over this page's transparent background, focused or not. */
-  const EDGE = 0.18;
+  const EDGE = 0.22;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -79,12 +80,17 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
             Number(match[1]),
           );
+          // A rim line is crisp. The glass material's blurred highlights (glass.css, "GLASS MATERIAL":
+          // the specular band, its return and the sheen) are soft light, not rings: WebKit's
+          // whole-pixel snap cannot break them at the corners.
+          if ((lengths[2] ?? 0) > 0) return undefined;
           const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "";
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
           const alpha =
             color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
           return { offsetY: lengths[1] ?? 0, spread: lengths[3] ?? 0, alpha };
-        });
+        })
+        .filter((inset) => inset !== undefined);
     }, id);
   }
 
@@ -105,7 +111,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           expect(devicePixels(Math.abs(spread || offsetY), scale), `${id} rim at ${scale}x`).toBe(1);
       }
       // The rims keep their colors: only the width changed.
-      // The rim is the composer edge hairline (--acpmux-composer-edge: 18% text, hq#1957).
+      // The rim is the composer edge hairline (--acpmux-composer-edge: 22% text, hq#1957; CMUX-652).
       expect((await insets(page, "composer"))[0]?.alpha, "composer rim alpha").toBeCloseTo(EDGE, 2);
       const shell = await insets(page, "shell");
       expect(shell.length, "shell draws a rim").toBeGreaterThan(0);
@@ -130,6 +136,33 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     });
   }
 
+  // New Tab draws its composer and suggestions under the density's zoom (newtab/screen.css, 0.8 at Ultra-compact to
+  // 1.2 at Spacious). The rim is not zoomed with them: it stays one device pixel, as session info's edge does (CMUX-652).
+  for (const zoom of [0.8, 0.9, 1.1, 1.2])
+    test(`under New Tab's ${zoom} zoom the box's and the suggestions' rims are one device pixel`, async () => {
+      const page = await open(2);
+      await page.evaluate((zoom) => {
+        document.documentElement.style.setProperty("--cmux-composer-zoom", String(zoom));
+        const composer = document.getElementById("newtab")!.closest(".nt-composer")!;
+        const screen = document.createElement("div");
+        screen.className = "nt-screen";
+        composer.replaceWith(screen);
+        screen.append(composer);
+      }, zoom);
+      for (const id of ["newtab", "popover"]) {
+        const drawnZoom = await page.$eval(
+          `#${id}`,
+          (node) => (node as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ?? 1,
+        );
+        expect(drawnZoom, `${id} is zoomed`).toBeCloseTo(zoom, 3);
+        const rings = (await insets(page, id)).filter(({ spread }) => spread > 0);
+        expect(rings.length, `${id} draws a rim`).toBeGreaterThan(0);
+        for (const { spread } of rings)
+          expect(devicePixels(spread * drawnZoom, 2), `${id} rim at zoom ${zoom}`).toBe(1);
+      }
+      await page.close();
+    });
+
   test("the composer's rim clears with appearance.borders none, as the New Tab box's does", async () => {
     const page = await open(2);
     await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
@@ -146,9 +179,11 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   // on up (composerLocation.css), so the card itself must not draw the ring a second time. Under a
   // new chat's location strip the card keeps its own whole ring and no layer (#25304, Leo
   // 2026-10-25: the strip's chips stand over the started chat's card).
+  // Under Plain glass the light is the material's soft band inside the edge, never a line on it
+  // (composer-one-edge.test.ts); the lens keeps its own specular line.
   for (const [mode, rim] of [
     ["lens", "0px 0.5px 0px 0px inset"],
-    ["plain", "0px 0.5px 0px 0px inset"],
+    ["plain", "1px 1.5px 1px -1px inset"],
   ] as const) {
     test(`over art a card under a queue draws the ${mode} rim but not a second ring; under a strip its own`, async () => {
       const page = await open(2);
@@ -178,7 +213,14 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   test("over art focus leaves the glass card's top-lit rim as it rests and adds no ring", async () => {
     const page = await open(2);
     await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-    const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
+    // The top light: the material's soft band inside the edge (composer-one-edge.test.ts).
+    const topRim = async () =>
+      page.evaluate(() => {
+        const shadow = getComputedStyle(document.getElementById("composer")!).boxShadow;
+        const band = shadow.split(/,(?![^()]*\))/).find((layer) => layer.includes("1px 1.5px 1px -1px inset"));
+        const alpha = band?.match(/\/\s*([\d.]+)\)/)?.[1];
+        return band === undefined ? 0 : alpha === undefined ? 1 : Number(alpha);
+      });
     const rest = await insets(page, "composer");
     const restTop = await topRim();
     expect(restTop, "the glass card draws its top-lit rim").toBeGreaterThan(0);

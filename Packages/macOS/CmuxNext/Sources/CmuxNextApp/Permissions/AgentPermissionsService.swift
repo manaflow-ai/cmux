@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPermissions
+import CmuxNextOnboarding
 
 /// Agent permission requests in the App (plans/cmux-next/agent-permissions-DESIGN.md):
 /// the request store over the system probe and opener, and the presenter
@@ -10,6 +11,7 @@ final class AgentPermissionsService {
     let requests: AgentPermissionRequests
     /// The grant reads `permissions.status` answers from.
     let probe: SystemPermissionProbe
+    let opener: SystemPermissionOpener
     private let setup: ComputerUseSetup
     private let presenter: PermissionRequestPresenter
 
@@ -18,16 +20,23 @@ final class AgentPermissionsService {
         self.setup = setup
         let probe = SystemPermissionProbe(setup: setup)
         self.probe = probe
-        let requests = AgentPermissionRequests(probe: probe, opener: SystemPermissionOpener(setup: setup))
+        let opener = SystemPermissionOpener(setup: setup, showComputerUse: { [weak services] in
+            services?.onboarding.show(step: .computerUse)
+        })
+        let requests = AgentPermissionRequests(probe: probe, opener: opener)
+        self.opener = opener
         self.requests = requests
+        // The Computer Use window guides cmux Remote's grants, so the card steps aside after Continue.
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
+        }, guidedElsewhere: { kind in
+            SystemPermissionOpener.guidesInWindow(kind)
         })
         presenter.start()
     }
 
-    /// Whether this build can grant `kind` at all: computer use kinds need a
-    /// Developer ID signed helper and must not be turned off by policy.
+    /// Whether this build can grant `kind` at all: computer use kinds need an
+    /// embedded cmux Remote and must not be turned off by policy.
     func canGrant(_ kind: PermissionKind) -> Bool {
         guard kind.heldByComputerUseHelper else { return true }
         return setup.phase != .unavailable && setup.phase != .disabledByPolicy

@@ -3,11 +3,12 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A keyboard selection of Home (Cmd-1) or a wrap to the first workspace (next/previous
 /// sidebar tab) scrolls the sidebar to its very top, so the pinned items above the rows show.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSelectionRevealsTopTests {
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
         let store = DaemonStore()
@@ -78,7 +79,7 @@ struct SidebarSelectionRevealsTopTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window, ids) = try Self.makeScrolledSidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let list = sidebar.list
         let clip = try #require(list.enclosingScrollView?.contentView)
         try Self.scrollToRow(list, ids[39])
@@ -97,7 +98,7 @@ struct SidebarSelectionRevealsTopTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window, ids) = try Self.makeScrolledSidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let list = sidebar.list
         let clip = try #require(list.enclosingScrollView?.contentView)
 

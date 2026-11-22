@@ -83,7 +83,7 @@ export function AppPricingContent({
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
-  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
+  const showGo = isGo || goPlanEnabled;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(

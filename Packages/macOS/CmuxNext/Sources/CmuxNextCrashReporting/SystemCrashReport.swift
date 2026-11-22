@@ -115,7 +115,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
             Image(uuid: image["uuid"] as? String ?? "",
                   base: (image["base"] as? NSNumber)?.uint64Value ?? 0,
                   size: (image["size"] as? NSNumber)?.uint64Value ?? 0,
-                  name: (image["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
+                  name: (image["path"] as? String).map { ($0 as NSString).lastPathComponent }
                     ?? image["name"] as? String ?? "",
                   arch: image["arch"] as? String)
         }
@@ -143,7 +143,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
-        guard let whole = formatter.date(from: "\(parts[0]) \(clock[0]) \(parts[2])") else { return nil }
+        guard let time = clock.first, let whole = formatter.date(from: "\(parts[0]) \(time) \(parts[2])") else { return nil }
         guard clock.count == 2, let fraction = Double("0." + clock[1]) else { return whole }
         return whole.addingTimeInterval(fraction)
     }

@@ -185,8 +185,32 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     const sent = new Promise<void>((resolve) => (prompted = resolve));
     await page.keyboard.press("Enter");
     await sent;
+    // The picked links went in the prompt at its caret, before the words typed after them, and the
+    // prompt goes in that order.
     expect(prompts[0]).toEqual([
+      { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },
+      { type: "resource_link", uri: "file:///home/dev/notes/release%20notes.md", name: "release notes.md" },
       { type: "text", text: "Compare these" },
+    ]);
+    await context.close();
+  });
+
+  test("a slash command with instructions goes as a prompt and keeps its attached files", async () => {
+    session = local;
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    await attach(page).click();
+    const composer = page.locator(".acpmux-composer");
+    await composer.getByText("release notes.md").waitFor({ timeout: 5_000 });
+    await page.locator(".acpmux-composer-prompt").click();
+    await page.keyboard.type("/plan compare these");
+    prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
+    await page.keyboard.press("Enter");
+    await sent;
+    expect(prompts[0]).toEqual([
+      { type: "text", text: "/plan compare these" },
       { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },
       { type: "resource_link", uri: "file:///home/dev/notes/release%20notes.md", name: "release notes.md" },
     ]);

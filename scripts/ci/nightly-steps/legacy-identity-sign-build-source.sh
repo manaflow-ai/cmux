@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # nightly.yml sign-nightly-identity-legacy: "Check out the build's own source for the bundle checks". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The bundle notice check compares the app with ITS OWN source tree (the
+# LICENSE, the toolchain pins, the ghostty/ghostty-next gitlinks and
+# license trees). The copied cmux NEXT build can be older than this run's
+# commit, so the check runs from a checkout of the build's commit
+# (CMUXCommit), with the notices submodule initialized there.
 set -euo pipefail
 short="$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "legacy-app/cmux NIGHTLY.app/Contents/Info.plist")"
 [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$short'" >&2; exit 1; }
@@ -21,6 +28,10 @@ esac
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
+# An owned Mac keeps its workspace between jobs while the runner empties RUNNER_TEMP, so an
+# earlier job's build-src can still be registered there: drop registrations whose folder is gone.
+# Without it the second sign on one Mac fails ("a missing but already registered worktree").
+git worktree prune
 git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
 (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
 echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"

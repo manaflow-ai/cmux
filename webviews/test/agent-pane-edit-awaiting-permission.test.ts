@@ -279,7 +279,15 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
     // it runs. The edit that ran reads as Edited with its change, the held one as its call.
     const run = page.locator(".acpmux-activity", { hasText: "install_test.sh" });
     await run.waitFor();
-    const labels = (await run.locator(".cv-tool__text").allTextContents()).map((label) => label.trim());
+    // A running row draws its words again as an inert shimmer copy (ShimmerText.tsx RowShimmer,
+    // #32805); the label is the words a reader sees, without it.
+    const labels = await run.locator(".cv-tool__text").evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const copy = node.cloneNode(true) as Element;
+        for (const shimmer of copy.querySelectorAll(".cv-row-shimmer")) shimmer.remove();
+        return (copy.textContent ?? "").trim();
+      }),
+    );
     expect(labels).toContain("Edited install.sh+1-0");
     expect(labels).toContain("Edit install_test.sh");
     expect(labels.some((label) => label.startsWith("Edited install_test.sh"))).toBe(false);

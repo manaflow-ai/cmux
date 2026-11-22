@@ -1,10 +1,11 @@
-// A chat header in the pane's tab row (chrome.tabs.rowTools, on by default since 2026-10-20) hides its
+// A chat header in the pane's tab row (since 2026-10-20) hides its
 // status slot, which sits under the App's tabs; the connection warning then leads the tools instead,
 // so a disconnected or failed chat still says so, with the reason in its tooltip.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -24,12 +25,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the inline status shows the warning and its reason, and nothing while connected", async () => {

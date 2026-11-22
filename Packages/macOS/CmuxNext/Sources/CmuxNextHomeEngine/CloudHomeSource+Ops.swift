@@ -86,12 +86,17 @@ nonisolated extension CloudHomeSource {
             // chief.create and question.answer are not cloud-conversation-op kinds yet
             // (home-cloud-proxy.md section 8); refused here exactly as the daemon would.
             throw HomeRejection.invalid("unsupported_op")
-        case .createGroup(let title, let ids):
+        case .createGroup(let title, let ids, let invites):
             let participants = [identity.participant] + state.withLock { state in
                 ids.filter { $0 != identity.localID }.map { state.participantRecord($0, identity: identity) }
             }
             let result = try await send(.create(title: title.isEmpty ? nil : title, participants: participants), in: nil)
             let created = try opened(result, identity: identity, generation: generation)
+            // People and addresses in one New Message: each address joins the group as invited.
+            for (index, contact) in invites.enumerated() {
+                _ = try await send(.createInvite(address: CloudHomeMapping.address(contact), displayName: Self.masked(contact), locale: nil),
+                                   in: created, key: "\(key):invite:\(index)")
+            }
             return HomeOpResult(rev: 0, replayed: result.replayed, conversation: created)
         case .openDirect(let peer):
             let result = try await send(.dmOpen(peer: .participant(identity.toCloud(peer))), in: nil)

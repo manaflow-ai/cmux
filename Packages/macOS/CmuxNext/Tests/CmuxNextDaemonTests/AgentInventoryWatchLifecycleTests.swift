@@ -174,7 +174,7 @@ struct AgentInventoryWatchLifecycleTests {
     }
 
     private func withConnection(mode: String = "normal", _ body: (DaemonConnection) async throws -> Void) async throws {
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.bridgeScript, mode])
+        let bridge = DaemonBridge.fakePython(["-c", Self.bridgeScript, mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-watch-lifecycle-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {

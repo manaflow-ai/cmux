@@ -57,18 +57,17 @@ final class NotificationsPanelView: NSView {
 
     private let background = NSView()
     /// The glass under the content; the panel's clear window is all it covers.
-    private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
+    private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false, tone: .neutralGlass(.transient))
     private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = NSStackView()
     private let empty = NSStackView()
     private let emptyIcon = NSImageView()
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
-    private var scrollerStyleObserver: MainActorObservation?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -129,10 +128,6 @@ final class NotificationsPanelView: NSView {
         scroll.hasVerticalScroller = true
         // Thin, shown only while scrolling (SCROLLBARS-THIN).
         SystemScrollers.follow(scroll)
-        // queue: .main: a post off main into this main-actor view trapped.
-        scrollerStyleObserver = MainActorObservation(NSScroller.preferredScrollerStyleDidChangeNotification) { [weak self] in
-            self?.scroll.scrollerStyle = SystemScrollers.nativeStyle
-        }
         document.translatesAutoresizingMaskIntoConstraints = false
 
         emptyIcon.image = NSImage.icon(.notification, size: 28)

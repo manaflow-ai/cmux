@@ -37,14 +37,17 @@ pub async fn serve(
     fqdn: String,
     mut stop: watch::Receiver<bool>,
 ) -> Result<()> {
+    let (restart, _draining) = hub.ws_shutdown.listener();
     ensure!(valid_name(&fqdn), "invalid tailnet DNS name");
-    if *stop.borrow() {
+    if *stop.borrow() || restart.is_requested() {
         return Ok(());
     }
     let listen_node = node.clone();
     let opening = tokio::task::spawn_blocking(move || listen_node.listen_tcp(443));
     let listener = tokio::select! {
         biased;
+        () = restart.requested() => return Ok(()),
+        () = restart.normal() => return Ok(()),
         _ = stopped(&mut stop) => return Ok(()),
         result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => {
             let joined = result?;
@@ -59,6 +62,11 @@ pub async fn serve(
     let result = loop {
         tokio::select! {
             biased;
+            () = restart.requested() => break Ok(()),
+            () = restart.normal() => {
+                restart.close_clients();
+                break Ok(());
+            },
             _ = stopped(&mut stop) => break Ok(()),
             Some(_) = connections.join_next(), if !connections.is_empty() => {},
             ready = listener.readable_mut() => {
@@ -68,11 +76,19 @@ pub async fn serve(
                 });
                 let (stream, remote) = match accepted {
                     Err(_) => continue,
-                    Ok(Err(e)) => break Err(e.into()),
+                    // Only a closed listener ends the ingress (the service then waits for an
+                    // explicit retry); one lost connection or a descriptor shortage does not.
+                    Ok(Err(e)) if super::accept_ends_listener(&e) => break Err(e.into()),
+                    Ok(Err(e)) => {
+                        tracing::warn!("tailnet accept failed: {e}");
+                        tokio::time::sleep(super::accept_retry_delay(&e)).await;
+                        continue;
+                    }
                     Ok(Ok(accepted)) => accepted,
                 };
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let (node, hub, fqdn, mut stop) = (node.clone(), hub.clone(), fqdn.clone(), closing.clone());
+                let restart = restart.clone();
                 connections.spawn(async move {
                     let prepare = tokio::task::spawn_blocking(move || -> Result<_> {
                         let status = node.status()?;
@@ -86,20 +102,32 @@ pub async fn serve(
                         Ok((tls_config(&fqdn, &pem)?, fqdn, slot))
                     });
                     let prepared = tokio::select! {
+                        () = restart.closing() => return,
                         _ = stopped(&mut stop) => return,
                         result = tokio::time::timeout(HANDSHAKE_BOUND, prepare) => result,
                     };
                     let Ok(Ok(Ok((tls, fqdn, _slot)))) = prepared else { return };
                     if stream.set_nonblocking(true).is_err() { return }
                     let Ok(stream) = tokio::net::UnixStream::from_std(stream) else { return };
-                    let _ = connection(hub, stream, tls, &fqdn, stop).await;
+                    let _ = connection(hub, stream, tls, &fqdn, stop, restart).await;
                 });
             }
         }
     };
     drop(listener);
+    if restart.is_requested() {
+        restart.close_clients();
+    }
     close.send_replace(true);
-    while connections.join_next().await.is_some() {}
+    if tokio::time::timeout(super::ws_shutdown::DRAIN_BUDGET, async {
+        while connections.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+    }
     result
 }
 
@@ -201,6 +229,7 @@ async fn connection<S>(
     tls: Arc<rustls::ServerConfig>,
     fqdn: &str,
     mut stop: watch::Receiver<bool>,
+    restart: super::WsShutdown,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -227,20 +256,28 @@ where
             .await?,
         )
     };
-    let ws = tokio::select! {
+    let mut ws = tokio::select! {
         biased;
+        () = restart.closing() => return Ok(()),
         _ = stopped(&mut stop) => return Ok(()),
         result = tokio::time::timeout(HANDSHAKE_BOUND, handshake) => result??,
     };
     match admitted.ok_or_else(|| anyhow!("tailnet admission missing"))? {
         super::pairing::Admitted::Ticket(secret) => {
-            tokio::select! {
+            let close = tokio::select! {
                 biased;
-                _ = stopped(&mut stop) => {},
-                _ = super::pairing::serve_redeem(hub, ws, secret) => {},
+                () = restart.normal() => Some(false),
+                () = restart.closing() => Some(true),
+                _ = stopped(&mut stop) => Some(false),
+                _ = super::pairing::serve_redeem(hub, &mut ws, secret) => None,
+            };
+            if let Some(restarting) = close {
+                super::ws_shutdown::close(&mut ws, restarting).await;
             }
         }
-        super::pairing::Admitted::Device(device) => device_connection(hub, ws, device, stop).await,
+        super::pairing::Admitted::Device(device) => {
+            device_connection(hub, ws, device, stop, restart).await
+        }
         super::pairing::Admitted::Dashboard => {
             return Err(anyhow!("tailnet refuses dashboard tokens"));
         }
@@ -253,6 +290,7 @@ async fn device_connection<S>(
     ws: tokio_tungstenite::WebSocketStream<S>,
     device: DeviceAuth,
     mut stop: watch::Receiver<bool>,
+    restart: super::WsShutdown,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -263,34 +301,38 @@ async fn device_connection<S>(
     let (output, mut outgoing) = mpsc::channel::<String>(4096);
     // The network pump owns the only inbound sender. Any close, revoke or
     // stop drops it, allowing the Hub's ordinary cleanup to finish.
-    let network = async move {
-        loop {
-            tokio::select! {
-                frame = source.next() => match frame {
-                    Some(Ok(Message::Text(text))) => {
-                        if input.send(text.to_string()).await.is_err() { break }
+    let transport = async move {
+        let network = async {
+            loop {
+                tokio::select! {
+                    frame = source.next() => match frame {
+                        Some(Ok(Message::Text(text))) => {
+                            if input.send(text.to_string()).await.is_err() { break }
+                        }
+                        Some(Ok(Message::Ping(bytes))) => {
+                            if sink.send(Message::Pong(bytes)).await.is_err() { break }
+                        }
+                        Some(Ok(Message::Pong(_))) => {},
+                        // Binary uploads are a LocalApp-only protocol.
+                        _ => break,
+                    },
+                    line = outgoing.recv() => {
+                        let Some(line) = line else { break };
+                        if sink.send(Message::Text(line.trim_end_matches('\n').to_owned().into())).await.is_err() { break }
                     }
-                    Some(Ok(Message::Ping(bytes))) => {
-                        if sink.send(Message::Pong(bytes)).await.is_err() { break }
-                    }
-                    Some(Ok(Message::Pong(_))) => {},
-                    // Binary uploads are a LocalApp-only protocol.
-                    _ => break,
-                },
-                line = outgoing.recv() => {
-                    let Some(line) = line else { break };
-                    if sink.send(Message::Text(line.trim_end_matches('\n').to_owned().into())).await.is_err() { break }
                 }
             }
-        }
-    };
-    let transport = async {
-        tokio::select! {
+        };
+        let restarting = tokio::select! {
             biased;
-            _ = stopped(&mut stop) => {},
-            _ = revoked => {},
-            _ = network => {},
-        }
+            () = restart.normal() => false,
+            () = restart.closing() => true,
+            _ = stopped(&mut stop) => false,
+            _ = revoked => false,
+            _ = network => false,
+        };
+        super::ws_shutdown::close(&mut sink, restarting).await;
+        drop(input);
     };
     tokio::join!(transport, super::serve_connection_device(hub, incoming, output, device));
 }

@@ -213,3 +213,67 @@ fn close_screen_detaches_view_without_closing_terminal_host() {
         TerminalLifecycle::Tombstoned
     );
 }
+
+/// TUL-F7 (STATUS 6748): under the L1 storm the close of a terminal whose
+/// tab the CLI had closed (the reaper ends the detached terminal) held the
+/// session lock 278 ms: with no view left, it still ran the full topology
+/// projection (every workspace, screen, pane, tab and terminal) under the
+/// registry and session locks to produce one terminal tombstone. A close
+/// of a terminal with no view reads no topology and runs no projection.
+#[cfg(unix)]
+#[test]
+fn closing_a_terminal_with_no_view_runs_no_full_projection() {
+    const TERMINAL: &str = "00000000000040008000000000000031";
+    const INCARNATION: &str = "10000000000040008000000000000031";
+    let mux = test_mux();
+    for _ in 0..3 {
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+    }
+    let workspace = mux
+        .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001031".into()), None)
+        .unwrap();
+    let surface =
+        insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
+    let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+    assert!(mux.close_pane(pane).unwrap());
+    assert_eq!(mux.with_state(|state| state.pane_of(surface.id)), None, "the view is gone");
+    let full = |mux: &Mux| {
+        serde_json::to_value(mux.resource_projection_stats()).unwrap()["full_projections"]
+            .as_u64()
+            .unwrap_or(0)
+    };
+    let (projections, reads) = (full(&mux), WorkspaceRegistry::full_topology_reads_for_test());
+
+    mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+
+    assert_eq!(full(&mux), projections, "the close ran a full projection");
+    assert_eq!(
+        WorkspaceRegistry::full_topology_reads_for_test(),
+        reads,
+        "the close read the whole topology"
+    );
+    assert!(mux.surface(surface.id).is_none());
+    let registry = mux.workspace_registry.lock().unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Tombstoned
+    );
+    assert_eq!(
+        registry.terminal_resource_id(TERMINAL).unwrap(),
+        None,
+        "the public terminal row is retired"
+    );
+    let topology = registry.resource_topology_snapshot().unwrap();
+    drop(registry);
+    let full_after = mux.resource_effect_projection().unwrap();
+    let registry = mux.workspace_registry.lock().unwrap();
+    let db = registry.connection.get();
+    let transaction = db.unchecked_transaction().unwrap();
+    let written = crate::workspace_registry::resource_store::prune_unchanged_resource_changes(
+        &transaction,
+        &full_after.patch,
+    )
+    .unwrap();
+    assert!(written.changes.is_empty(), "the close left rows for a full projection: {written:?}");
+    assert!(!topology.tabs.is_empty(), "the other workspaces' tabs stay stored");
+}

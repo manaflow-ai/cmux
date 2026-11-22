@@ -35,18 +35,23 @@ public struct SessionStateMirror: Sendable, Hashable {
         /// Marked unread by hand (Mark Tab Unread, `extra.marked_unread`, tab-mark-unread-v1),
         /// apart from notification markers.
         public var markedUnread: Bool
+        /// An agent needs the person to act in this tab (`extra.attention`, tab-attention-v1), or nil.
+        public var attention: TabAttention?
 
         public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
-                    emulation: JSONValue? = nil, markedUnread: Bool = false) {
+                    emulation: JSONValue? = nil, markedUnread: Bool = false, attention: TabAttention? = nil) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
             self.icon = icon
             self.emulation = emulation
             self.markedUnread = markedUnread
+            self.attention = attention
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread }
+        var isEmpty: Bool {
+            zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread && attention == nil
+        }
     }
 
     /// Newest first, at most `closedLimit`.

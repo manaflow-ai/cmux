@@ -36,7 +36,7 @@ export const vmCases = (h: {
   kase("vm.event.emit.rate_limited", "cloud.vm.event.emit", { machine: vm(1), kind: "service.port.opened", at: 1790000010000, data: { port: 3000, proto: "tcp" } }, [vmErr("cloud.vm.event.emit", "cloud.rate_limited", "too many VM events; slow down", { retry_after_ms: 100 })], opts("10 per second, burst 50 per install; wait retry_after_ms."))
   kase("vm.event.emit.invalid", "cloud.vm.event.emit", { machine: vm(1), kind: "notification", at: 1790000010000, data: { title: "x", url: "https://example.com" } }, [vmErr("cloud.vm.event.emit", "validation.invalid", "invalid data for notification")], opts("Unknown fields, unknown kinds and data over 4 KB are refused."))
 
-  events.push({ name: "machine.upsert.no_report", event: "cloud.machine.upsert", stream, seq: seq(), data: { machine: { ...M1, status: "paused", pause_reason: "no_report", revision: "57" } }, note: "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason." })
+  events.push({ name: "machine.upsert.no_report", event: "cloud.machine.upsert", stream, seq: seq(), data: { machine: { ...M1, status: "paused", pause_reason: "no_report", running_since: null, revision: "57" } }, note: "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason." })
   const at = 1790000020000
   const kinds: Array<[string, Obj]> = [
     ["agent.started", { title: "Fix the flaky test", agent: "claude", session: "s1" }],

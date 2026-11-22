@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,16 +11,23 @@ import Testing
 /// nested group), one member hovered so its close shows, at every `sidebar.density`, dark and light.
 /// Written under `sidebar-look-gallery/` with `all.png` (dark on top, light below), bundled to
 /// `sidebar-look-gallery.tar` for `cmux-ci run --artifact`, so a before and an after run compare.
-@MainActor @Suite(.serialized) struct AASidebarLookGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarLookGalleryTests {
     static let hovered = SidebarRowKey.workspace(WorkspaceID("w-align"))
 
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        func ws(_ id: String, _ title: String, busy: Bool = false) -> SidebarWorkspace {
-            SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, activity: busy ? .busy(progress: nil) : .idle)
+        func ws(_ id: String, _ title: String, busy: Bool = false, tabs: [SidebarTab] = []) -> SidebarWorkspace {
+            var workspace = SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title,
+                                             activity: busy ? .busy(progress: nil) : .idle)
+            workspace.tabs = tabs
+            return workspace
         }
         var app = SidebarGroup(id: GroupID("g-app"), name: "cmux-next app", color: .blue, workspaces: [
-            ws("reopen", "Reopen closes all", busy: true), ws("align", "Group bar left alignment", busy: true),
+            ws("reopen", "Reopen closes all", busy: true),
+            ws("align", "Group bar left alignment", busy: true, tabs: [
+                SidebarTab(id: TabID("align-shell"), title: "shell"),
+                SidebarTab(id: TabID("align-browser"), title: "browser", isUnread: true),
+            ]),
             ws("update", "Update stuck Installing", busy: true), ws("deep", "Group bar alignment, deep nesting"),
         ])
         app.icon = .emoji("😇")
@@ -29,7 +37,9 @@ import Testing
             .workspace(ws("cef", "Slimmer CEF bundle")),
             .workspace(SidebarWorkspace(id: WorkspaceID("w-rocket"), title: "Ship it", icon: .emoji("🚀"))),
             .group(app),
-            .group(SidebarGroup(id: GroupID("g-panes"), name: "Panes & layout", color: .cyan, workspaces: [ws("split", "Split spring")])),
+            .group(SidebarGroup(id: GroupID("g-panes"), name: "Panes & layout", color: .cyan, workspaces: [
+                ws("split", "Split spring", tabs: [SidebarTab(id: TabID("split-terminal"), title: "terminal")]),
+            ])),
             .group(perf),
             .workspace(ws("loose", "New Chief shows in Home")),
         ])]

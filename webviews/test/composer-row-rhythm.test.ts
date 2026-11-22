@@ -3,7 +3,7 @@
 // chat's…'. Use one consistent gap, group related controls, and right-align the trailing cluster").
 //
 // The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
-// prompt and [↵ · Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
+// prompt and [Send or Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
 // composer); the quiet row under it is [permission mode · Plan] ……… [model]. The model button names
 // its effort too ("Opus 5.5  Medium", Leo 2026-10-20): there is no effort chip.
 // Each row keeps the rhythm on its own.
@@ -28,6 +28,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Span = { left: number; right: number; bottom?: number };
 type Control = {
@@ -43,19 +44,26 @@ type Row = { bar: Span; content: Span; controls: Control[] };
 
 await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   /** Runs in the page: each visible control of the row and what it draws. */
-  function measure(selector: string): Row {
+  function measure({
+    selector,
+    MODEL_PICKER,
+    PLUS_PICKER,
+  }: {
+    selector: string;
+    MODEL_PICKER: string;
+    PLUS_PICKER: string;
+  }): Row {
     const bar = document.querySelector<HTMLElement>(selector)!;
     const barRect = bar.getBoundingClientRect();
     const barBottom = barRect.bottom;
     const style = getComputedStyle(bar);
     const named: [string, string][] = [
-      ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
-      ["model", ".acpmux-model .acpmux-picker-button"],
+      ["plus", PLUS_PICKER],
+      ["model", MODEL_PICKER],
       ["mode", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
-      ["steer", ".acpmux-steer-now"],
       ["mic", ".acpmux-mic"],
-      ["send", ".acpmux-send:not(.acpmux-steer-now)"],
+      ["send", ".acpmux-send"],
     ];
     const shown = (element: Element) => {
       for (let node: Element | null = element; node && node !== bar; node = node.parentElement) {
@@ -76,7 +84,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^)]+)\)/)?.[1] ?? "NaN")
           : undefined;
       const disc = getComputedStyle(element).backgroundColor;
-      if ((name === "send" || name === "steer") && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
+      if (name === "send" && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
         parts.push({ kind: "disc", left: rect.left, right: rect.right, bottom: rect.bottom });
       else {
         const walk = (node: Node) => {
@@ -165,7 +173,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     await vite?.close();
   });
 
-  /** A running Claude chat with a prompt typed, so the mic, ↵ and Stop all show. */
+  /** A running Claude chat with a prompt typed, so the mic and the one Send show. */
   const row = async (width: number, scheme: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL("queued", scheme));
@@ -173,19 +181,19 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
     await page.keyboard.type("Also cover the 503 path");
-    await page.locator(".acpmux-steer-now").waitFor();
+    await page.locator(".acpmux-composer-box .acpmux-send:not(.acpmux-cancel)").waitFor();
     await page.evaluate(() => document.fonts.ready);
     // Let the row's fit pass (composerRowFit.ts) settle after the typed text.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     // The box's own controls lay out in the box itself (the bar draws no box of its own).
-    const inner = await page.evaluate(measure, ".acpmux-composer-box");
-    const foot = await page.evaluate(measure, ".acpmux-composer-foot");
+    const inner = await page.evaluate(measure, { selector: ".acpmux-composer-box", MODEL_PICKER, PLUS_PICKER });
+    const foot = await page.evaluate(measure, { selector: ".acpmux-composer-foot", MODEL_PICKER, PLUS_PICKER });
     await page.close();
     return { inner, foot };
   };
 
   // The leading groups, then the trailing cluster (last) of each row.
-  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["steer", "mic", "send"]];
+  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["send", "mic"]];
   const TRAILING = new Set([2, 3]);
   const group = (name: string) => GROUPS.findIndex((members) => members.includes(name));
   const drawn = (control: Control): Span => ({
@@ -293,13 +301,13 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         }
         const names = (measured: Row) => measured.controls.map((control) => control.name);
         // The mic may leave a short row; the rest always shows, each in its row.
-        for (const name of ["plus", "steer", "send"])
+        for (const name of ["plus", "send"])
           if (!names(rows.inner).includes(name)) problems.push(`${name} is not in the box's row`);
         for (const name of ["model", "mode"])
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
         // The box's columns (composer-alignment-centers.test.ts, Leo's report 2026-10-27, which
         // replaced Claude desktop's 16 px + glyph inset of 2026-10-20): the + button and the last
-        // control (the mic; Stop sits left of it) are 28 px boxes 8 px in from the box's sides, so
+        // control (the mic; Send or Stop sits left of it) are 28 px boxes 8 px in from the box's sides, so
         // the + glyph's center and the last control's center both sit 22 px in. Their distance off
         // the bottom centers them on the prompt's last line, which follows the chat's font size
         // (#26523), so it no longer equals the side inset.

@@ -1,52 +1,52 @@
 #if os(iOS)
 import AVFoundation
-import CmuxMobileSupport
+import CmuxMobileDesign
+import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and a mic in 40 pt glass
-/// circles, then the growing field in a rounded glass container with the send
+/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
+/// glass circles, then the growing field in a rounded glass container with the send
 /// circle inside it, riding the last line. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
+/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
-    /// On-device dictation into the field (classic's controller, shared).
-    /// Owned here so it never outlives the composer: it stops on send, on
-    /// focus loss and when the composer goes away.
-    @State private var dictation = ComposerDictationController()
+    private let voice = AgentVoiceLauncher.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if model.isScrolledUp {
-                // In the stack, not over the rows: a floating button hid the
-                // end of the lines under it (Codex QA F3).
-                Button {
-                    model.scrollToBottom()
-                } label: {
-                    Label("Jump to bottom", systemImage: "arrow.down")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("Scroll to bottom")
-                .transition(.opacity)
-            }
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
+            }
+            if let line = model.connectionLine {
+                // The connection's one quiet line, after 10 s of an outage; the
+                // page keeps its last frame meanwhile (no pill over it).
+                HStack(spacing: 6) {
+                    Text(verbatim: line)
+                    if let retry = model.reconnect {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("terminal.connectionLine")
             }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
@@ -62,36 +62,36 @@ struct TerminalComposer: View {
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
-                    micButton
+                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
                     fieldContainer
                 }
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Always its own height, never the hosting view's current one (kept
+        // from #41900): the hosting view takes a taller row's height a pass
+        // after SwiftUI measures it, and a min-height frame offered less
+        // takes the offer. The draft that ran below the field (user reports
+        // 2026-11-12 and 2026-11-13) came from the text view's old sizing,
+        // which `ComposerReturnTextView.fittingSize` replaced;
+        // ComposerGrowUpUITests holds the field's bottom edge in place.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
+        // Measured here, on the card, before the frame below.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
-        .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        // Grows up from the keyboard: the frame takes the hosting view's
+        // height, so until the view takes a taller card's height (the pass
+        // after it is measured) the card overflows upward from the bottom
+        // edge, never centered half below it over the keyboard (Leo,
+        // 2026-11-12: "whoa it go down"). With no height offered (the
+        // intrinsic size) the frame is the card's own height.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
-        .onChange(of: model.composerFocused) { _, focused in
-            // The person moved on: keep what was said (a graceful stop), unless
-            // dictation's own field lock took the focus.
-            if !focused, !dictation.locksComposerField { dictation.stop() }
-        }
-        .onDisappear { dictation.cancel() }
-        // Closing the composer or Hide Toolbar only hides this view, so it
-        // never disappears: the mic stops here instead.
-        .onChange(of: model.composerPresented && !model.chromeHidden) { _, shown in
-            if !shown { dictation.cancel() }
-        }
-        // Shown with a fade; gone at once when following starts (a Jump to
-        // bottom tap: qa11 wt-fling-c, the row still drawn after the page
-        // reached the bottom, and the card shrinking over 0.2 s moved the
-        // page's inset on every frame of the jump).
-        .animation(model.isScrolledUp ? .smooth(duration: 0.2) : nil, value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -134,29 +134,27 @@ struct TerminalComposer: View {
         } label: {
             ComposerCircleLabel(systemImage: "paperclip")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
     }
 
-    /// The mic: on-device dictation into the field (classic). Listening, it
-    /// is a pulsing red filled mic and the field is locked so a typed edit is
-    /// never overwritten by the next result.
-    private var micButton: some View {
-        let listening = dictation.state.isListening
+    /// Voice mode on this terminal's agent (replaces classic's dictation
+    /// mic): its replies read aloud, the user's speech typed in as prompts.
+    /// Filled and moving while it runs here; a tap ends it.
+    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
         return Button {
-            dictation.toggle(existingText: model.composerText) { merged in
-                model.composerText = merged
-            }
+            voice.toggle(source)
         } label: {
-            ComposerCircleLabel(systemImage: listening ? "mic.fill" : "mic",
-                                foreground: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.primary.opacity(0.78)))
-                .symbolEffect(.pulse, isActive: listening)
+            ComposerCircleLabel(systemImage: "waveform",
+                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                tint: active ? Color.cmuxMobileAccent : nil)
+                .symbolEffect(.variableColor.iterative, isActive: active)
         }
-        .buttonStyle(.plain)
-        .disabled(!dictation.isAvailable)
-        .accessibilityLabel(listening ? "Stop dictation" : "Start dictation")
-        .accessibilityIdentifier("terminal.composer.mic")
+        .buttonStyle(.cmuxPressFill)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     /// The field and its send circle share one rounded glass container; the
@@ -168,7 +166,7 @@ struct TerminalComposer: View {
                 placeholder: model.composerPlaceholder,
                 focusRequest: model.composerFocusRequest,
                 focusOnAppear: model.composerFocusOnAppear,
-                isDisabled: dictation.locksComposerField,
+                isDisabled: false,
                 onFocusChange: { isFocused in
                     model.composerFocused = isFocused
                     if isFocused { model.composerFocusOnAppear = false }
@@ -176,14 +174,20 @@ struct TerminalComposer: View {
                     model.controller?.inputFocusChanged()
                 },
                 onReturn: { send() },
-                shouldInsert: { model.composerShouldInsert($0) }
+                shouldInsert: { model.composerShouldInsert($0) },
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
             sendButton
+                .padding(.vertical, TerminalDockMetrics.fieldPadding)
         }
         .padding(.leading, 14)
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
+        // No vertical padding around the text: the text view runs from the
+        // field's top edge to its bottom edge (`textVerticalInset` keeps the
+        // text off them), so a scrolled draft is cut exactly at the edge. The
+        // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
@@ -195,28 +199,27 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(.white)
+                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.small)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(canSend || failed ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(0.35)))
+                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.35)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: glass tinted with the accent;
-            // empty, plain glass (classic's accent and quiet fills, as glass).
+            // ↑ (send) is the primary action: glass tinted with the
+            // monochrome accent, never blue (design/ios.md); empty, plain glass.
             // Empty (disabled): plain glass that does not react to a touch.
             .glassEffect(failed ? .regular.tint(.red).interactive()
-                         : canSend || model.isUploading ? .regular.tint(Color(uiColor: .systemBlue)).interactive()
+                         : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
-            .animation(.smooth(duration: 0.2), value: canSend)
+            .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
-                dictation.cancel()
                 model.sendWithoutReturn()
             }
         }
@@ -224,10 +227,7 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.send")
     }
 
-    /// Dictation stops before a send, so the draft sent is the field's text
-    /// now and no late result writes into the cleared field (classic).
     private func send() {
-        dictation.cancel()
         model.send()
     }
 
@@ -237,6 +237,12 @@ struct TerminalComposer: View {
     /// pasteboard here is the person's own tap on Paste.
     private func pasteFromClipboard() {
         let board = UIPasteboard.general
+        // A file copied in Files is its bytes on the pasteboard, not a path.
+        if board.composerHoldsFileData {
+            let providers = board.itemProviders
+            Task { await loadPastedFiles(providers) }
+            return
+        }
         let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
                                              string: board.hasStrings ? board.string : nil)
         switch route {
@@ -277,25 +283,35 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Files are read now, while the picker's security scope is open.
+    /// Copied files, as Files would attach them (uploaded on send).
+    private func loadPastedFiles(_ providers: [NSItemProvider]) async {
+        let pasted = await ComposerPastedFiles.load(providers)
+        if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
+        for file in pasted.files {
+            let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+            let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
+            model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
+                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: file.byteCount, data: file.data, fileURL: file.fileURL))
+        }
+    }
+
+    /// Files of any size keep their URL, and each later reader reopens the
+    /// picker's security scope (`ScopedFile`): the preview while it is open,
+    /// the upload while it streams. The thumbnail and size are read now, in scope.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let access = ScopedFile(url).open()
+            defer { access.close() }
             let type = UTType(filenameExtension: url.pathExtension) ?? .data
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
             let kind: ComposerAttachment.Kind = type.conforms(to: .image) ? .image : type.conforms(to: .movie) ? .video : .file
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                model.attachmentError = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
-                continue
-            }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 model.attachmentError = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, data: data))
+            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail,
+                                                   byteCount: size, fileURL: url))
         }
     }
 
@@ -319,13 +335,15 @@ struct TerminalComposer: View {
 struct ComposerCircleLabel: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
+    /// On (voice mode running): glass tinted like the send circle.
+    var tint: Color?
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassSurface(in: .circle)
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
             .contentShape(.circle)
     }
 }
@@ -385,7 +403,7 @@ struct AttachmentStrip: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressGlass)
                             .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }

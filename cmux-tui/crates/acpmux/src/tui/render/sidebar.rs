@@ -6,6 +6,7 @@
 //! line per session with a status mark at the right edge, and "Add host"
 //! pinned to the bottom. No vertical rule: the shade is the edge.
 
+use super::super::session_route_id;
 use super::*;
 
 enum Entry {
@@ -224,8 +225,8 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 let name = name_owned.as_str();
                 let status = s.get("status").and_then(Value::as_str).unwrap_or("");
                 let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
-                let sid = s.get("sessionId").and_then(Value::as_str).unwrap_or("");
-                let dot = app.attention.get(sid).copied().unwrap_or(0);
+                let sid = session_route_id(s).unwrap_or_default();
+                let dot = app.attention.get(&sid).copied().unwrap_or(0);
                 let hot = hovered_row(app.hover, y);
                 let row_style = if is_sel {
                     ground.bg(c.sidebar_selected_bg).fg(c.sidebar_selected_fg)

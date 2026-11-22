@@ -169,7 +169,19 @@ async fn connect(
 ) -> (Result<ClientWs>, tokio::task::JoinHandle<Result<()>>) {
     let (client, server) = tokio::io::duplex(65536);
     let (tls, client_tls) = certificates();
-    let run = tokio::spawn(connection(h, server, tls, NAME, stop));
+    // This harness has no listener to close: forward the shared request once accepted,
+    // with the same per-listener latch and registration used by serve.
+    let run = tokio::spawn(async move {
+        let (restart, _draining) = h.ws_shutdown.listener();
+        let signal = restart.clone();
+        let closer = tokio::spawn(async move {
+            signal.requested().await;
+            signal.close_clients();
+        });
+        let result = connection(h, server, tls, NAME, stop, restart).await;
+        closer.abort();
+        result
+    });
     let sni = rustls::pki_types::ServerName::try_from(sni.to_owned()).unwrap();
     let opened = async {
         let tls = tokio_rustls::TlsConnector::from(client_tls).connect(sni, client).await?;
@@ -225,6 +237,9 @@ async fn tailnet_ingress_wss_redeems_once_and_reconnects_as_the_paired_device() 
     assert_eq!(hello["result"]["_meta"]["acpmux"]["auth"], "device");
     assert_eq!(hello["result"]["_meta"]["acpmux"]["origin"], "peer");
     stop.send_replace(true);
+    let close =
+        tokio::time::timeout(Duration::from_secs(2), ws.next()).await.unwrap().unwrap().unwrap();
+    assert_eq!(close, Message::Close(None), "explicit tailnet stop is not service restart");
     tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap().unwrap();
     assert_eq!(h.pairing.list()["devices"][0]["connections"], 0);
 }
@@ -244,7 +259,14 @@ async fn tailnet_ingress_bounds_a_silent_tls_peer() {
     let (client, server) = tokio::io::duplex(64);
     let (tls, _) = certificates();
     let (_stop, stopped) = watch::channel(false);
-    let run = tokio::spawn(connection(hub(), server, tls, NAME, stopped));
+    let run = tokio::spawn(connection(
+        hub(),
+        server,
+        tls,
+        NAME,
+        stopped,
+        crate::server::WsShutdown::default(),
+    ));
     assert!(run.await.unwrap().is_err());
     drop(client);
 }
@@ -269,7 +291,86 @@ async fn tailnet_ingress_logout_cancels_a_silent_handshake() {
     let (_client, server) = tokio::io::duplex(64);
     let (tls, _) = certificates();
     let (stop, stopped) = watch::channel(false);
-    let run = tokio::spawn(connection(hub(), server, tls, NAME, stopped));
+    let run = tokio::spawn(connection(
+        hub(),
+        server,
+        tls,
+        NAME,
+        stopped,
+        crate::server::WsShutdown::default(),
+    ));
     stop.send_replace(true);
     tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn tailnet_restart_drains_device_and_waiting_ticket_with_1012() {
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+    for ticket_connection in [false, true] {
+        let h = hub();
+        let mut req = format!("wss://{NAME}/").into_client_request().unwrap();
+        let secret = if ticket_connection {
+            let secret = ticket(&h, h.person.instance());
+            req.headers_mut().insert(TICKET_HEADER, secret.parse().unwrap());
+            Some(secret)
+        } else {
+            let (_, token) = h.pairing.issue("restart-device", Role::Client).unwrap();
+            req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+            None
+        };
+        let (_stop, stopped) = watch::channel(false);
+        let (opened, run) = connect(h.clone(), req, NAME, stopped).await;
+        let mut ws = opened.unwrap();
+        if !ticket_connection {
+            rpc(&mut ws, "initialize", json!({"protocolVersion":1})).await;
+        }
+        // No logout or node close: the daemon requests transport drain first.
+        h.ws_shutdown.restart();
+        let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let Message::Close(Some(close)) = frame else { panic!("expected 1012, got {frame:?}") };
+        assert_eq!(close.code, CloseCode::Restart);
+        tokio::time::timeout(Duration::from_secs(2), h.ws_shutdown.drained()).await.unwrap();
+        run.await.unwrap().unwrap();
+        if let Some(secret) = secret {
+            assert!(
+                h.pairing.ticket_open(&secret, h.person.instance()),
+                "shutdown did not redeem/revoke the ticket"
+            );
+        } else {
+            assert_eq!(h.pairing.list()["devices"][0]["connections"], 0);
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn tailnet_restart_interrupts_a_blocked_reply_write() {
+    use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role as WsRole};
+    let h = hub();
+    let (_, token) = h.pairing.issue("blocked-reader", Role::Client).unwrap();
+    let device = h.pairing.device_for(&token).unwrap();
+    let (ours, theirs) = tokio::io::duplex(64);
+    let ws = WebSocketStream::from_raw_socket(ours, WsRole::Server, None).await;
+    let mut client = WebSocketStream::from_raw_socket(theirs, WsRole::Client, None).await;
+    let (_stop, stopped) = watch::channel(false);
+    let restart = super::super::WsShutdown::default();
+    let serving = tokio::spawn(device_connection(h, ws, device, stopped, restart.clone()));
+    client
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    // Read just the frame prefix; the initialize reply is larger than the 64-byte pipe.
+    // Leave the rest unread, proving the server is already blocked in its send.
+    use tokio::io::AsyncReadExt;
+    let mut prefix = [0u8; 2];
+    client.get_mut().read_exact(&mut prefix).await.unwrap();
+    restart.close_clients();
+    let before = tokio::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap();
+    assert!(before.elapsed() <= Duration::from_secs(1), "blocked send outlived close budget");
 }

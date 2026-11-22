@@ -5,6 +5,7 @@
 // daemon's socket: the open holds one page, and the older pages bring every turn once, in order.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,7 +19,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -29,11 +31,13 @@ type Snapshot = { sessionId?: string; rows: { kind: string; text?: string }[]; c
 test("a long mock chat opens on its newest page and pages back to its first message", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const TURNS = 300;
+  const TURNS = 1200;
   let snapshot: Snapshot | undefined;
+  let snapshots = 0;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (next) => {
+      snapshots += 1;
       snapshot = next as unknown as Snapshot;
     },
     undefined,
@@ -53,9 +57,143 @@ test("a long mock chat opens on its newest page and pages back to its first mess
     // Older pages, as the reader scrolls up, until the first message.
     for (let pages = 0; snapshot?.canLoadOlder && pages < TURNS; pages += 1) await client.loadOlder();
     expect(snapshot?.canLoadOlder).toBe(false);
+    // Older pages are published incrementally. The count remains proportional to the bounded
+    // page count rather than one render per event or one whole-log replay.
+    expect(snapshots).toBeGreaterThan(1);
+    expect(snapshots).toBeLessThan(TURNS / 4);
     const all = prompts();
     expect(all.length).toBe(TURNS);
     all.forEach((text, turn) => expect(text).toStartWith(`Turn ${turn}:`));
+  } finally {
+    client.close();
+  }
+});
+
+test("disconnect cancels an older-page backoff while the mounted session waits to reconnect", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  let pageRequests = 0;
+  let failPages = true;
+  let pagingArmed = false;
+  class DisconnectingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as {
+        answer: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+      };
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (pagingArmed && method === "_acpmux/events" && params.beforeSeq !== undefined) {
+          pageRequests += 1;
+          if (failPages) return Promise.reject(new Error("page disconnected"));
+        }
+        return answer(method, params);
+      };
+    }
+  }
+  let socket: DisconnectingHost | undefined;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => {
+      socket = new DisconnectingHost();
+      return socket as unknown as WebSocket;
+    },
+  );
+  try {
+    const session = socket!.seedLoadSession(30);
+    await client.select(session);
+    pagingArmed = true;
+    await client.loadOlder().catch(() => undefined);
+    const waiting = client.loadOlder();
+    // The mounted transcript still has the old `loadOlder` callback while the socket is down.
+    socket!.readyState = 3;
+    socket!.onclose?.();
+    const settled = await Promise.race([
+      waiting.then(
+        () => true,
+        () => true,
+      ),
+      // fixed-wait: give the cancelled request a bounded chance to settle before asserting.
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]);
+    expect(settled).toBe(true);
+    expect(pageRequests).toBe(1);
+
+    // A new active connection may page once; the cancelled request must not restart itself.
+    // The reader may legitimately consume several capped pages in one ask, so assert progress
+    // rather than a transport-specific request count.
+    const requestsWhileDisconnected = pageRequests;
+    socket!.readyState = 1;
+    failPages = false;
+    await client.loadOlder();
+    expect(pageRequests).toBeGreaterThan(requestsWhileDisconnected);
+  } finally {
+    client.close();
+  }
+});
+
+test("disconnect cancels an older-page backoff while the mounted session waits to reconnect", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  let pageRequests = 0;
+  let failPages = true;
+  let pagingArmed = false;
+  class DisconnectingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as {
+        answer: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+      };
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (pagingArmed && method === "_acpmux/events" && params.beforeSeq !== undefined) {
+          pageRequests += 1;
+          if (failPages) return Promise.reject(new Error("page disconnected"));
+        }
+        return answer(method, params);
+      };
+    }
+  }
+  let socket: DisconnectingHost | undefined;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => {
+      socket = new DisconnectingHost();
+      return socket as unknown as WebSocket;
+    },
+  );
+  try {
+    const session = socket!.seedLoadSession(30);
+    await client.select(session);
+    pagingArmed = true;
+    await client.loadOlder().catch(() => undefined);
+    const waiting = client.loadOlder();
+    // The mounted transcript still has the old `loadOlder` callback while the socket is down.
+    socket!.readyState = 3;
+    socket!.onclose?.();
+    const settled = await Promise.race([
+      waiting.then(
+        () => true,
+        () => true,
+      ),
+      // fixed-wait: give the cancelled request a bounded chance to settle before asserting.
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]);
+    expect(settled).toBe(true);
+    expect(pageRequests).toBe(1);
+
+    // A new active connection may page once; the cancelled request must not restart itself.
+    // The reader may legitimately consume several capped pages in one ask, so assert progress
+    // rather than a transport-specific request count.
+    const requestsWhileDisconnected = pageRequests;
+    socket!.readyState = 1;
+    failPages = false;
+    await client.loadOlder();
+    expect(pageRequests).toBeGreaterThan(requestsWhileDisconnected);
   } finally {
     client.close();
   }

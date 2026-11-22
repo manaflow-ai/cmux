@@ -20,6 +20,7 @@
 
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::protocol::{DriverError, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::PoisonError;
@@ -200,7 +201,7 @@ impl Inner {
         };
         self.run_in(run_id, &target)?;
         let mut params = params.clone();
-        params["targetId"] = json!(target);
+        params.set("targetId", json!(target));
         let result = self.net_fetch_in_tab(&params, run_id);
         drop(opened);
         result
@@ -381,8 +382,11 @@ impl Inner {
         }
         let mut value = result?;
         if !relaxed.is_empty() {
-            value["corsRelaxed"] = Value::Array(
-                relaxed.into_iter().map(|r| json!({"url": r.url, "what": r.what})).collect(),
+            value.set(
+                "corsRelaxed",
+                Value::Array(
+                    relaxed.into_iter().map(|r| json!({"url": r.url, "what": r.what})).collect(),
+                ),
             );
         }
         Ok(value)
@@ -440,7 +444,7 @@ impl Inner {
                 "redirected": false, "headers": [], "bodyBase64": "",
                 "redirect": {"status": status, "location": location}});
             if let Some(ip) = self.response_address(session, &url, params) {
-                result["remoteIPAddress"] = json!(ip);
+                result.set("remoteIPAddress", json!(ip));
             }
             return Ok(result);
         }
@@ -476,7 +480,7 @@ impl Inner {
             "bodyBase64": body,
         });
         if let Some(ip) = remote_ip {
-            result["remoteIPAddress"] = json!(ip);
+            result.set("remoteIPAddress", json!(ip));
         }
         Ok(result)
     }

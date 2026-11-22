@@ -32,7 +32,8 @@
    "result": {
     "peers": [
      {
-      "name": "a"
+      "name": "a",
+      "transport": "ws"
      },
      {
       "name": "b"
@@ -115,6 +116,703 @@
    "jsonrpc": "2.0",
    "id": null,
    "result": {}
+  }
+ },
+ {
+  "name": "peer reconnect keeps each peer's name, state and error, never its endpoint",
+  "method": "_acpmux/peer_reconnect",
+  "page_id": "8",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 41,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "url": "wss://studio.example/acpmux?token=s",
+      "connected": false,
+      "state": "failed",
+      "error": "doctor: host unreachable",
+      "attempts": 3
+     },
+     {
+      "name": "box",
+      "state": "connected",
+      "url": "ssh://box"
+     }
+    ],
+    "token": "s"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 8,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "transport": "wss",
+      "connected": false,
+      "state": "failed",
+      "attempts": 3,
+      "error": "doctor: host unreachable"
+     },
+     {
+      "name": "box",
+      "transport": "ssh",
+      "state": "connected"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "peer snapshot keeps each peer's name, state, lastSeen and error, never its endpoint or a boolean lastSeen",
+  "method": "_acpmux/peers",
+  "page_id": "9",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 42,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "url": "ssh://studio",
+      "token": "s",
+      "state": "restarting",
+      "lastSeen": 1793357781599,
+      "error": "daemon restarting",
+      "attempts": 2
+     },
+     {
+      "name": "box",
+      "state": "connected",
+      "lastSeen": true,
+      "error": null
+     }
+    ],
+    "token": "s"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 9,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "state": "restarting",
+      "lastSeen": 1793357781599,
+      "error": "daemon restarting"
+     },
+     {
+      "name": "box",
+      "state": "connected"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: each peer keeps its name, transport and connected, never its URL (Swift AgentPaneStatusReplyShapeTests)",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "gpu-box",
+      "url": "ssh://dev@gpu-box",
+      "connected": true
+     },
+     {
+      "name": "cloud-1",
+      "url": "wss://cloud-1.cmux.dev/acp?token=secret",
+      "connected": false
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "gpu-box",
+      "transport": "ssh",
+      "connected": true
+     },
+     {
+      "name": "cloud-1",
+      "transport": "wss",
+      "connected": false
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: each peer keeps its link state, lastSeen and attempts",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "laptop",
+      "url": "ssh://me@laptop",
+      "connected": false,
+      "state": "reconnecting",
+      "lastSeen": 1792600000000,
+      "attempts": 4,
+      "downSince": 1792600001000,
+      "error": "refused"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "laptop",
+      "transport": "ssh",
+      "connected": false,
+      "state": "reconnecting",
+      "lastSeen": 1792600000000,
+      "attempts": 4
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a lastSeen or attempts that is not a number is dropped",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "one",
+      "lastSeen": true,
+      "attempts": "3"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "one"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a connected that is not a boolean is dropped",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "one",
+      "connected": 1
+     },
+     {
+      "name": "yes",
+      "connected": "true"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "one"
+     },
+     {
+      "name": "yes"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: an unknown scheme or a missing url leaves only the name",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "odd",
+      "url": "file:///etc/passwd"
+     },
+     {
+      "name": "bare"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "odd"
+     },
+     {
+      "name": "bare"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: cached health keeps only the warning inputs",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "worker",
+      "health": {
+       "load": [
+        14.0,
+        3.0,
+        2.0
+       ],
+       "cpus": 16,
+       "ram": {
+        "freeBytes": 1200000000,
+        "totalBytes": 32000000000
+       },
+       "host": "private-host",
+       "disk": {
+        "freeBytes": 99
+       },
+       "liveSessions": 5,
+       "pressure": {
+        "cores": 10,
+        "load_limit": 10.0,
+        "ok": false,
+        "over": [
+         "available RAM 7% < 10%"
+        ],
+        "host": "private-host",
+        "warning": "private detail"
+       }
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "worker",
+      "health": {
+       "load": [
+        14.0,
+        3.0,
+        2.0
+       ],
+       "cpus": 16,
+       "ram": {
+        "freeBytes": 1200000000
+       },
+       "pressure": {
+        "cores": 10,
+        "load_limit": 10.0,
+        "ok": false,
+        "over": [
+         "available RAM 7% < 10%"
+        ]
+       }
+      }
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: an upper-case scheme reports in lower case",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "url": "WSS://host/x"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "transport": "wss"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a url that is not a valid URL reports no transport",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "url": "ssh://host with space"
+     },
+     {
+      "name": "b",
+      "url": "ws://x/%zz"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "a"
+     },
+     {
+      "name": "b"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a url that is not a string reports no transport",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "url": 7
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "a"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: an http url reports no transport",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "a",
+      "url": "http://host"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "a"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "peer reconnect keeps doctor state but drops peer endpoints and metadata",
+  "method": "_acpmux/peer_reconnect",
+  "page_id": "8",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "cloud-1",
+      "url": "wss://cloud-1.cmux.dev/?token=secret",
+      "connected": false,
+      "state": "offline",
+      "error": "doctor refused",
+      "health": {
+       "host": "hidden"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 8,
+   "result": {
+    "peers": [
+     {
+      "name": "cloud-1",
+      "transport": "wss",
+      "connected": false,
+      "state": "offline",
+      "error": "doctor refused"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status error: an integral float code is that integer",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": 2.0,
+    "message": "no"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "error": {
+    "code": 2,
+    "message": "no"
+   }
+  }
+ },
+ {
+  "name": "status error: a boolean code reads as 1, as Swift reads it",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": true,
+    "message": "no"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "error": {
+    "code": 1,
+    "message": "no"
+   }
+  }
+ },
+ {
+  "name": "status error: a fractional code is not an integer",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "error": {
+    "code": 2.5,
+    "message": "no"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "error": {
+    "code": -32603,
+    "message": "no"
+   }
+  }
+ },
+ {
+  "name": "status: a url that is not strict RFC 3986 (bad port, two fragments, bad IP literal, bracket in the path, two @) reports no transport; valid ones do",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "p0",
+      "url": "ssh://host:abc"
+     },
+     {
+      "name": "p1",
+      "url": "ws://host#a#b"
+     },
+     {
+      "name": "p2",
+      "url": "wss://[zz]/"
+     },
+     {
+      "name": "p3",
+      "url": "ssh://a/b[c]"
+     },
+     {
+      "name": "p4",
+      "url": "ssh://a@b@c"
+     },
+     {
+      "name": "g0",
+      "url": "ssh://dev@gpu-box:22/home"
+     },
+     {
+      "name": "g1",
+      "url": "wss://[::1]:8443/acp?x=1#f"
+     },
+     {
+      "name": "g2",
+      "url": "ws://host/a%20b"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "p0"
+     },
+     {
+      "name": "p1"
+     },
+     {
+      "name": "p2"
+     },
+     {
+      "name": "p3"
+     },
+     {
+      "name": "p4"
+     },
+     {
+      "name": "g0",
+      "transport": "ssh"
+     },
+     {
+      "name": "g1",
+      "transport": "wss"
+     },
+     {
+      "name": "g2",
+      "transport": "ws"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "status: a userinfo with a second : (a password holds none) reports no transport; user:password does",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "u0",
+      "url": "ssh://a:b:c@host"
+     },
+     {
+      "name": "u1",
+      "url": "wss://::1@host"
+     },
+     {
+      "name": "u2",
+      "url": "ws://u::@host"
+     },
+     {
+      "name": "ok",
+      "url": "ssh://a:b@host"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "u0"
+     },
+     {
+      "name": "u1"
+     },
+     {
+      "name": "u2"
+     },
+     {
+      "name": "ok",
+      "transport": "ssh"
+     }
+    ]
+   }
   }
  }
 ]

@@ -3,7 +3,7 @@ import QuartzCore
 
 /// One transcript row as plain Core Animation layers: the content bitmap,
 /// the outgoing gradient fill under it, the receipt cross-fade and typing
-/// spinner. `layer` carries the row's position springs; `content` its fades.
+/// dots. `layer` carries the row's position springs; `content` its fades.
 @MainActor
 final class RowLayer {
     let layer = CALayer()
@@ -18,7 +18,7 @@ final class RowLayer {
     private let fillMask = CAShapeLayer()
     let bitmap = CALayer()
     let typingContainer = CALayer()
-    private let typingSpinner = CAShapeLayer()
+    private var dots: [CALayer] = []
     let receiptOld = CALayer()
     /// A media bubble: the placeholder fill and the picture (or the video
     /// player) under the bubble mask, then the play badge.
@@ -75,16 +75,21 @@ final class RowLayer {
         let b = RowArt.typingBubble
         typingContainer.bounds = CGRect(x: 0, y: 0, width: RowArt.typingWidth, height: b.maxY + 8)
         typingContainer.position = CGPoint(x: 0, y: b.maxY + 8)
-        typingSpinner.actions = RowLayer.noActions
-        typingSpinner.frame = CGRect(x: b.midX - 7, y: b.midY - 7, width: 14, height: 14)
-        typingSpinner.fillColor = nil
-        typingSpinner.lineWidth = 1.75
-        typingSpinner.lineCap = .round
-        let arc = CGMutablePath()
-        arc.addArc(center: CGPoint(x: 7, y: 7), radius: 6, startAngle: -.pi / 2,
-                   endAngle: .pi, clockwise: false)
-        typingSpinner.path = arc
-        typingContainer.addSublayer(typingSpinner)
+        for i in 0..<3 {
+            let dot = CALayer()
+            let highlight = CALayer()
+            for l in [dot, highlight] {
+                l.actions = RowLayer.noActions
+                l.cornerRadius = 3.25
+            }
+            highlight.opacity = 0
+            dot.addSublayer(highlight)
+            let c = RowArt.typingDotCenter(i)
+            dot.frame = CGRect(x: c.x - 3.25, y: c.y - 3.25, width: 6.5, height: 6.5)
+            highlight.frame = dot.bounds
+            typingContainer.addSublayer(dot)
+            dots.append(dot)
+        }
         content.addSublayer(typingContainer)
     }
 
@@ -98,7 +103,7 @@ final class RowLayer {
 
     private func clearAnimations() {
         for l in [layer, content, fillContainer, bitmap, typingContainer, receiptOld] { l.removeAllAnimations() }
-        typingSpinner.removeAllAnimations()
+        dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
     }
 
     /// Shows `spec` laid out for `metrics`. The bitmap comes from the content
@@ -140,7 +145,10 @@ final class RowLayer {
     private func applyPalette(_ palette: HomePalette) {
         fillGradient.colors = palette.outgoingGradient.map(\.color.cgColor)
         fillGradient.locations = palette.outgoingGradient.map { NSNumber(value: Double($0.location)) }
-        typingSpinner.strokeColor = palette.typingDotHighlight.cgColor
+        for dot in dots {
+            dot.backgroundColor = palette.typingDot.cgColor
+            dot.sublayers?.first?.backgroundColor = palette.typingDotHighlight.cgColor
+        }
     }
 
     private func configureFill(_ spec: RowSpec) {
@@ -242,13 +250,16 @@ final class RowLayer {
         receiptOld.opacity = Animate.hiddenOpacity
     }
 
-    var hasTypingSpinner: Bool { typingSpinner.animation(forKey: "typingSpinner") != nil }
+    var hasTypingDots: Bool { dots.first?.sublayers?.first?.animation(forKey: "dots") != nil }
 
-    func stopTypingSpinner() {
-        typingSpinner.removeAnimation(forKey: "typingSpinner")
+    func stopTypingDots() {
+        dots.forEach { $0.sublayers?.first?.removeAnimation(forKey: "dots") }
     }
 
-    func startTypingSpinner(begin: CFTimeInterval) {
-        Animate.typingSpinner(typingSpinner, begin: begin)
+    func startTypingDots(begin: CFTimeInterval) {
+        for (i, dot) in dots.enumerated() {
+            guard let highlight = dot.sublayers?.first else { continue }
+            Animate.typingDot(highlight, index: i, begin: begin)
+        }
     }
 }

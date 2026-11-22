@@ -24,14 +24,17 @@ nonisolated enum AcpmuxPathPolicy {
         /// Whether ``outsidePath`` is the user's home folder or above it: never a root by a plain
         /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
         public var outsideIsHomeOrAbove = false
+        /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``); nil for most refusals.
+        public var reason: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
-                    outsideIsHomeOrAbove: Bool = false) {
+                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
             self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
+            self.reason = reason
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -113,6 +116,20 @@ nonisolated enum AcpmuxPathPolicy {
         }
         var params = object["params"]
         var peerCwd: String?
+        var peerFolders: [String]?
+        // Trust questions on a peer carry the owner explicitly at the top level. The folder
+        // exists on that machine, so this Mac checks only the same absolute/NUL/length shape as
+        // a peer start and preserves the spelling for the owning daemon.
+        if method == "acp.trust.get" || method == "acp.trust.set" {
+            var fields = params as? [String: Any] ?? [:]
+            if let peer = fields["peer"] as? String, !peer.isEmpty {
+                guard let cwd = fields.removeValue(forKey: "cwd") as? String, isPeerFolder(cwd) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                peerCwd = cwd
+                params = fields
+            }
+        }
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
         // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
@@ -120,6 +137,10 @@ nonisolated enum AcpmuxPathPolicy {
         // pane's own and never reaches acpmux.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
+            // A GitHub repository with no folder (`github:owner/name`): only a Cloud start clones one.
+            if let cwd = fields["cwd"] as? String, AgentPaneGitHubFolder.isGitHub(cwd) {
+                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method, reason: AgentPaneGitHubFolder.cloudOnlyReason))
+            }
             var meta = fields["_meta"] as? [String: Any]
             var acpmux = meta?["acpmux"] as? [String: Any]
             let noProject = acpmux?["noProject"] as? Bool == true
@@ -133,7 +154,9 @@ nonisolated enum AcpmuxPathPolicy {
                 fields["_meta"] = meta
                 context.changed = true
             }
-            if fields["cwd"] == nil {
+            // A peer without an explicit folder chooses its own default. This Mac's workspace
+            // and agent-home paths must never fill a request for another machine.
+            if fields["cwd"] == nil, !onPeer {
                 if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
@@ -143,7 +166,7 @@ nonisolated enum AcpmuxPathPolicy {
                     return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
                 }
                 context.changed = true
-            } else if onPeer {
+            } else if onPeer, fields["cwd"] != nil {
                 // A start on another machine (an ssh peer): its folder is that machine's, which
                 // this Mac's disk and roots say nothing about. Only its shape is checked here, it
                 // goes as the page named it, and that machine's acpmux checks it (cx-k21v).
@@ -152,14 +175,24 @@ nonisolated enum AcpmuxPathPolicy {
                 }
                 peerCwd = cwd
             }
+            // The folders a chat on another machine sees beside its own are that machine's too:
+            // shape only, as its `cwd`.
+            if onPeer, let dirs = fields["additionalDirectories"], !(dirs is NSNull) {
+                guard let list = dirs as? [String], list.allSatisfy(isPeerFolder) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                fields.removeValue(forKey: "additionalDirectories")
+                peerFolders = list
+            }
             params = fields
         }
         guard let params else { return .success(Checked(text: text, gestureRootsUsed: [])) }
         var checked: Any
         do {
             checked = try rewrite(params, context: &context)
-            if let peerCwd, var fields = checked as? [String: Any] {
-                fields["cwd"] = peerCwd
+            if peerCwd != nil || peerFolders != nil, var fields = checked as? [String: Any] {
+                if let peerCwd { fields["cwd"] = peerCwd }
+                if let peerFolders { fields["additionalDirectories"] = peerFolders }
                 checked = fields
             }
         } catch let refusal as Refusal {

@@ -3,6 +3,7 @@ import CmuxNextDesign
 
 /// Builds the bubble's pages from the model. Every control sends a
 /// `PageInfoCommand`; nothing here changes state directly.
+/// AppKit (plans/cmux-next/language-layers.md): a bubble on a native control is native chrome.
 @MainActor struct PageInfoPages {
     let model: PageInfoModel
     let send: (PageInfoCommand) -> Void
@@ -123,7 +124,8 @@ import CmuxNextDesign
                                       accessory: .externalLink, tint: valid ? nil : PageInfoStyle.danger,
                                       identifier: "pageInfo.certificate")
             let issuer = model.certificates?.first?.issuer.commonName ?? model.certificates?.first?.issuer.organization
-            row.themedToolTip = valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate
+            // The row shows its words: no tooltip (a1315's cut 2); VoiceOver hears where a click goes.
+            row.setAccessibilityHelp(valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate)
             row.onActivate = { send(.showCertificate) }
             views.append(row)
         }

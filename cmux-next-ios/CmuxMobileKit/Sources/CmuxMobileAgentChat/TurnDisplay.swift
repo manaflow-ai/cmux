@@ -13,9 +13,11 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
     case permission(PermissionRecord)
     case question(String)
     case subagents(id: String, ids: [String])
+    case steer(SteeredMessage)
 
     public var id: String {
         switch self {
+        case .steer(let message): "st-\(message.promptID)"
         case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
@@ -58,6 +60,10 @@ extension AgentTurn {
                     rows.append(.edit(call))
                 } else if permissionTools.contains(call.id), call.status == .pending {
                     continue
+                } else if WhoElseCall(call) != nil {
+                    // "Who else is working on these files" stands alone: its row draws as the card.
+                    flush()
+                    rows.append(.tool(call))
                 } else {
                     pending.append(call)
                 }
@@ -80,6 +86,9 @@ extension AgentTurn {
             case .subagents(let id, let ids):
                 flush()
                 rows.append(.subagents(id: id, ids: ids))
+            case .steer(let message):
+                flush()
+                rows.append(.steer(message))
             }
         }
         flush()
@@ -172,6 +181,13 @@ public struct ToolWording: Sendable {
         return text.prefix(1).uppercased() + text.dropFirst()
     }
 
+    /// A duration worth showing: none under a millisecond, which read "0ms" (a replayed history
+    /// stamps a call's or turn's start and end together, so it has no real duration).
+    public func shown(_ seconds: TimeInterval?) -> TimeInterval? {
+        guard let seconds, seconds >= 0.001 else { return nil }
+        return seconds
+    }
+
     public func duration(_ seconds: TimeInterval) -> String {
         if seconds < 1 { return "\(Int(seconds * 1000))ms" }
         if seconds < 60 { return String(format: "%.1fs", seconds) }
@@ -196,7 +212,8 @@ extension Array where Element == TurnRow {
             return !calls.contains(where: \.isRunning)
         case .permission(let record):
             return record.resolution != nil
-        case .plan, .subagents:
+        // A message just steered in: the agent is still working on it.
+        case .plan, .subagents, .steer:
             return true
         }
     }

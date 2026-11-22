@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 
 use super::state::{DEFAULT_PORT, LinkConfig, LinkState};
 use super::{Flags, print_json};
+use cmux_json::JsonSet as _;
 
 /// How long `ensure` waits for a started link's ready line.
 const START_BUDGET: Duration = Duration::from_secs(20);
@@ -232,7 +233,7 @@ pub(super) fn matches_enrollment(state: &LinkState, status: &Value) -> anyhow::R
     if config.server_identity.is_none() {
         return Ok(true);
     }
-    let public = super::state::public_key(&*state.private_key()?);
+    let public = state.own_public_key()?;
     Ok(status["identity_source"] == "server_pairing"
         && status["install"] == config.install
         && status["public_key"] == STANDARD.encode(public))
@@ -273,7 +274,7 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
     }
     let config = state.config()?;
     if config.server_identity.is_some() {
-        let _ = state.private_key()?;
+        let _ = state.own_public_key()?;
         if flags.get("--install").is_some_and(|install| install != &config.install) {
             bail!("server_link.identity_conflict");
         }
@@ -307,6 +308,23 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
     let _lock = ensure_lock(&state)?;
+    // The acpmux home `serve` adopts the node key of, resolved here with the app's
+    // environment (`key_lock.rs`). Without it the link keeps its own key, and acpmux its
+    // transport: never a Mac with neither.
+    if let Err(error) = super::key_lock::record_home(&state) {
+        eprintln!("warning: could not record the link's acpmux home: {error:#}");
+    }
+    // An agent installed before `--key-lock-dir` gets it (`launchd.rs`).
+    #[cfg(target_os = "macos")]
+    if let Err(error) = super::launchd::refresh_key_lock_dir(
+        state.dir(),
+        super::key_lock::FLAG,
+        &super::key_lock::lock_dir(&state),
+    ) {
+        eprintln!(
+            "warning: could not give the link's launchd agent its key lock directory: {error}"
+        );
+    }
     let mut restarted = init_or_check(&state, flags, handoff)?;
     let wanted = Served::wanted(flags)?;
     if let Some(live) = live(&state) {
@@ -329,8 +347,8 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         if (same_build && same_served && same_identity) || !handoff {
             let mut out = json!({"status": "running", "pid": live.pid, "socket": live.socket});
             if let Some(status) = status {
-                out["build"] = status["build"].clone();
-                out["udp"] = status["udp"].clone();
+                out.set("build", status["build"].clone());
+                out.set("udp", status["udp"].clone());
             }
             print_json(&out);
             return Ok(());
@@ -339,6 +357,14 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         restarted = true;
     }
     match start(&state, flags)? {
+        // The link would not serve: another process holds the key.
+        Some(failed) if failed.get("event").and_then(Value::as_str) == Some("link-failed") => {
+            Err(anyhow!(
+                "{}: {}",
+                failed.get("error").and_then(Value::as_str).unwrap_or("link_failed"),
+                failed.get("message").and_then(Value::as_str).unwrap_or("the link did not start")
+            ))
+        }
         Some(ready) => {
             print_json(&json!({
                 "status": if restarted { "restarted" } else { "started" },
@@ -401,6 +427,8 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
+    // Resolved here, with this process's environment (`key_lock.rs`).
+    command.arg(super::key_lock::FLAG).arg(super::key_lock::lock_dir(state));
     for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
             command.arg(name).arg(value);
@@ -518,7 +546,7 @@ pub(super) fn run_status(flags: &Flags) -> anyhow::Result<()> {
     };
     let mut out = query_status(&live.socket)
         .unwrap_or_else(|| json!({"pid": live.pid, "socket": live.socket}));
-    out["running"] = json!(true);
+    out.set("running", json!(true));
     if let Some(object) = out.as_object_mut() {
         object.remove("ok");
     }

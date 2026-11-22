@@ -25,7 +25,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
@@ -247,7 +247,7 @@ impl Retiring {
         let mut bytes = link
             .current
             .filter(|frame| frame.written > 0)
-            .map(|frame| frame.bytes[frame.written..].to_vec())
+            .map(|frame| frame.bytes.get(frame.written..).unwrap_or_default().to_vec())
             .unwrap_or_default();
         let payload = Out::default().u16(request_kind).u16(code).bytes(message.as_bytes()).0;
         bytes.extend_from_slice(&wire::encode(Kind::Error, 0, &payload));
@@ -259,7 +259,8 @@ impl Retiring {
     /// daemon is gone.
     fn write(&mut self) -> bool {
         while self.written < self.bytes.len() {
-            match wire::send_with_fds(self.stream.as_raw_fd(), &self.bytes[self.written..], &[]) {
+            let rest = self.bytes.get(self.written..).unwrap_or_default();
+            match wire::send_with_fds(self.stream.as_raw_fd(), rest, &[]) {
                 Ok(0) => return false,
                 Ok(n) => self.written += n,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
@@ -326,6 +327,31 @@ impl LinkBreak {
     }
 }
 
+/// When a holder's orphan wait began, by two clocks. `Instant` is the awake
+/// clock on a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a
+/// laptop that sleeps every night took weeks to count
+/// [`crate::ABANDONED_GRACE`] (cmuxterm-hq#8377, 2026-11-21). The wall clock
+/// counts sleep; a wall clock set back counts nothing, and the awake time
+/// still does. `poll` wakes at least once a minute, so a sleep is seen within
+/// a minute of waking.
+#[derive(Debug, Clone, Copy)]
+struct OrphanSince {
+    awake: Instant,
+    wall: SystemTime,
+}
+
+impl OrphanSince {
+    fn at(awake: Instant) -> Self {
+        Self { awake, wall: SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    fn elapsed_at(&self, awake: Instant, wall: SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
@@ -362,7 +388,7 @@ pub struct Holder {
     /// `None`: never (normal installs, decision D1).
     orphan_grace: Option<Duration>,
     /// Terminals and no daemon link since this time.
-    orphan_since: Option<Instant>,
+    orphan_since: Option<OrphanSince>,
     sigchld: OwnedFd,
 }
 
@@ -560,13 +586,16 @@ impl Holder {
             let error = io::Error::last_os_error();
             return if error.kind() == io::ErrorKind::Interrupted { Ok(()) } else { Err(error) };
         }
-        if fds[1].revents != 0 {
+        let revents = |index: usize| fds.get(index).map_or(0, |fd| fd.revents);
+        if revents(1) != 0 {
             self.reap();
         }
         // From the back, before anything adds to `retiring`: swap_remove
         // moves only entries already handled.
         for index in (0..retiring_count).rev() {
-            if fds[first_retiring + index].revents != 0 && self.retiring[index].write() {
+            if revents(first_retiring + index) != 0
+                && self.retiring.get_mut(index).is_some_and(Retiring::write)
+            {
                 self.retiring.swap_remove(index);
             }
         }
@@ -574,24 +603,24 @@ impl Holder {
         // ended: its pipe has the answer even if `poll` saw the exit first.
         for (index, chan) in starts.iter().enumerate() {
             let reaped = self.terminals.get(chan).is_some_and(|terminal| terminal.status.is_some());
-            if fds[first_start + index].revents != 0 || reaped {
+            if revents(first_start + index) != 0 || reaped {
                 self.finish_start(*chan);
             }
         }
         for (index, chan) in chans.iter().enumerate() {
-            let revents = fds[first_terminal + index].revents;
-            if revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
+            let events = revents(first_terminal + index);
+            if events & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
                 && self.terminals.get(chan).is_some_and(|terminal| terminal.room() > 0)
             {
                 self.read_terminal(*chan);
             }
-            if revents & (libc::POLLOUT | libc::POLLHUP | libc::POLLERR) != 0 {
+            if events & (libc::POLLOUT | libc::POLLHUP | libc::POLLERR) != 0 {
                 self.write_terminal(*chan);
             }
         }
         self.finish_ending();
         if let Some(index) = link_at
-            && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
+            && revents(index) & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
             && let Err(why) = self.read_link()
         {
             self.break_link(why);
@@ -599,13 +628,13 @@ impl Holder {
         // From the back: a handled connection leaves with swap_remove,
         // which moves only connections already handled.
         for index in (0..pending_count).rev() {
-            if fds[first_pending + index].revents != 0 {
+            if revents(first_pending + index) != 0 {
                 self.read_pending(index);
             }
         }
         let now = Instant::now();
         self.pending.retain(|pending| pending.deadline > now);
-        if fds[0].revents & libc::POLLIN != 0 {
+        if revents(0) & libc::POLLIN != 0 {
             self.accept();
         }
         self.kill_overdue();
@@ -627,9 +656,13 @@ impl Holder {
     /// ended ones are forgotten and the holder exits idle.
     fn end_orphans(&mut self, now: Instant) {
         let orphaned = self.link.is_none() && !self.terminals.is_empty();
-        self.orphan_since = if orphaned { Some(self.orphan_since.unwrap_or(now)) } else { None };
+        self.orphan_since = if orphaned {
+            Some(self.orphan_since.unwrap_or_else(|| OrphanSince::at(now)))
+        } else {
+            None
+        };
         let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
-        if now.saturating_duration_since(since) < grace {
+        if since.elapsed_at(now, SystemTime::now()) < grace {
             return;
         }
         let open: Vec<u32> = self
@@ -661,7 +694,10 @@ impl Holder {
             .orphan_since
             .zip(self.orphan_grace)
             .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
-            .map(|(since, grace)| since + grace);
+            .map(|(since, grace)| {
+                let now = Instant::now();
+                now + grace.saturating_sub(since.elapsed_at(now, SystemTime::now()))
+            });
         kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
     }
 
@@ -714,7 +750,7 @@ impl Holder {
     /// (replacing the old one), else it is dropped. Anything else keeps
     /// the attached daemon's link as it was.
     fn read_pending(&mut self, index: usize) {
-        let pending = &mut self.pending[index];
+        let Some(pending) = self.pending.get_mut(index) else { return };
         match pending.reader.fill(pending.stream.as_raw_fd()) {
             Ok(true) => {}
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
@@ -1425,8 +1461,11 @@ impl Holder {
             let mut budget = LINK_QUEUE_BYTES.saturating_sub(link.out_bytes);
             let share = (budget / ready.len()).max(MIN_SHARE);
             let first = ready.iter().position(|chan| *chan >= self.pump_cursor).unwrap_or(0);
-            self.pump_cursor = ready[first].wrapping_add(1);
-            for chan in ready[first..].iter().chain(&ready[..first]) {
+            let (before, after) = ready.split_at_checked(first).unwrap_or((&[], ready.as_slice()));
+            if let Some(chan) = after.first() {
+                self.pump_cursor = chan.wrapping_add(1);
+            }
+            for chan in after.iter().chain(before) {
                 let Some(terminal) = self.terminals.get_mut(chan) else { continue };
                 let Some(mut sent) = terminal.sent else { continue };
                 // Never splice output silently: bytes the ring dropped
@@ -1502,8 +1541,8 @@ impl Holder {
             } else {
                 Vec::new()
             };
-            match wire::send_with_fds(link.stream.as_raw_fd(), &frame.bytes[frame.written..], &fds)
-            {
+            let rest = frame.bytes.get(frame.written..).unwrap_or_default();
+            match wire::send_with_fds(link.stream.as_raw_fd(), rest, &fds) {
                 Ok(n) => {
                     if n > 0 {
                         frame.fds.clear();
@@ -1708,4 +1747,28 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
         )
     } == 0;
     ok.then_some(cred.uid)
+}
+
+#[cfg(test)]
+mod orphan_since_tests {
+    use super::*;
+
+    /// A holder orphaned for a week of wall time, most of it asleep, still
+    /// counts the week (cmuxterm-hq#8377).
+    #[test]
+    fn an_orphan_wait_counts_the_time_the_mac_slept() {
+        let since = OrphanSince::at(Instant::now());
+        let awake_hour = since.awake + Duration::from_secs(60 * 60);
+        let wall_week = since.wall + crate::ABANDONED_GRACE;
+        assert!(since.elapsed_at(awake_hour, wall_week) >= crate::ABANDONED_GRACE);
+    }
+
+    /// A wall clock set back counts nothing; the awake time still counts.
+    #[test]
+    fn a_wall_clock_set_back_keeps_the_awake_time() {
+        let since = OrphanSince::at(Instant::now());
+        let awake_day = since.awake + Duration::from_secs(24 * 60 * 60);
+        let wall_back = since.wall - Duration::from_secs(30 * 24 * 60 * 60);
+        assert_eq!(since.elapsed_at(awake_day, wall_back), Duration::from_secs(24 * 60 * 60));
+    }
 }

@@ -62,14 +62,13 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
         let collected = PipeOutput()
         let outcome = FirstOutcome<Data>()
         handle.readabilityHandler = { handle in
-            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            // One read of bytes that are ready; unlike `availableData` a failure returns -1
-            // instead of raising an Objective-C exception.
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count > 0 { return collected.append(Data(buffer[..<count])) }
-            if count < 0, errno == EINTR || errno == EAGAIN { return }
-            handle.readabilityHandler = nil
-            outcome.resolve(collected.data)
+            switch handle.readReady() {
+            case .bytes(let data): collected.append(data)
+            case .retry: return
+            case .end:
+                handle.readabilityHandler = nil
+                outcome.resolve(collected.data)
+            }
         }
         let data = await outcome.value()
         // The handle owns the readability source: keep it until the drain ends.

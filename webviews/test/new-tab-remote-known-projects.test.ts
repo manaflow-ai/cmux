@@ -215,7 +215,8 @@ await requireBrowserLane("new-tab-remote-known-projects.test.ts", async () => {
       await page.evaluate(() => window.cmuxPaintFrame());
       const strip = (await page.locator(".nt-location").textContent()) ?? "";
       await context.close();
-      expect(strip).toContain("cosmic-gray");
+      // The environment picker names this Mac "This Mac" (#28999).
+      expect(strip).toContain("This Mac");
       expect(strip).not.toContain("atlas");
       expect(strip).not.toContain("api");
     },

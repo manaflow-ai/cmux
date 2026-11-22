@@ -17,14 +17,17 @@ final class TempOutput {
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
-    func contents() -> Data {
+    /// Reads the complete output by default. A tail capture bounds allocation before reading,
+    /// preserving the CLI's final reply without materializing earlier progress lines.
+    func contents(tailBytes: Int? = nil) -> Data {
         let fd = handle.fileDescriptor
         let size = lseek(fd, 0, SEEK_END)
         guard size > 0 else { return Data() }
         // off_t is 64-bit, as Int is on every platform cmux runs on: exact.
-        let byteCount = Int(clamping: size)
+        let byteCount = min(Int(clamping: size), tailBytes.map { max(0, $0) } ?? Int.max)
+        guard byteCount > 0 else { return Data() }
         var data = Data(count: byteCount)
-        let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, byteCount, 0) }
+        let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, byteCount, size - off_t(byteCount)) }
         return count > 0 ? data.prefix(count) : Data()
     }
 }

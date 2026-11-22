@@ -6,11 +6,12 @@ extension DaemonService {
     /// `relaunch.onShow`): a window calls it when it shows the workspace, so a
     /// terminal the classic migration brought over in the background starts on
     /// its first show. Each tab restarts once (`restart-tab`); a failed one
-    /// stays dead with its Restart button.
+    /// stays dead with its Restart button. A kept tab in a protected folder waits here too
+    /// (``TabRelaunch/startsOnShow(home:)``, LAUNCH-NO-TCC-PROMPTS).
     public func wakeParkedTabs(in workspace: WorkspaceModel) {
         guard supports(DaemonCapability.tabRestartKeptLayout.rawValue), let connection else { return }
         let surfaces = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            .filter { $0.kind == .pty && $0.dead && $0.relaunch?.onShow == true && !wakingParkedTabs.contains($0.surface) }
+            .filter { $0.kind == .pty && $0.dead && $0.relaunch?.startsOnShow() == true && !wakingParkedTabs.contains($0.surface) }
             .map(\.surface)
         guard !surfaces.isEmpty else { return }
         wakingParkedTabs.formUnion(surfaces)

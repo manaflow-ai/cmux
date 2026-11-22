@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
-import type { CreditReserve } from "./usage-credits.ts"
+import type { ChiefCallCap, CreditReserve } from "./usage-credits.ts"
 
 /**
  * Prepaid credits for hosted Cloud Chief model spend (Lawrence 2026-10-15: the hosted Chief is
@@ -91,6 +91,33 @@ export class CreditsExhausted extends Schema.TaggedError<CreditsExhausted>()("Cr
   needed_usd: Schema.Number
 }) {}
 
+/** This chief started too many paid model calls in a window (usage-credits.ts ChiefCallCap): no hold, no call. */
+export class CreditsRateLimited extends Schema.TaggedError<CreditsRateLimited>()("CreditsRateLimited", {
+  chief: Schema.String,
+  calls: Schema.Number,
+  limit: Schema.Number,
+  window_s: Schema.Number,
+  retry_after_s: Schema.Number
+}) {
+  /** The refusal as the caller sees it; the compactor reads "retry after N s" as its wait (compactor.ts retryAfterMs). */
+  get text(): string {
+    return `rate_limited: chief ${this.chief} made ${this.calls} paid model calls in the last ${this.window_s} s (cap ${this.limit}); retry after ${this.retry_after_s} s`
+  }
+}
+
+/** Default per-chief caps: far above a busy Chief (a turn's tool steps plus its compaction), far below a loop. */
+export const CHIEF_CALLS_PER_MINUTE = 120
+export const CHIEF_CALLS_PER_HOUR = 2400
+
+/** CHIEF_MODEL_CALLS_PER_MINUTE / _PER_HOUR: positive integers; anything else is the default (the cap is never off). */
+export const chiefCallCap = (env: Pick<Env, "CHIEF_MODEL_CALLS_PER_MINUTE" | "CHIEF_MODEL_CALLS_PER_HOUR">): ChiefCallCap => {
+  const pick = (v: string | undefined, d: number) => {
+    const n = Number(v)
+    return Number.isInteger(n) && n > 0 ? n : d
+  }
+  return { perMinute: pick(env.CHIEF_MODEL_CALLS_PER_MINUTE, CHIEF_CALLS_PER_MINUTE), perHour: pick(env.CHIEF_MODEL_CALLS_PER_HOUR, CHIEF_CALLS_PER_HOUR) }
+}
+
 /** This request id was already charged: a new attempt needs a new id. */
 export class CreditsAlreadySettled extends Schema.TaggedError<CreditsAlreadySettled>()("CreditsAlreadySettled", { request: Schema.String }) {}
 
@@ -98,7 +125,7 @@ export class CreditsAlreadySettled extends Schema.TaggedError<CreditsAlreadySett
 export class CreditsUnavailable extends Schema.TaggedError<CreditsUnavailable>()("CreditsUnavailable", { message: Schema.String }) {}
 
 export interface CreditsShape {
-  readonly reserve: (input: { readonly team: string; readonly request: string; readonly chief?: string | null; readonly conversation?: string | null; readonly maxCostUsd: number }) => Effect.Effect<Reservation, CreditsExhausted | CreditsAlreadySettled | CreditsUnavailable>
+  readonly reserve: (input: { readonly team: string; readonly request: string; readonly chief?: string | null; readonly conversation?: string | null; readonly maxCostUsd: number }) => Effect.Effect<Reservation, CreditsExhausted | CreditsAlreadySettled | CreditsRateLimited | CreditsUnavailable>
   readonly settle: (reservation: Reservation, actualCostUsd: number) => Effect.Effect<{ readonly charged: boolean; readonly balance_usd: number }, CreditsUnavailable>
   readonly release: (reservation: Reservation) => Effect.Effect<void, CreditsUnavailable>
   readonly balance: (team: string, windowDays?: number) => Effect.Effect<Balance, CreditsUnavailable>
@@ -117,13 +144,15 @@ export const makeCredits = (env: Env): CreditsShape => {
   const call = <A>(f: () => Promise<A>) => Effect.tryPromise({ try: f, catch: (e) => new CreditsUnavailable({ message: String(e).slice(0, 200) }) })
   const margin = creditsMargin(env)
   const floor = creditsMinReserveUsd(env)
+  const cap = chiefCallCap(env)
   return {
     reserve: ({ team, request, chief = null, conversation = null, maxCostUsd }) =>
       Effect.gen(function* () {
         const held = Math.max(maxCostUsd * margin, floor)
-        const r = yield* call(() => meter(team).creditReserve(team, request, toMicros(held), chief, conversation) as unknown as Promise<CreditReserve>)
+        const r = yield* call(() => meter(team).creditReserve(team, request, toMicros(held), chief, conversation, cap) as unknown as Promise<CreditReserve>)
         if (r.ok) return { team, request, chief, conversation, held_usd: toUsd(r.held_micros), margin, replayed: r.replayed } satisfies Reservation
         if (r.code === "credits.settled") return yield* Effect.fail(new CreditsAlreadySettled({ request }))
+        if (r.code === "credits.rate_limited") return yield* Effect.fail(new CreditsRateLimited({ chief: chief ?? "", calls: r.calls, limit: r.limit, window_s: r.window_s, retry_after_s: r.retry_after_s }))
         return yield* Effect.fail(new CreditsExhausted({ team, balance_usd: toUsd(r.balance_micros), available_usd: toUsd(r.available_micros), needed_usd: toUsd(r.needed_micros) }))
       }),
     settle: (res, actualCostUsd) =>

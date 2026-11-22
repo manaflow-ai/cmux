@@ -151,6 +151,7 @@ public final class MainActorWorkQueue: Sendable {
         method: String,
         owner: MainTaskOwner? = nil,
         workClass: MainWorkClass = .automation,
+        marksSnapshotStale: Bool = true,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
         _ work: @escaping @MainActor @Sendable () throws -> T
@@ -170,6 +171,7 @@ public final class MainActorWorkQueue: Sendable {
                 method: method,
                 owner: owner,
                 workClass: workClass == .input ? .input : .automation,
+                marksSnapshotStale: marksSnapshotStale,
                 deadline: deadline,
                 enqueuedAt: now,
                 body: {
@@ -317,6 +319,8 @@ public final class MainActorWorkQueue: Sendable {
         let clock = ContinuousClock()
         let start = clock.now
         var ran = 0
+        // Items that ran and may have changed what the control snapshot shows (``MainActorWorkItem/marksSnapshotStale``).
+        var marking = 0
         var maxWait: Duration = .zero
         let budget = frameSource.mainFrameBudget
         // With the app's budget: one request at a time while the automation class may run (it
@@ -333,6 +337,7 @@ public final class MainActorWorkQueue: Sendable {
             }
             if didRun {
                 ran += 1
+                if item.marksSnapshotStale { marking += 1 }
                 maxWait = max(maxWait, began - item.enqueuedAt)
             }
             if budget == nil, clock.now - start >= limits.frameBudget { break }
@@ -347,11 +352,11 @@ public final class MainActorWorkQueue: Sendable {
             if elapsed > limits.frameBudget * 2 { state.stats.overBudgetFrames += 1 }
             let more = state.stats.pending > 0
             if !more { state.framePending = false }
-            return (more, ran > 0 ? state.afterFrame : nil)
+            return (more, marking > 0 ? state.afterFrame : nil)
         }
         // The hook marks the control snapshot stale (ControlSnapshotPublisher: the next read builds it; only a
-        // read already waiting on its barrier builds it now). It runs inside this drain's own automation task,
-        // so a request storm costs no publish per frame and needs no separate charge.
+        // read already waiting on its barrier builds it now), unless every item that ran leaves it fresh. It runs inside
+        // this drain's own automation task, so a request storm costs no publish per frame and needs no separate charge.
         hook?()
         if more { scheduleDrain() }
     }

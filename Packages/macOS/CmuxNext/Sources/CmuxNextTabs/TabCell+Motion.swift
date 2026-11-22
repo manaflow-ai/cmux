@@ -11,6 +11,7 @@ extension TabCell {
     func beginClosing() {
         isHovered = false
         isSelected = false
+        showsZoom = false // the zoomed state goes to the new selection
         isMultiSelected = false
         showsSeparator = false
         isClosing = true

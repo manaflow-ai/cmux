@@ -11,37 +11,55 @@ public import Foundation
 /// move down to it); otherwise it is dropped, and counted in the ledger under
 /// `FolderChanges/stand-in`. Each element is counted under `FolderChanges/change`.
 ///
-/// The watches are armed before ``events()`` returns, so a change made after that call is seen
-/// even when the watch loop has not run yet (a store that calls ``events()`` and then reads the
-/// folders misses nothing in between). Each element comes after the watch is armed again when it
-/// had to move, so a change between two elements is either seen by the watch or happened before
-/// the element, and the consumer's work for the element (re-reading the folders) covers it.
+/// ``events()`` returns once the kernel has registered every watch, so a change made after that
+/// call is seen even when the watch loop has not run yet (a store that calls ``events()`` and then
+/// reads the folders misses nothing in between). Resuming a dispatch source only schedules that
+/// registration, and a change before it completes is never delivered (dispatch_source(3)); each
+/// watch's registration handler says when it has. Each element comes after the watch is armed and
+/// registered again when it had to move, so a change between two elements is either seen by the
+/// watch or happened before the element, and the consumer's work for the element (re-reading the
+/// folders) covers it.
 ///
 /// ```swift
-/// for await _ in FolderChanges(folders: [wallpapers, userImages]).events() { rebuild() }
+/// for await _ in await FolderChanges(folders: [wallpapers, userImages]).events() { rebuild() }
 /// ```
 public struct FolderChanges: Sendable {
     /// The folders whose contents matter.
     public let folders: [URL]
     private let ledger: WakeupLedger
+    private let queue: DispatchQueue
 
     /// - Parameters:
     ///   - folders: The folders whose contents matter; missing ones are watched through a parent.
     ///   - ledger: Where the watch counts its wakes.
     public init(folders: [URL], ledger: WakeupLedger = .shared) {
+        self.init(folders: folders, ledger: ledger, queue: .global(qos: .utility))
+    }
+
+    /// - Parameter queue: Where the watches' handlers run (a test holds it suspended to delay
+    ///   their registration).
+    init(folders: [URL], ledger: WakeupLedger, queue: DispatchQueue) {
         self.folders = folders
         self.ledger = ledger
+        self.queue = queue
     }
 
     /// One element after each burst of changes in any watched folder. Ends when the consumer
-    /// stops iterating (the watches are cancelled with it).
-    public func events() -> AsyncStream<Void> {
+    /// stops iterating (the watches are cancelled with it). Returns once every watch is registered;
+    /// a caller cancelled before then gets a finished stream and no watch.
+    public func events() async -> AsyncStream<Void> {
         let targets = folders.map(\.path)
-        let ledger = ledger
+        let ledger = ledger, queue = queue
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // Armed here, not in the loop: a utility task can start long after this returns under load,
         // and a change made before it armed was never seen (BackdropCatalogStoreTests hung on it).
-        let first = Self.arm(targets)
+        let first = await Self.arm(targets, on: queue)
+        // A caller cancelled during the wait may never iterate, and the loop would hold the watch.
+        guard !Task.isCancelled else {
+            first.cancel()
+            continuation.finish()
+            return stream
+        }
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
             var armed = first
@@ -57,7 +75,7 @@ public struct FolderChanges: Sendable {
                     continue
                 }
                 if moved {
-                    let next = Self.arm(targets)
+                    let next = await Self.arm(targets, on: queue)
                     armed.cancel()
                     armed = next
                 }
@@ -71,22 +89,38 @@ public struct FolderChanges: Sendable {
         return stream
     }
 
-    /// Watches the nearest existing folder of each of `targets`.
-    private static func arm(_ targets: [String]) -> FolderWatch {
+    /// Watches the nearest existing folder of each of `targets`, and returns once the kernel has
+    /// registered every watch (or the calling task is cancelled).
+    private static func arm(_ targets: [String], on queue: DispatchQueue) async -> sending FolderWatch {
         let paths = Set(targets.map(nearestExistingFolder(of:)))
         let (events, continuation) = AsyncStream<FolderWatch.Event>.makeStream(bufferingPolicy: .bufferingNewest(8))
+        // One element per watch whose registration finished, each yielded once; room for all of them,
+        // since a registration can finish before the wait below starts.
+        let (registered, registration) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(max(paths.count, 1)))
         // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
         let sources = paths.compactMap { folder -> (any DispatchSourceFileSystemObject)? in
             let fd = open(folder, O_EVTONLY)
             guard fd >= 0 else { return nil }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .link],
-                                                                   queue: .global(qos: .utility))
+                                                                   queue: queue)
             // The handler holds its source until cancel releases the handlers (FolderWatch.cancel).
             source.setEventHandler { continuation.yield(FolderWatch.Event(path: folder, flagBits: source.data.rawValue)) }
+            // resume() only schedules the registration; events before it completes are missed
+            // (dispatch_source(3)). This runs once it has, before any event handler.
+            source.setRegistrationHandler { registration.yield() }
             source.setCancelHandler { close(fd) }
             source.resume()
             return source
         }
+        var pending = sources.count
+        // wakeup-allow: one element per watch registration, never a poll; ends when every watch is registered.
+        if pending > 0 {
+            for await _ in registered {
+                pending -= 1
+                if pending == 0 { break }
+            }
+        }
+        registration.finish()
         return FolderWatch(paths: paths, events: events, sources: sources, finish: { continuation.finish() })
     }
 }

@@ -64,4 +64,14 @@ import Testing
         let frame = grid.frame(toastHeight: 40, screenHeight: screen.height, safeTop: screen.top, safeBottom: screen.bottom)
         #expect(abs(frame.maxY - (874 - 34 - 64)) < 0.01)
     }
+
+    /// A toast stays long enough to read: 4 s for a short line, longer for steps, never past 12 s.
+    @Test func aLongToastStaysLongEnoughToRead() {
+        #expect(ToastDismissal.lifetime(for: "Connect to cmux's Mac mini first.") == .seconds(4))
+        let steps = "Claude Code isn't trusted in proj. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+            + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
+            + "Then start the chat again."
+        #expect(ToastDismissal.lifetime(for: steps) > .seconds(12) - .milliseconds(1))
+        #expect(ToastDismissal.lifetime(for: String(repeating: "word ", count: 24)) == .seconds(8))
+    }
 }

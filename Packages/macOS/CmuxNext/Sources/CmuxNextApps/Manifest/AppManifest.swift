@@ -39,8 +39,15 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     /// A sideloaded development app (never in the store).
     public var isLocal: Bool { publisher == "local" }
     public var sections: [AppImplementation] { implementations.filter(\.isSection) }
+    public var sessionInfoSections: [AppImplementation] { implementations.filter(\.isSessionInfoSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
+    /// The app's web pages (`render: web`: any interface implemented by a page under
+    /// `runtime.web.root`, such as codemirror's `cmux.editor/1`), in interface order.
+    public var webPages: [AppImplementation] { implementations.filter(\.isWebPage) }
+    /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
+    /// deployed instance (docs/app-store-platonic-ideal.md 7).
+    public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }
 
     /// Reads a manifest object; nil when it has no id.
     public init?(json: AppJSON) {
@@ -76,12 +83,13 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
             return implements.sorted { $0.key < $1.key }.map { interface, entry in
                 AppImplementation(interface: interface, title: AppLocalizedText(json: entry["title"]), symbol: entry["symbol"]?.stringValue,
                                   export: entry["export"]?.stringValue, native: entry["native"]?.stringValue,
-                                  options: entry["options"]?.objectValue ?? [:])
+                                  web: entry["web"]?.stringValue, options: entry["options"]?.objectValue ?? [:])
             }
         }
         let contributes = o["contributes"]?.objectValue ?? [:]
         let kinds: [(String, String)] = [
-            ("sidebarSections", AppImplementation.section), ("statusItems", AppImplementation.status),
+            ("sidebarSections", AppImplementation.section), ("sessionInfoSections", AppImplementation.sessionInfoSection),
+            ("statusItems", AppImplementation.status),
             ("paneKinds", AppImplementation.pane), ("paletteScopes", AppImplementation.paletteScope),
         ]
         return kinds.flatMap { key, interface in
@@ -89,7 +97,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
                 guard let id = entry["id"]?.stringValue else { return nil }
                 return AppImplementation(interface: interface, id: id, title: AppLocalizedText(json: entry["title"]),
                                          symbol: entry["symbol"]?.stringValue, export: (entry["render"] ?? entry["run"])?.stringValue,
-                                         options: entry)
+                                         web: entry["web"]?.stringValue, options: entry)
             }
         }
     }

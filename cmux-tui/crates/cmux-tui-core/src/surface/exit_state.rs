@@ -119,7 +119,7 @@ pub(super) fn mark_hosted_runtime_exited(
         if let PtyRuntime::Hosted(host) = &*runtime {
             host.disconnect();
         }
-        *runtime = PtyRuntime::ExitedHosted;
+        pty.replace_runtime(&mut runtime, PtyRuntime::ExitedHosted);
         pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
         drop(runtime);
         pty.finish_hosted_exit();

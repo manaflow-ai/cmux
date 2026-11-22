@@ -28,6 +28,14 @@ extension AgentPaneImageCopies {
         return NSPasteboard.general.writeObjects([item])
     }
 
+    /// The composer's Copy and Cut (`composer.copy`): replaces the general pasteboard's contents
+    /// with `items`, in order (the selection's text, then one item per attachment).
+    @discardableResult
+    static func writeGeneral(_ items: [NSPasteboardItem]) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.writeObjects(items)
+    }
+
     /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's
     /// `data` under its type and as TIFF.
     @MainActor static func pasteboardItem(_ file: URL, data: Data?) -> NSPasteboardItem {

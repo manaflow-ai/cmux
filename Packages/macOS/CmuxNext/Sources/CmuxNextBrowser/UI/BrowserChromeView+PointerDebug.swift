@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// A toolbar control whose hover follows the pointer (`OmnibarPointer`).
 @MainActor
@@ -122,6 +123,7 @@ extension BrowserChromeView {
         if hit === addressBar || hit.superview === addressBar && hit is NSStackView {
             return addressBar.textArea.contains(addressBar.convert(base, from: nil)) ? .bar : .barEdge
         }
+        if OmnibarPointer.clickable(at: hit, below: toolbar) != nil { return .button }
         var view: NSView? = hit
         while let current = view, current !== toolbar {
             if current is NSControl || current is any PointerHoverReporting || current is ProfileBadgeView || current is MachineBadgeView {

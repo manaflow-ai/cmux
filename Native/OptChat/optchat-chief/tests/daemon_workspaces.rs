@@ -3,8 +3,8 @@
 //! subagent runs on this machine, so its workspace belongs to this machine's
 //! session (data-model.md 1.2), and every cmux app connected to that session
 //! shows it, even while the user's laptop sleeps. One workspace per
-//! subagent, named by the caller's key, with a terminal in the subagent's
-//! directory and the agent chat tab on the SAME acpmux session, owned by this
+//! subagent, named by the caller's key, holding only the agent chat tab on
+//! the SAME acpmux session (no shell; Lawrence 2026-10-21), owned by this
 //! install. A daemon without agent session tabs is refused, never half done.
 
 use std::io::{BufRead, BufReader, Write};
@@ -46,7 +46,8 @@ fn serve(
                         let result = match req["operation"].as_str().unwrap() {
                             _ if !personal => None,
                             "workspace_group.list" => Some(json!([
-                                {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "index": 0, "room_id": "default"}
+                                {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "index": 0, "room_id": "default"},
+                                {"id": "grp_user_agents", "name": "chief agents", "index": 1, "room_id": "default"}
                             ])),
                             "workspace_group.create" => {
                                 // A mutation answers the group as its `value`.
@@ -133,9 +134,10 @@ fn serve(
                                  "screens": [{"panes": [{"tabs": [{"kind": "pty", "dead": false, "title": title}]}]}]}
                             ]})
                         }
-                        // The user's own group by a topic name is reused.
+                        // The user's own groups: a topic one and "Chief agents" (any case).
                         "list-workspace-groups" => json!({"groups": [
-                            {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false}
+                            {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false},
+                            {"id": "grp_user_agents", "name": "Chief Agents", "collapsed": false}
                         ]}),
                         "close-workspace" => json!({
                             "generation": "g", "index": 3, "key": req["key"], "registry_id": "r",
@@ -223,11 +225,11 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
         "the caller's key names the workspace"
     );
     assert_eq!(created[0]["name"], "a1 · summarize");
-    let terminal = commands(&requests, "create-terminal");
-    assert_eq!(terminal[0]["workspace"], 7);
-    assert_eq!(terminal[0]["cwd"], "/Users/x/fun/repo");
+    // The chat tab only: no shell, so no terminal host and no PTY per
+    // subagent (Lawrence 2026-10-21).
+    assert!(commands(&requests, "create-terminal").is_empty());
     let tab = commands(&requests, "new-conversation-tab");
-    assert_eq!(tab[0]["pane"], 9);
+    assert_eq!(tab[0]["workspace"], 7);
     assert_eq!(
         tab[0]["agent_session"],
         json!({"host": "install:inst_test", "host_name": "cmux-lawrence", "session": "sess-1", "harness": "claude-sr"})
@@ -272,23 +274,17 @@ fn open(w: &DaemonWorkspaces) -> Result<String, String> {
     )
 }
 
-/// Lawrence 2026-10-18: "use groups more aggressively so that you can
-/// organize and the user feels less overwhelmed".
+/// #27712: a workspace asked into "Chief agents" joins the user's own group of that name (any
+/// case); no group is made.
 #[test]
-fn a_subagent_workspace_goes_into_the_chief_agents_group() {
+fn a_subagent_workspace_joins_the_users_chief_agents_group() {
     let (w, requests, _dir) = workspaces(GROUPED.to_vec());
     let key = open(&w).unwrap();
-    let group = commands(&requests, "create-workspace-group");
-    assert_eq!(group.len(), 1);
-    assert_eq!(
-        group[0]["group"], "chief-agents",
-        "a fixed id: one group for every spawn"
-    );
-    assert_eq!(group[0]["name"], "Chief agents");
+    assert!(commands(&requests, "create-workspace-group").is_empty());
     let moved = commands(&requests, "move-workspace-to-group");
     assert_eq!(moved.len(), 1);
     assert_eq!(moved[0]["workspace"], 7);
-    assert_eq!(moved[0]["group"], "chief-agents");
+    assert_eq!(moved[0]["group"], "grp_user_agents");
     assert_eq!(
         moved[0]["mutation_id"],
         format!("optchat-subagent-group-{key}")
@@ -311,7 +307,7 @@ fn a_refused_group_never_stops_the_subagent_start() {
         vec!["create-workspace-group", "move-workspace-to-group"],
     );
     open(&w).unwrap();
-    assert_eq!(commands(&requests, "create-terminal").len(), 1);
+    assert!(commands(&requests, "create-terminal").is_empty());
     assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
 }
 
@@ -325,30 +321,23 @@ fn open_in(w: &DaemonWorkspaces, group: &str) -> Result<String, String> {
     )
 }
 
-/// Lawrence 2026-10-19: "you need to group it better as well": a topic the
-/// session has no group for gets one, with a stable id per topic.
+/// #27712: any group but "Chief agents" is ignored, even one the session has: the workspace
+/// stays ungrouped and no group is made.
 #[test]
-fn a_subagent_workspace_goes_into_a_new_topic_group() {
-    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
-    open_in(&w, "Home & chat").unwrap();
-    let group = commands(&requests, "create-workspace-group");
-    assert_eq!(group.len(), 1);
-    assert_eq!(group[0]["group"], "chief-topic-home-chat");
-    assert_eq!(group[0]["name"], "Home & chat");
-    let moved = commands(&requests, "move-workspace-to-group");
-    assert_eq!(moved[0]["group"], "chief-topic-home-chat");
-    assert_eq!(moved[0]["workspace"], 7);
-}
-
-/// The user's own group of that topic (any case) is reused, never doubled.
-#[test]
-fn a_topic_group_the_session_has_is_reused() {
-    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
-    open_in(&w, "Sidebar & tabs").unwrap();
-    assert!(commands(&requests, "create-workspace-group").is_empty());
-    let moved = commands(&requests, "move-workspace-to-group");
-    assert_eq!(moved.len(), 1);
-    assert_eq!(moved[0]["group"], "grp_user_sidebar");
+fn any_other_group_is_ignored() {
+    for asked in ["Home & chat", "Sidebar & tabs", "Sidebar & Tabs", ""] {
+        let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+        open_in(&w, asked).unwrap();
+        assert!(
+            commands(&requests, "create-workspace-group").is_empty(),
+            "{asked}"
+        );
+        assert!(
+            commands(&requests, "move-workspace-to-group").is_empty(),
+            "{asked}"
+        );
+        assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+    }
 }
 
 /// a313 (2026-10-20): the user asked to pin a306's workspace at the top, and
@@ -400,17 +389,14 @@ fn an_app_started_chief_makes_subagent_workspaces_in_the_users_session() {
     assert_eq!(subagent_daemon(owner, &no_app), None);
 }
 
-/// a423: in the user's session (the app's daemon) a subagent workspace joins a sidebar group
-/// the way a workspace the user groups does (`cmux workspace group <g> add`): the session's
-/// personal group by that name (any case) through `workspace.place`, never the daemon's older
+/// a423: in the user's session (the app's daemon) a subagent workspace joins the user's
+/// "Chief agents" group the way a workspace the user groups does (`cmux workspace group <g>
+/// add`): that personal group (any case) through `workspace.place`, never the daemon's older
 /// shared groups (`move-workspace-to-group`), which the app does not show for that session.
+/// #27712: any other name is ignored and no personal group is ever made.
 #[test]
-fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
-    let mut caps = GROUPED.to_vec();
-    caps.push(PERSONAL);
-    let (w, requests, _dir) = workspaces(caps);
-    open_in(&w, "Sidebar & tabs").unwrap();
-    let ops = |op: &str| -> Vec<Value> {
+fn in_the_users_session_a_subagent_workspace_joins_only_chief_agents() {
+    let ops = |requests: &Arc<Mutex<Vec<Value>>>, op: &str| -> Vec<Value> {
         requests
             .lock()
             .unwrap()
@@ -419,13 +405,14 @@ fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
             .cloned()
             .collect()
     };
-    assert!(
-        ops("workspace_group.create").is_empty(),
-        "the user's group is reused"
-    );
-    let placed = ops("workspace.place");
+    let mut caps = GROUPED.to_vec();
+    caps.push(PERSONAL);
+    let (w, requests, _dir) = workspaces(caps.clone());
+    open_in(&w, "Chief agents").unwrap();
+    assert!(ops(&requests, "workspace_group.create").is_empty());
+    let placed = ops(&requests, "workspace.place");
     assert_eq!(placed.len(), 1, "{:?}", requests.lock().unwrap());
-    assert_eq!(placed[0]["params"]["group"], "grp_user_sidebar");
+    assert_eq!(placed[0]["params"]["group"], "grp_user_agents");
     assert_eq!(
         placed[0]["params"]["workspace"],
         "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e"
@@ -434,42 +421,32 @@ fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
     assert!(commands(&requests, "move-workspace-to-group").is_empty());
     assert!(commands(&requests, "create-workspace-group").is_empty());
 
-    // A topic the session has no group for gets a new personal group.
-    let mut caps = GROUPED.to_vec();
-    caps.push(PERSONAL);
-    let (w, requests, _dir) = workspaces(caps);
-    open_in(&w, "Performance").unwrap();
-    let created: Vec<Value> = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|r| r["operation"] == "workspace_group.create")
-        .cloned()
-        .collect();
-    assert_eq!(created.len(), 1);
-    assert_eq!(created[0]["params"]["name"], "Performance");
-    let placed: Vec<Value> = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|r| r["operation"] == "workspace.place")
-        .cloned()
-        .collect();
-    assert_eq!(placed[0]["params"]["group"], "grp_new");
+    for asked in ["Sidebar & tabs", "Performance", ""] {
+        let (w, requests, _dir) = workspaces(caps.clone());
+        open_in(&w, asked).unwrap();
+        assert!(
+            ops(&requests, "workspace_group.create").is_empty(),
+            "{asked}"
+        );
+        assert!(ops(&requests, "workspace.place").is_empty(), "{asked}");
+        assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+    }
 }
 
-/// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, create-terminal
-/// failed ("failed to spawn PTY command ... os error 2"), and the workspace stayed:
-/// an empty sidebar row with no chat, never cleaned up. A failed open closes the
-/// workspace it made.
+/// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, the next step
+/// (then create-terminal: "failed to spawn PTY command ... os error 2") failed, and
+/// the workspace stayed: an empty sidebar row with no chat, never cleaned up. The
+/// open makes no terminal now; its one later step is the chat tab, and a failed open
+/// closes the workspace it made.
 #[test]
-fn a_workspace_whose_terminal_fails_is_closed_not_left_empty() {
-    let (w, requests, _dir) = workspaces_refusing(GROUPED.to_vec(), vec!["create-terminal"]);
+fn a_workspace_whose_chat_tab_fails_is_closed_not_left_empty() {
+    let (w, requests, _dir) = workspaces_refusing(GROUPED.to_vec(), vec!["new-conversation-tab"]);
     let key = optchat_chief::workspaces::new_key();
     let err = w
         .open(&key, "sess-1", "a1 · x", "Chief agents", Path::new("/tmp"))
         .unwrap_err();
-    assert!(err.contains("create-terminal"), "{err}");
+    assert!(err.contains("new-conversation-tab"), "{err}");
+    assert!(commands(&requests, "create-terminal").is_empty());
     let closed = commands(&requests, "close-workspace");
     assert_eq!(
         closed.len(),

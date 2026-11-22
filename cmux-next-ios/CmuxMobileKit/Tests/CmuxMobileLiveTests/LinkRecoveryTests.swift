@@ -1,0 +1,188 @@
+import CmuxMobileTransport
+import Foundation
+import Testing
+@testable import CmuxMobileLive
+
+/// Real controller with only the transport replaced. Every test that times
+/// the heartbeat controls its clock. A silent link deliberately ignores the
+/// probe deadline, exercising the outer FFI bound.
+private final class RecoveryLink: MacLink, @unchecked Sendable {
+    let transport: TransportKind = .wireGuard
+    let states: AsyncStream<LinkState>
+    let continuation: AsyncStream<LinkState>.Continuation
+    let connectedPath: LinkPathKind?
+    private let lock = NSLock()
+    private var silent = false
+    private var probes = 0
+    private var closed = false
+    var probeCount: Int { lock.withLock { probes } }
+    var isClosed: Bool { lock.withLock { closed } }
+
+    init(immediatelyConnected: Bool) {
+        connectedPath = immediatelyConnected ? .direct : nil
+        (states, continuation) = AsyncStream.makeStream()
+        if immediatelyConnected { connect() }
+    }
+    func connect() { continuation.yield(.connected(.wireGuard, .direct, rttMillis: nil)) }
+    func dropSilently() { lock.withLock { silent = true } }
+    func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        throw LinkError(code: "unknown_service", message: service)
+    }
+    func ping() async throws -> UInt32 { 1 }
+    func probe(timeout: Duration) async throws -> UInt32? {
+        let isSilent = lock.withLock { probes += 1; return silent }
+        if isSilent { try await Task.sleep(for: .seconds(60)) }
+        return 1
+    }
+    func close() async {
+        lock.withLock { closed = true }
+        continuation.finish()
+    }
+}
+
+private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
+    let first: RecoveryLink
+    private let lock = NSLock()
+    private var count = 0
+    var dials: Int { lock.withLock { count } }
+    init(immediatelyConnected: Bool = true) {
+        first = RecoveryLink(immediatelyConnected: immediatelyConnected)
+    }
+    func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
+        let number = lock.withLock { count += 1; return count }
+        return number == 1 ? first : RecoveryLink(immediatelyConnected: true)
+    }
+}
+
+@MainActor
+@Suite struct LinkRecoveryTests {
+    private func controller(_ dialer: RecoveryDialer, clock: LinkTestClock) -> LinkController {
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock, beat: .off) { _ in "token" }
+        controller.endpoint = {
+            LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: $0)
+        }
+        controller.send(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        return controller
+    }
+
+    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
+                            sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        var deadline = AwakeDeadline(within)
+        while !condition(), deadline.hasTimeLeft() { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
+    }
+
+    @Test(arguments: [true, false]) func firstProbeWaitsForConnectedState(immediate: Bool) async throws {
+        let dialer = RecoveryDialer(immediatelyConnected: immediate)
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { controller.link != nil }
+        if !immediate {
+            #expect(dialer.first.probeCount == 0)
+            dialer.first.connect()
+        }
+        try await eventually { dialer.first.probeCount == 1 }
+        #expect(controller.phase.isConnected)
+    }
+
+    @Test func resumeReplacesStaleLinkWithoutWaitingForAProbe() async throws {
+        let dialer = RecoveryDialer()
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { dialer.first.probeCount == 1 }
+        controller.send(.background)
+        dialer.first.dropSilently()
+        let oldGeneration = controller.dialGeneration
+        controller.send(.resume)
+        #expect(controller.phase == .connecting(.wireGuard, attempt: 1))
+        #expect(controller.dialGeneration > oldGeneration)
+        try await eventually { dialer.dials == 2 && dialer.first.isClosed }
+        #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
+    }
+
+    @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
+        let dialer = RecoveryDialer()
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        let driver = LinkClockDriver(clock: clock, controller: controller)
+        try await eventually { dialer.first.probeCount == 1 }
+        try await driver.settle()
+        controller.send(.background)
+        let backgroundDeadline = clock.now.advanced(by: .seconds(15))
+        try await driver.settle()
+        #expect(clock.isSleeping(until: backgroundDeadline))
+        // Past the foreground beat, with every timer due by then run: no probe.
+        try await driver.advance(by: LinkController.heartbeat + .milliseconds(100))
+        #expect(dialer.first.probeCount == 1)
+        #expect(clock.isSleeping(until: backgroundDeadline))
+        controller.send(.target(nil))
+        try await eventually { dialer.first.isClosed }
+        #expect(!clock.isSleeping(until: backgroundDeadline))
+        #expect(controller.link == nil)
+        #expect(dialer.dials == 1)
+    }
+
+    @Test func foregroundDetectionBudget() {
+        #expect(LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace <= .seconds(5))
+    }
+
+    /// A silent drop just after link up (the worst point in the heartbeat
+    /// cycle) is redialed with the controller's clock stopped at the budget:
+    /// one heartbeat, then the probe's outer bound. A retry delay, a longer
+    /// interval or a missing bound never redials. Wall time measured the
+    /// runner instead: 13.4 s and 9.25 s on a loaded CI runner for a 5 s
+    /// budget. The separate budget test guards the policy.
+    @Test func silentDropDetectionBenchmark() async throws {
+        let dialer = RecoveryDialer()
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        let drop = clock.now
+        let beat = drop.advanced(by: LinkController.heartbeat)
+        // Link up arms the heartbeat and the first probe's bound.
+        let firstBound = drop.advanced(by: LinkController.foregroundProbeTimeout + LinkController.probeGrace)
+        // The first probe's answer has reached the controller (its rtt), so
+        // the beat's probe is not skipped as one still in flight.
+        try await eventually {
+            controller.phase == .connected(.wireGuard, .direct, rttMillis: 1)
+                && clock.isSleeping(untilAll: [beat, firstBound])
+        }
+        dialer.first.dropSilently()
+        clock.advance(by: LinkController.heartbeat)
+        // The beat probes the silent link; only the outer bound can end it.
+        let bound = beat.advanced(by: LinkController.probeTimeout + LinkController.probeGrace)
+        let nextBeat = beat.advanced(by: LinkController.heartbeat)
+        try await eventually { dialer.first.probeCount == 2 && clock.isSleeping(untilAll: [bound, nextBeat]) }
+        #expect(dialer.dials == 1, "No redial before the probe's bound")
+        clock.advance(by: clock.now.duration(to: bound))
+        try await eventually { dialer.dials >= 2 }
+        print("LINK_RECOVERY silent_drop_ms=\(milliseconds(drop.duration(to: clock.now)))")
+    }
+
+    private func milliseconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+    }
+}
+
+@Suite struct LinkResumeMachineTests {
+    @Test func backgroundDialIsReplacedAndLateResultsIgnored() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
+        #expect(machine.handle(.dialSucceeded(generation: 1, path: .direct)) == [])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+    }
+
+    @Test func inactiveForegroundOnlyProbesAndIdleResumeDoesNotDial() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume).isEmpty)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
+        #expect(machine.handle(.resume) == [.probe(generation: machine.generation)])
+    }
+}

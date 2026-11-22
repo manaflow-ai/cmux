@@ -7,6 +7,7 @@
 //! which the sender only learns after sending, so a body cannot fake the end
 //! of its message.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Rendered text one delivery hands an agent at once; later messages wait
@@ -81,10 +82,10 @@ pub fn provenance(message: &Value, recipient: &str) -> Option<Value> {
         "threadId": field("thread_id")?,
     });
     if let Some(name) = field("sender_name").filter(|name| name.chars().count() <= 64) {
-        provenance["fromName"] = json!(name);
+        provenance.set("fromName", json!(name));
     }
     if let Some(parent) = field("in_reply_to") {
-        provenance["replyTo"] = json!(parent);
+        provenance.set("replyTo", json!(parent));
     }
     Some(provenance)
 }

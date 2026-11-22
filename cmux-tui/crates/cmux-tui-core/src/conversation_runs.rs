@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::{ConversationStore, attachments, load_head, rejected, to_i64};
+use cmux_json::JsonSet as _;
 
 /// Kept in the schema batch: `CREATE TABLE IF NOT EXISTS` needs no version
 /// bump, and an older daemon ignores the tables.
@@ -395,7 +396,7 @@ fn attachment_parts(step: &StepInput) -> anyhow::Result<Vec<Part>> {
         .iter()
         .map(|fields| {
             let mut value = Value::Object(fields.clone());
-            value["type"] = json!("attachment");
+            value.set("type", json!("attachment"));
             let part: Part = serde_json::from_value(value).map_err(|_| refused("invalid_run"))?;
             invalid(matches!(part, Part::Attachment { .. }) && valid_attachment_part(&part))?;
             Ok(part)
@@ -507,9 +508,9 @@ impl ConversationStore {
             };
             run.rev += 1;
             let mut value = serde_json::to_value(step)?;
-            value["seq"] = json!(seq);
-            value["at"] = json!(at);
-            value["rev"] = json!(run.rev);
+            value.set("seq", json!(seq));
+            value.set("at", json!(at));
+            value.set("rev", json!(run.rev));
             transaction.execute(
                 "INSERT INTO conversation_run_step(conversation, run, step, seq, rev, step_json)
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6)
@@ -597,16 +598,33 @@ impl ConversationStore {
     }
 
     /// The newest runs of a conversation (before `before_started_at`), or the
-    /// runs whose `turn` is one of `turns`.
+    /// runs whose `turn` is one of `turns`. Timestamp pages include all ties
+    /// at the limit so the next strict `before_started_at` cursor skips none.
     pub(crate) fn runs(
         &mut self,
         conversation: &str,
         turns: Option<&[String]>,
+        answers: Option<&[String]>,
         before_started_at: Option<u64>,
         limit: u32,
     ) -> anyhow::Result<(Vec<Run>, bool)> {
         if load_head(&self.connection, conversation)?.is_none() {
             return Err(rejected(Reject::UnknownConversation));
+        }
+        if let Some(answers) = answers {
+            let mut statement = self
+                .connection
+                .prepare("SELECT run_json FROM conversation_run WHERE conversation = ?1")?;
+            let wanted: std::collections::HashSet<&str> =
+                answers.iter().map(String::as_str).collect();
+            let mut runs = Vec::new();
+            for json in statement.query_map(params![conversation], |row| row.get::<_, String>(0))? {
+                let run: Run = serde_json::from_str(&json?)?;
+                if run.answers.iter().any(|answer| wanted.contains(answer.as_str())) {
+                    runs.push(run);
+                }
+            }
+            return Ok((runs, false));
         }
         if let Some(turns) = turns {
             let mut statement = self.connection.prepare(
@@ -625,17 +643,21 @@ impl ConversationStore {
         let before = before_started_at.map(to_i64).transpose()?.unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare(
             "SELECT run_json FROM conversation_run WHERE conversation = ?1 AND started_at < ?2
-             ORDER BY started_at DESC, run DESC LIMIT ?3",
+             ORDER BY started_at DESC, run DESC",
         )?;
-        let mut runs = statement
-            .query_map(params![conversation, before, i64::from(limit) + 1], |row| {
-                row.get::<_, String>(0)
-            })?
-            .map(|json| Ok(serde_json::from_str(&json?)?))
-            .collect::<anyhow::Result<Vec<Run>>>()?;
-        let has_more = runs.len() > limit as usize;
-        runs.truncate(limit as usize);
-        Ok((runs, has_more))
+        let mut runs: Vec<Run> = Vec::new();
+        for json in
+            statement.query_map(params![conversation, before], |row| row.get::<_, String>(0))?
+        {
+            let run: Run = serde_json::from_str(&json?)?;
+            if runs.len() >= limit as usize
+                && runs.last().is_some_and(|last| last.started_at != run.started_at)
+            {
+                return Ok((runs, true));
+            }
+            runs.push(run);
+        }
+        Ok((runs, false))
     }
 
     /// One run and its steps written after `after_rev`, oldest write first.

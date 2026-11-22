@@ -24,3 +24,39 @@ extension FileHandle {
         return .end
     }
 }
+
+extension FileHandle {
+    /// The most chunks ``readyChunks()`` holds for a consumer that has not read them yet.
+    public static let readyChunksLimit = 256
+
+    /// This handle's bytes as they arrive, each chunk one ``readReady(maxLength:)`` of a
+    /// `readabilityHandler` (a dispatch source of this handle's own). Not `bytes`: Foundation reads
+    /// every `FileHandle.AsyncBytes` in the process one at a time, so a `bytes` reader waiting on
+    /// a quiet pipe keeps every other one from reading (macOS 26: with one idle `bytes` reader in
+    /// the process, a line written to a second pipe was not read in 5 s).
+    ///
+    /// Stop condition: the stream ends at end of file or a failed read, or when a consumer falls
+    /// more than ``readyChunksLimit`` chunks behind (bytes are never dropped from the middle).
+    /// Cleanup: the handler is cleared whenever the stream ends: at end of file, when its consumer's
+    /// task is cancelled, when the stream is released (a consumer that breaks out and drops it),
+    /// and on `stop()`, for an owner that goes away before its end of file.
+    public nonisolated func readyChunks() -> (chunks: AsyncStream<Data>, stop: @Sendable () -> Void) {
+        let (chunks, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(Self.readyChunksLimit))
+        continuation.onTermination = { [weak self] _ in self?.readabilityHandler = nil }
+        readabilityHandler = { handle in
+            switch handle.readReady() {
+            case .bytes(let data):
+                if case .dropped(_) = continuation.yield(data) {
+                    handle.readabilityHandler = nil
+                    continuation.finish()
+                }
+            case .retry:
+                break
+            case .end:
+                handle.readabilityHandler = nil
+                continuation.finish()
+            }
+        }
+        return (chunks, { continuation.finish() })
+    }
+}

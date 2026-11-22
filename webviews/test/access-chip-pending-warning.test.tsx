@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -80,19 +81,11 @@ afterEach(async () => {
   resetStartModesForTests();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Summary = Record<string, unknown> | undefined;
-type PermissionAccess = {
-  grants: readonly { id: string; label: string; onRemove(): void }[];
-};
-
 function reported(sessionId: string, currentModeId: string): Summary {
   return {
     sessionId,
@@ -110,7 +103,7 @@ function reported(sessionId: string, currentModeId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary, cwd?: string, permissionAccess?: PermissionAccess, holdsModePick = true) {
+async function render(summary: Summary, cwd?: string, holdsModePick = true) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -140,7 +133,6 @@ async function render(summary: Summary, cwd?: string, permissionAccess?: Permiss
     return (
       <ComposerPickers
         snapshot={snapshot}
-        permissionAccess={permissionAccess}
         pickerCatalog={picker.catalog}
         onModel={() => undefined}
         onMode={() => undefined}
@@ -202,7 +194,7 @@ async function fresh(cwd?: string, holdsModePick = true) {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  await render(undefined, cwd, undefined, holdsModePick);
+  await render(undefined, cwd, holdsModePick);
 }
 
 test("a new chat acpmux starts in full access draws its warning chip on the first frame", async () => {
@@ -227,12 +219,11 @@ test("a new chat acpmux starts in full access draws its warning chip on the firs
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
 });
 
-test("the access chip keeps grant details in its menu without a count in the pill", async () => {
-  await render(reported("chat", "default"), undefined, {
-    grants: [{ id: "grant-1", label: "Always allow shell", onRemove: () => undefined }],
-  });
+// Leo, 2026-10-29, on the mode menu's "Granted access" section: "What is this bottom fucking
+// bullshit?" The menu lists the modes alone; grants are revoked in Session Info's Environment.
+test("the access menu lists the modes alone, with no granted access section", async () => {
+  await render(reported("chat", "default"));
   const chip = host.querySelector<HTMLElement>(".acpmux-mode")!;
-  expect(chip.querySelector(".acpmux-access-grant-count")).toBeNull();
   expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Manual");
   await act(async () => {
     const trigger = chip.querySelector<HTMLButtonElement>(".acpmux-access-trigger")!;
@@ -240,8 +231,9 @@ test("the access chip keeps grant details in its menu without a count in the pil
     Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
     trigger.dispatchEvent(press);
   });
-  expect(document.querySelector(".acpmux-access-grant-label")?.textContent).toBe("Always allow shell");
-  expect(document.querySelector<HTMLButtonElement>(".acpmux-access-grant-remove")).not.toBeNull();
+  expect(document.querySelectorAll('[role="menuitemradio"]').length).toBeGreaterThan(0);
+  expect(document.querySelector(".acpmux-access-grants, .acpmux-access-grant")).toBeNull();
+  expect(document.body.textContent).not.toContain("Granted access");
 });
 
 test("a kept answer that is wrong gives way to acpmux's answer", async () => {

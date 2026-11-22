@@ -42,5 +42,23 @@ struct AgentPaneOpenPageRelayTests {
         try #require(await transport.send(connection: id, frames: [older]) == nil, "the pane refused an older page")
         _ = await inbox.frame(containing: #""id":2"#)
         #expect(sent("_acpmux/events").count == 1, "the older page never reached acpmux")
+
+        // As webviews direct.ts readPromptIndex(): the prompt rail's index of every turn (#34273).
+        // The NIGHTLY refused it as transport.intent_invalid on every chat open.
+        let promptIndex = Self.request(id: 4, method: "_acpmux/events", params: """
+            {"sessionId":"s","beforeSeq":500,"promptIndex":true,"kinds":["user_message"],"limit":5000,"maxBytes":262144}
+            """)
+        try #require(await transport.send(connection: id, frames: [promptIndex]) == nil, "the pane refused the prompt index read")
+        _ = await inbox.frame(containing: #""id":4"#)
+        #expect(sent("_acpmux/events").count == 2, "the prompt index read never reached acpmux")
+
+        let native = Self.request(id: 3, method: "_acpmux/native_history", params: """
+            {"sessionId":"s","before":4096,"mark":"transcript-boundary-mark"}
+            """)
+        try #require(await transport.send(connection: id, frames: [native]) == nil)
+        _ = await inbox.frame(containing: #""id":3"#)
+        let nativeFrame = try #require(sent("_acpmux/native_history").first)
+        let nativeParams = try #require((try JSONSerialization.jsonObject(with: Data(nativeFrame.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        #expect(nativeParams["mark"] as? String == "transcript-boundary-mark")
     }
 }

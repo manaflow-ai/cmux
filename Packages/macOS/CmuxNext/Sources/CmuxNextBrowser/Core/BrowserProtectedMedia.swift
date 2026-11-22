@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Protected (DRM) media a Chromium page asked for and could not get, and whether its tab reopens in
@@ -106,7 +107,12 @@ public nonisolated struct BrowserProtectedMedia: Sendable, Hashable {
     /// - Parameter json: One raw DevTools message.
     /// - Returns: The refused media, or nil.
     public static func refused(bindingCall json: String) -> BrowserProtectedMedia? {
-        guard json.contains("\"\(channel)\""), let data = json.data(using: .utf8),
+        refused(bindingCall: DevToolsMessageHead(json: json))
+    }
+
+    /// The same check for a message whose head the relay already read.
+    public static func refused(bindingCall head: DevToolsMessageHead) -> BrowserProtectedMedia? {
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(channel)\""), let data = head.json.data(using: .utf8),
               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == channel,
@@ -126,6 +132,6 @@ extension BrowserProtectedMedia {
     /// The note the reopened WebKit tab shows.
     public static var reopenedNotice: String {
         String(localized: "browser.protectedMedia.reopenedInWebKit",
-               defaultValue: "Opened in WebKit: this site’s protected media does not play in Chromium.", bundle: .module)
+               defaultValue: "Opened in WebKit: this site’s protected media does not play in Chromium.", bundle: .localizedModule)
     }
 }

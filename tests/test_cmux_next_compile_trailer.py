@@ -11,6 +11,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("compile_trailer", ROOT / "scripts/cmux-next/compile_trailer.py")
@@ -42,7 +49,7 @@ class CompileTrailerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.repo / "gitconfig"), HOME=str(self.repo))
         (self.repo / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@t\n")
         self.git("init", "-q", "-b", "feat-cmux-next")
@@ -524,6 +531,301 @@ class CompileTrailerTests(unittest.TestCase):
         refused, lines = self.check(head, base=upstream)
         self.assertTrue(refused, lines)
         self.assertIn("not the one the compile job compiled", lines[0])
+
+    # A moved base alone (a803, 2026-10-28): its compiled change, replayed 10, 20 and 30 commits later, was refused
+    # every time though it needed no new compile: upstream edited another target in the same Package.swift, added a
+    # declaration in a file the push also edits (the push's file then holds upstream's own line), or named an enum
+    # the push only added a case to.
+    def test_moved_base_another_target_in_the_push_s_package_manifest_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('.target(name: "Other"),',
+                                                                                     '.target(name: "Other", dependencies: ["Base"]),')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_manifest_change_to_a_target_that_uses_the_push_s_module_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("func run() -> Int { 1 }", "func run() -> Int { 2 }")},
+                                           {f"{PKG}/Package.swift": manifest.replace('name: "App", dependencies: ["Kit"]',
+                                                                                     'name: "App", dependencies: ["Kit", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_gaining_dependencies_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_gaining_linker_settings_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace(
+                                               'dependencies: ["Base"]',
+                                               'dependencies: ["Base"],\n            linkerSettings: [.linkedFramework("CoreFoundation")]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_module_the_push_imports_losing_a_dependency_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]', 'dependencies: []')})
+        self.assertTrue(refused, lines)
+        self.assertIn("Package.swift", lines[0])
+
+    def test_moved_base_the_push_s_own_module_gaining_a_dependency_passes(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("func run() -> Int { 1 }", "func run() -> Int { 2 }")},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base", "Other"]')})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_a_manifest_change_to_a_target_the_push_uses_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('dependencies: ["Base"]',
+                                                                                     'dependencies: ["Base"],\n            swiftSettings: [.define("X")]')})
+        self.assertTrue(refused, lines)
+        self.assertIn("Package.swift", lines[0])
+
+    def test_moved_base_a_manifest_change_outside_the_targets_is_refused(self):
+        self.kit_app()
+        manifest = self.read(f"{PKG}/Package.swift")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Package.swift": manifest.replace('    name: "CmuxNext",\n',
+                                                                                     '    name: "CmuxNext",\n    platforms: [.macOS(.v15)],\n')})
+        self.assertTrue(refused, lines)
+
+    def test_moved_base_an_upstream_declaration_in_a_file_the_push_also_edits_passes(self):
+        long_app = "import Kit\nstruct App {\n    let kit = Kit()\n}\n" + "".join(f"let pad{i} = {i}\n" for i in range(12))
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/App.swift", long_app)
+        self.base = self.commit("long app")
+        refused, lines = self.rebased_push(
+            {f"{PKG}/Sources/App/App.swift": long_app.replace("    let kit = Kit()\n", "    let kit = Kit()\n    let n = 1\n")},
+            {f"{PKG}/Sources/App/App.swift": long_app + "func extra() -> Int { 2 }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_the_push_s_new_line_naming_upstream_s_new_declaration_is_refused(self):
+        long_app = "import Kit\nstruct App {\n    let kit = Kit()\n}\n" + "".join(f"let pad{i} = {i}\n" for i in range(12))
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/App.swift", long_app)
+        self.base = self.commit("long app")
+        refused, lines = self.rebased_push(
+            {f"{PKG}/Sources/App/App.swift": long_app.replace("    let kit = Kit()\n", "    let kit = Kit()\n    let n = extra()\n")},
+            {f"{PKG}/Sources/App/App.swift": long_app + "func extra() -> Int { 2 }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("extra", lines[0])
+
+    def test_moved_base_an_enum_case_the_push_adds_passes_upstream_code_that_names_the_enum(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nlet chosen = Mode.a\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_enum_case_the_push_adds_with_an_upstream_switch_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc name(_ m: Mode) -> Int {\n"
+                                            "    switch m {\n    case .a: return 1\n    case .b: return 2\n    }\n}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("Mode", lines[0])
+
+    def test_moved_base_an_enum_case_the_push_adds_passes_an_upstream_switch_over_another_enum(self):
+        self.kit_app(extra="public enum Shade {\n    case light\n    case dark\n}\n")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc tone(_ s: Shade) -> Int {\n"
+                                            "    switch s {\n    case .light: return 1\n    case .dark: return 2\n    }\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_enum_case_the_push_renames_is_refused_where_upstream_names_the_enum(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case a\n", "    case first\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nlet chosen = Mode.a\n"})
+        self.assertTrue(refused, lines)
+
+    def test_moved_base_an_internal_member_removed_in_another_module_passes(self):
+        self.kit_app(extra="struct Hidden {\n    let key = 1\n}\n")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { let key = 2; return key }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    let key = 1\n", "")})
+        self.assertFalse(refused, lines)
+
+    def test_moved_base_an_internal_member_removed_is_refused_for_a_testable_import(self):
+        self.kit_app(extra="struct Hidden {\n    let key = 1\n}\n")
+        refused, lines = self.rebased_push({self.APP: "@testable import Kit\nfunc feature() -> Int { Hidden().key }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    let key = 1\n", "")})
+        self.assertTrue(refused, lines)
+        self.assertIn("key", lines[0])
+
+    def test_moved_base_an_internal_member_removed_in_the_same_module_is_refused(self):
+        self.kit_app()
+        self.write(f"{PKG}/Sources/App/Store.swift", "struct Store {\n    let key = 1\n}\n")
+        self.base = self.commit("store")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Store().key }\n"},
+                                           {f"{PKG}/Sources/App/Store.swift": "struct Store {\n}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("key", lines[0])
+
+    def test_moved_base_cases_of_an_internal_enum_in_another_module_pass_an_upstream_switch(self):
+        self.kit_app(extra="enum Keys: String {\n    case one\n    case two\n}\n")
+        refused, lines = self.rebased_push({self.KIT: self.read(self.KIT).replace("    case two\n", "    case two\n    case three\n")},
+                                           {f"{PKG}/Sources/App/Uses.swift": "import Kit\nfunc n(_ s: String) -> Int {\n"
+                                            "    switch s {\n    case \"one\": return 1\n    default: return 2\n    }\n}\nlet one = 1\n"})
+        self.assertFalse(refused, lines)
+
+    # 2026-11-12: a push that deleted BrowserSwipeGesture.swift (enum `BrowserSwipeDirection { case back, forward }`,
+    # a gesture with phases `.ready`, `.cancel`) was refused three times in a row: each removed member counted by its
+    # bare name, so upstream's new `let back = ...` in an unrelated test, then a `ready` and a `cancel`, met it. A member
+    # of a type the push removed whole can be reached only through that type's name or through an API that returns it,
+    # and both are removals of their own; the member's name alone meets nothing.
+    SWIPE = f"{PKG}/Sources/Kit/Swipe.swift"
+    SWIPE_TEXT = ("public enum SwipeDirection {\n    case back\n    case forward\n}\n"
+                  "public struct SwipeGesture {\n    public enum Phase {\n        case ready\n        case cancel\n    }\n"
+                  "    public var phase: Phase\n    public func cancel() {}\n}\n")
+
+    def swipe_kit(self):
+        self.kit_app()
+        self.write(self.SWIPE, self.SWIPE_TEXT)
+        self.base = self.commit("swipe")
+
+    def test_deleted_type_members_of_a_type_the_push_deletes_pass_upstream_code_that_shares_their_names(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift",
+                   "import Kit\nstruct Rig {\n    var ready = true\n    func cancel() {}\n}\n"
+                   "func check(_ r: Rig) -> Bool {\n    let back = r.ready\n    r.cancel()\n    return back\n}\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertFalse(refused, lines)
+
+    def test_deleted_type_upstream_code_naming_a_type_the_push_deletes_is_refused(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift", "import Kit\nlet way = SwipeDirection.back\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertTrue(refused, lines)
+        self.assertIn("SwipeDirection", lines[0])
+
+    def test_deleted_type_a_member_removed_from_a_type_that_stays_still_meets_its_name(self):
+        self.swipe_kit()
+        refused, lines = self.rebased_push(
+            {self.SWIPE: self.SWIPE_TEXT.replace("    public func cancel() {}\n", "")},
+            {f"{PKG}/Sources/App/Resize.swift": "import Kit\nfunc stop(_ g: SwipeGesture) { g.cancel() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("cancel", lines[0])
+
+    # 2026-11-18: a push that trimmed `ServerPageProvider` (its `closed()`, `opened(again:)` and `card` went with
+    # the web card it no longer is) was refused on four rebases in a row: each removed member met a file by its bare
+    # name, `restoreClosed.closed(front)` in WindowManager, then a test's `card`, then CloudStartChat's `opened`, none
+    # of which name ServerPageProvider. A removed member, like a changed one, meets a file that names a type it sits in.
+    def test_removed_member_passes_upstream_code_that_calls_the_name_on_another_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nstruct Tracker {\n    func close() {}\n}\nfunc hub(_ t: Tracker) { t.close() }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_removed_member_is_refused_where_upstream_names_its_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub(_ i: Invite) { i.close() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    def test_removed_top_level_function_still_meets_its_name_alone(self):
+        self.server_hub()
+        self.write(self.SERVER, self.read(self.SERVER) + "public func shutDown() {}\n")
+        self.base = self.commit("top-level")
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("public func shutDown() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub() { shutDown() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("shutDown", lines[0])
+
+    # 2026-11-08: four of five landq trains refused after a re-pick were refused over a name a file could not reach:
+    # upstream removed `PairInviteModel.close()` (CmuxNextServer) and the train's test in CmuxNextAgentPaneTests, which
+    # does not depend on CmuxNextServer, called `window.close()`. The reach was the whole train's modules, not the
+    # file's own module and its dependencies, so each such push compiled again or gated again (70 min).
+    def server_hub(self):
+        """kit_app() plus a Server module, and a Hub module that uses it; App does not use Server."""
+        self.kit_app()
+        self.write(f"{PKG}/Sources/Server/Invite.swift",
+                   "public final class Invite {\n    public init() {}\n    public func close() {}\n}\n")
+        self.write(f"{PKG}/Sources/Hub/Hub.swift", "import Server\nstruct Hub {\n    let invite = Invite()\n}\n")
+        self.with_manifest(self.read(f"{PKG}/Package.swift").replace(
+            '.target(name: "Other"),',
+            '.target(name: "Other"),\n        .target(name: "Server"),\n        .target(name: "Hub", dependencies: ["Server"]),'))
+
+    SERVER = f"{PKG}/Sources/Server/Invite.swift"
+    HUB = f"{PKG}/Sources/Hub/Feature.swift"
+
+    def test_reach_an_upstream_removal_in_a_module_the_file_does_not_use_passes(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.APP: "import Kit\nimport AppKit\nfunc feature(_ w: NSWindow) { w.close() }\n",
+             self.HUB: "import Server\nfunc hub() -> Int { 1 }\n"},
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")})
+        self.assertFalse(refused, lines)
+
+    def test_reach_an_upstream_removal_in_a_module_the_file_uses_is_refused(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.APP: "import Kit\nfunc feature() -> Int { 1 }\n",
+             self.HUB: "import Server\nfunc hub() { Invite().close() }\n"},
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    def test_reach_the_push_s_removal_meets_no_upstream_file_outside_its_users(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", ""),
+             self.KIT: self.read(self.KIT).replace("public func run() -> Int { 1 }", "public func run() -> Int { 2 }")},
+            {self.APP: "import Kit\nimport AppKit\nfunc feature(_ w: NSWindow) { w.close() }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_reach_the_push_s_removal_meets_an_upstream_file_that_uses_its_module(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub() { Invite().close() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    # 2026-11-08: upstream removed the enum case `` `return` `` of a key enum, and a train was refused because its new
+    # lines used the keyword `return`. A reserved word names a declaration only as `.return` or `` `return` ``.
+    def test_keyword_an_upstream_case_named_by_a_keyword_meets_only_a_member_use(self):
+        self.kit_app(extra="public enum Key {\n    case `return`, escape\n}\n")
+        removed = {self.KIT: self.read(self.KIT).replace("    case `return`, escape\n", "    case escape\n")}
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { return 1 }\n"}, removed)
+        self.assertFalse(refused, lines)
+
+    def test_keyword_an_upstream_case_named_by_a_keyword_is_refused_where_the_push_names_it(self):
+        self.kit_app(extra="public enum Key {\n    case `return`, escape\n}\n")
+        removed = {self.KIT: self.read(self.KIT).replace("    case `return`, escape\n", "    case escape\n")}
+        refused, lines = self.rebased_push({self.APP: "import Kit\nlet key: Key = .return\n"}, removed)
+        self.assertTrue(refused, lines)
+        self.assertIn("return", lines[0])
 
     def read(self, rel):
         return (self.repo / rel).read_text()

@@ -7,13 +7,14 @@
 //! cloud downloads go through short-lived signed URLs kept here for reuse.
 
 use std::fs;
-use std::io::Read;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::{
     Attachments, MAX_UPLOADS, PendingPiece, Piece, Sink, StoredAttachment, UploadDeclaration,
     declared_record, hex_digest, refused,
 };
+use crate::cloud_conversations::PutBody;
 use crate::conversation_store::ConversationStore;
 
 /// A signed cloud download URL is reused this long (the owner signs for 10 minutes).
@@ -22,8 +23,8 @@ const URL_REUSE: Duration = Duration::from_secs(8 * 60);
 const MAX_URLS: usize = 1_024;
 
 /// A cloud upload whose bytes are complete and match their hashes, taken
-/// out of the store (its partial files are read with [`CloudUpload::bytes`]
-/// after the store lock is released).
+/// out of the store (its partial files are opened with
+/// [`CloudUpload::bodies`] after the store lock is released).
 pub(crate) struct CloudUpload {
     pub conversation: String,
     /// The owner's upload plan (its intent answer).
@@ -32,33 +33,52 @@ pub(crate) struct CloudUpload {
     pieces: Vec<PendingPiece>,
 }
 
+/// The partial files of a taken cloud upload, removed when this drops (after
+/// their bodies were sent, or when one could not be opened). Drop it after the
+/// bodies that read them: an open file cannot be removed on Windows.
+pub(crate) struct PartialFiles(Vec<PathBuf>);
+
+impl Drop for PartialFiles {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            #[cfg(all(test, target_os = "linux"))]
+            tests::note_removal(path);
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 impl CloudUpload {
-    /// The verified bytes of each piece. Every partial file is removed, also
-    /// when a read fails.
-    pub(crate) fn bytes(self) -> anyhow::Result<Vec<(Piece, Vec<u8>)>> {
+    /// Each piece as an upload body. A partial file is opened for streaming,
+    /// never read whole, so an original of any size stays on disk.
+    pub(crate) fn bodies(self) -> anyhow::Result<(Vec<(Piece, PutBody)>, PartialFiles)> {
         let mut out = Vec::with_capacity(self.pieces.len());
+        let mut partial = PartialFiles(Vec::new());
         let mut failure = None;
         for piece in self.pieces {
             let kind = piece.piece;
             match piece.sink {
-                Sink::Memory(bytes) => out.push((kind, bytes)),
+                Sink::Memory(bytes) => out.push((kind, PutBody::Bytes(bytes))),
                 Sink::File { path, file } => {
                     drop(file);
-                    let mut bytes = Vec::new();
-                    let read =
-                        fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
-                    let _ = fs::remove_file(&path);
-                    match read {
-                        Ok(_) if failure.is_none() => out.push((kind, bytes)),
-                        Ok(_) => {}
+                    let opened = fs::File::open(&path);
+                    partial.0.push(path);
+                    match opened {
+                        Ok(file) => out.push((kind, PutBody::File { file, len: piece.byte_count })),
                         Err(error) => failure = failure.or(Some(error)),
                     }
                 }
             }
         }
         match failure {
-            Some(error) => Err(error.into()),
-            None => Ok(out),
+            Some(error) => {
+                // Every opened piece closes before `partial` removes the files: Windows
+                // refuses to delete an open file.
+                drop(out);
+                drop(partial);
+                Err(error.into())
+            }
+            None => Ok((out, partial)),
         }
     }
 }
@@ -152,5 +172,173 @@ impl ConversationStore {
 
     pub(crate) fn forget_cloud_url(&mut self, key: &str) {
         self.attachments.cloud_urls.remove(key);
+    }
+}
+
+// Its one test reads /proc/self/fd, so the module is Linux-only: on macOS its helpers would be
+// dead code, which clippy --all-targets -D warnings refuses.
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
+
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+
+    thread_local! {
+        /// Partial files this thread's process still had open when their removal ran.
+        static OPEN_AT_REMOVAL: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Whether this process holds `path` open (Linux: a `/proc/self/fd` link to it). Windows
+    /// refuses to delete an open file, so a partial file must be closed before its removal.
+    pub(super) fn note_removal(path: &Path) {
+        let open = fs::read_dir("/proc/self/fd")
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| fs::read_link(entry.path()).is_ok_and(|target| target == path));
+        if open {
+            OPEN_AT_REMOVAL.with(|list| list.borrow_mut().push(path.to_path_buf()));
+        }
+    }
+
+    fn file_piece(piece: Piece, path: &Path, bytes: &[u8]) -> PendingPiece {
+        fs::write(path, bytes).unwrap();
+        PendingPiece {
+            piece,
+            hash: String::new(),
+            byte_count: bytes.len() as u64,
+            received: bytes.len() as u64,
+            hasher: Sha256::new(),
+            sink: Sink::File { path: path.to_path_buf(), file: fs::File::open(path).unwrap() },
+        }
+    }
+
+    /// Review of #26498 at 47d0d4a5: when a later piece could not be opened, the pieces
+    /// opened before it were still open while their partial files were removed. Windows
+    /// refuses that and the error is ignored, so the files stayed in `.partial` until restart.
+    #[test]
+    fn a_piece_that_cannot_open_leaves_no_partial_file_open_or_behind() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-cloud-partial-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("upload-Original");
+        let second = dir.join("upload-Poster");
+        let mut pieces = vec![file_piece(Piece::Original, &first, b"original bytes")];
+        let mut poster = file_piece(Piece::Poster, &second, b"poster bytes");
+        // The poster's file is gone by the time the commit opens it.
+        fs::remove_file(&second).unwrap();
+        poster.sink = Sink::File { path: second.clone(), file: fs::File::open(&first).unwrap() };
+        pieces.push(poster);
+        let upload = CloudUpload {
+            conversation: "conv".into(),
+            plan: serde_json::Value::Null,
+            record: StoredAttachment {
+                hash: String::new(),
+                mime_type: "video/mp4".into(),
+                byte_count: 14,
+                poster: None,
+                preview: None,
+            },
+            pieces,
+        };
+        OPEN_AT_REMOVAL.with(|list| list.borrow_mut().clear());
+        assert!(upload.bodies().is_err());
+        assert_eq!(OPEN_AT_REMOVAL.with(|list| list.borrow().clone()), Vec::<PathBuf>::new());
+        assert!(!first.exists() && !second.exists(), "no partial file stays behind");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod memory_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn attachment_cloud_handoff_memory_is_independent_of_file_size() {
+        const CHILD: &str = "CMUX_TEST_ATTACHMENT_MEMORY_CHILD";
+        if let Ok(size) = std::env::var(CHILD) {
+            let size: u64 = size.parse().unwrap();
+            let path = std::env::temp_dir()
+                .join(format!("cmux-attachment-memory-{}", super::super::new_upload_id().unwrap()));
+            let file = fs::File::create(&path).unwrap();
+            file.set_len(size).unwrap();
+            let declaration = UploadDeclaration {
+                sha256: "a".repeat(64),
+                byte_count: size,
+                mime_type: "application/octet-stream".into(),
+                name: "sparse.bin".into(),
+                width: None,
+                height: None,
+                duration_ms: None,
+                poster: None,
+                preview: None,
+            };
+            let (record, _) = declared_record(&declaration).unwrap();
+            let upload = CloudUpload {
+                conversation: "conv_memory".into(),
+                plan: serde_json::Value::Null,
+                record,
+                pieces: vec![PendingPiece {
+                    piece: Piece::Original,
+                    hash: "a".repeat(64),
+                    byte_count: size,
+                    received: size,
+                    hasher: Sha256::new(),
+                    sink: Sink::File { path: path.clone(), file },
+                }],
+            };
+            let high_water_kib = || -> u64 {
+                fs::read_to_string("/proc/self/status")
+                    .unwrap()
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("VmHWM:")
+                            .and_then(|value| value.split_whitespace().next())
+                            .map(|value| value.parse().unwrap())
+                    })
+                    .unwrap()
+            };
+            let before = high_water_kib();
+            let (pieces, partial) = upload.bodies().unwrap();
+            std::hint::black_box(&pieces);
+            let increase = high_water_kib().saturating_sub(before);
+            drop(pieces);
+            drop(partial);
+            println!("{size}-byte attachment handoff allocated {increase} KiB");
+            assert!(!path.exists(), "staged file must be removed after the request ends");
+            assert!(
+                increase < 16 * 1024,
+                "{size}-byte attachment handoff allocated {increase} KiB; expected under 16 MiB"
+            );
+            return;
+        }
+        // Isolate VmHWM from other parallel tests. Sparse files make the fixture cheap;
+        // the old read_to_end path still has to allocate and touch their entire contents.
+        for size in [64_u64 << 20, 256_u64 << 20] {
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "attachment_cloud_handoff_memory_is_independent_of_file_size",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, size.to_string())
+                .output()
+                .unwrap();
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 }

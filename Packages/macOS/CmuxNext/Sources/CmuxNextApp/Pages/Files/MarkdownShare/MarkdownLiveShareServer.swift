@@ -1,6 +1,7 @@
 import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
+import CmuxNextPages
 import Network
 
 /// The local live link (plans/cmux-next/markdown-omnibar-DESIGN.md section 4.1): a small HTTP

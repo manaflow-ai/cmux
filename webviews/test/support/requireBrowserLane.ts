@@ -1,10 +1,14 @@
 import { describe, test } from "bun:test";
 
+import { NO_PLAYWRIGHT_ON_MACS, playwrightRefusedHere } from "./systemChrome";
+
 /** The engines CI installs for the browser lane (ci-web.yml react-apps-check). */
 const CI_ENGINES = ["chromium", "webkit"] as const;
 
 type BrowserLaneOptions = {
   env?: Record<string, string | undefined>;
+  /** The host's platform (process.platform); a Mac outside GitHub Actions never runs the lane. */
+  platform?: string;
   report?: (message: string) => void;
   skip?: (name: string) => void;
   /** The CI engines that cannot launch here. */
@@ -26,6 +30,80 @@ async function unlaunchableEngines(): Promise<string[]> {
 }
 
 /**
+ * Whether this run must run the browser lane: an engine that cannot launch fails the file here
+ * rather than skipping it. Only GitHub Actions installs every engine for the lane on every run; a
+ * fleet step, a Freestyle VM or a laptop may not have one, and its files skip it.
+ */
+export function browserLaneRequired(env: Record<string, string | undefined> = process.env): boolean {
+  return env.GITHUB_ACTIONS === "true";
+}
+
+/** The bounded launch options used by every browser file's engine probe. */
+export type BrowserLaunchOptions = { headless: true; timeout: 30_000 };
+
+/** What a browser file's engine probe launches: an engine's `launch`, the Browser it gives closed after. */
+type BrowserEngine = { launch(options: BrowserLaunchOptions): Promise<{ close(): Promise<void> }> };
+
+/**
+ * A browser file's own engine probe (its first launch, inside requireBrowserLane's callback). It
+ * resolves true when `launch` gives a browser, closed again (a second close() when the first fails;
+ * a browser that still does not close rejects, never skips). When it fails, where the lane is
+ * required (browserLaneRequired) it rejects, naming the launch error, so the file fails rather
+ * than reporting tests that never ran (#24458 review); elsewhere it reports why, registers the
+ * file's skip and resolves false, and the file registers nothing more. A file probes through this,
+ * never with its own describe.skip.
+ */
+export async function probeEngineOrSkip(
+  name: string,
+  engineName: string,
+  engine: BrowserEngine,
+  {
+    env = process.env,
+    platform = process.platform,
+    report = console.warn,
+    skip = (suite) => describe.skip(suite, () => test(engineName, () => {})),
+  }: {
+    env?: Record<string, string | undefined>;
+    platform?: string;
+    report?: (message: string) => void;
+    skip?: (name: string) => void;
+  } = {},
+): Promise<boolean> {
+  // A Mac outside GitHub Actions launches nothing (no Playwright on Macs): the file skips.
+  if (playwrightRefusedHere(env, platform)) {
+    report(NO_PLAYWRIGHT_ON_MACS);
+    skip(name);
+    return false;
+  }
+  const why = (error: unknown) => String(error).split("\n")[0];
+  let browser: Awaited<ReturnType<BrowserEngine["launch"]>>;
+  try {
+    browser = await engine.launch({ headless: true, timeout: 30_000 });
+  } catch (error) {
+    if (browserLaneRequired(env))
+      throw new Error(`${name}: ${engineName} did not launch (${why(error)}), and the browser lane is required here`);
+    report(
+      `${name}: skipping, ${engineName} did not launch here (${why(error)}); run \`bunx playwright install ${engineName}\` if it is missing`,
+    );
+    skip(name);
+    return false;
+  }
+  // The engine launched, so the file runs. A close() that fails is tried once more; one that fails
+  // again fails the file, required or not, rather than skipping it or leaving the browser to the
+  // step's cleanup unnoticed (#24458 review round 3).
+  try {
+    await browser.close();
+  } catch {
+    try {
+      await browser.close();
+    } catch (error) {
+      throw new Error(`${name}: ${engineName} launched but did not close (${why(error)})`);
+    }
+  }
+  return true;
+}
+
+/**
  * Keep module-level engine probes and hooks inside the callback as well as tests.
  *
  * On GitHub Actions an engine that cannot launch fails the file before it registers anything. The
@@ -41,11 +119,19 @@ export async function requireBrowserLane(
   register: () => void | Promise<void>,
   {
     env = process.env,
+    platform = process.platform,
     report = console.log,
     skip = (name) => describe.skip(name, () => test("browser lane", () => {})),
     unlaunchable = unlaunchableEngines,
   }: BrowserLaneOptions = {},
 ): Promise<void> {
+  // No Playwright on Macs (Lawrence, 2026-11-02), whatever CI, CMUX_CI_STEP_KEY or
+  // CMUX_BROWSER_TESTS say: Playwright turns the Chromium sandbox off, system Chrome included.
+  if (playwrightRefusedHere(env, platform)) {
+    report(NO_PLAYWRIGHT_ON_MACS);
+    skip(name);
+    return;
+  }
   if (env.CI !== "true" && env.CMUX_BROWSER_TESTS !== "1") {
     report("browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)");
     skip(name);
@@ -56,7 +142,7 @@ export async function requireBrowserLane(
     skip(name);
     return;
   }
-  if (env.GITHUB_ACTIONS === "true") {
+  if (browserLaneRequired(env)) {
     const missing = await unlaunchable();
     if (missing.length > 0)
       throw new Error(

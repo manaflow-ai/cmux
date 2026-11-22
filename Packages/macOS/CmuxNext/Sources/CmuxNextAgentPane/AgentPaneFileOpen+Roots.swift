@@ -22,7 +22,7 @@ extension AgentPaneModel {
     /// Stage, Undo and Create PR take the same folders, so a chat reopened after a relaunch
     /// works in the folder it runs in, as Commit and Push do (hq #1893).
     func fileOpenRoots() -> [String] {
-        roots() + transport.addedRoots + sessionRoots()
+        roots() + transport.addedRoots + sessionRoots() + droppedPaths.retainedPaths
     }
 
     /// The active session's own folder (the cwd the daemon reported for it), when the session is

@@ -31,6 +31,11 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// tint that darkens the window under the palette (Leo 2026-10-20: shown
     /// in one frame it was too jarring). Reduce Motion caps it at `crossfade`.
     case scrim
+    /// A window's background picture turning to its next one on its own (a schedule, a shuffle, a
+    /// dynamic wallpaper's sun): the old picture crossfades into the new one. An ambient change
+    /// nothing waits on, so off the scale like `highlight`; instant under Reduce Motion
+    /// (`WindowMaterialView.crossfadeArt`).
+    case wallpaper
     /// Drag lift shadow.
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
@@ -51,10 +56,26 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// A hibernated tab's dotted ring fading in (Chromium `TabIcon` discard
     /// animation, 1 s). Reduce Motion caps it at one crossfade.
     case hibernateRing
+    /// A finished mark settling in once (a sidebar row's spinner turning into its done mark):
+    /// it grows to full size from an accent tint, one shot, under 350 ms at normal speed
+    /// (`MotionGate.settleAnimation`). Snaps under Reduce Motion.
+    case settle
+    /// The omnibox suggestion card fading in as it opens and out as it closes, the bar's card top with it (Helium's
+    /// `OmniboxPopupViewViews` widget fade, 82 ms; Lucas 2026-11-14).
+    case omniboxPopup
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).
     public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? MotionScale.quick }
+
+    /// A long fade that no one waits for, so not a transition: it is off the motion scale and the
+    /// speed scales it with no cap (`MotionPolicy.cap`; MotionScaleTests says why for each).
+    public var isAmbient: Bool {
+        switch self {
+        case .focusFlash, .wallpaper, .highlight, .hibernateRing: true
+        default: false
+        }
+    }
 }
 
 /// Repeating indicators. These show state, so speed does not scale them;
@@ -72,6 +93,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case breath
     /// Edit mode's wiggle (the sidebar's items, as an iPhone's home screen): one turn either way and back.
     case wiggle
+    /// A pointing arrow's bob (the Computer Use drag panel's arrow up to the list): up and back down.
+    case nudge
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -94,6 +117,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         // A breath is calm: never quicker than one a second.
         case .breath: Self.shortestFlashCycle * 2
         case .wiggle: 0.1
+        // A bob moves, it does not flash; it stays slow enough to read as calm.
+        case .nudge: Self.shortestFlashCycle
         }
     }
 }

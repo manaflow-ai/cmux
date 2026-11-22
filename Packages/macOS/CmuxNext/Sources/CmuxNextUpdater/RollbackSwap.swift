@@ -19,8 +19,13 @@ nonisolated public struct RollbackSwap {
             // 2. Keep the running build, so the user can move forward again.
             try store.keep(bundle: current, build: currentBuild, limit: max(1, limit))
             keptCurrent = true
-            // 3. Atomic swap on the same volume.
-            _ = try files.replaceItemAt(current, withItemAt: staged)
+            // 3. Atomic swap on the same volume. The kept bundle keeps its own metadata: copying
+            // the running bundle's security and creation date onto it is what failed on a fleet
+            // Mac (NSCocoaError 512 over POSIX EINTR, cmux#32624's proof), and a signed bundle
+            // needs none of it.
+            try Self.retryingInterrupted {
+                _ = try files.replaceItemAt(current, withItemAt: staged, options: .usingNewMetadataOnly)
+            }
         } catch {
             // Put the kept build back where it was (its folder is still there): a failed swap
             // must not cost the user the only build they can drop back to, nor leave the
@@ -36,10 +41,31 @@ nonisolated public struct RollbackSwap {
         return current
     }
 
+    /// Runs `body` again when a signal interrupted its system call (EINTR anywhere in the error's
+    /// underlying chain), at most `attempts` times; any other error is thrown at once.
+    static func retryingInterrupted(attempts: Int = 4, _ body: () throws -> Void) throws {
+        for _ in 1..<max(1, attempts) {
+            do { return try body() } catch where interrupted(error) {}
+        }
+        try body()
+    }
+
+    static func interrupted(_ error: Error) -> Bool {
+        var next: NSError? = error as NSError
+        while let current = next {
+            if current.domain == NSPOSIXErrorDomain, current.code == Int(EINTR) { return true }
+            next = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+
     /// The helper that reopens the app once `pid` has exited: `caffeinate -w`
     /// waits on the kernel's exit event (no polling), then `open` starts the
-    /// swapped bundle.
-    public static func relaunchCommand(pid: Int32, app: URL) -> [String] {
-        ["/bin/sh", "-c", "/usr/bin/caffeinate -w \(pid); /usr/bin/open \"$0\"", app.path]
+    /// swapped bundle. `openOptions` follow the bundle as positional arguments: the running app's
+    /// home (``RelaunchHome``), so an app in a custom home reopens in it; none for the account's
+    /// own home, where `open`'s argv is just the bundle.
+    public static func relaunchCommand(pid: Int32, app: URL,
+                                       openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
+        ["/bin/sh", "-c", "/usr/bin/caffeinate -w \(pid); /usr/bin/open \"$@\" \"$0\"", app.path] + openOptions
     }
 }

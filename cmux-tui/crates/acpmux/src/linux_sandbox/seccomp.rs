@@ -54,7 +54,10 @@ impl Assembler {
     }
 
     fn mark(&mut self, label: Label) {
-        self.labels[label.0] = Some(self.program.len());
+        let at = self.program.len();
+        if let Some(slot) = self.labels.get_mut(label.0) {
+            *slot = Some(at);
+        }
     }
 
     fn stmt(&mut self, code: u32, k: u32) {
@@ -74,7 +77,11 @@ impl Assembler {
 
     fn finish(mut self) -> Result<Vec<libc::sock_filter>, String> {
         for (index, label, true_branch) in self.patches {
-            let target = self.labels[label.0]
+            let target = self
+                .labels
+                .get(label.0)
+                .copied()
+                .flatten()
                 .ok_or_else(|| format!("unresolved seccomp label {}", label.0))?;
             let offset = target
                 .checked_sub(index + 1)
@@ -82,10 +89,13 @@ impl Assembler {
             if offset > u8::MAX as usize {
                 return Err(format!("seccomp jump at {index} is too far ({offset})"));
             }
+            let Some(insn) = self.program.get_mut(index) else {
+                return Err(format!("seccomp jump at {index} is outside the program"));
+            };
             if true_branch {
-                self.program[index].jt = offset as u8;
+                insn.jt = offset as u8;
             } else {
-                self.program[index].jf = offset as u8;
+                insn.jf = offset as u8;
             }
         }
         if self.program.len() >= 4096 {
@@ -279,6 +289,8 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
 
     if notify {
         // Write opens and every name/metadata mutation follow the deny rules.
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, argument) in [
             (libc::SYS_openat, SECCOMP_DATA_ARG2_LO),
             #[cfg(target_arch = "x86_64")]
@@ -616,6 +628,8 @@ mod tests {
     #[test]
     fn supervisor_filter_notifies_write_opens_and_preserves_denials() {
         let program = super::filter(true).unwrap();
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, flag_arg) in [
             (SYS_openat, 2),
             #[cfg(target_arch = "x86_64")]
@@ -740,6 +754,8 @@ mod tests {
             );
             assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
         }
+        // One element on aarch64 (no SYS_link), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for nr in [
             SYS_linkat,
             #[cfg(target_arch = "x86_64")]

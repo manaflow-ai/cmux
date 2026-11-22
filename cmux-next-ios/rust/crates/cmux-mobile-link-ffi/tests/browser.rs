@@ -74,7 +74,6 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -88,6 +87,7 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -103,6 +103,7 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
             block_udp: false,
             video_lane,
             webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -219,7 +220,6 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -233,6 +233,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -248,6 +249,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
             block_udp: false,
             video_lane: true,
             webrtc_media: true,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -327,7 +329,6 @@ async fn the_shown_tab_takes_the_media_lane_back(
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -341,6 +342,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -356,6 +358,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
             block_udp: false,
             video_lane: true,
             webrtc_media,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -441,7 +444,6 @@ async fn real_host_over_the_track() {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -455,6 +457,7 @@ async fn real_host_over_the_track() {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -470,6 +473,7 @@ async fn real_host_over_the_track() {
             block_udp: false,
             video_lane,
             webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -553,7 +557,6 @@ async fn surface_over(transport: Transport, video_lane: bool) {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -567,6 +570,7 @@ async fn surface_over(transport: Transport, video_lane: bool) {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -582,6 +586,7 @@ async fn surface_over(transport: Transport, video_lane: bool) {
             block_udp: false,
             video_lane,
             webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )

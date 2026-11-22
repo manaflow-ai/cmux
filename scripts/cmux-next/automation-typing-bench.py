@@ -44,7 +44,7 @@ import argparse, csv, importlib.util, json, os, pathlib, random, statistics, sub
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, close_all_workspaces, named_terminal, shown_in_window, wait_for_count  # noqa: E402
 
 
 def load(name, file):
@@ -63,6 +63,9 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--layouts", default="light,stress", help="comma list of light and stress (STRESS session)")
 parser.add_argument("--agents", type=int, default=10)
+parser.add_argument("--workspace-count", type=int, default=0,
+                    help="seed this total workspace count with empty rows; --agents remains the bounded active set")
+parser.add_argument("--no-browser", action="store_true", help="skip the optional browser agent (used for exact one-workspace typing baseline)")
 parser.add_argument("--agent-hz", type=float, default=40.0, help="terminal agent writes per second, all agents together")
 parser.add_argument("--samples", type=int, default=120)
 parser.add_argument("--interval", type=float, default=0.12, help="seconds between keys (wider than one echo)")
@@ -92,7 +95,7 @@ def pct(values):
         return None
     s = sorted(values)
     pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "max": round(s[-1], 2),
+    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2), "max": round(s[-1], 2),
             "mean": round(statistics.fmean(s), 2)}
 
 
@@ -140,17 +143,81 @@ def topology():
     return snap.get("topology") or {}
 
 
+# The workspaces no close path closes (the app's home workspace), found by reset_workspaces: never the bench's own.
+KEPT_WORKSPACES = frozenset()
+
+
+def workspace_ids():
+    return [w.get("id") for w in topology().get("workspaces") or [] if isinstance(w, dict)]
+
+
+def workspace_count():
+    """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
+    return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
+
+
 def terminal_of(workspace_name):
-    for ws in topology().get("workspaces") or []:
-        if (ws.get("name") or ws.get("title")) != workspace_name:
-            continue
-        for screen in ws.get("screens") or []:
-            for pane in screen.get("panes") or []:
-                for tab in pane.get("tabs") or []:
-                    if tab.get("kind") == "terminal":
-                        # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
-                        return tab.get("terminal") or tab.get("id")
-    return None
+    # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
+    return (named_terminal(topology(), workspace_name) or {}).get("terminal")
+
+
+def show_typing():
+    """The typing terminal ({workspace, pane, terminal}, bench_launch.named_terminal) and whether a window shows it.
+
+    `workspace create` returns on the daemon's reply, before the published topology lists the workspace's terminal,
+    and nothing checked that a window showed it: workspace-scaling's typing probe read no terminal (setup typing
+    null) and no key of any phase closed a frame record at 1, 100 and 1000 workspaces (cmux#24569). As
+    typing-frame-bench's focus_terminal and sidebar-churn-typing do after their own `create --focus`, wait for the
+    terminal, then show its workspace and focus its pane; the shown check reads the topology's windows."""
+    target = wait(lambda: named_terminal(topology(), "typing"), 30)
+    if not target:
+        return None, False
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": target["workspace"]}, "focus": True, "origin": "script"})
+    if target.get("pane"):
+        rpc("action.run", {"action": "pane.focus", "target": f"pane:{target['pane']}", "focus": True, "origin": "script"})
+    return target, bool(wait(lambda: shown_in_window(topology(), target["workspace"]), 10))
+
+
+def seed_empty_workspaces(count):
+    """Fill the requested topology with empty workspaces so large runs do not exhaust PTYs."""
+    if count <= 0:
+        return {"requested": 0, "created": 0, "failures": []}
+    # The probe adds one focused typing workspace, optional browser workspace and agent
+    # workspaces. Account for any row the app restored before seeding so the final topology
+    # remains exactly the requested size instead of silently becoming count+1.
+    existing = workspace_count()
+    fixed = opts.agents + 1 + (0 if opts.no_browser else 1)
+    empty = max(0, count - existing - fixed)
+    failures = []
+    created = 0
+    for index in range(empty):
+        done = cli("workspace", "create", "--name", f"scale empty {index}", "--empty")
+        if done.returncode == 0:
+            created += 1
+        else:
+            failures.append({"index": index, "returncode": done.returncode,
+                             "stderr": (done.stderr or "")[-300:]})
+    return {"requested": empty, "created": created, "existing": existing, "failures": failures}
+
+
+def reset_restored_workspaces():
+    """Keep a restored row from making the requested topology count+1. The home workspace stays (home_not_closable):
+    the topology counts without what close-all leaves (bench_launch.close_all_workspaces)."""
+    global KEPT_WORKSPACES
+    existing = workspace_count()
+    if not existing:
+        return {"existing": 0, "closed": 0, "kept": 0, "failures": []}
+    done = {}
+
+    def close_all():
+        done["run"] = cli("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+        return done["run"].returncode
+
+    KEPT_WORKSPACES, closed = close_all_workspaces(workspace_ids, close_all)
+    if not closed:
+        return {"existing": existing, "closed": 0, "kept": len(KEPT_WORKSPACES),
+                "failures": [{"returncode": done["run"].returncode, "stderr": (done["run"].stderr or "")[-300:]}]}
+    return {"existing": existing, "closed": existing - len(KEPT_WORKSPACES), "kept": len(KEPT_WORKSPACES), "failures": []}
 
 
 # ---------------------------------------------------------------- load
@@ -357,28 +424,55 @@ def main():
     pid = APP.process.pid
     summary = {}
     try:
+        # Existing typing benches preserve their normal startup semantics. Scaling runs opt in
+        # with --workspace-count and need a deterministic empty topology before seeding.
+        reset = reset_restored_workspaces() if opts.workspace_count else {"existing": 0, "closed": 0, "failures": []}
+        results["reset_restored_workspaces"] = reset
+        if reset["failures"]:
+            results["invalid"] = {"restored_workspaces": reset}
+            return 2
+        seeded = seed_empty_workspaces(opts.workspace_count)
+        results["seeded_empty_workspaces"] = seeded
         names = [f"agent {i:02d}" for i in range(opts.agents)]
         for name in names:
             cli("workspace", "create", "--name", name, "--shell", "exec cat")
         tabs = [t for t in (wait(lambda n=n: terminal_of(n), 20) for n in names) if t]
         note(f"agent terminals: {len(tabs)} of {opts.agents}")
-        cli("workspace", "create", "--name", "browser agent", "--focus", "--empty")
-        page = os.path.join(OUT, "agent-page.html")
-        open(page, "w").write(PAGE.format(rows="".join(f"<li>row {i} {'lorem ipsum ' * 4}</li>" for i in range(opts.rows))))
-        rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": pathlib.Path(page).as_uri()}, "origin": "script"}, timeout=120)
-        browser_tab = wait(lambda: (lambda r: r.get("tab") if isinstance(r, dict) and r.get("value") is True else None)(
-            rpc("browser.page.eval", {"script": "document.readyState === 'complete' && !!document.getElementById('b')"}, timeout=20)), 60, 0.5)
-        note(f"browser agent tab: {browser_tab}")
-        cef = rpc("debug.cef", timeout=20)
-        results["cef"] = cef
-        not_chromium = chromium_problems(cef) if browser_tab else ["the browser agent's page never loaded"]
-        if not_chromium:
-            results["invalid"] = not_chromium
-            note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
+        browser_tab = None
+        if not opts.no_browser:
+            cli("workspace", "create", "--name", "browser agent", "--focus", "--empty")
+            page = os.path.join(OUT, "agent-page.html")
+            open(page, "w").write(PAGE.format(rows="".join(f"<li>row {i} {'lorem ipsum ' * 4}</li>" for i in range(opts.rows))))
+            rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": pathlib.Path(page).as_uri()}, "origin": "script"}, timeout=120)
+            browser_tab = wait(lambda: (lambda r: r.get("tab") if isinstance(r, dict) and r.get("value") is True else None)(
+                rpc("browser.page.eval", {"script": "document.readyState === 'complete' && !!document.getElementById('b')"}, timeout=20)), 60, 0.5)
+            note(f"browser agent tab: {browser_tab}")
+            cef = rpc("debug.cef", timeout=20)
+            results["cef"] = cef
+            not_chromium = chromium_problems(cef) if browser_tab else ["the browser agent's page never loaded"]
+            if not_chromium:
+                results["invalid"] = not_chromium
+                note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
+                return 2
+        created = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
+        target, shown = show_typing()
+        typing = (target or {}).get("terminal")
+        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing, "typing_shown": shown}
+        if not shown:
+            # No key reaches a terminal no window shows: the phases would record zero frames and exit 0.
+            results["invalid"] = {"typing_terminal": target, "typing_shown": shown, "create_exit": created.returncode,
+                                  "create_stderr": (created.stderr or "")[-300:]}
             return 2
-        cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
-        typing = terminal_of("typing")
-        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
+        # The creates return before the published topology lists them (bench_launch.wait_for_count).
+        actual_workspaces = wait_for_count(workspace_count, opts.workspace_count) if opts.workspace_count else workspace_count()
+        results["setup"]["workspace_count"] = actual_workspaces
+        if seeded["failures"] or (opts.workspace_count and actual_workspaces != opts.workspace_count):
+            results["invalid"] = {
+                "requested_workspace_count": opts.workspace_count,
+                "actual_workspace_count": actual_workspaces,
+                "seed_failures": seeded["failures"],
+            }
+            return 2
         for layout in LAYOUTS:
             if layout == "stress":
                 session = STRESS.Stress(rpc, log=note).build()

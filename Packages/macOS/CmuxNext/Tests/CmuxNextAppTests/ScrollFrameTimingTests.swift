@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextSignposts
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -10,6 +11,7 @@ import Testing
 /// Chrome measures it). The timing starts with the event's own timestamp and ends with who took it: `layout`
 /// when the layout scrolled (a Command pan), `content` when it went on to the pane.
 @MainActor
+@Suite(.closesItsWindows)
 struct ScrollFrameTimingTests {
     /// Records each timed event and the target its end reported.
     final class Recorder: ScrollFrameTiming {
@@ -100,6 +102,7 @@ struct ScrollFrameTimingTests {
 
     @Test func everyEventOfACommandPanIsTimedAsTheLayoutsFromItsOwnTimestamp() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let events = try w.pan(at: try w.center("p2"), command: true)
         #expect(w.recorder.rows.map(\.phase) == [.began, .changed, .changed, .changed, .ended, .momentum, .momentum, .momentum])
         #expect(w.recorder.rows.map(\.target) == Array(repeating: ScrollFrameTarget.layout, count: events.count))
@@ -108,6 +111,7 @@ struct ScrollFrameTimingTests {
 
     @Test func aPlainPanOverAPaneIsTimedAsTheContents() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let events = try w.pan(at: try w.center("p2"), command: false)
         #expect(w.recorder.rows.count == events.count)
         #expect(w.recorder.rows.allSatisfy { $0.target == .content }, "\(w.recorder.rows)")
@@ -115,6 +119,7 @@ struct ScrollFrameTimingTests {
 
     @Test func aWheelIsTimedPerNotchWithWhoTookThatNotch() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         try w.scroll(at: p2, dx: -1, units: .line, command: true)
         try w.scroll(at: p2, dx: -1, units: .line)
@@ -124,12 +129,14 @@ struct ScrollFrameTimingTests {
 
     @Test func aTouchIsTimedAsATouch() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         try w.scroll(at: try w.center("p2"), phase: .mayBegin, command: true)
         #expect(w.recorder.rows.map(\.phase) == [.touch])
     }
 
     @Test func aScrollDispatchedInsideAnotherEndsBeforeIt() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         let outer = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: 0, wheel2: -1, wheel3: 0))
         outer.flags = .maskCommand
@@ -144,6 +151,7 @@ struct ScrollFrameTimingTests {
 
     @Test func aDispatchThatIsNotAScrollIsNotTimed() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1, windowNumber: 0,
                                                 context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false,
                                                 keyCode: 0))

@@ -19,8 +19,9 @@ import Testing
                          "9223372036854775808", "\\u0000", "\\ud800", "--", "--x=", "=", "'", "\\", " ", "\u{0}", "é", "🙂", "\n"]
 
     @Test func randomLinesNeverTrap() {
-        var rng = Rng(state: 0xDEAD_BEEF_CAFE_F00D)
-        for _ in 0..<20_000 {
+        let fuzz = FuzzSeed(default: 0xDEAD_BEEF_CAFE_F00D)
+        var rng = Rng(state: fuzz.seed)
+        for _ in 0..<fuzz.iterations(20_000) {
             var line = ""
             for _ in 0..<rng.below(24) { line += Self.pieces[rng.below(Self.pieces.count)] }
             _ = ControlWire.decode(line)
@@ -34,8 +35,9 @@ import Testing
     }
 
     @Test func invalidUTF8BytesNeverTrap() {
-        var rng = Rng(state: 7)
-        for _ in 0..<5_000 {
+        let fuzz = FuzzSeed(default: 7)
+        var rng = Rng(state: fuzz.seed)
+        for _ in 0..<fuzz.iterations(5_000) {
             let bytes = (0..<rng.below(48)).map { _ in UInt8(truncatingIfNeeded: rng.next()) }
             let line = String(decoding: bytes, as: UTF8.self)
             _ = ControlWire.decode(line)

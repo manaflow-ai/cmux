@@ -1,5 +1,7 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
@@ -16,35 +18,57 @@ extension AppActions {
         static func conversation(_ id: String) -> String { "/conversation/\(id)" }
     }
 
-    /// `home.show`: the home workspace in the active window (the window that has it comes
-    /// forward), else in a new window; classic Home shows its top page. False when refused.
+    /// `home.show`: the active window's own Home in that window (cmux#27880: the store's home
+    /// when this window holds it or no other open window does, else a Home of the window's own,
+    /// made on its first show; never another window's), else the store's home in a new window;
+    /// classic Home shows its top page. `shown` runs with the Home once it is shown (a window's
+    /// first Home after its creation). False when refused.
     @discardableResult
-    static func showHome(_ services: AppServices) -> Bool {
+    static func showHome(_ services: AppServices, then shown: (@MainActor (WorkspaceModel) -> Void)? = nil) -> Bool {
         let classic = services.home.dock.isClassic
         if classic, TopPages.show(.home, services: services) != nil { return true }
         guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
             services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
             return false
         }
-        if !classic, let active = services.windows.active {
-            services.windows.show(workspaceID: home.id, in: active.state)
-        } else {
+        guard !classic, let active = services.windows.active else {
             services.windows.reveal(workspaceID: home.id)
+            shown?(home)
+            return true
         }
+        if let own = services.windowHomes.home(in: active.state.id) {
+            services.windows.show(workspaceID: own.id, in: active.state, from: .thisWindow)
+            shown?(own)
+            return true
+        }
+        let state = active.state
+        services.registry.track(Task { @MainActor in
+            guard let made = await services.windowHomes.show(in: state.id) else { return ActionWorkFailure(RefusalStrings.homeNotReady) }
+            shown?(made)
+            return nil
+        })
         return true
+    }
+
+    /// Show/Hide Chief over Home: the Chief's message box takes the keys. A run that may not move the focus (the
+    /// CLI, MCP: socket focus policy) leaves the keys where they are, with no refusal.
+    static func focusDockComposer(_ services: AppServices) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        withDock(services) { $0.focusPrimaryInput() }
     }
 
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
     /// (at once, or when the tab first shows). Refused (Home not ready) while the dock has no tab yet.
     static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
         guard ActionRunScope.viewChangeAllowed() else { return services.registry.refuse(RefusalStrings.homeNeedsFocus) }
-        guard showHome(services) else { return }
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
-              services.revealTab(tab.id),
-              let provider = services.pages.provider(.homeDock) as? HomeDockTab else {
-            return services.registry.refuse(RefusalStrings.homeNotReady)
+        showHome(services) { home in
+            guard let tab = HomeDock.pageTab(in: home)?.tab,
+                  services.revealTab(tab.id),
+                  let provider = services.pages.provider(.homeDock) as? HomeDockTab else {
+                return services.registry.refuse(RefusalStrings.homeNotReady)
+            }
+            provider.whenShown(tab.id, services: services, body)
         }
-        provider.whenShown(tab.id, services: services, body)
     }
 
     /// Opens `route` in the docked Home: in Channels the page goes to `#<route>`; in Messages
@@ -99,6 +123,7 @@ extension AppActions {
 }
 
 extension HomeService {
-    /// The docked Home's workspace id (classic off), for the sidebar's Home item; nil for classic.
-    var dockedHomeID: String? { dock.isClassic ? nil : homeWorkspace?.id }
+    /// The docked Home's workspace in window `state` (classic off; cmux#27880: its own per window), for
+    /// its sidebar's Home item; nil for classic.
+    func dockedHomeID(in state: WindowState) -> String? { dock.isClassic ? nil : services.windowHomes.home(in: state.id)?.id }
 }

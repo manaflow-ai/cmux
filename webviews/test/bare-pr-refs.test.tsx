@@ -5,6 +5,7 @@
 // request's. Code spans and code blocks never link.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -53,7 +54,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -132,9 +134,61 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
   expect(card).not.toBeNull();
   expect(card!.textContent).toContain(TITLE);
   expect(card!.textContent).toContain(`${REPO}#634`);
+  // The card's read is the only one: the chip asks nothing for itself (it has no state colour).
   expect(view.calls.filter((call) => call.method === "pr.inspect")).toEqual([
     { method: "pr.inspect", params: { url: URL } },
   ]);
+});
+
+// A pull request chip is a link: its mark keeps the link's colour, never its state's, which turned it
+// purple once a hover read a merged pull request (Lucas, 2026-11-11: "we'll just keep it blue since its
+// a link"). It asks nothing of the host until the reader hovers it; the card reads then.
+test("a pull request chip keeps the link's colour and reads nothing before a hover", async () => {
+  const view = await render("Landed in (#634).", REPO);
+  const { act } = await import("react");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const chip = view.element.querySelector<HTMLAnchorElement>("a.cv-chip.is-ref")!;
+  expect(chip.dataset.prState).toBeUndefined();
+  expect(view.calls.filter((call) => call.method === "pr.inspect")).toEqual([]);
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new globalThis.URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
+  expect(css).not.toContain("data-pr-state");
+});
+
+// A card opened while the chip's cache-only ask is still out reads once that ask settles, rather
+// than losing its read to the one-ask-per-link rule.
+test("a card's read waits behind the chip's cache-only ask instead of being dropped", async () => {
+  const { askPullRequest, usePullRequestAnswer, resetPullRequestStore } =
+    await import("../src/agent-session/acpmux/chips/pullRequestStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { act, createElement } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  resetPullRequestStore();
+  const calls: unknown[] = [];
+  let release: (() => void) | undefined;
+  setChipHost(async (_method, params) => {
+    calls.push(params);
+    if ((params as { cached?: boolean }).cached) {
+      await new Promise<void>((resolve) => (release = resolve));
+      return { pullRequest: null, reading: false };
+    }
+    return { ...answer, fetchedAt: 1 };
+  });
+  askPullRequest(URL);
+  function Card() {
+    usePullRequestAnswer(URL, true);
+    return null;
+  }
+  const element = dom.window.document.createElement("div");
+  const root = createRoot(element);
+  await act(async () => root.render(createElement(Card)));
+  await act(async () => {
+    release!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(calls).toEqual([{ url: URL, cached: true }, { url: URL }]);
+  await act(async () => root.unmount());
+  setChipHost(undefined);
 });
 
 test("a reference in a code span or a code block is not a link", async () => {
@@ -142,7 +196,7 @@ test("a reference in a code span or a code block is not a link", async () => {
   // Finish loading the lazy card inside this test. Without a highlight worker (as in jsdom),
   // the card deliberately keeps its plain-code fallback; references must stay literal there too.
   const { act } = await import("react");
-  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
   await act(async () => {
     await loadHighlightedCode();
   });

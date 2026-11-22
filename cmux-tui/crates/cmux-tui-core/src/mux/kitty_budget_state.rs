@@ -98,9 +98,32 @@ pub(super) struct KittyImageBudgetEntry {
 pub(super) struct KittyImageBudgetState {
     pub(super) entries: HashMap<SurfaceId, KittyImageBudgetEntry>,
     pub(super) blocked_surfaces: HashSet<SurfaceId>,
+    /// Terminals a respawn will add, by the surface id they will reserve
+    /// with ([`KittyImageSurfaceExpectation`]).
+    pub(super) expected: HashSet<SurfaceId>,
+    /// Terminals a respawn wave will add whose surface ids are not known yet
+    /// ([`KittyImageWaveExpectation`]).
+    pub(super) expected_in_wave: usize,
+    /// Surviving terminals a start will adopt whose adoptions have not named
+    /// their surface ids yet ([`KittyImageAdoptionExpectation`]). Kept apart
+    /// from `expected_in_wave`: the end of a respawn wave gives back all of
+    /// that one, and must not give back the adoptions' shares with it.
+    pub(super) expected_adoptions: usize,
     pub(super) capacity: usize,
     pub(super) worker_running: bool,
     pub(super) expansion_in_flight: bool,
+}
+
+impl KittyImageBudgetState {
+    /// The terminals the budget is sized for besides `owners`: the expected
+    /// ones, within the owner limit.
+    pub(super) fn sized_for(&self, owners: usize) -> usize {
+        owners
+            .saturating_add(self.expected.len())
+            .saturating_add(self.expected_in_wave)
+            .saturating_add(self.expected_adoptions)
+            .min(KITTY_IMAGE_BUDGET_OWNER_LIMIT)
+    }
 }
 
 pub(super) struct PendingKittyImageBudgetOperation {
@@ -143,6 +166,76 @@ impl Drop for KittyImageBudgetReservation {
         }
         if let Some(mux) = self.mux.upgrade() {
             mux.cancel_kitty_image_surface_reservation(self.surface);
+        }
+    }
+}
+
+/// One terminal a respawn wave will add to the Kitty image budget, under the
+/// surface id it will reserve with. Until that reservation (which takes the
+/// expectation over in the same budget lock) the budget is sized for it too,
+/// so the first respawn of a wave does not take a share that the next ones
+/// must wait for while its launch is still in flight. Dropped unused (the
+/// respawn was given up), it gives the share back.
+pub(crate) struct KittyImageSurfaceExpectation {
+    pub(super) mux: Weak<Mux>,
+    pub(super) surface: SurfaceId,
+}
+
+impl Drop for KittyImageSurfaceExpectation {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.forget_kitty_image_expectation(Some(self.surface), 0);
+        }
+    }
+}
+
+/// The terminals a respawn wave will add, counted before the first of them
+/// is planned (so before any of them reserves); each one's
+/// [`KittyImageSurfaceExpectation`] takes one over. Dropped at the end of the
+/// wave's planning, it gives back the ones no respawn took. One wave at a
+/// time: the owner's start sweep. A respawn outside it that names its slot
+/// meanwhile also takes one over, so the bucket can be one terminal short
+/// for that moment; a reservation then waits as before, and the process
+/// budget still holds (a reservation is admitted only when every terminal
+/// fits its target).
+pub(crate) struct KittyImageWaveExpectation {
+    pub(super) mux: Weak<Mux>,
+}
+
+impl Drop for KittyImageWaveExpectation {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.forget_kitty_image_expectation(None, usize::MAX);
+        }
+    }
+}
+
+/// One surviving terminal a start will adopt, counted when its adoption is
+/// scheduled, so before the first adoption reserves. Without it the first
+/// adoption to reserve was alone and took the whole budget, and every later
+/// one waited for it to connect to its host and shrink: up to the
+/// reservation timeout, and then it started with Kitty graphics off.
+/// [`Self::name`] turns it into the expectation of the surface id the
+/// adoption reserves with; dropped unnamed (the adoption was given up or
+/// waits for a retry), it gives its share back.
+pub(crate) struct KittyImageAdoptionExpectation {
+    pub(super) mux: Weak<Mux>,
+}
+
+impl KittyImageAdoptionExpectation {
+    /// The adoption reserves as `slot`: the share it was counted for becomes
+    /// that slot's, in one budget step (the bucket does not change).
+    pub(crate) fn name(mut self, slot: SurfaceId) -> Option<KittyImageSurfaceExpectation> {
+        // Taken out, so the drop of `self` gives nothing back.
+        let mux = std::mem::take(&mut self.mux);
+        mux.upgrade().map(|owner| owner.name_kitty_image_adoption(slot))
+    }
+}
+
+impl Drop for KittyImageAdoptionExpectation {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.forget_kitty_image_adoption();
         }
     }
 }

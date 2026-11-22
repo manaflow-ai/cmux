@@ -17,17 +17,31 @@ public nonisolated struct MotionCategoriesSetting: Sendable, Equatable {
     /// The categories whose `ui.animations.<category>` is false.
     public var disabled: Set<MotionCategory>
 
-    public init(enabled: Bool = MotionCategoriesSetting.enabledFallback, disabled: Set<MotionCategory> = []) {
+    public init(enabled: Bool = MotionCategoriesSetting.enabledDefault, disabled: Set<MotionCategory> = MotionCategoriesSetting.defaultDisabled) {
         self.enabled = enabled
         self.disabled = disabled
     }
 
-    /// `ui.animations.enabled`.
-    public static let enabledPath = ["ui", "animations", "enabled"]
-    /// The master switch is on when cmux.json does not name it.
-    public static let enabledFallback = true
-    /// A category is on when cmux.json does not name it.
-    public static let categoryFallback = true
+    // The paths and defaults (every switch on) are generated from schemas/settings/source/motion.json.
+
+    /// The categories off when cmux.json does not name them (none).
+    public static let defaultDisabled = Set(MotionCategory.allCases.filter { !isOnByDefault($0) })
+
+    /// Whether `category` is on when cmux.json does not name it.
+    public static func isOnByDefault(_ category: MotionCategory) -> Bool {
+        switch category {
+        case .sidebar: sidebarDefault
+        case .tabs: tabsDefault
+        case .panes: panesDefault
+        case .overlays: overlaysDefault
+        case .hoverCards: hoverCardsDefault
+        case .home: homeDefault
+        case .cursor: cursorDefault
+        case .indicators: indicatorsDefault
+        case .feedback: feedbackDefault
+        case .web: webDefault
+        }
+    }
 
     /// `ui.animations.<category>`.
     public static func path(_ category: MotionCategory) -> [String] { ["ui", "animations", category.configKey] }
@@ -51,7 +65,7 @@ public nonisolated struct MotionCategoriesSetting: Sendable, Equatable {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path(category).joined(separator: "."), message: "expected true or false"))
                 continue
             }
-            if !on { setting.disabled.insert(category) }
+            if on { setting.disabled.remove(category) } else { setting.disabled.insert(category) }
         }
         return (setting, diagnostics)
     }

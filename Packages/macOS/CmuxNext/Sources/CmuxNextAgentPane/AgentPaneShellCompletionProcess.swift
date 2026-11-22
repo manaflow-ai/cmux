@@ -52,17 +52,17 @@ nonisolated final class CompletionProcess: Sendable {
         let reader = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         state.withLock { $0.reader = reader }
         reader.readabilityHandler = { [self] handle in
-            // concurrency-allow: the readability handler runs on a background queue once data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                finish { $0.closed = true; $0.reader = nil }
-            } else {
+            switch handle.readReady() {
+            case .bytes(let data):
                 let full = state.withLock { state in
                     state.output.append(data)
                     return state.output.count > AgentPaneShellCompletion.maximumOutput
                 }
                 if full { give(up: false) }
+            case .retry: return
+            case .end:
+                handle.readabilityHandler = nil
+                finish { $0.closed = true; $0.reader = nil }
             }
         }
         let pid = pid

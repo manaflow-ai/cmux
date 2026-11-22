@@ -36,7 +36,11 @@ fn the_settings_snapshot_shows_a_secret_policy_value_as_present_only() {
     let snapshot = managed_state().snapshot().to_json();
     let policy = &snapshot["policy"];
     assert_eq!(policy["EnrollmentToken"], json!("<set>"), "{policy}");
-    assert_eq!(policy["ManagedTeam"], json!("Manaflow"), "a policy key that is not secret is shown");
+    assert_eq!(
+        policy["ManagedTeam"],
+        json!("Manaflow"),
+        "a policy key that is not secret is shown"
+    );
 }
 
 #[test]
@@ -44,10 +48,7 @@ fn no_settings_read_carries_a_secret_policy_value() {
     let state = managed_state();
     let reads = [
         ("settings.snapshot", state.snapshot().to_json()),
-        (
-            "settings.list",
-            Value::Array(state.list(None).iter().map(|row| row.to_json()).collect()),
-        ),
+        ("settings.list", Value::Array(state.list(None).iter().map(|row| row.to_json()).collect())),
     ];
     for (name, read) in reads {
         let text = serde_json::to_string(&read).expect("serialises");

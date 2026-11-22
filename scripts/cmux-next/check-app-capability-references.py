@@ -44,8 +44,11 @@ Rules (each violation names the file and line):
      only beside a sidecar binary.
   2. A capability the daemon source does not define may appear only at a
      refusal site (a feature not built yet, shown as "not available in this
-     version"), in DaemonCapability.unservedByBundledDaemon, or in PEERS (a
-     capability of another server, not cmux-tui). At a gate site it is the
+     version"), in DaemonCapability.unservedByBundledDaemon, in PEERS (a
+     capability of another server, not cmux-tui), or in the bundled acpmux's own
+     capability list (ACPMUX_LIST: the ids its `initialize` advertises in
+     `_meta.acpmux.capabilities`, read from the same tree, so a gate on a name
+     acpmux does not define still fails). At a gate site it is the
      error class P10 forbids: the feature waits for a capability the bundled
      daemon never serves.
   3. An unservedByBundledDaemon entry the daemon source now defines moves to
@@ -86,11 +89,19 @@ RUST_ROOT = "cmux-tui/crates/cmux-tui-core/src"
 # identify's list: its string literals are capabilities too ("attach-identity-v1").
 RUST_LIST = "cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs"
 ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+# The bundled acpmux's capability list: the `id: "..."` of each entry, which its `initialize` advertises.
+ACPMUX_LIST = "cmux-tui/crates/acpmux/src/capabilities.rs"
 
-# Served by cmux-tui only when a sidecar binary sits beside it, so the
-# isolated identify probe of check-daemon-capabilities.sh cannot require it.
+# Served by cmux-tui only under a host condition (a sidecar binary beside it,
+# or a cmux Cloud host), so the isolated identify probe of
+# check-daemon-capabilities.sh cannot require it.
 CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
+    "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
+    "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-codex-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app updates a machine without it before a Codex start carries a credential (cmux#45774)",
+    "agent-session-prewarm-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a Cloud send's agent only where it is served (cmux#45953)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.
@@ -98,7 +109,6 @@ PEERS = {
     "serve.owner-pid": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
-    "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
 }
 
 GATE, REFUSAL, LISTED = "gate", "refusal", "listed"
@@ -330,15 +340,113 @@ def rust_capabilities(repo: Path) -> dict[str, str]:
     return found
 
 
+RUST_CHAR = re.compile(r"'(\\.[^']*|[^\\'])'")
+
+
+def rust_without_comments(text: str) -> str:
+    """`text` with every Rust comment (line, block, nested block) blanked to spaces, newlines kept so line
+    numbers hold; string and char literals stay as they are, and a comment marker inside one is not one."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif c == "'" and (char := RUST_CHAR.match(text, i)):
+            i = char.end()
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out[i:j] = [ch if ch == "\n" else " " for ch in text[i:j]]
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def rust_initializer(text: str, name: str) -> tuple[int, int] | None:
+    """The span of `name`'s `&[ ... ]` initializer in comment-free `text` (brackets in strings skipped)."""
+    head = re.search(rf"\bconst\s+{name}\s*:[^=]*=\s*&\s*\[", text)
+    if not head:
+        return None
+    depth, i = 1, head.end()
+    while i < len(text) and depth:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+        i += 1
+    return (head.end(), i) if depth == 0 else None
+
+
+def acpmux_capabilities(repo: Path) -> dict[str, str]:
+    """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file):
+    the `id`s of its `CAPABILITIES` initializer alone, comments masked, so an id in a comment, a doc or
+    another constant never counts. An id given as a `&str` constant (`SESSION_MESSAGES`,
+    `crate::hub::row_log::CAPABILITY`) counts as the string it holds."""
+    path = repo / ACPMUX_LIST
+    if not path.is_file():
+        return {}
+    text = rust_without_comments(path.read_text(encoding="utf-8", errors="replace"))
+    span = rust_initializer(text, "CAPABILITIES")
+    if span is None:
+        sys.exit(f"check-app-capability-references: found no `CAPABILITIES` initializer in {ACPMUX_LIST}")
+    pattern = re.compile(r'\bid:\s*(?:"([a-z][a-z0-9.-]*)"|((?:crate::)?(?:[a-z_][a-z0-9_]*::)*[A-Z][A-Z0-9_]*)\b)')
+    found: dict[str, str] = {}
+    for m in pattern.finditer(text, span[0], span[1]):
+        capability = m.group(1) or acpmux_constant(repo, text, m.group(2))
+        if capability:
+            found[capability] = f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
+    return found
+
+
+def acpmux_constant(repo: Path, list_text: str, path: str) -> str | None:
+    """The string a `&str` constant named in acpmux's list holds: `NAME` in the list's own file, or
+    `crate::module::NAME` in that module's file (`src/module.rs` or `src/module/mod.rs`); None when
+    it is not a string constant there, so an id the check cannot read never counts."""
+    *modules, name = path.removeprefix("crate::").split("::")
+    if modules:
+        base = repo / ACPMUX_LIST.rsplit("/", 1)[0] / Path(*modules)
+        source = next((f for f in (base.with_suffix(".rs"), base / "mod.rs") if f.is_file()), None)
+        if source is None:
+            return None
+        text = rust_without_comments(source.read_text(encoding="utf-8", errors="replace"))
+    else:
+        text = list_text
+    const = re.search(r'\b(?:const|static)\s+' + re.escape(name)
+                      + r'\s*:\s*&(?:\'static\s+)?str\s*=\s*"([a-z][a-z0-9.-]*)"', text)
+    return const.group(1) if const else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
     refs, lists, daemon, strays = collect(args.repo)
+    acpmux = acpmux_capabilities(args.repo)
     if args.list:
         for ref in sorted(refs, key=lambda r: (r.capability, r.kind, r.where)):
-            served = "daemon" if ref.capability in daemon else "-"
+            served = "daemon" if ref.capability in daemon else "acpmux" if ref.capability in acpmux else "-"
             print(f"{ref.capability}\t{ref.kind}\t{served}\t{ref.where}")
         return 0
 
@@ -363,13 +471,14 @@ def main() -> int:
             if capability in unserved:
                 problems.append(f"{capability}: the daemon defines it ({daemon[capability]}); move it from "
                                 "DaemonCapability.unservedByBundledDaemon to optional.")
-        elif capability in PEERS or capability in unserved:
+        elif capability in PEERS or capability in unserved or capability in acpmux:
             continue
         elif gates:
             problems.append(
                 f"{capability}: the app gates a feature on it ({', '.join(gates[:3])}), but no cmux-tui crate defines "
                 "it, so the bundled daemon never serves it and the feature stays off. Land the daemon half on this "
-                "branch (a `*_CAPABILITY` constant that identify advertises), fix the name, or remove the gate.")
+                "branch (a `*_CAPABILITY` constant that identify advertises, or an entry in " + ACPMUX_LIST
+                + " for an acpmux capability), fix the name, or remove the gate.")
         else:
             stubs[capability] = [r.where for r in sites]
     references = len({r.capability for r in refs})

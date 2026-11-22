@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 import { useSettingsSelector, useStore } from "../context";
 import { soundTitle } from "../format";
 import { Icon } from "../icons";
@@ -19,15 +20,18 @@ export function SoundEditor({ row, value, disabled, labelId }: EditorProps) {
           </option>
         ))}
       </Select>
-      <button
+      <Button
         type="button"
+        icon
+        size="sm"
+        variant="ghost"
         className="icon-button"
         aria-label={t("settingsPage.playSound")}
         disabled={current === "none"}
         onClick={() => store.playSound(current)}
       >
         <Icon name="play" />
-      </button>
+      </Button>
     </span>
   );
 }

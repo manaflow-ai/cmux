@@ -8,7 +8,7 @@ import Testing
 @Suite struct SeamlessUpdateCheckTests {
     private func freshDefaults() throws -> (UserDefaults, String) {
         let suite = "cmux.updater.seamless-tests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return (defaults, suite)
     }

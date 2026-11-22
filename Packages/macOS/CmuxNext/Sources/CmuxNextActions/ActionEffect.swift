@@ -17,6 +17,7 @@ public struct ActionEffect {
     enum Kind {
         case done
         case applied(ActionConfirmation)
+        case appliedResult(@MainActor () async -> Result<[String: ActionResultValue], ActionWorkFailure>)
         case waiting(ActionWait, @MainActor () async -> ActionWorkFailure?)
         case refused(String, quiet: Bool)
     }
@@ -32,6 +33,12 @@ public struct ActionEffect {
     /// - Parameter confirmation: The command and its rollback.
     public static func applied(_ confirmation: ActionConfirmation) -> ActionEffect {
         ActionEffect(kind: .applied(confirmation))
+    }
+
+    /// The local change is shown now; the registry starts `result` and returns its fields to a
+    /// capturing caller. A failure leaves that local recovery surface open and reports the error.
+    public static func applied(result: @escaping @MainActor () async -> Result<[String: ActionResultValue], ActionWorkFailure>) -> ActionEffect {
+        ActionEffect(kind: .appliedResult(result))
     }
 
     /// Nothing shows until `work` answers. Counted per action (``ActionRegistry/waitingRuns``); the

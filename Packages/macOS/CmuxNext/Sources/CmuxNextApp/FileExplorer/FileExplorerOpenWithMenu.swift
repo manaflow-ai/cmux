@@ -19,8 +19,9 @@ final class FileExplorerOpenWithMenu: NSObject {
 
     /// Turns `menu`'s Open With row (the registry's `fileExplorerOpenWith`) into the apps
     /// submenu for `row`'s item, in the same place.
-    func attach(to menu: NSMenu, for row: FileExplorerRow, apps: any FileAppsProviding) {
-        guard let index = menu.items.firstIndex(where: { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerOpenWith" }) else { return }
+    func attach(to root: NSMenu, for row: FileExplorerRow, apps: any FileAppsProviding) {
+        // Wherever the person placed it (Settings > Menus can move it into More).
+        guard let (menu, index) = ActionRegistry.locate("fileExplorerOpenWith", in: root) else { return }
         let image = menu.items[index].image
         // The menu's arguments (the tree it was opened in) go to every app row's run.
         let arguments = ActionRegistry.menuRun(of: menu.items[index])?.arguments ?? [:]

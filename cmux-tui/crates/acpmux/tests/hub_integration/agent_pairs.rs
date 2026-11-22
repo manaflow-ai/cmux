@@ -31,6 +31,8 @@ fn config(dir: Option<&Path>) -> Config {
     }))
     .unwrap();
     cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     cfg
 }
 
@@ -910,4 +912,241 @@ async fn a_lazy_restart_resumes_a_pause_the_person_prompts_from_either_side_in_o
     assert_eq!(ids, ["v2", "v3"], "released in the order held");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `session`'s queue row for `prompt_id`, once it waits there.
+async fn queued_row(c: &mut Client, session: &str, prompt_id: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let attached = c.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+        let rows = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+        if let Some(row) = rows.into_iter().find(|q| q["promptId"] == prompt_id) {
+            return row;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{prompt_id} never queued: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A message another session sent (`acpmux send` from inside it: `session_message`) that a
+/// paused pair held and a resume released is still that session's message, with the class it was
+/// sent with (`prompt_class.rs`): its queue row behind the receiver's running turn says both.
+#[tokio::test]
+async fn a_released_message_keeps_its_sender_and_its_class() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let sender = hub.resolve(&a).unwrap().meta().name;
+    let mut from_a = Client::as_session(&hub, &a).await;
+    let send = |id: &str, run: u32, class: Option<&str>| {
+        let mut mux = json!({"promptId": id});
+        if let Some(class) = class {
+            mux["class"] = json!(class);
+        }
+        let text = format!("Please check the build, run {run}");
+        json!({"sessionId": b, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
+    };
+    for run in 1..=2 {
+        let sent = from_a.reply("session/prompt", send(&format!("k{run}"), run, None)).await;
+        assert!(sent.get("error").is_none(), "{sent}");
+    }
+    let third = from_a.reply("session/prompt", send("k3", 3, Some("block"))).await;
+    assert!(held(&third), "the third near-identical message is held: {third}");
+
+    // The receiver busy with a turn that is not the person's (it resumes nothing), so the
+    // released message waits in its queue.
+    let busy = json!({"sessionId": b, "prompt": [{"type": "text", "text": "until-cancel"}],
+                      "_meta": {"acpmux": {"promptId": "k-busy"}}});
+    c.0.send(Message::request(9_999, "session/prompt", busy).to_line()).await.unwrap();
+    c.wait_ran(&b, "k-busy").await;
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": b})).await;
+    assert_eq!(resumed["delivered"], 1, "{resumed}");
+
+    let row = queued_row(&mut c, &b, "k3").await;
+    assert_eq!(row["fromAgent"], sender.as_str(), "{row}");
+    assert_eq!(row["class"], "block", "{row}");
+    c.0.send(Message::notification("session/cancel", json!({"sessionId": b})).to_line())
+        .await
+        .unwrap();
+}
+
+const HOLD: &str = "_acpmux/agent_hold";
+
+/// The person takes over a chat a Chief started (`mux.parent`): the Chief turn's messages to it
+/// are held (reason `taken_over`), the person's own prompts into it run and release nothing,
+/// another agent's message passes, a manager cannot lift the hold with `_acpmux/tag`, and Hand
+/// back delivers what was held, in order.
+#[tokio::test]
+async fn a_taken_over_chat_holds_its_managers_messages_until_handed_back() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid, other) = (c.new_session().await, c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+
+    // Before Take over, the Chief's message goes in.
+    let before = c.message(&chief, &kid, "c0", "start on the tests").await;
+    assert!(before.get("error").is_none(), "{before}");
+
+    // Only the person takes a chat over.
+    let refused = c.reply(HOLD, json!({"sessionId": kid, "held": true})).await;
+    assert!(refused.get("error").is_some(), "an agent's connection may not take over: {refused}");
+    let mut person = Client::person(&hub).await;
+    let took = person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+    assert_eq!(took["held"], true, "{took}");
+
+    // The Chief's next messages are held, with the reason.
+    let first = c.message(&chief, &kid, "c1", "also fix the lint").await;
+    assert!(held(&first), "{first}");
+    assert_eq!(first.pointer("/error/data/trip"), Some(&json!("taken_over")), "{first}");
+    let second = c.message(&chief, &kid, "c2", "and update the docs").await;
+    assert!(held(&second), "{second}");
+    assert!(!c.ran(&kid, "c1").await && !c.ran(&kid, "c2").await);
+    let paused = c.records(&kid, "agent_pair_paused").await;
+    assert_eq!(paused.last().unwrap()["reason"], "taken_over", "{paused:?}");
+
+    // Another agent that does not manage the chat still reaches it.
+    let passes = c.message(&other, &kid, "o1", "fyi the base is green").await;
+    assert!(passes.get("error").is_none(), "{passes}");
+
+    // The person's own prompt runs and releases nothing.
+    let mine = person
+        .reply("session/prompt", json!({"sessionId": kid, "prompt": [{"type": "text", "text": "I'll take it from here"}]}))
+        .await;
+    assert!(mine.get("error").is_none(), "{mine}");
+    assert!(!c.ran(&kid, "c1").await, "a person prompt does not release a taken-over chat's hold");
+
+    // The manager cannot lift the hold through tags.
+    let lift =
+        c.reply("_acpmux/tag", json!({"sessionId": kid, "remove": ["acpmux.agentHold"]})).await;
+    assert!(lift.get("error").is_some(), "{lift}");
+    let after_lift = c.message(&chief, &kid, "c3", "ok continuing").await;
+    assert!(held(&after_lift), "{after_lift}");
+
+    // Hand back delivers what was held, in order.
+    let back = person.call(HOLD, json!({"sessionId": kid, "held": false})).await;
+    assert_eq!(back["held"], false, "{back}");
+    assert_eq!(back["delivered"], 3, "{back}");
+    c.wait_ran(&kid, "c3").await;
+    let ran = c.ran_ids(&kid).await;
+    let order: Vec<&str> =
+        ran.iter().map(String::as_str).filter(|id| ["c1", "c2", "c3"].contains(id)).collect();
+    assert_eq!(order, ["c1", "c2", "c3"], "{ran:?}");
+
+    // Once handed back, the Chief's messages go in again.
+    let later = c.message(&chief, &kid, "c4", "thanks").await;
+    assert!(later.get("error").is_none(), "{later}");
+}
+
+/// While the chat is held, the Chief cannot stop being its manager by changing or removing its
+/// own `cmux.chief` tag or the chat's `mux.parent`: the tag calls are refused and its next
+/// message is still held.
+#[tokio::test]
+async fn a_manager_cannot_change_its_identity_tags_to_pass_a_hold() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid) = (c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+    let mut person = Client::person(&hub).await;
+    person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+
+    // Re-setting the same value changes nothing and passes.
+    let same =
+        c.reply("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    assert!(same.get("error").is_none(), "{same}");
+    for (session, call) in [
+        (&chief, json!({"remove": ["cmux.chief"]})),
+        (&chief, json!({"set": {"cmux.chief": "elsewhere"}})),
+        (&kid, json!({"remove": ["mux.parent"]})),
+        (&kid, json!({"set": {"mux.parent": "someone-else"}})),
+    ] {
+        let mut params = call.clone();
+        params["sessionId"] = json!(session);
+        let refused = c.reply("_acpmux/tag", params).await;
+        assert!(refused.get("error").is_some(), "{call}: {refused}");
+    }
+    let still = c.message(&chief, &kid, "c1", "carry on").await;
+    assert!(held(&still), "{still}");
+    assert_eq!(still.pointer("/error/data/trip"), Some(&json!("taken_over")), "{still}");
+
+    // Once handed back, the tags are the Chief's to change again.
+    person.call(HOLD, json!({"sessionId": kid, "held": false})).await;
+    let freed = c.reply("_acpmux/tag", json!({"sessionId": chief, "remove": ["cmux.chief"]})).await;
+    assert!(freed.get("error").is_none(), "{freed}");
+}
+
+/// A Chief of another home does not manage the chat: its message passes a hold.
+#[tokio::test]
+async fn another_chiefs_turn_is_not_the_manager() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid) = (c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home2"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+    let mut person = Client::person(&hub).await;
+    // The person gives the chat its first work, so the other Chief is not its delegator either.
+    let first = person
+        .reply(
+            "session/prompt",
+            json!({"sessionId": kid, "prompt": [{"type": "text", "text": "start"}]}),
+        )
+        .await;
+    assert!(first.get("error").is_none(), "{first}");
+    person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+    let reply = c.message(&chief, &kid, "x1", "hello").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+}
+
+/// What `acpmux send --notice` sends from inside a session: a tool's notice, no provenance of
+/// its own (`prompt_provenance::notice`).
+fn notice_prompt(to: &str, id: &str, title: &str) -> Value {
+    json!({"sessionId": to, "prompt": [{"type": "text", "text": format!("[notice from watch] {title}")}],
+           "_meta": {"acpmux": {"promptId": id, "notice": {"sender": "watch", "severity": "warn", "title": title}}}})
+}
+
+/// A tool's notice a session sends is that session's message for the pair guard: one repeating
+/// itself is paused like any other send (review of the notice prompt kind).
+#[tokio::test]
+async fn a_session_repeating_itself_with_notices_is_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let mut lane = Client::as_session(&hub, &a).await;
+    for (id, title) in
+        [("n1", "Please check the build, run 1"), ("n2", "please  check the BUILD, run 2")]
+    {
+        let sent = lane.reply("session/prompt", notice_prompt(&b, id, title)).await;
+        assert!(sent.get("error").is_none(), "{sent}");
+    }
+    let third = lane
+        .reply("session/prompt", notice_prompt(&b, "n3", "Please check the build, run 3"))
+        .await;
+    assert!(held(&third), "the third near-identical notice is held: {third}");
+    assert!(!c.ran(&b, "n3").await, "a held notice does not run");
+}
+
+/// A taken-over chat holds its manager's notices too, until Hand back.
+#[tokio::test]
+async fn a_taken_over_chat_holds_its_managers_notices() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid) = (c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+    let mut person = Client::person(&hub).await;
+    person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+    let mut manager = Client::as_session(&hub, &chief).await;
+    let sent = manager.reply("session/prompt", notice_prompt(&kid, "cn1", "fast tier red")).await;
+    assert!(held(&sent), "{sent}");
+    assert_eq!(sent.pointer("/error/data/trip"), Some(&json!("taken_over")), "{sent}");
+    assert!(!c.ran(&kid, "cn1").await);
+    let back = person.call(HOLD, json!({"sessionId": kid, "held": false})).await;
+    assert_eq!(back["delivered"], 1, "{back}");
+    c.wait_ran(&kid, "cn1").await;
 }

@@ -760,15 +760,7 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         // approved pairing; the app's person credential shares the store) is
         // refused with or without a page Origin: a native client can send any
         // Origin. Every lock read fails closed.
-        let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| {
-            match ws.page.as_deref() {
-                None => !ws.person,
-                Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
-            }
-        });
-        let unbound = matches!(mux.bound_conversation_participant(client), Ok(None));
-        let person_page = admitted && unbound && principal == LOCAL_USER;
-        return if person_page { Ok(Caller::Page) } else { Err(forbidden()) };
+        return if person_page(mux, client) { Ok(Caller::Page) } else { Err(forbidden()) };
     }
     if principal == LOCAL_USER {
         return Ok(Caller::Owner);
@@ -780,6 +772,21 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         }
         _ => Err(forbidden()),
     }
+}
+
+/// The same authenticated owner page admission for Chief records and read-only work.
+pub(super) fn person_page(mux: &Mux, client: u64) -> bool {
+    let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| match ws
+        .page
+        .as_deref()
+    {
+        None => !ws.person,
+        Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
+    });
+    admitted
+        && !mux.is_remote_client(client)
+        && matches!(mux.bound_conversation_participant(client), Ok(None))
+        && mux.conversation_principal(client) == LOCAL_USER
 }
 
 /// cx-di8pd: a renamed Chief's own conversation takes its new name as its

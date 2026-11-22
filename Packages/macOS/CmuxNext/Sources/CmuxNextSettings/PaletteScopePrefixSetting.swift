@@ -15,12 +15,13 @@ public nonisolated struct PaletteScopePrefixes: Sendable, Equatable {
     /// The built-in scopes with a prefix setting, in Settings order, with
     /// their default prefixes.
     public static let defaults: [(scope: String, prefix: String)] = [
-        ("tabs", "@"), ("workspaces", "#"), ("commands", ">"), ("settings", ","), ("scopes", "?"),
+        ("tabs", tabsPrefixDefault), ("workspaces", workspacesPrefixDefault), ("commands", commandsPrefixDefault),
+        ("settings", settingsPrefixDefault), ("scopes", scopesPrefixDefault),
     ]
 
     /// Characters a prefix may be. Letters, digits and spaces are never
-    /// prefixes: typing a word must never enter a scope.
-    public static let characters = ["@", "#", ">", ",", "?", "!", "/", ";", ":", "%", "&", "+", "=", "~", "$", "^", "*", "."]
+    /// prefixes: typing a word must never enter a scope. Every scope's row allows the same values.
+    public static let characters = tabsPrefixValues.filter { $0 != noneValue }
     public static let noneValue = "none"
 
     public static func path(_ scope: String) -> [String] { ["palette", "scopes", scope, "prefix"] }
