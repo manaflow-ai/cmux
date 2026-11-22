@@ -1179,7 +1179,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-browser-sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
 .acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-browser-sidebar details { margin: 4px 0 12px; }
-.acpmux-browser-sidebar summary { padding: 4px 8px; cursor: pointer; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browser-sidebar summary { padding: 4px 8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-browser-workspace-chats { padding-inline-start: 12px; }
 .acpmux-browser-sidebar p,
 .acpmux-browser-sidebar output { display: block; margin: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); }
