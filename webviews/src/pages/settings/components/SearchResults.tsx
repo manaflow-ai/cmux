@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from "react";
-import { shownCategories } from "../categories";
+import { shownCategories, sidebarSections } from "../categories";
 import { useSettingsState, useStore } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
@@ -8,11 +8,20 @@ import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
 
+/** Each category's page title (the sidebar section that holds it), for a result's crumb. */
+const pageTitles = new Map(
+  sidebarSections.flatMap((section) =>
+    section.title ? section.categories.map((id) => [id, section.title!] as const) : [],
+  ),
+);
+
 // The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
 const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
 
 /**
- * Matching rows from every category, editable in place, grouped by category. Every
+ * Matching rows from every category, editable in place, grouped by category under a crumb, its
+ * page then the category ("AI › Agents"; a page's own category is just its name), so a result says
+ * where it lives among the six pages (findings G6, the search-first layout's results). Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
@@ -34,6 +43,11 @@ export function SearchResults({ query }: { query: string }) {
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   const empty = shown.size === 0;
+  const crumb = (category: { id: string; title: Parameters<typeof text>[0] }) => {
+    const page = pageTitles.get(category.id);
+    const name = page ? text(page) : null;
+    return name && name !== text(category.title) ? name : null;
+  };
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -73,7 +87,17 @@ export function SearchResults({ query }: { query: string }) {
             aria-hidden={open ? undefined : true}
           >
             <div className="collapse-body">
-              <h2 className="result-section-title">{text(category.title)}</h2>
+              <h2 className="result-section-title">
+                {crumb(category) && (
+                  <>
+                    <span className="result-section-page">{crumb(category)}</span>
+                    <span className="result-section-crumb" aria-hidden="true">
+                      {" › "}
+                    </span>
+                  </>
+                )}
+                {text(category.title)}
+              </h2>
               {petRows && petRows.size > 0 && (
                 <Suspense fallback={null}>
                   <ChiefPetCard query={query} visibleRows={petRows} />

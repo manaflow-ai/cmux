@@ -4,13 +4,12 @@
 extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
-        SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
-        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
-        SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
-        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
+        SidebarSection(id: "general", title: SettingsText.keyed("settings.section.general", "General"), categories: [generalCategory, notificationsCategory, updatesCategory, newTabCategory, menusCategory]),
+        SidebarSection(id: "appearance", title: SettingsText.keyed("settings.section.appearance", "Appearance"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory, computerUseCategory, mcpServersCategory]),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, cloudCategory, keysCategory, importCategory, privacyCategory]),
+        SidebarSection(id: "keyboard", title: SettingsText.keyed("settings.section.keyboard", "Keyboard"), categories: [keyboardCategory]),
+        SidebarSection(id: "advanced", title: SettingsText.keyed("settings.section.advanced", "Advanced"), categories: [advancedCategory, terminalCategory, editorCategory, browserCategory, experimentalCategory, developmentCategory]),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -34,6 +33,22 @@ extension SettingsPageLayout {
         lead: [.textSize], actions: [.general], aliases: [.general]
     )
 
+    /// A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.
+    private static let notificationsCategory = CategorySpec(
+        id: "notifications", title: section(.notifications), symbol: "bell",
+        groups: [
+            GroupSpec(group: "settings.group.banners"),
+            GroupSpec(group: "settings.group.notificationDelivery"),
+            // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
+            GroupSpec(group: "settings.group.sounds"),
+            GroupSpec(group: "settings.group.dismissal"),
+            GroupSpec(group: "settings.group.attention"),
+            GroupSpec(group: "settings.group.feedMirror"),
+            GroupSpec(group: "settings.group.githubInbox"),
+        ],
+        actions: [.notifications], aliases: [.notifications]
+    )
+
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
     private static let updatesCategory = CategorySpec(
         id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
@@ -42,6 +57,20 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"], title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
         ],
         lead: [.appUpdate], trail: [.webUpdates, .channels]
+    )
+
+    private static let newTabCategory = CategorySpec(
+        id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
+        groups: [
+            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
+        ]
+    )
+
+    /// Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
+    private static let menusCategory = CategorySpec(
+        id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+        groups: [],
+        lead: [.contextMenus]
     )
 
     /// One settings area (David Beyer, 2026-11-20: Personalization and Settings were redundant): how cmux looks is this one page. It opens on the everyday choices, the theme studio (the one home of the theme; it draws the App Theme group), the background picker (appearance.background and its Opacity; Change Background… lands on it) and the density card (appearance.density, Text Size and the custom densities); the fine-tuning groups follow with their rarer rows behind More Options; the Customization Library ends it. Old Personalization and Theme links open it (legacy_ids). The Chief's look is on Chief, chat text on Chat, sounds on Notifications.
@@ -93,58 +122,6 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.panes"),
             GroupSpec(group: "settings.group.focusRing"),
         ]
-    )
-
-    private static let terminalCategory = CategorySpec(
-        id: "terminal", title: section(.terminal), symbol: "terminal",
-        groups: [
-            GroupSpec(group: "settings.group.terminalFont"),
-            // The TERM new terminals start with (terminal.term).
-            GroupSpec(group: "settings.group.terminalCompatibility"),
-            // The program that opens links from a terminal, and its rules, beside the terminal they come from.
-            GroupSpec(keys: ["terminal.linkOpener.default", "terminal.linkOpener.rules"], title: SettingsText.keyed("settings.group.links", "Links")),
-            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
-        ],
-        lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
-    )
-
-    /// The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text size too) lives in General beside Diff Viewer; a row has one home.
-    private static let editorCategory = CategorySpec(
-        id: "editor", title: section(.editor), symbol: "chevron.left.forwardslash.chevron.right",
-        groups: [
-            GroupSpec(group: "settings.group.editorDefaults"),
-            GroupSpec(group: "settings.group.editorFont"),
-            GroupSpec(group: "settings.group.editorText"),
-            GroupSpec(group: "settings.group.editorDisplay"),
-            GroupSpec(group: "settings.group.editorCursor"),
-            GroupSpec(group: "settings.group.editorEditing"),
-            GroupSpec(group: "settings.group.editorSaving"),
-            GroupSpec(group: "settings.group.diffViewer"),
-            GroupSpec(group: "settings.group.markdownViewer"),
-            GroupSpec(group: "settings.group.files"),
-            GroupSpec(group: "settings.group.screenshots"),
-        ],
-        actions: [.editor], aliases: [.editor]
-    )
-
-    private static let browserCategory = CategorySpec(
-        id: "browser", title: section(.browser), symbol: "globe",
-        groups: [
-            GroupSpec(group: "settings.group.engine"),
-            GroupSpec(group: "settings.group.addressBar"),
-            GroupSpec(group: "settings.group.toolbar"),
-            GroupSpec(group: "settings.group.media"),
-            GroupSpec(group: "settings.group.bookmarks"),
-            GroupSpec(group: "settings.group.agentInput"),
-            GroupSpec(group: "settings.group.extensions"),
-            GroupSpec(group: "settings.group.links"),
-            GroupSpec(group: "settings.group.openingLinks"),
-            GroupSpec(group: "settings.group.passwords"),
-            GroupSpec(group: "settings.group.import"),
-            GroupSpec(group: "settings.group.memory"),
-            GroupSpec(group: "settings.group.remote"),
-        ],
-        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
     )
 
     /// How the agent chat looks and reads. Agents keeps what the agents may do.
@@ -213,31 +190,23 @@ extension SettingsPageLayout {
         lead: [.models]
     )
 
-    /// A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.
-    private static let notificationsCategory = CategorySpec(
-        id: "notifications", title: section(.notifications), symbol: "bell",
+    /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
+    private static let computerUseCategory = CategorySpec(
+        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"), symbol: "cursorarrow.click.2",
         groups: [
-            GroupSpec(group: "settings.group.banners"),
-            GroupSpec(group: "settings.group.notificationDelivery"),
-            // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
-            GroupSpec(group: "settings.group.sounds"),
-            GroupSpec(group: "settings.group.dismissal"),
-            GroupSpec(group: "settings.group.attention"),
-            GroupSpec(group: "settings.group.feedMirror"),
-            GroupSpec(group: "settings.group.githubInbox"),
+            GroupSpec(group: "settings.group.computerUse"),
         ],
-        actions: [.notifications], aliases: [.notifications]
+        lead: [.computerUse]
     )
 
-    private static let keyboardCategory = CategorySpec(
-        id: "keyboard", title: section(.keyboard), symbol: "keyboard",
+    /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
+    private static let mcpServersCategory = CategorySpec(
+        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
         groups: [
-            GroupSpec(group: "settings.shortcuts.hintsGroup"),
-            GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"], title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
-            GroupSpec(group: "settings.group.palette"),
-            GroupSpec(group: "settings.group.macScreenKeyboard"),
+            // Whether new agent chats get the saved servers (agents.mcpServers.enabled).
+            GroupSpec(group: "settings.group.mcpServers"),
         ],
-        actions: [.keyboard], aliases: [.keyboard]
+        lead: [.mcpServers]
     )
 
     /// Phone access sits beside the account it signs in with and the machines list. The Machines card draws Machine Colors on its rows (a color well per machine).
@@ -260,37 +229,11 @@ extension SettingsPageLayout {
         trail: [.mobile]
     )
 
-    private static let newTabCategory = CategorySpec(
-        id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
-        groups: [
-            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
-        ]
-    )
-
-    /// Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
-    private static let menusCategory = CategorySpec(
-        id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+    /// Devices holds what the Server page showed; its old links open it (legacy_ids).
+    private static let devicesCategory = CategorySpec(
+        id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
         groups: [],
-        lead: [.contextMenus]
-    )
-
-    /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
-    private static let computerUseCategory = CategorySpec(
-        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"), symbol: "cursorarrow.click.2",
-        groups: [
-            GroupSpec(group: "settings.group.computerUse"),
-        ],
-        lead: [.computerUse]
-    )
-
-    /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
-    private static let mcpServersCategory = CategorySpec(
-        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
-        groups: [
-            // Whether new agent chats get the saved servers (agents.mcpServers.enabled).
-            GroupSpec(group: "settings.group.mcpServers"),
-        ],
-        lead: [.mcpServers]
+        lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 
     /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).
@@ -307,13 +250,6 @@ extension SettingsPageLayout {
         id: "keys", title: SettingsText.keyed("settings.category.keys", "Keys"), symbol: "key",
         groups: [],
         lead: [.keys]
-    )
-
-    /// Devices holds what the Server page showed; its old links open it (legacy_ids).
-    private static let devicesCategory = CategorySpec(
-        id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-        groups: [],
-        lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.
@@ -337,6 +273,17 @@ extension SettingsPageLayout {
         lead: [.sharedLinks], actions: [.home], aliases: [.home]
     )
 
+    private static let keyboardCategory = CategorySpec(
+        id: "keyboard", title: section(.keyboard), symbol: "keyboard",
+        groups: [
+            GroupSpec(group: "settings.shortcuts.hintsGroup"),
+            GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"], title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
+            GroupSpec(group: "settings.group.palette"),
+            GroupSpec(group: "settings.group.macScreenKeyboard"),
+        ],
+        actions: [.keyboard], aliases: [.keyboard]
+    )
+
     private static let advancedCategory = CategorySpec(
         id: "advanced", title: section(.advanced), symbol: "curlybraces",
         groups: [
@@ -344,6 +291,58 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.developerTools"),
         ],
         lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
+    )
+
+    private static let terminalCategory = CategorySpec(
+        id: "terminal", title: section(.terminal), symbol: "terminal",
+        groups: [
+            GroupSpec(group: "settings.group.terminalFont"),
+            // The TERM new terminals start with (terminal.term).
+            GroupSpec(group: "settings.group.terminalCompatibility"),
+            // The program that opens links from a terminal, and its rules, beside the terminal they come from.
+            GroupSpec(keys: ["terminal.linkOpener.default", "terminal.linkOpener.rules"], title: SettingsText.keyed("settings.group.links", "Links")),
+            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+        ],
+        lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
+    )
+
+    /// The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text size too) lives in General beside Diff Viewer; a row has one home.
+    private static let editorCategory = CategorySpec(
+        id: "editor", title: section(.editor), symbol: "chevron.left.forwardslash.chevron.right",
+        groups: [
+            GroupSpec(group: "settings.group.editorDefaults"),
+            GroupSpec(group: "settings.group.editorFont"),
+            GroupSpec(group: "settings.group.editorText"),
+            GroupSpec(group: "settings.group.editorDisplay"),
+            GroupSpec(group: "settings.group.editorCursor"),
+            GroupSpec(group: "settings.group.editorEditing"),
+            GroupSpec(group: "settings.group.editorSaving"),
+            GroupSpec(group: "settings.group.diffViewer"),
+            GroupSpec(group: "settings.group.markdownViewer"),
+            GroupSpec(group: "settings.group.files"),
+            GroupSpec(group: "settings.group.screenshots"),
+        ],
+        actions: [.editor], aliases: [.editor]
+    )
+
+    private static let browserCategory = CategorySpec(
+        id: "browser", title: section(.browser), symbol: "globe",
+        groups: [
+            GroupSpec(group: "settings.group.engine"),
+            GroupSpec(group: "settings.group.addressBar"),
+            GroupSpec(group: "settings.group.toolbar"),
+            GroupSpec(group: "settings.group.media"),
+            GroupSpec(group: "settings.group.bookmarks"),
+            GroupSpec(group: "settings.group.agentInput"),
+            GroupSpec(group: "settings.group.extensions"),
+            GroupSpec(group: "settings.group.links"),
+            GroupSpec(group: "settings.group.openingLinks"),
+            GroupSpec(group: "settings.group.passwords"),
+            GroupSpec(group: "settings.group.import"),
+            GroupSpec(group: "settings.group.memory"),
+            GroupSpec(group: "settings.group.remote"),
+        ],
+        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
     )
 
     private static let experimentalCategory = CategorySpec(
