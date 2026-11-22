@@ -29,7 +29,11 @@ struct ChatRestingStack: Codable, Equatable {
 @MainActor
 @Observable
 public final class AgentChatSurface {
-    public var text = ""
+    public var text = "" {
+        didSet { if text != oldValue { onTextChange?(text) } }
+    }
+    /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
+    @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -367,7 +371,7 @@ public final class AgentChatSurface {
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
-            let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+            let collected = store.artifacts
             if let artifact = collected.artifacts.first(where: { $0.reference == reference }) { artifacts.path = [artifact] }
         case .artifactsSource(let on):
             artifacts.showSource = on
