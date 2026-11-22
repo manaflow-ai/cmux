@@ -2546,11 +2546,30 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.current = current;
   }
 
+  /// The frame `id` names goes back to the row `id` (``set``): the row that adopted it draws in its own again.
+  private giveFrameBack(id: string): void {
+    for (const [other, frame] of this.frames) {
+      if (frame !== id) continue;
+      this.frames.delete(other);
+      const row = this.get(other);
+      if (row?.frame !== frame) continue;
+      // Written outside any event, as `adoptFrames` writes: the row keeps its place and its last write.
+      const current = this.current;
+      this.current = undefined;
+      this.set(other, { ...row, frame: undefined });
+      this.current = current;
+    }
+  }
+
   // Producers identify stream progress from the event, even when its row retains settled tools.
   override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
     const adopted = this.frames.get(id);
     if (adopted !== undefined && row.frame !== adopted) row = { ...row, frame: adopted };
     const known = this.order.has(id);
+    // A row that comes back under the id another row's adopted frame names (an older page folded in,
+    // a read that names it as before) takes that frame back at once, not at the next rebuild: two rows
+    // in one frame are one React key, and the transcript drew one of them twice.
+    if (!known && this.frames.size) this.giveFrameBack(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
     if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
@@ -16149,9 +16168,38 @@ export class AcpmuxDirectClient {
     // The turn opener drawn above the held page is held: only prompts before it are earlier.
     const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
     const kept = this.earlierShown;
-    if (kept && kept.heads === index.heads && kept.before === before) return kept.list;
-    const list = PromptHeads.before(index.heads, before);
+    const list =
+      kept && kept.heads === index.heads && kept.before === before
+        ? kept.list
+        : PromptHeads.before(index.heads, before);
     this.earlierShown = { heads: index.heads, before, list };
+    if (list.length && this.rows.size !== (this as any).diagSize) {
+      (this as any).diagSize = this.rows.size;
+      const hits: unknown[] = [];
+      for (const row of this.rows.values()) {
+        if (row.kind !== "user") continue;
+        const seq = row.id.startsWith("user-") ? Number(row.id.slice(5)) : NaN;
+        const at = Number.isFinite(seq) ? PromptHeads.indexOfSeq(list, seq) : -1;
+        const pid = row.promptId ?? row.delivery?.promptId;
+        const pat = pid ? PromptHeads.indexOfPromptId(list, pid) : -1;
+        if (at >= 0 || pat >= 0)
+          hits.push({ id: row.id, order: this.rows.orderOf(row.id), pid, at, pat, local: row.id.startsWith("local") });
+      }
+      if (hits.length)
+        console.warn(
+          "DUPDIAG earlier " +
+            JSON.stringify({
+              sessionId,
+              firstSeq: this.firstSeq,
+              opener: this.turnOpener?.seq,
+              before,
+              events0: this.events[0]?.seq,
+              n: this.events.length,
+              listLen: list.length,
+              hits: hits.slice(0, 4),
+            }),
+        );
+    }
     return list;
   }
 

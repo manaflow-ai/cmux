@@ -1129,6 +1129,27 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       rowFrames.push(cache.put(frameId, rows, span.first, span.last, element));
     }
   cache.end();
+  {
+    const seen = new Map<string, number>();
+    for (const { first, last } of view.mountedRanges)
+      for (let at = first; at < last && at < rows.length; at += 1) {
+        const k = rowFrameKey(rows[at]!);
+        const was = seen.get(k);
+        if (was !== undefined) {
+          const d = (i: number) => ({
+            i,
+            id: rows[i]!.id,
+            frame: rows[i]!.frame,
+            kind: rows[i]!.kind,
+            text: rows[i]!.text?.slice(0, 30),
+          });
+          console.warn(
+            "DUPDIAG rows " +
+              JSON.stringify({ key: k, n: rows.length, ranges: view.mountedRanges, a: d(was), b: d(at) }),
+          );
+        } else seen.set(k, at);
+      }
+  }
   return rowFrames;
 }
 

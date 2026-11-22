@@ -189,3 +189,24 @@ test("two replies that open with the same line are not one reply", () => {
   );
   expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-49");
 });
+
+// An older page folds in with no rebuild after it (direct.ts `foldOlder`), so `adoptFrames` never runs for it: the
+// row whose frame another took comes back by `set` alone, and must take its frame back there. Else both rows draw
+// under one key (the power-user stress harness, 2026-11-22: "Encountered two children with the same key,
+// `load-session-36:assistant-6161`" while wheel flicks paged history in under a streaming reply).
+test("a row that comes back by an older page's fold takes its frame back at once", () => {
+  const text = "guard in `step2` runs after the total, so the first pass lets a value past the ceiling through.";
+  const rows = new OrderedRows();
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${text}`));
+  rows.adoptFrames(new Map([["assistant-50", reply("assistant-50", text)]]));
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-50");
+  rows.beginPrepend(10);
+  rows.set("assistant-50", reply("assistant-50", text));
+  rows.endPrepend();
+  const frames = [...rows.values()].map(rowFrameKey);
+  expect(new Set(frames).size).toBe(frames.length);
+  expect(rowFrameKey(rows.get("assistant-50")!)).toBe("assistant-50");
+  // The row that gave the frame back keeps its own from then on.
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${text} More.`));
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-49");
+});
