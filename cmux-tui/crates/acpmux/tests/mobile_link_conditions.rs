@@ -23,8 +23,16 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The bench's own knobs pass
+// through the hermetic re-start: without them every run took the defaults (every profile, 1x-100x,
+// n=5) whatever ios-network-conditions.sh asked for.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+]);
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
