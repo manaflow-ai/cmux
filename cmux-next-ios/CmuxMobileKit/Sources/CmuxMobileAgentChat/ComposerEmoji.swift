@@ -56,17 +56,6 @@ final class ComposerEmoji {
         refresh(view)
     }
 
-    /// A paste's `:code:`s become emoji in one step after the paste (undo restores it as pasted).
-    func didPaste(_ range: NSRange, in view: UITextView) {
-        let text = view.text ?? ""
-        guard view.markedTextRange == nil, NSMaxRange(range) <= (text as NSString).length else { return }
-        let pasted = (text as NSString).substring(with: range)
-        guard let converted = EmojiShortcodes.convertingPaste(pasted, table: .bundled, tone: EmojiPrefsStore.prefs.tone) else { return }
-        var edit = EmojiEdit(range: range, replacement: converted.text, caret: range.location + converted.text.utf16.count)
-        edit.rememberTone = converted.rememberTone
-        later(edit, in: view, unless: text)
-    }
-
     /// Writes the highlighted row (or `index`): the glyph in the remembered tone and a space.
     @discardableResult
     func accept(_ index: Int? = nil) -> Bool {

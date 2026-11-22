@@ -201,13 +201,18 @@ final class ChatComposerTextView: ComposerReturnTextView {
     @objc private func emojiDown() { emoji?.move(1) }
     @objc private func emojiDismiss() { emoji?.dismiss() }
 
-    /// A pasted `:code:` becomes its emoji, one undo step after the paste itself.
+    /// A pasted `:code:` goes in as its emoji: the paste is written converted, in one step, so
+    /// one undo removes the whole paste (the Mac composer's rule).
     override func paste(_ sender: Any?) {
-        let before = text ?? ""
-        let from = selectedRange.location
-        super.paste(sender)
-        guard let emoji, let after = text, after != before, selectedRange.location > from else { return }
-        emoji.didPaste(NSRange(location: from, length: selectedRange.location - from), in: self)
+        guard emoji != nil, markedTextRange == nil, onPasteAttachments == nil || !UIPasteboard.general.composerPastesAttachments,
+              let pasted = UIPasteboard.general.string,
+              let converted = EmojiShortcodes.convertingPaste(pasted, table: .bundled, tone: EmojiPrefsStore.prefs.tone) else {
+            super.paste(sender)
+            return
+        }
+        if let tone = converted.rememberTone { EmojiPrefsStore.prefs.tone = tone }
+        // insertText is the keyboard's own path: one undo step, and the delegate sees the change.
+        insertText(converted.text)
     }
 
     override func didMoveToWindow() {
