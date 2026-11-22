@@ -125,6 +125,7 @@ async fn an_automatic_step_with_a_waiting_code_is_answered_before_the_proof() {
         token: Some("tok-early".into()),
         code: None,
         auto,
+        renew: false,
     };
     let v = hub.register_caller(1, req(true)).await.unwrap();
     assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));
@@ -147,7 +148,11 @@ fn a_chat_with_a_name_keeps_it_and_one_the_bridge_reaches_gets_no_code() {
     let p = plan(asked, own("desktop-zoe", true, true), false, none);
     assert_eq!(p, Plan::Code("desktop-zoe".into()), "registered, restarted");
     let p = plan(asked, own("desktop-zoe", true, true), true, none);
-    assert_eq!(p, Plan::Code("desktop-zoe".into()), "registered needs its token, bridge or not");
+    assert_eq!(
+        p,
+        Plan::Code("desktop-zoe".into()),
+        "registered needs its token, bridge or not"
+    );
     let p = plan(asked, own("my-folder", false, true), true, none);
     assert_eq!(p, Plan::Reachable(Some("my-folder".into())), "the bridge lists it");
     let p = plan(asked, own("my-folder", false, true), false, none);

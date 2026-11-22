@@ -63,6 +63,39 @@ fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
 }
 
 #[test]
+fn the_ca_outlives_the_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    private_folder(dir.path()).unwrap();
+    let first = kept_or_new_authority(dir.path()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode =
+            std::fs::metadata(dir.path().join(CA_KEY_FILE)).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    // The daemon restarts: the next one serves the same CA, under the same epoch.
+    let second = kept_or_new_authority(dir.path()).unwrap();
+    assert_eq!(second.pem(), first.pem());
+    assert_eq!(ca_epoch(second.pem()), ca_epoch(first.pem()));
+    // An agent the first daemon started is not stale under the second.
+    let node_ca = dir.path().join("node-extra-ca.pem");
+    let env: Vec<(String, String)> = vec![
+        ("HTTPS_PROXY".to_owned(), "http://127.0.0.1:4000".to_owned()),
+        ("NODE_EXTRA_CA_CERTS".to_owned(), node_ca.display().to_string()),
+        (EPOCH_VAR.to_owned(), ca_epoch(first.pem())),
+    ];
+    assert!(!stale_proxy_env(&env, &node_ca, Some(&ca_epoch(second.pem()))));
+    // A key that is not the certificate's: a new CA, kept, and a new epoch.
+    std::fs::write(dir.path().join(CA_KEY_FILE), "nope").unwrap();
+    let third = kept_or_new_authority(dir.path()).unwrap();
+    assert_ne!(third.pem(), first.pem());
+    assert!(stale_proxy_env(&env, &node_ca, Some(&ca_epoch(third.pem()))));
+    let fourth = kept_or_new_authority(dir.path()).unwrap();
+    assert_eq!(fourth.pem(), third.pem());
+}
+
+#[test]
 fn a_kept_port_file_that_is_not_a_port_is_replaced() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join(PORT_FILE), "nope").unwrap();
@@ -102,8 +135,10 @@ fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
         ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
     ]);
     assert!(!stale_proxy_env(&corp, ca, None));
-    let other_ca =
-        env(&[("HTTPS_PROXY", "http://127.0.0.1:43007"), ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem")]);
+    let other_ca = env(&[
+        ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+        ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
+    ]);
     assert!(!stale_proxy_env(&other_ca, ca, None));
 }
 
@@ -136,10 +171,11 @@ fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
 
 #[test]
 fn a_spawn_carries_the_start_its_stamp_names() {
-    let env =
-        child_env_with(vec![given("T", "s", Some(&["x.example.com"]))], Some(&running()), &|_| {
-            None
-        });
+    let env = child_env_with(
+        vec![given("T", "s", Some(&["x.example.com"]))],
+        Some(&running()),
+        &|_| None,
+    );
     let node_ca = running().node_ca;
     assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
     assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
@@ -153,7 +189,8 @@ fn no_proxy_entry_means_no_proxy_settings() {
 
 #[test]
 fn a_proxy_that_did_not_start_still_withholds_the_value() {
-    let env = child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
+    let env =
+        child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
     assert_eq!(env, vec![("T".to_owned(), "cmux-secret://T".to_owned())]);
 }
 
@@ -192,7 +229,8 @@ fn policy_holds_only_proxy_entries_with_their_valid_hosts() {
 fn trust_files_extend_what_the_launch_trusted() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("base.pem");
-    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----").unwrap();
+    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----")
+        .unwrap();
     let node = dir.path().join("node.pem");
     std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n")
         .unwrap();
@@ -209,6 +247,7 @@ fn trust_files_extend_what_the_launch_trusted() {
     assert!(node_text.contains("NODE") && node_text.ends_with(ca));
     let bundle_text = std::fs::read_to_string(bundle.unwrap()).unwrap();
     assert!(
-        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE") && bundle_text.ends_with(ca)
+        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
+            && bundle_text.ends_with(ca)
     );
 }

@@ -125,6 +125,19 @@ pub fn says_connection_dropped(message: &str) -> bool {
         "unexpected eof",
         "unexpected end of file",
         "early eof",
+        // A TLS handshake that did not verify: on Freestyle lanes (2026-11-22) ~30 Claude
+        // turns failed with "API Error: Unable to connect to API: SSL certificate verification
+        // failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)" when the restarted daemon's egress proxy
+        // signed with a new CA the agent did not trust yet; restarting the agent on the new
+        // proxy (`end_stale_proxy_before_retry`) fixes it, so it is a transport error.
+        "unable to connect to api",
+        "ssl certificate verification failed",
+        "unable_to_verify_leaf_signature",
+        "self_signed_cert_in_chain",
+        "depth_zero_self_signed_cert",
+        "unable to get local issuer certificate",
+        "certificate verify failed",
+        "invalid peer certificate",
     ];
     is_gateway_error(message)
         || PHRASES.iter().any(|p| m.contains(p))
