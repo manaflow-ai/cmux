@@ -21,11 +21,26 @@ const PICTURE = { width: 1600, height: 1000 };
 export const pictureTint = (tokens: ThemeTokens): string =>
   css(withAlpha(tokens.windowBackground, wallpaperTintOpacity(tokens)));
 
+/**
+ * A picture not bundled here, supplied at capture time (scripts/gallery/capture-states.mjs: a spec
+ * env names it, CMUX_GALLERY_PICTURE_<NAME> gives its file, and the capture puts it on the page as a
+ * data URL before the stage loads). It replaces the bundled picture of the stage's background and is
+ * drawn the same way: aspect-filled, then the window tint. Never in the repo: a person's own
+ * wallpaper stays on the machine that captures.
+ */
+export type ExternalPicture = { name: string; image: string; width: number; height: number };
+const externalPicture = (): ExternalPicture | undefined =>
+  (window as unknown as { cmuxGalleryPicture?: ExternalPicture }).cmuxGalleryPicture;
+
 /** The picture aspect-filled into a `width` x `height` box, centred, as the window's art view fills. */
-export function aspectFill(width: number, height: number): Rect {
-  const scale = Math.max(width / PICTURE.width, height / PICTURE.height);
-  const w = PICTURE.width * scale;
-  const h = PICTURE.height * scale;
+export function aspectFill(
+  width: number,
+  height: number,
+  picture: { width: number; height: number } = externalPicture() ?? PICTURE,
+): Rect {
+  const scale = Math.max(width / picture.width, height / picture.height);
+  const w = picture.width * scale;
+  const h = picture.height * scale;
   return { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h };
 }
 
@@ -58,11 +73,13 @@ export function applyGalleryBackground(
 ): void {
   const name = env.background;
   if (!name || name === "none") return;
-  const image = BACKGROUND_PICTURES[name];
+  const external = externalPicture();
+  const image = external?.image ?? BACKGROUND_PICTURES[name];
+  const key = external ? `external-${external.name}` : name;
   const root = document.documentElement;
   const tint = pictureTint(tokens);
   const base = css(withAlpha(tokens.windowBackground, 1));
-  root.dataset.galleryBackground = name;
+  root.dataset.galleryBackground = external ? external.name : name;
   const paint = () => {
     const rect = pictureRect(env, options.windowed, options.metrics, {
       width: root.clientWidth,
@@ -77,7 +94,7 @@ export function applyGalleryBackground(
     );
     (window as unknown as BackdropHost).cmuxTheme?.backdrop?.({
       image,
-      key: `gallery-background-${name}`,
+      key: `gallery-background-${key}`,
       rect,
       blur: 0,
       tint,
