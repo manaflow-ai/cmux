@@ -768,24 +768,27 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
     assert!(lines[0].ends_with("refresh it with `acpmux machine update old`"), "{}", lines[0]);
 }
 
-/// Item D: a move ends only once this machine lists the moved chat reachable on its new
+/// Item D: a move ends only once this machine lists the moved chats reachable on their new
 /// machine; a last-known copy, or a row whose peer is reconnecting, is not yet. Past the bound
-/// it says why instead of waiting on.
+/// it says why instead of waiting on. F3: the chats of one move are waited on together, one
+/// request for all still waited on, not one bounded wait per chat.
 #[tokio::test(start_paused = true)]
-async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
+async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     use crate::rpc::Message;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let row = |stale: bool, state: &str| {
-        json!({"rows": [
-            {"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}},
-            {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
-        ]})
+    let row = |id: &str, stale: bool, state: &str| {
+        vec![
+            json!({"sessionId": id, "status": "closed", "movedTo": {"host": "t"}}),
+            json!({"sessionId": id, "peer": "t", "stale": stale, "peerState": state}),
+        ]
     };
+    let rows = |parts: Vec<Vec<Value>>| json!({"rows": parts.concat()});
+    // s2 is listed reachable at the second ask, s1 at the fourth.
     let replies = vec![
-        json!({"rows": []}),
-        row(true, "reconnecting"),
-        row(false, "reconnecting"),
-        row(false, "connected"),
+        rows(vec![]),
+        rows(vec![row("s1", true, "reconnecting"), row("s2", false, "connected")]),
+        rows(vec![row("s1", false, "reconnecting")]),
+        rows(vec![row("s1", false, "connected")]),
     ];
     let socket_dir = tempfile::tempdir().unwrap();
     let socket = socket_dir.path().join("daemon.sock");
@@ -794,7 +797,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
         let (stream, _) = listener.accept().await.unwrap();
         let (rd, mut wr) = stream.into_split();
         let mut lines = BufReader::new(rd).lines();
-        let mut asked = 0;
+        let mut asked = Vec::new();
         while let Ok(Some(line)) = lines.next_line().await {
             let Message::Request { id, method: called, params, .. } =
                 Message::parse(&line).unwrap()
@@ -806,9 +809,11 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
                 continue;
             }
             assert_eq!(called, method::MUX_INFO);
-            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["s1"]));
-            let reply = replies.get(asked).cloned().unwrap_or_else(|| row(false, "reconnecting"));
-            asked += 1;
+            asked.push(params.unwrap_or_default()["sessionIds"].clone());
+            let reply = replies
+                .get(asked.len() - 1)
+                .cloned()
+                .unwrap_or_else(|| rows(vec![row("s1", false, "reconnecting")]));
             wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
         }
         asked
@@ -816,17 +821,27 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    await_arrival(&client, "s1", bound, poll).await.unwrap();
-    // A link that stays down: the wait ends at its bound and says why.
-    let why =
-        await_arrival(&client, "s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
-    assert_eq!(why, "peer reconnecting");
+    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let started = tokio::time::Instant::now();
+    assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
+    assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
+    // A link that stays down: the wait ends at its bound and says why, per chat.
+    let one = vec!["s1".to_owned()];
+    let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
+    assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
-    assert!((4 + 4..=4 + 5).contains(&asked), "asked {asked} times");
+    assert_eq!(
+        asked[..4],
+        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+    );
+    assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
-    assert_eq!(arrived(&json!({"rows": []})), Err("not listed here yet".to_owned()));
-    let stale = arrived(&row(true, "reconnecting")).unwrap_err();
+    let one_row = |stale, state| rows(vec![row("s1", stale, state)]);
+    assert_eq!(arrived(&rows(vec![]), "s1"), Err("not listed here yet".to_owned()));
+    let stale = arrived(&one_row(true, "reconnecting"), "s1").unwrap_err();
     assert!(stale.contains("last-known copy"), "{stale}");
-    assert_eq!(arrived(&row(false, "degraded")), Ok(()));
+    assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
+    // Another chat's row says nothing of this one.
+    assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
 }
