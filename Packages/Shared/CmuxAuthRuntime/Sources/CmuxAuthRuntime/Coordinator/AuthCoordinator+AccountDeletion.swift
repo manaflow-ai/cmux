@@ -8,7 +8,7 @@ extension AuthCoordinator {
     public func deleteAccount() async throws -> AccountDeletionResult {
         let apiBaseURL = apiBaseURL
         let timeout = timeouts.network
-        let tokens = try await runTokenTouchingPhase(.accountDeletion, timeout: timeout) {
+        let tokens = try await runPhase(.accountDeletion, timeout: timeout) {
             try await self.currentTokens()
         }
         return try await AccountDeletionClient(
