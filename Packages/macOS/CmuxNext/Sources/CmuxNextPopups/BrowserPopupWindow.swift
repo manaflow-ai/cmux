@@ -77,7 +77,7 @@ public final class BrowserPopupWindow: NSWindow {
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
                 readOnlyAddress: Bool = false, activeLook: ActiveLookScope?) {
         self.page = page
-        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
+        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, paneRow: false)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)
         omnibar = OmnibarTabBinding(addressBar: locationBar.addressBar, tab: page)

@@ -187,12 +187,16 @@ impl Supervisor {
                 "agent_cli changes go through apps-agent-inventory-changed",
             ));
         }
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if inner.providers.get(family) != Some(&client) {
             return Err(ApiError::new(
                 "apps.provider.unknown",
                 "this connection does not provide that family",
             ));
+        }
+        // A changed calendar makes every cached read stale before anyone reads again.
+        if family == super::system_calendar::FAMILY {
+            inner.system_calendar.clear();
         }
         Self::publish_stream_locked(&inner, &format!("{family}.changed"), json!({}));
         Ok(json!({}))

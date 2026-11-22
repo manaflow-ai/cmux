@@ -76,6 +76,15 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
 
+/// Whether a background turn ended and its rows draw at rest: it ended with something to say
+/// (`foldsBackground`), or, inline, it ended at all, as its calls draw where they ran
+/// (`hiddenInBackground`) whatever acpmux called it. turns.ts ends such a turn on its row of actions.
+export const endsDrawingRows = (row: AcpmuxRow): boolean =>
+  row.kind === BACKGROUND_TURN &&
+  row.background !== undefined &&
+  !row.background.running &&
+  (!foldsBackground(row) || backgroundTurnsInline(experimentArm(backgroundTurnLook)));
+
 /// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
 /// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
 /// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
@@ -83,6 +92,21 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
 export function saysNothing(reply: string): boolean {
   return /^[\s.·•…]*$/u.test(reply);
 }
+
+/// Whether a background turn's reply is quiet, as acpmux decides it for the turns Claude Code runs on
+/// its own (hub/background_turn.rs `is_quiet`, the one rule): at most one short line, with no
+/// question and no link. The pane reads it only for the turn a background command's finish opens
+/// (bgDoneNotice.ts), which acpmux prompts itself and so never brackets.
+export function isQuietReply(reply: string): boolean {
+  const text = reply.trim();
+  const lines = text.split("\n").filter((line) => line.trim()).length;
+  return lines <= 1 && Array.from(text).length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
+}
+/// acpmux's `SHORT_LINE`: the longest reply, in characters, that still reads as one short line.
+const QUIET_LINE = 160;
+
+/// A background command's finish that ran as a background turn (bgDoneNotice.ts `bg-done-<task>`).
+const isBgDone = (turn: AcpmuxBackgroundTurn) => turn.id.startsWith("bg-done-");
 
 /// Whether a background turn draws its line: one that folds, while it runs or once it has a row of
 /// its own to open to. A quiet one that ended with none has nothing to show (Leo, 2026-11-03: "these
@@ -115,9 +139,12 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
 /// Whether a background turn that does not fold still draws its line, over its rows: a failure
 /// that ended with something to say keeps its named line, so a long reply never hides what failed
 /// (cmux#33319). Its rows draw as they came under it; the line opens nothing.
+/// A background command's finish that reported something keeps its line too: the line is the
+/// prompt its report answers, and without it the report read as an answer to nothing.
 export function headsBackground(row: AcpmuxRow): boolean {
   if (row.kind !== BACKGROUND_TURN || !row.background || foldsBackground(row)) return false;
-  return backgroundWeight(row.background) === "failure";
+  const weight = backgroundWeight(row.background);
+  return weight === "failure" || (weight === "result" && isBgDone(row.background));
 }
 
 /// Update the owner set while a caller is already walking the transcript. Keeping this mutation
