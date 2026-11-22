@@ -5,7 +5,16 @@
 // Leo, 2026-11-22, on a whole-app walkthrough that never showed the change: "these app walkthroughs and shit, you
 // guys need to just be stripping this shit down bare into the constituent parts of what the fuck actually matters.
 // speed up the walkthrough, consider not even using the fucking macs and just viewing the simulation of our shit
-// with the styling with whatever the fuck".
+// with the styling with whatever the fuck". And at 07:20: "i need to see the actual relevant bit. ... you cant be
+// spending a lot of time setting up and recording videos and shit. these all need to be ultra fast. and higher
+// quality if possible. faster, better visuals."
+//
+// So: no build. The first clip starts proof-clip-server.mjs (the gallery's Vite dev server compiled with Oxc, about
+// 10 s cold) and leaves it up for --idle minutes; every clip after that reuses it and takes about 8 s (the
+// agent-pane dots: about 15 s cold, where the old build-then-film tool took 123 s). Each cell is rendered at a
+// device scale of up to --max-scale until it is --min-cell pixels wide, written losslessly, then encoded once at
+// crf 12 (mp4) and with a full palette (gif): crisp text, no mush. The sidecar records the wall time of each
+// phase; over --budget seconds the tool says which phase was slow.
 //
 //   bun scripts/gallery/proof-clip.mjs --states agent-pane.thinking-look/claude,agent-pane.thinking-look/reduced-motion
 //   bun scripts/gallery/proof-clip.mjs --entry agent-pane.thinking-look            # its variants, at most --max-states
@@ -15,8 +24,10 @@
 //            --hover CSS (each state again with the pointer on that element: rest, then hover)
 //            --before DIR (a checkout of the base, its webviews/ folder: each state rendered there first, as a
 //            "before" row over the head's "after"; `git worktree add --detach DIR $(git merge-base HEAD origin/feat-cmux-next)`)
-//            --width normal|narrow --max-states 4 --margin 12 --scale 2 --min-cell 560 (a small element is
-//            rendered at a higher device scale until its cell is this many pixels wide, up to 8x)
+//            --width normal|narrow --max-states 4 --margin 12 --scale 2 --min-cell 640 (a small element is
+//            rendered at a higher device scale until its cell is this many pixels wide, up to --max-scale 16)
+//            --budget 20 (seconds) --keep 1 (0 stops a server this run started) --idle 20 (minutes)
+//            --compiler oxc|babel
 //
 // Writes OUT/proof.mp4, OUT/proof.png (the first frame) and OUT/proof.mp4.media.json (the sidecar
 // scripts/media/proof_clip_check.py reads: the component's share of the frame, the length, wall seconds), and
@@ -49,11 +60,14 @@ const { values: args } = parseArgs({
     margin: { type: "string", default: "12" },
     scale: { type: "string", default: "2" },
     fps: { type: "string", default: "30" },
-    "min-cell": { type: "string", default: "560" },
-    "gallery-dir": { type: "string" },
+    "min-cell": { type: "string", default: "640" },
     hover: { type: "string" },
     before: { type: "string" },
-    "before-gallery-dir": { type: "string" },
+    compiler: { type: "string", default: "oxc" },
+    keep: { type: "string", default: "1" },
+    idle: { type: "string", default: "20" },
+    budget: { type: "string", default: "20" },
+    "max-scale": { type: "string", default: "16" },
   },
 });
 
@@ -74,10 +88,25 @@ const SCALE = Number(args.scale);
 const SCHEMES = args.schemes.split(",").filter(Boolean);
 const MAX_STATES = Number(args["max-states"]);
 const MIN_CELL = Number(args["min-cell"]);
+const MAX_SCALE = Number(args["max-scale"]);
 /** A loop longer than this is cut (a slow ambient pulse would eat the whole clip). */
 const MAX_PERIOD_MS = 3000;
 const timings = {};
 const lap = (name, since) => (timings[name] = Math.round((performance.now() - since) / 10) / 100);
+
+function runAsync(cmd, argv) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, argv, { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (d) => (err += d));
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`${cmd} ${argv.slice(0, 6).join(" ")} … exited ${code}: ${err.slice(-800)}`)),
+    );
+  });
+}
 
 function run(cmd, argv, opts = {}) {
   const result = spawnSync(cmd, argv, { encoding: "utf8", maxBuffer: 64 << 20, ...opts });
@@ -117,43 +146,78 @@ if (args.states) {
 const entryIds = [...new Set(wanted.map((w) => w.entry))];
 lap("select", t0);
 
-// ------------------------------------------------------------------------------------- build only those entries
+// ------------------------------------------------------------------------------------------------ serve
+// No build: the gallery's dev server, compiled with Oxc and kept warm between clips (proof-clip-server.mjs). The
+// first clip in a checkout starts it (about 10 s to a cold stage); the next ones, after edits too, reuse it.
 t0 = performance.now();
-const galleryDir = args["gallery-dir"] ? path.resolve(args["gallery-dir"]) : path.join(work, "gallery");
-// --gallery-dir DIR reuses a build there, or builds into it once (a second clip of the same head skips the build).
-async function buildGallery(cwd, dir) {
-  if (fs.existsSync(path.join(dir, "frame.html"))) return;
-  if (!fs.existsSync(path.join(cwd, "node_modules"))) run("bun", ["install", "--frozen-lockfile"], { cwd, stdio: "ignore" });
-  await new Promise((resolve, reject) => {
-    const build = spawn("bun", ["run", "gallery:build"], {
-      cwd,
-      stdio: ["ignore", "ignore", "inherit"],
-      env: { ...process.env, CMUX_GALLERY_ENTRIES: entryIds.join(","), CMUX_GALLERY_OUT_DIR: dir },
-    });
-    build.once("error", reject);
-    build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build in ${cwd} exited ${code}`))));
-  });
+const KEEP = args.keep !== "0";
+const started_servers = [];
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function ensureServer(projectRoot) {
+  const state = path.join(projectRoot, "node_modules/.cache/proof-clip/server.json");
+  const read = () => {
+    try {
+      return JSON.parse(fs.readFileSync(state, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const have = read();
+  if (have && have.compiler === args.compiler && alive(have.pid)) {
+    const ok = await fetch(`${have.url}/frame.html`).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (ok) return { url: have.url, reused: true };
+  }
+  if (!fs.existsSync(path.join(projectRoot, "node_modules")))
+    run("bun", ["install", "--frozen-lockfile"], { cwd: projectRoot, stdio: "ignore" });
+  if (!fs.existsSync(path.join(projectRoot, "src/ui/theme.generated.css")))
+    run("node", ["scripts/pages/gen-strings.mjs"], { cwd: projectRoot, stdio: "ignore" });
+  fs.rmSync(state, { force: true });
+  fs.mkdirSync(path.dirname(state), { recursive: true });
+  const logFd = fs.openSync(path.join(path.dirname(state), "server.log"), "w");
+  const child = spawn(
+    "node",
+    [
+      path.join(root, "scripts/gallery/proof-clip-server.mjs"),
+      "--root",
+      projectRoot,
+      "--state",
+      state,
+      "--idle",
+      args.idle,
+      "--compiler",
+      args.compiler,
+    ],
+    // Its own log: a server that outlives this run must not hold this run's stderr (a pipe reader would wait on it).
+    { cwd: projectRoot, detached: true, stdio: ["ignore", logFd, logFd] },
+  );
+  child.unref();
+  started_servers.push(child.pid);
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const now = read();
+    if (now?.pid === child.pid) return { url: now.url, reused: false };
+    if (child.exitCode !== null) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `the gallery server in ${projectRoot} did not start in 60 s: ${path.join(path.dirname(state), "server.log")}`,
+  );
 }
 const beforeRoot = args.before ? path.resolve(args.before) : null;
-const beforeDir = beforeRoot ? path.resolve(args["before-gallery-dir"] ?? path.join(work, "gallery-before")) : null;
-await Promise.all([buildGallery(root, galleryDir), beforeRoot ? buildGallery(beforeRoot, beforeDir) : null]);
-lap("build", t0);
-
-const { preview } = await import("vite");
-async function serve(projectRoot, dir) {
-  process.env.CMUX_GALLERY_OUT_DIR = dir;
-  const server = await preview({
-    root: projectRoot,
-    configFile: path.join(projectRoot, "vite.config.gallery.ts"),
-    build: { outDir: dir },
-    preview: { host: "127.0.0.1", port: 0 },
-    logLevel: "warn",
-  });
-  return { server, url: `http://127.0.0.1:${server.httpServer.address().port}` };
-}
-const after = await serve(root, galleryDir);
-const before = beforeRoot ? await serve(beforeRoot, beforeDir) : null;
+const [after, before] = await Promise.all([ensureServer(root), beforeRoot ? ensureServer(beforeRoot) : null]);
 const baseUrl = after.url;
+lap("serve", t0);
+
 const { chromium } = await import("playwright");
 const browser = await chromium.launch();
 
@@ -211,15 +275,27 @@ t0 = performance.now();
 const cells = new Map();
 const states = [];
 
-async function openStage(entry, variant, scheme, scale = SCALE, url = baseUrl, hover = null) {
-  const context = await browser.newContext({
-    viewport: { width: 1040, height: 900 },
-    deviceScaleFactor: scale,
+// One context for every stage: its HTTP cache keeps the dev server's ~1200 modules after the first page, so the
+// other cells load from memory. Each page sets its own color scheme.
+const sharedContext = await browser.newContext({
+  viewport: { width: 1040, height: 900 },
+  deviceScaleFactor: SCALE,
+  reducedMotion: "no-preference",
+  // The warm server's own self-signed loopback certificate (HTTP/2; proof-clip-server.mjs).
+});
+async function openStage(entry, variant, scheme, url = baseUrl, hover = null) {
+  const page = await sharedContext.newPage();
+  await page.emulateMedia({ colorScheme: scheme, reducedMotion: "no-preference" });
+  const context = { newCDPSession: (p) => sharedContext.newCDPSession(p), close: () => page.close() };
+  // settle: a stage that never goes still (the thinking line) is ready after this, not the gallery's 4 s; the
+  // capture seeks its animations itself.
+  const query = new URLSearchParams({
+    entry,
     colorScheme: scheme,
-    reducedMotion: "no-preference",
+    width: args.width,
+    frame: "component",
+    settle: "300",
   });
-  const page = await context.newPage();
-  const query = new URLSearchParams({ entry, colorScheme: scheme, width: args.width, frame: "component" });
   if (variant) query.set("variant", variant);
   await page.goto(`${url}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
@@ -236,7 +312,14 @@ async function openStage(entry, variant, scheme, scale = SCALE, url = baseUrl, h
     if (!(await target.count())) throw new Error(`${entry}/${variant ?? ""}: nothing matches --hover ${hover}`);
     await target.hover({ timeout: 10_000 });
     // The hover's own transitions run out before the first frame.
-    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity).map((a) => a.finished.catch(() => null))));
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => null)),
+      ),
+    );
   }
   // Two frames for the first paint of anything the ready signal raced.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -268,77 +351,100 @@ for (const state of states)
   for (const side of before ? ["before", "after"] : [null])
     for (const hover of args.hover ? [null, args.hover] : [null])
       rowsWanted.push({ ...state, side, hover, url: side === "before" ? before.url : baseUrl });
-for (const state of rowsWanted) {
-  const key = [state.side, `${state.entry}/${state.variant ?? ""}`, state.hover ? "hover" : null].filter(Boolean).join(" · ");
-  const perScheme = {};
-  for (const scheme of SCHEMES) {
-    let { context, page } = await openStage(state.entry, state.variant, scheme, SCALE, state.url, state.hover);
-    let scale = SCALE;
-    try {
-      let m = await page.evaluate(measureStage, args.clip ?? null);
-      if (m.error) throw new Error(`${key} (${scheme}): ${m.error}`);
-      // A small element is magnified: rendered (not scaled up) at a device scale that makes its cell MIN_CELL wide.
-      const want = Math.min(8, Math.max(SCALE, Math.floor(MIN_CELL / (m.box.width + 2 * marginFor(m.box)))));
-      if (want > scale) {
-        await context.close();
-        scale = want;
-        ({ context, page } = await openStage(state.entry, state.variant, scheme, scale, state.url, state.hover));
-        m = await page.evaluate(measureStage, args.clip ?? null);
-        if (m.error) throw new Error(`${key} (${scheme}): ${m.error}`);
+/** One cell: a state in one scheme, rendered at the device scale that makes it MIN_CELL wide (up to --max-scale),
+ * every frame taken by CDP at that scale (Playwright's own screenshot keeps the context's scale). */
+async function captureCell(state, key, scheme) {
+  const { context, page } = await openStage(state.entry, state.variant, scheme, state.url, state.hover);
+  try {
+    const m = await page.evaluate(measureStage, args.clip ?? null);
+    if (m.error) throw new Error(`${key} (${scheme}): ${m.error}`);
+    const box = m.box;
+    const margin = marginFor(box);
+    const clip = { x: Math.max(0, Math.floor(box.x - margin)), y: Math.max(0, Math.floor(box.y - margin)) };
+    clip.width = Math.min(m.viewport.width - clip.x, Math.ceil(box.width + 2 * margin));
+    clip.height = Math.min(m.viewport.height - clip.y, Math.ceil(box.height + 2 * margin));
+    // A small element is magnified by rendering it at a higher device scale (crisp text and edges), never by
+    // scaling pixels up.
+    const scale = Math.min(MAX_SCALE, Math.max(SCALE, Math.floor(MIN_CELL / clip.width)));
+    const cdp = await context.newCDPSession(page);
+    if (scale !== SCALE)
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width: m.viewport.width,
+        height: m.viewport.height,
+        deviceScaleFactor: scale,
+        mobile: false,
+      });
+    const shot = async () =>
+      Buffer.from(
+        (
+          await cdp.send("Page.captureScreenshot", {
+            format: "png",
+            clip: { ...clip, scale: 1 },
+            optimizeForSpeed: true,
+          })
+        ).data,
+        "base64",
+      );
+    const dir = path.join(work, "cells", key.replace(/[^\w.-]+/g, "_"), scheme);
+    fs.mkdirSync(dir, { recursive: true });
+    const frameFile = (i) => path.join(dir, `${String(i).padStart(4, "0")}.png`);
+    let frames = 1;
+    let periodMs = 0;
+    let mode = "still";
+    if (m.animations && m.periodMs > 0) {
+      // Seek every animation to each frame's time: an exact loop, whatever the renderer's speed.
+      periodMs = Math.min(MAX_PERIOD_MS, m.periodMs);
+      frames = Math.max(2, Math.round((periodMs / 1000) * FPS));
+      mode = "seeked";
+      await page.evaluate(() => document.getAnimations().forEach((a) => a.pause()));
+      const origin = await page.evaluate(() => document.getAnimations().map((a) => Number(a.currentTime) || 0));
+      const writes = [];
+      for (let i = 0; i < frames; i++) {
+        const t = (i * periodMs) / frames;
+        await page.evaluate(
+          ([t, origin]) =>
+            document.getAnimations().forEach((a, k) => {
+              a.currentTime = (origin[k] ?? 0) + t;
+            }),
+          [t, origin],
+        );
+        writes.push(fs.promises.writeFile(frameFile(i), await shot()));
       }
-      const box = m.box;
-      const margin = marginFor(box);
-      const clip = {
-        x: Math.max(0, Math.floor(box.x - margin)),
-        y: Math.max(0, Math.floor(box.y - margin)),
-      };
-      clip.width = Math.min(m.viewport.width - clip.x, Math.ceil(box.width + 2 * margin));
-      clip.height = Math.min(m.viewport.height - clip.y, Math.ceil(box.height + 2 * margin));
-      const dir = path.join(work, "cells", key.replace(/[^\w.-]+/g, "_"), scheme);
-      fs.mkdirSync(dir, { recursive: true });
-      let frames = 1;
-      let periodMs = 0;
-      let mode = "still";
-      if (m.animations && m.periodMs > 0) {
-        // Seek every animation to each frame's time: an exact loop, whatever the renderer's speed.
-        periodMs = Math.min(MAX_PERIOD_MS, m.periodMs);
-        frames = Math.max(2, Math.round((periodMs / 1000) * FPS));
-        mode = "seeked";
-        await page.evaluate(() => document.getAnimations().forEach((a) => a.pause()));
-        const origin = await page.evaluate(() => document.getAnimations().map((a) => Number(a.currentTime) || 0));
-        for (let i = 0; i < frames; i++) {
-          const t = (i * periodMs) / frames;
-          await page.evaluate(
-            ([t, origin]) =>
-              document.getAnimations().forEach((a, k) => {
-                a.currentTime = (origin[k] ?? 0) + t;
-              }),
-            [t, origin],
-          );
-          await page.screenshot({ path: path.join(dir, `${String(i).padStart(4, "0")}.png`), clip });
-        }
-      } else {
-        // No Web Animation: film it for a moment and keep the frames only when the picture moves.
-        const first = await page.screenshot({ clip });
-        fs.writeFileSync(path.join(dir, "0000.png"), first);
-        const filmMs = 1500;
-        const t = performance.now();
-        const shots = [];
-        while (performance.now() - t < filmMs) shots.push(await page.screenshot({ clip }));
-        if (shots.some((s) => !s.equals(first))) {
-          mode = "filmed";
-          periodMs = filmMs;
-          shots.forEach((s, i) => fs.writeFileSync(path.join(dir, `${String(i + 1).padStart(4, "0")}.png`), s));
-          frames = shots.length + 1;
-        }
+      await Promise.all(writes);
+    } else {
+      // No Web Animation: a still, unless the picture moves by script; then it is filmed in real time.
+      const first = await shot();
+      fs.writeFileSync(frameFile(0), first);
+      const shots = [];
+      let t = performance.now();
+      let filmMs = 400;
+      while (performance.now() - t < filmMs) {
+        shots.push(await shot());
+        if (filmMs < 1500 && !shots.at(-1).equals(first)) filmMs = 1500;
       }
-      perScheme[scheme] = { dir, frames, periodMs, mode, clip, element: box, scale };
-    } finally {
-      await page.context().close();
+      if (filmMs === 1500) {
+        mode = "filmed";
+        periodMs = Math.round(performance.now() - t);
+        shots.forEach((s, i) => fs.writeFileSync(frameFile(i + 1), s));
+        frames = shots.length + 1;
+      }
     }
+    return { dir, frames, periodMs, mode, clip, element: box, scale };
+  } finally {
+    await context.close();
   }
-  cells.set(key, perScheme);
 }
+
+// Every cell at once: each is its own page on the warm server.
+const jobs = [];
+for (const state of rowsWanted) {
+  const key = [state.side, `${state.entry}/${state.variant ?? ""}`, state.hover ? "hover" : null]
+    .filter(Boolean)
+    .join(" · ");
+  cells.set(key, {});
+  for (const scheme of SCHEMES) jobs.push(captureCell(state, key, scheme).then((c) => (cells.get(key)[scheme] = c)));
+}
+await Promise.all(jobs);
 lap("capture", t0);
 
 // ------------------------------------------------------------------------------------------- compose
@@ -349,8 +455,9 @@ const cellH = Math.max(...allCells.map((c) => c.clip.height * c.scale));
 const even = (n) => (Math.ceil(n) + 1) & ~1;
 const PW = even(cellW);
 const PH = even(cellH);
-const LABEL_H = Math.round(18 * SCALE) & ~1;
-const GAP = Math.round(4 * SCALE) & ~1;
+// Labels scale with the cells, so a wide clip's title is not a speck once GitHub fits it to the page.
+const LABEL_H = Math.max(36, Math.round(PW / 16)) & ~1;
+const GAP = Math.max(8, Math.round(PW / 80)) & ~1;
 const animated = [...cells.values()].some((s) => Object.values(s).some((c) => c.frames > 1));
 const longest = Math.max(0, ...[...cells.values()].flatMap((s) => Object.values(s).map((c) => c.periodMs)));
 // One pass at speed (at least one full loop, at least 1.5 s), then the slowed loop in what is left of the budget.
@@ -430,7 +537,7 @@ async function segment(rate, seconds, file, tag) {
     last = `bg${k++}`;
   }
   const graph = [...filters, chain].join(";");
-  run("ffmpeg", [
+  await runAsync("ffmpeg", [
     "-nostdin",
     "-hide_banner",
     "-loglevel",
@@ -445,50 +552,60 @@ async function segment(rate, seconds, file, tag) {
     seconds.toFixed(3),
     "-r",
     String(FPS),
+    // Lossless here: the one lossy step is the final encode, from these.
+    "-c:v",
+    "libx264rgb",
+    "-crf",
+    "0",
+    "-preset",
+    "ultrafast",
+    file,
+  ]);
+}
+
+const parts = [path.join(work, "fast.mkv")];
+if (slowSeconds > 0.2) parts.push(path.join(work, "slow.mkv"));
+await Promise.all([
+  segment(1, fastSeconds, parts[0], "fast"),
+  parts[1] ? segment(SLOW, slowSeconds, parts[1], "slow") : null,
+]);
+const clipFile = path.join(out, "proof.mp4");
+const gifFile = path.join(out, "proof.gif");
+const list = path.join(work, "parts.txt");
+fs.writeFileSync(list, parts.map((p) => `file '${p}'`).join("\n"));
+const concat = ["-nostdin", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", list];
+await Promise.all([
+  // The mp4 for players: near-lossless (crf 12, tuned for flat UI), 4:2:0 at two or more device pixels per CSS pixel.
+  runAsync("ffmpeg", [
+    ...concat,
     "-c:v",
     "libx264",
     "-pix_fmt",
     "yuv420p",
     "-crf",
-    "18",
+    "12",
+    "-tune",
+    "animation",
     "-preset",
     "veryfast",
-    file,
-  ]);
-}
-
-const parts = [];
-await segment(1, fastSeconds, path.join(work, "fast.mp4"), "fast");
-parts.push(path.join(work, "fast.mp4"));
-if (slowSeconds > 0.2) {
-  await segment(SLOW, slowSeconds, path.join(work, "slow.mp4"), "slow");
-  parts.push(path.join(work, "slow.mp4"));
-}
-const clipFile = path.join(out, "proof.mp4");
-const list = path.join(work, "parts.txt");
-fs.writeFileSync(list, parts.map((p) => `file '${p}'`).join("\n"));
-run("ffmpeg", [
-  "-nostdin",
-  "-loglevel",
-  "error",
-  "-y",
-  "-f",
-  "concat",
-  "-safe",
-  "0",
-  "-i",
-  list,
-  "-c",
-  "copy",
-  "-movflags",
-  "+faststart",
-  clipFile,
+    "-movflags",
+    "+faststart",
+    clipFile,
+  ]),
+  // The gif a PR body shows inline: one palette from every frame, no dithering, so UI colors stay flat and exact.
+  runAsync("ffmpeg", [
+    ...concat,
+    "-filter_complex",
+    "fps=25,split[a][b];[a]palettegen=stats_mode=full:max_colors=256[p];[b][p]paletteuse=dither=none",
+    gifFile,
+  ]),
+  runAsync("ffmpeg", [...concat, "-frames:v", "1", path.join(out, "proof.png")]),
 ]);
-run("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", clipFile, "-frames:v", "1", path.join(out, "proof.png")]);
 lap("compose", t0);
 
 await browser.close();
-for (const s of [after, before].filter(Boolean)) await new Promise((resolve) => s.server.httpServer.close(() => resolve()));
+// --keep 0: stop the servers this run started (by default they stay warm for the next clip, --idle minutes).
+if (!KEEP) for (const pid of started_servers) alive(pid) && process.kill(pid, "SIGTERM");
 
 // ------------------------------------------------------------------------------------------- sidecar
 const duration = Number(
@@ -516,9 +633,23 @@ const sidecar = {
       ),
     ]),
   ),
+  gif: gifFile,
+  gif_bytes: fs.statSync(gifFile).size,
+  mp4_bytes: fs.statSync(clipFile).size,
+  max_scale: Math.max(...allCells.map((c) => c.scale)),
+  compiler: args.compiler,
+  server_reused: Boolean(after.reused && (!before || before.reused)),
   wall_seconds: Math.round((performance.now() - started) / 100) / 10,
+  budget_s: Number(args.budget),
   phases: timings,
 };
+sidecar.over_budget = sidecar.wall_seconds > sidecar.budget_s;
+if (sidecar.over_budget) {
+  const slowest = Object.entries(timings).sort((a, b) => b[1] - a[1])[0];
+  console.error(
+    `proof-clip: ${sidecar.wall_seconds} s, over its ${sidecar.budget_s} s budget; slowest phase ${slowest[0]} (${slowest[1]} s)`,
+  );
+}
 fs.writeFileSync(`${clipFile}.media.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
 fs.rmSync(work, { recursive: true, force: true });
 console.log(JSON.stringify(sidecar));
