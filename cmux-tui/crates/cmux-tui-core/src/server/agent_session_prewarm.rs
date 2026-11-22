@@ -15,14 +15,22 @@
 //! before; the credential is never written anywhere and only the same credential takes the agent.
 //!
 //! Gated as the start is, and narrower: only on the caller's own Cloud VM (never a Mac, an SSH
-//! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in an
-//! explicit folder the home rule allows, and only in a folder whose trust answer lets the agent
-//! start. It changes no tab and binds nothing; acpmux's hidden session ends by itself when no
+//! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in the
+//! start's own folder (an explicit one the home rule allows, or with none the chat's own
+//! `~/chats/<id>`, `agent-session-prewarm-chat-folder-v1`), and only in a folder whose trust
+//! answer lets the agent start. It changes no tab and binds nothing; acpmux's hidden session ends by itself when no
 //! start takes it (`pool.idleMinutes`).
 
 use super::*;
 
 pub const AGENT_SESSION_PREWARM_CAPABILITY: &str = "agent-session-prewarm-v1";
+
+/// A prewarm with no folder warms the chat's own `~/chats/<id>`, the folder a no-folder start of
+/// the same tab runs in (`cloud start-session` with no `--cwd`, a composer chat with no project).
+/// An older daemon refuses a prewarm without a folder, so the app sends one only where this is
+/// served.
+pub const AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY: &str =
+    "agent-session-prewarm-chat-folder-v1";
 
 /// How long the prewarm's acpmux calls wait: acpmux accepts a hint at once and warms behind it.
 const PREWARM_PATIENCE: Duration = Duration::from_secs(20);
@@ -71,8 +79,16 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
-    // An explicit folder only: the start's own `~/chats/<id>` does not exist yet.
-    let Some(cwd) = params.cwd.clone() else {
+    // The start's own folder, resolved as the start resolves it (`agent_session_start::start`):
+    // an explicit folder, or with none picked the chat's own `~/chats/<id>`, made now as the
+    // start would make it, so the start that follows runs in the folder its agent warmed in.
+    let Some(cwd) = super::super::agent_session_trust::owner_cloud_cwd(
+        own,
+        params.cwd.as_deref(),
+        params.home_confirmed,
+        params.surface,
+    )
+    .or_else(|| params.cwd.clone()) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if let Err(refusal) = super::super::agent_session_trust::home_rule(&cwd, params.home_confirmed)
