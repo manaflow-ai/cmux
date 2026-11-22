@@ -94,6 +94,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./CustomizeLibraryCard").then(({ CustomizeLibraryCard }) => (_focus, _workspace, reveal) => (
       <CustomizeLibraryCard reveal={reveal} />
     )),
+  customizeProgress: () =>
+    import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   keys: () =>
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>

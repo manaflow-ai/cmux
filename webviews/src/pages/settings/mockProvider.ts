@@ -34,6 +34,7 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type ChecklistFact,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -80,6 +81,7 @@ import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
+import { mockChecklist } from "./mockChecklist";
 import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
@@ -619,6 +621,9 @@ export class MockSettingsProvider {
       },
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.customize.checklist": (params) => ({
+        checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
+      }),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
       "cmux.settings.keys.decline": (params) =>
@@ -928,6 +933,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",

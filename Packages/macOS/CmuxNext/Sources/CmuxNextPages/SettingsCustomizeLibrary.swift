@@ -13,10 +13,19 @@ import CmuxNextWakeups
 /// person's settings and files, so they run only on the person's click or key in the page
 /// (`context.userGesture`, the host's record) or a call they approved, as Agent integrations'
 /// installs do: a page script alone gets `cmux.app.user_only`.
+///
+/// It serves Settings > General's Customize cmux checklist the same way (webviews
+/// `CustomizeProgressCard.tsx`): `cmux.settings.customize.checklist {has}` runs `cmux --json customize
+/// checklist --has NAME …` and answers its JSON. The steps and every done state are the CLI's
+/// (cmux-customize `checklist.rs`); `has` names the connections the page already holds. It only reads.
 @MainActor
 public final class SettingsCustomizeLibrary: PageProvider {
     /// The one op this part serves.
     public static let op = "cmux.settings.customize.library"
+    /// The checklist's read (Settings > General > Customize cmux).
+    public static let checklistOp = "cmux.settings.customize.checklist"
+    /// The connections the page may report (cmux-customize `checklist::facts`).
+    nonisolated static let checklistFacts: Set<String> = ["models", "mcp", "github", "phone"]
     /// The verbs that change the library.
     nonisolated static let changes: Set<String> = ["on", "off", "order", "remove"]
     nonisolated static let timeout: Duration = .seconds(60)
@@ -42,8 +51,8 @@ public final class SettingsCustomizeLibrary: PageProvider {
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        guard op == Self.op else { throw PageError.unknownOp(op) }
-        let arguments = try Self.arguments(params)
+        guard op == Self.op || op == Self.checklistOp else { throw PageError.unknownOp(op) }
+        let arguments = try op == Self.checklistOp ? Self.checklistArguments(params) : Self.arguments(params)
         if let verb = arguments.dropFirst(3).first, Self.changes.contains(verb) {
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "\(verb) needs a click in the page")
@@ -76,6 +85,18 @@ public final class SettingsCustomizeLibrary: PageProvider {
         default:
             throw PageError.invalidParams("verb is list, on, off, order or remove")
         }
+    }
+
+    /// The checklist's words: `--json customize checklist [--has NAME]…`, each name one the CLI knows.
+    nonisolated static func checklistArguments(_ params: JSONValue) throws -> [String] {
+        var arguments = ["--json", "customize", "checklist"]
+        for fact in params["has"]?.arrayValue ?? [] {
+            guard let name = fact.stringValue, checklistFacts.contains(name) else {
+                throw PageError.invalidParams("has names models, mcp, github or phone")
+            }
+            arguments += ["--has", name]
+        }
+        return arguments
     }
 
     /// The CLI's environment: the app's own, naming the app's settings file only when it is not the

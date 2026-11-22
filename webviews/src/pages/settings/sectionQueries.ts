@@ -5,7 +5,17 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
-import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
+import type {
+  AgentsState,
+  ChannelsState,
+  Checklist,
+  ChecklistFact,
+  KeysState,
+  SharesState,
+  TailnetState,
+  LibraryListing,
+} from "./ops";
+import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -89,6 +99,17 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+/** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
+ * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
+export function checklistQuery(store: SettingsStore, revision: number, has: ChecklistFact[]) {
+  return queryOptions<Checklist | null>({
+    queryKey: [...settingsKeys.all, "customize-checklist", revision, ...has],
+    queryFn: () => store.customizeChecklist(has),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
 
@@ -134,6 +155,13 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
   if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeProgress")) {
+    // The checklist's connection steps read the Accounts and Models parts the store keeps.
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    const state = store.getSnapshot();
+    reads.push({ options: checklistQuery(store, state.revision, checklistFacts(state)), revalidate: true });
+  }
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {

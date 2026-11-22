@@ -55,6 +55,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type Checklist,
+  type ChecklistFact,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -959,6 +961,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host
