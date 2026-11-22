@@ -120,6 +120,9 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # FOCUS-RING: every `:focus-visible` asks whether the keyboard earned the ring, as in the Vite build
 # (postcss.config.mjs, which this joined sheet never reads).
 bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
+# The sources' comments stay out of the page's sheet (a third of its bytes, tokenized by every renderer
+# before the first style pass); rules and their order are untouched (agent-pane/paneCssComments.mjs).
+bun scripts/agent-pane/paneCssComments.mjs "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams), same-origin and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web

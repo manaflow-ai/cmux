@@ -336,3 +336,26 @@ fn times_are_rfc3339_utc() {
     assert_eq!(rfc3339(1_794_700_800), "2026-11-15T00:00:00Z");
     assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
 }
+
+#[test]
+fn a_dev_builds_audit_is_its_own() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| {
+            pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| std::ffi::OsString::from(*v))
+        }
+    };
+    let dev: &[(&str, &str)] =
+        &[("HOME", "/h"), (AUDIT_OVERRIDE, "/s/builds/dev/config/keys.json")];
+    assert_eq!(
+        Paths::from_env(env(dev), false).unwrap().audit,
+        PathBuf::from("/s/builds/dev/config/keys.json")
+    );
+    assert_eq!(
+        Paths::from_env(env(dev), true).unwrap().audit,
+        PathBuf::from("/h/.config/cmux/keys.json")
+    );
+    assert_eq!(
+        Paths::from_env(env(&[("HOME", "/h")]), false).unwrap().audit,
+        PathBuf::from("/h/.config/cmux/keys.json")
+    );
+}

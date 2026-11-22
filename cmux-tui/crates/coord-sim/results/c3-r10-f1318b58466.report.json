@@ -1,0 +1,292 @@
+{
+  "attach_ms": {
+    "max": 46.217,
+    "mean": 7.126,
+    "n": 101,
+    "p50": 3.919,
+    "p95": 23.972,
+    "p99": 28.11
+  },
+  "bad_lines": {
+    "cpu": 0,
+    "events": 0,
+    "ops": 0,
+    "proc": 0
+  },
+  "behind_schedule_ms": {
+    "max": 5275.995,
+    "mean": 1076.105,
+    "n": 37740,
+    "p50": 0.065,
+    "p95": 4495.261,
+    "p99": 5065.373
+  },
+  "config": {
+    "chats": 3,
+    "commit": "f1318b58466",
+    "coordinators": 3,
+    "duration_s": 12.267,
+    "rate": 10.0,
+    "readers": 4,
+    "run_s": 15,
+    "seed": null,
+    "shape_hash": null,
+    "target": null
+  },
+  "daemon": {
+    "baseline_rss_mb": 70.363,
+    "cpu_pct": {
+      "max": 495.6,
+      "mean": 243.061,
+      "n": 54,
+      "p50": 321.804,
+      "p95": 469.681,
+      "p99": 493.64
+    },
+    "cpu_source": "cpu.ndjson",
+    "mean_cpu_pct": 250.976,
+    "peak_queued_mb": 1.482,
+    "peak_rss_mb": 181.168,
+    "rss_mb": {
+      "max": 181.168,
+      "mean": 163.826,
+      "n": 49,
+      "p50": 178.908,
+      "p95": 180.697,
+      "p99": 180.697
+    },
+    "rss_slope_mb_per_min": 22.606,
+    "rss_slope_whole_run_mb_per_min": 389.441,
+    "samples": 49,
+    "status_call_ms": {
+      "max": 29.8,
+      "mean": 4.092,
+      "n": 49,
+      "p50": 1.699,
+      "p95": 23.037,
+      "p99": 29.8
+    }
+  },
+  "daemon_ms": {
+    "max": 5226.68,
+    "mean": 929.815,
+    "n": 37689,
+    "p50": 321.804,
+    "p95": 3989.316,
+    "p99": 5167.187
+  },
+  "delivery_ms": {
+    "max": 5227.905,
+    "mean": 932.058,
+    "n": 37689,
+    "p50": 321.804,
+    "p95": 3989.316,
+    "p99": 5167.187
+  },
+  "events": {
+    "dup_at_readers": 318,
+    "dup_events": 263,
+    "dup_in_daemon": 0,
+    "duplicated": 318,
+    "emitted": {
+      "agent": 37689,
+      "send": 36,
+      "turn": 15
+    },
+    "lost": 0,
+    "lost_in_daemon": 0,
+    "never_stored_but_seen": 0,
+    "never_stored_unseen": 0,
+    "received": 37689,
+    "unseen_by_readers": 0,
+    "unseen_gap": 0,
+    "unseen_tail": 0
+  },
+  "fanin": null,
+  "files": {
+    "events": true,
+    "ops": true,
+    "proc": true
+  },
+  "first_paint_ms": {
+    "max": 46.217,
+    "mean": 7.126,
+    "n": 101,
+    "p50": 3.919,
+    "p95": 23.972,
+    "p99": 28.11
+  },
+  "follower": {
+    "bytes": 119149040,
+    "followers": 3,
+    "lagged": 0,
+    "notes": 38423
+  },
+  "ops": {
+    "cancel": {
+      "failed": 0,
+      "ms": {
+        "max": 0.014,
+        "mean": 0.006,
+        "n": 3,
+        "p50": 0.003,
+        "p95": 0.014,
+        "p99": 0.014
+      }
+    },
+    "detach": {
+      "failed": 0,
+      "ms": {
+        "max": 5.155,
+        "mean": 0.356,
+        "n": 97,
+        "p50": 0.221,
+        "p95": 0.569,
+        "p99": 5.155
+      }
+    },
+    "follow_attach": {
+      "failed": 0,
+      "ms": {
+        "max": 0.675,
+        "mean": 0.516,
+        "n": 3,
+        "p50": 0.443,
+        "p95": 0.674,
+        "p99": 0.674
+      }
+    },
+    "list": {
+      "failed": 0,
+      "ms": {
+        "max": 20.457,
+        "mean": 5.188,
+        "n": 101,
+        "p50": 3.881,
+        "p95": 14.007,
+        "p99": 19.069
+      }
+    },
+    "open": {
+      "failed": 0,
+      "ms": {
+        "max": 46.217,
+        "mean": 7.126,
+        "n": 101,
+        "p50": 3.919,
+        "p95": 23.972,
+        "p99": 28.11
+      }
+    },
+    "scroll": {
+      "failed": 0,
+      "ms": {
+        "max": 112.639,
+        "mean": 26.885,
+        "n": 226,
+        "p50": 11.48,
+        "p95": 88.27,
+        "p99": 110.97
+      }
+    },
+    "search": {
+      "failed": 0,
+      "ms": {
+        "max": 114.581,
+        "mean": 28.108,
+        "n": 101,
+        "p50": 16.922,
+        "p95": 82.331,
+        "p99": 89.153
+      }
+    },
+    "send": {
+      "failed": 0,
+      "ms": {
+        "max": 60.181,
+        "mean": 21.64,
+        "n": 36,
+        "p50": 19.452,
+        "p95": 37.512,
+        "p99": 60.181
+      }
+    },
+    "session_new": {
+      "failed": 0,
+      "ms": {
+        "max": 99.576,
+        "mean": 47.337,
+        "n": 3,
+        "p50": 22.583,
+        "p95": 99.465,
+        "p99": 99.465
+      }
+    },
+    "turn": {
+      "failed": 0,
+      "ms": {
+        "max": 6153.5,
+        "mean": 1345.199,
+        "n": 18,
+        "p50": 836.455,
+        "p95": 6153.5,
+        "p99": 6153.5
+      }
+    }
+  },
+  "peak_rss_mb_by_role": {
+    "daemon": 181.168
+  },
+  "per_chat": {
+    "cpu_pct": {
+      "max": 165.2,
+      "mean": 81.02,
+      "n": 54,
+      "p50": 107.706,
+      "p95": 155.643,
+      "p99": 165.2
+    },
+    "rss_mb": {
+      "max": 36.935,
+      "mean": 31.154,
+      "n": 49,
+      "p50": 36.409,
+      "p95": 36.773,
+      "p99": 36.773
+    }
+  },
+  "schema": "coord-sim-run.v1",
+  "scroll": {
+    "jank_16_7_frac": 0.416,
+    "jank_33_3_frac": 0.301,
+    "over_16_7ms": 94,
+    "over_33_3ms": 68,
+    "page_ms": {
+      "max": 112.639,
+      "mean": 26.885,
+      "n": 226,
+      "p50": 11.48,
+      "p95": 88.27,
+      "p99": 110.97
+    },
+    "pages_per_s": 37.195
+  },
+  "typing": {
+    "ack_ms": {
+      "max": 60.673,
+      "mean": 11.73,
+      "n": 15,
+      "p50": 0.89,
+      "p95": 60.478,
+      "p99": 60.478
+    },
+    "echo_ms": {
+      "max": 10.399,
+      "mean": 6.592,
+      "n": 15,
+      "p50": 5.23,
+      "p95": 10.392,
+      "p99": 10.392
+    }
+  }
+}

@@ -14,7 +14,10 @@ from feat-cmux-next pushes, and restore it everywhere else (.github/actions/zig-
 
 - a cache save (actions/cache, actions/cache/save, WarpBuilds/cache/save or
   ./.github/actions/cache-save) whose key names the run or the commit, and
-- a mlugg/setup-zig step that keeps its own per-run cache (it needs `use-cache: false`).
+- a mlugg/setup-zig step that keeps its own per-run cache (it needs `use-cache: false`), and
+- a new cache save (those, or rust-cache) that a lane branch or pull request can run: its
+  entry is read only by that ref again. tests/ci_per_ref_cache_saves_baseline.txt holds the
+  ones from before this rule.
 
 ALLOWED lists the saves that stay, as `file: step name`, each with why. Shrink it; do not grow
 it without a reason the review accepts.
@@ -54,6 +57,8 @@ ALLOWED: dict[str, str] = {
         "a few kB of test durations; the next run restores the newest by prefix",
     "indexnow.yml: Save submitted URLs":
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
+    "base-coalesce.yml: Record this tip as tested":
+        "a 41-byte marker per tip a coalesced run started on (one a window); the next push finds the newest by prefix",
     "cmux-next-web.yml: Record this push as the last covered one":
         "an empty marker per feat-cmux-next push that the next push reads to coalesce",
     "cmux-next.yml: Save the DEV compile cache (Blacksmith)":
@@ -62,6 +67,9 @@ ALLOWED: dict[str, str] = {
         "a release upload, by hand: per-commit Xcode compilation cache; a candidate for a stable key",
     "ios-testflight.yml: Save iOS compilation cache":
         "per TestFlight upload: per-commit Xcode compilation cache; a candidate for a stable key",
+    "cmux-tui-spec.yml: Save the base's last test log":
+        "a few hundred kB gzipped log per feat-cmux-next push of the acpmux tests; pull requests restore the newest by prefix "
+        "so their reds need no rebuild of the merge parent",
     "seed-derived-data.yml: Save seed":
         "the DerivedData seed in the R2 store (not the GitHub store), restored by prefix",
 }
@@ -136,6 +144,124 @@ class NoRunScopedCacheKeys(unittest.TestCase):
         self.assertTrue(RUN_SCOPED.search("x-${{ github.sha }}"))
         self.assertFalse(RUN_SCOPED.search("x-${{ github.event.pull_request.base.sha_short }}"))
         self.assertFalse(RUN_SCOPED.search("x-${{ hashFiles('Cargo.lock') }}"))
+
+
+
+# --- Per-ref saves -------------------------------------------------------------------------
+# A cache entry belongs to the ref that saved it. A lane branch can read only its own entries and
+# the default branch's, and a pull request only its own and its base's. So a save from a lane
+# branch or a pull request is read again only by later runs of that same ref, and the same key
+# saved from 18 lane branches is 18 copies (ghostty-zig-packages, 2026-11-18: 13 x 110 MB on
+# macOS alone). A save must be limited to a base-branch push (its step, its job, or the
+# workflow's triggers), or be a rust-cache with a `save-if` that is. PER_REF_BASELINE lists the
+# saves that predate this rule. Shrink it; a new save never joins it.
+
+BASE_REF = re.compile(
+    r"refs/heads/(feat-cmux-next|main)\b|ref_name\s*==\s*'(feat-cmux-next|main)'|default_branch"
+)
+PER_REF_SAVERS = SAVES + ("Swatinem/rust-cache@",)
+PER_REF_BASELINE_FILE = ROOT / "tests" / "ci_per_ref_cache_saves_baseline.txt"
+UNRESTRICTED_EVENTS = {
+    "pull_request", "pull_request_target", "workflow_call", "workflow_dispatch", "merge_group",
+    "workflow_run", "repository_dispatch",
+}
+
+
+def _triggers(doc: dict) -> dict:
+    on = doc.get(True, doc.get("on"))
+    if isinstance(on, str):
+        return {on: None}
+    if isinstance(on, list):
+        return {k: None for k in on}
+    return on if isinstance(on, dict) else {}
+
+
+def _workflow_base_only(doc: dict) -> bool:
+    """True when every trigger runs only on a base branch (a push to main or feat-cmux-next, or a schedule)."""
+    triggers = _triggers(doc)
+    if UNRESTRICTED_EVENTS & set(triggers):
+        return False
+    if "push" in triggers:
+        push = triggers["push"]
+        branches = push.get("branches") if isinstance(push, dict) else None
+        if not branches or any(b not in ("main", "feat-cmux-next") for b in branches):
+            return False
+    return True
+
+
+def per_ref_saves() -> list[str]:
+    """Every cache save that a lane branch or pull request can run, as `path: job: step`."""
+    found: list[str] = []
+    for path in _files():
+        doc = yaml.safe_load(path.read_text())
+        if not isinstance(doc, dict):
+            continue
+        composite = path.parent != WORKFLOWS
+        if composite:
+            groups = [("", (doc.get("runs") or {}).get("steps") or [], "")]
+            base_only = False
+        else:
+            groups = [
+                (job_id, job.get("steps") or [], str(job.get("if", "")))
+                for job_id, job in (doc.get("jobs") or {}).items()
+                if isinstance(job, dict)
+            ]
+            base_only = _workflow_base_only(doc)
+        for job_id, steps, job_if in groups:
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                uses = str(step.get("uses", ""))
+                if not uses.startswith(PER_REF_SAVERS):
+                    continue
+                inputs = step.get("with") or {}
+                condition = f"{step.get('if', '')} {job_if}"
+                if uses.startswith("Swatinem/rust-cache@"):
+                    save_if = str(inputs.get("save-if", ""))
+                    if save_if.strip().lower() == "false":
+                        continue
+                    condition += f" {save_if}"
+                # A same-tree receipt (scripts/ci/same_tree_reuse.py) is one JSON file of a few hundred bytes,
+                # keyed by the tree it vouches for: it cannot crowd the 10 GB store, and the same pull request's
+                # re-runs and re-pushes of that tree are what read it. A react shard's receipt
+                # (scripts/ci/react_shard_receipt.py, a green shard's result map and summaries, a few kB) is the same.
+                if str(inputs.get("path", "")).startswith(".same-tree/"):
+                    continue
+                # A composite that takes its condition from an input leaves the ref to its callers.
+                if base_only or BASE_REF.search(condition) or (composite and "inputs." in condition):
+                    continue
+                name = step.get("name") or uses.split("@")[0]
+                found.append(f"{_label(path)}: {job_id}: {name}")
+    return found
+
+
+def per_ref_baseline() -> list[str]:
+    return [
+        line.strip() for line in PER_REF_BASELINE_FILE.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+class NoPerRefCacheSaves(unittest.TestCase):
+    def test_no_new_per_ref_save(self) -> None:
+        new = sorted(set(per_ref_saves()) - set(per_ref_baseline()))
+        self.assertEqual(new, [], (
+            "\nthese cache saves run on lane branches or pull requests, where nothing but that ref reads "
+            "them again; limit the save to a feat-cmux-next push (`if: github.event_name == 'push' && "
+            "github.ref == 'refs/heads/feat-cmux-next'`, or rust-cache `save-if:`) and restore everywhere:\n"
+            + "\n".join(new)
+        ))
+
+    def test_baseline_has_no_stale_entries(self) -> None:
+        stale = sorted(set(per_ref_baseline()) - set(per_ref_saves()))
+        self.assertEqual(stale, [], f"remove from {PER_REF_BASELINE_FILE.name}: {stale}")
+
+    def test_detector_sees_both_shapes(self) -> None:
+        self.assertTrue(BASE_REF.search("github.ref == 'refs/heads/feat-cmux-next'"))
+        self.assertFalse(BASE_REF.search("github.event_name == 'push'"))
+        self.assertTrue(_workflow_base_only({"on": {"push": {"branches": ["feat-cmux-next"]}, "schedule": []}}))
+        self.assertFalse(_workflow_base_only({"on": {"push": {"branches": ["**"]}}}))
+        self.assertFalse(_workflow_base_only({"on": ["pull_request"]}))
 
 
 if __name__ == "__main__":

@@ -548,3 +548,55 @@ async fn a_deferred_withdrawal_never_moves_either_adoption_cursor() {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+/// The paired device that drove a Web turn is logged with it (`turn_started`, `turn_control`
+/// `device`) and read back on adoption: the owner's phone keeps the chat's mode across a restart,
+/// for the open turn and between turns (Leo, 2026-11-21: "i did not mean to pause you. it must
+/// be a bug?").
+#[tokio::test]
+async fn adoption_reads_back_the_phone_that_drove_the_turn() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    let started = json!({"turnId": "t1", "promptId": "p1", "prompt": "go", "client": "phone", "control": "web", "device": "dev-phone"});
+    log.push("mux", "turn_started", started, false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn_device.as_deref(), Some("dev-phone"), "the open turn's device");
+    assert_eq!(work.last_device.as_deref(), Some("dev-phone"));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+
+    log.push("mux", "turn_result", json!({"turnId": "t1", "status": "completed"}), false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn_device, None, "no turn is open");
+    assert_eq!(work.last_device.as_deref(), Some("dev-phone"), "between turns");
+    assert_eq!(work.last_control, Some(Control::Web));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+
+    // A local turn, then a steer from another device: the floor follows the steer's device.
+    log.push("mux", "turn_started", json!({"turnId": "t2", "promptId": "p2", "prompt": "go", "client": "cli", "control": "local"}), false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!((work.turn_device.clone(), work.last_device.clone()), (None, None), "a local turn");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+
+    log.push(
+        "mux",
+        "turn_control",
+        json!({"turnId": "t2", "control": "web", "device": "dev-ipad"}),
+        false,
+    );
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn_device.as_deref(), Some("dev-ipad"));
+    assert_eq!(work.last_device.as_deref(), Some("dev-ipad"));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

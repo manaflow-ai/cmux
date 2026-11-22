@@ -41,7 +41,7 @@ import Testing
 
     @Test func linesItCannotReadFallBackToTheGeneralDecoder() {
         #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"AA==","colors":{}}"#)) == nil)
-        #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"AA=="}"#)) == nil)
+        #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":4}"#)) == nil)
         #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"AA="}"#)) == nil)
         #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","event":"x","data":"AA=="}"#)) == nil)
         #expect(AttachLineScanner.scanOutput(line(#"{"event":"output","data":"AA==""#)) == nil)

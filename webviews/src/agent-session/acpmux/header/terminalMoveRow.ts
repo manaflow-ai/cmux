@@ -57,6 +57,22 @@ export function terminalMoveRow(chat: TerminalMoveChat, move: (key: string) => v
   };
 }
 
+/// The App's Toggle Terminal and Chat, as the chat's own row (user 2026-11-20: the terminal/chat switch back
+/// "inside the 3 dots thing").
+export const TERMINAL_SWITCH_ACTION = "palette.toggleTerminalChat";
+
+/// Switch to terminal on half of a terminal and chat pair (`switchable`: the App's `terminalSwitch`, a terminal runs
+/// this chat's session): it shows that terminal, and the chat stays. None in Quick Chat or outside the app. Where it
+/// shows, Move to terminal does not: the session already runs in a terminal.
+export function terminalSwitchRow(
+  chat: { switchable: boolean; native: boolean; quick: boolean },
+  run: () => void,
+  t: Translate,
+): Row | undefined {
+  if (!chat.switchable || !chat.native || chat.quick) return undefined;
+  return { key: "switchToTerminal", label: t("chatMenu.switchToTerminal"), icon: "terminal", onSelect: run };
+}
+
 export type TerminalMove = {
   /// Stops the harness process the pane runs for the chat (`_acpmux/kill` with `ifIdle`, no purge).
   release: () => Promise<unknown>;

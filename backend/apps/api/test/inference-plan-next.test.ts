@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { TeamState } from "../src/domains/team.ts"
-import { inferencePlanOf, storePlan } from "../src/inference/plan.ts"
+import { grantTestPlan, inferencePlanOf, storePlan } from "../src/inference/plan.ts"
 import { stackServer, type StackServer } from "../src/stack-server.ts"
 import { PROJECT, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
@@ -39,6 +39,8 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
 
   it("answers next_max, and null for an unknown, wrong-typed or absent value", async () => {
     expect((await personal(stackServer(env, fakeHttp({ cmuxNextPlan: "next_max" }).http)!)) as any).toMatchObject({ next_plan: "next_max" })
+    // cmux NEXT Plus is a NEXT plan like the others; it never makes the record `paid` for the model router.
+    expect(await personal(stackServer(env, fakeHttp({ cmuxNextPlan: "next_plus" }).http)!)).toMatchObject({ paid: false, plan: null, next_plan: "next_plus" })
     for (const meta of [{ cmuxNextPlan: "next_ultra" }, { cmuxNextPlan: "pro" }, { cmuxNextPlan: "NEXT_PRO" }, { cmuxNextPlan: 1 }, { cmuxPlan: "pro" }, undefined])
       expect(((await personal(stackServer(env, fakeHttp(meta).http)!)) as any).next_plan).toBeNull()
   })
@@ -88,6 +90,16 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
     expect(cached).toEqual(first)
     expect(reads).toBe(1)
     expect(afterStore).toMatchObject({ paid: true, plan: "pro", next_plan: null })
+  })
+
+  it("keeps next_plan when a Chief's test plan grant makes the answer paid", async () => {
+    const stack = { getUserPlans: async () => ({ plan: null, next_plan: "next_pro" }) } as unknown as StackServer
+    const answer = await inDO(teamStub(`personal-${crypto.randomUUID()}`), async (_i, state) => {
+      const sql = state.storage.sql
+      grantTestPlan(sql, "pro", "cs_test_1", "sub_1", Date.now())
+      return inferencePlanOf(sql, null, "entity", stack, "stack-user", "user", Date.now(), true)
+    })
+    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro" })
   })
 
   it("leaves the unavailable answer unchanged", async () => {

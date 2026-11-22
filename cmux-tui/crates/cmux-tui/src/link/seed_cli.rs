@@ -16,6 +16,13 @@
 //! copy would send (`copy_files`, `copy_bytes`), and writes nothing, so the
 //! person decides whether the copy goes.
 //!
+//! A full push with no `--head-first` (Move to Cloud's) projects the folder first
+//! (`sync_cli/project.rs`, as a new Cloud chat's folder is): the machine mounts a
+//! stat-only manifest and reads each file's bytes from this Mac on first use, so
+//! the chat moves at once whatever the folder's size. Projection off, a machine
+//! without `projection-v1` or a projection that fails seeds or copies as below.
+//! `--since-last` of a projected folder projects it again as it is now.
+//!
 //! `--since-last` sends only what changed since this Mac's last push of the
 //! same folder to the same machine folder ([`record`]): a delta bundle after
 //! a seed (nothing at all when nothing changed), or a re-push of the copy
@@ -202,6 +209,8 @@ pub(super) struct Pushed {
     pub(super) fallback: Option<SeedError>,
     /// The machine answered at the seed's head and still fills the rest.
     pub(super) filling: bool,
+    /// `projected`: the machine's answer to the projection (`sync_cli/project.rs`).
+    pub(super) projected: Option<Value>,
 }
 
 impl Pushed {
@@ -220,6 +229,9 @@ impl Pushed {
         }
         if self.filling {
             line.set("filling", json!(true));
+        }
+        if let Some(projected) = &self.projected {
+            line.set("projected", projected.clone());
         }
         if let Some(fallback) = &self.fallback {
             line.set("fallback_code", json!(fallback.code));
@@ -320,6 +332,10 @@ pub(super) fn run(args: &[String]) -> i32 {
                 push_since_last(&socket, &local, &remote)
             } else if seed_only {
                 push_seed_only(&socket, &local, &remote, head_first.as_deref())
+            } else if head_first.is_none()
+                && let Some(projected) = project_first(&socket, &local, &remote)
+            {
+                Ok(projected)
             } else {
                 push(&socket, &local, &remote, head_first.as_deref())
             };
@@ -561,17 +577,6 @@ pub(super) fn push_seed_only(
     push_full(socket, local, remote, head_first, false)
 }
 
-/// A copy of `local`, never a seed: a chat started from a folder on this Mac that could not be
-/// projected gets the folder itself, never a clone of its remote (which may need a GitHub
-/// install the machine does not have, and holds the agent until it finishes).
-pub(super) fn push_copy_only(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
-    let machine = Machine::read(socket)?;
-    let local = std::fs::canonicalize(local).map_err(|error| {
-        SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
-    })?;
-    copy(&machine, &local, remote, None)
-}
-
 fn push_full(
     socket: &Path,
     local: &Path,
@@ -627,13 +632,89 @@ fn refusal(local: &Path, fallback: SeedError) -> SeedError {
     }
 }
 
+/// Move to Cloud's full push (`cmux link seed push LOCAL REMOTE`, no `--head-first`): the folder
+/// is projected (`sync_cli/project.rs`) when projected moves are on (`cmux link project moves
+/// on`; off until Bring Back Local brings a projection's edits home) and the machine serves it, as a new
+/// Cloud chat's folder is, so the chat moves at once whatever the folder's size or whether it is a
+/// git repository, its files read from this Mac on first use. None when it is not, or the
+/// projection fails: the seed or copy goes as before. A seed record of an earlier push of the
+/// folder there is dropped, so neither `--since-last` nor Bring Back Local builds on it.
+fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
+    if !sync_cli::project::moves_enabled() {
+        return None;
+    }
+    let local = std::fs::canonicalize(local).ok()?;
+    let key = sync_cli::project::move_key(remote);
+    match sync_cli::project::restart(socket, &local, remote, &key) {
+        Ok(Ok(answer)) => {
+            let _ = record::forget(&local, remote);
+            Some(projected(&answer))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link seed push: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link seed push: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
+/// A push that projected: the machine's answer to it.
+fn projected(answer: &Value) -> Pushed {
+    Pushed {
+        mode: "projected",
+        unchanged: false,
+        bundle_bytes: 0,
+        head: None,
+        work: None,
+        skipped_files: Value::Array(Vec::new()),
+        copy: None,
+        fallback: None,
+        filling: false,
+        projected: Some(answer.get("data").cloned().unwrap_or_default()),
+    }
+}
+
+/// `--since-last` of a folder [`project_first`] projected: projected again, as it is now (the
+/// chat may have changed it since, until the move froze it), in place of the older manifest. It
+/// never falls back to a copy, which would write the whole folder into the projection.
+fn project_again(socket: &Path, local: &Path, remote: &str, key: &str) -> anyhow::Result<Pushed> {
+    let failed = |why: String| {
+        SeedError::new(
+            "sync_failed",
+            format!("{} could not be projected again: {why}", local.display()),
+        )
+    };
+    match sync_cli::project::restart(socket, local, remote, key) {
+        Ok(Ok(answer)) => Ok(projected(&answer)),
+        Ok(Err(why)) => Err(failed(format!("{why:?}")).into()),
+        Err(error) => Err(failed(format!("{error:#}")).into()),
+    }
+}
+
 /// [`push`] with `--since-last` (module docs), for `cmux link agent move
-/// --sync seed` too. Its errors' codes are [`failure_code`]'s.
+/// --sync seed` too. Its errors' codes are [`failure_code`]'s. A folder the last push projected
+/// is projected again ([`project_again`]).
 pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
-    let machine = Machine::read(socket)?;
-    let local = std::fs::canonicalize(local).map_err(|error| {
+    let canonical = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
+    let machine = Machine::read(socket)?;
+    if let Some(on) = sync_cli::project::projected_at(remote)
+        && on.local == canonical
+        && machine.id.as_deref().unwrap_or_default() == on.machine
+    {
+        return project_again(socket, &canonical, remote, &on.chat);
+    }
+    let local = canonical;
     let no_previous = |why: &str| SeedError::new("seed.no_previous", why);
     let Some(mut record) = record::load(&local, remote)? else {
         return Err(no_previous("this Mac never pushed this folder to that machine folder").into());
@@ -794,6 +875,7 @@ fn copied(
         copy: Some(line),
         fallback,
         filling: filling.is_some(),
+        projected: None,
     }
 }
 
@@ -851,6 +933,7 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         copy: None,
         fallback: None,
         filling: ended.filling().is_some(),
+        projected: None,
     }
 }
 
@@ -885,7 +968,7 @@ fn run_seed(
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
         start.set("folder", json!(remote));
         start.set("bundle", json!(target));
-        let head_first = head_first.filter(|_| asks_head_first(&planned.params));
+        let head_first = head_first.filter(|subpath| asks_head_first(planned, subpath));
         if let Some(subpath) = head_first {
             start.set("head_first", json!(true));
             if !subpath.is_empty() {
@@ -900,12 +983,28 @@ fn run_seed(
     result
 }
 
-/// Whether a seed of `params` may open at its head: the machine's own rule
-/// (a whole seed, not a delta, without this Mac's sparse patterns), and no
-/// LFS: the machine pulls LFS files after it marks the head, so an LFS-managed
-/// `CLAUDE.md` or skill would still be a pointer when the chat starts.
-fn asks_head_first(params: &plan::SeedParams) -> bool {
-    params.since.is_none() && params.sparse.is_none() && !params.lfs
+/// Whether a seed of `planned` may open at its head for a chat at `subpath`: the machine's own
+/// rule (a whole seed, not a delta, without this Mac's sparse patterns), and no LFS that can
+/// reach the head: the machine pulls LFS files after it marks the head, so an LFS-managed
+/// `CLAUDE.md` or skill would still be a pointer when the chat starts. A `.gitattributes`
+/// names only paths below its own folder, so one elsewhere ([`lfs_reaches_head`]) leaves the
+/// head alone (a big repository with LFS in one far folder still opens at its head).
+fn asks_head_first(planned: &Planned, subpath: &str) -> bool {
+    let params = &planned.params;
+    let lfs_clear = !params.lfs
+        || (!planned.lfs_attributes.is_empty()
+            && !planned.lfs_attributes.iter().any(|file| lfs_reaches_head(file, subpath)));
+    params.since.is_none() && params.sparse.is_none() && lfs_clear
+}
+
+/// Whether the `.gitattributes` at `file` (from the top) can name a file of the head a
+/// head-first seed checks out for a chat at `subpath`: the root's files, each folder on the
+/// subpath with its own files, and those folders' harness folders whole. It names only paths
+/// below its own folder, so it can exactly when it is itself a file of that head
+/// ([`cmux_git::harness_head::in_head`]): its folder is on the subpath (the root included) or
+/// inside one of those harness folders.
+fn lfs_reaches_head(file: &str, subpath: &str) -> bool {
+    cmux_git::harness_head::in_head(file, subpath)
 }
 
 /// How a seed job ended for this push.
@@ -1244,6 +1343,7 @@ mod tests {
             bases: vec![sha],
             bundle_bytes: 10,
             unchanged: false,
+            lfs_attributes: Vec::new(),
         }
     }
 
@@ -1292,11 +1392,45 @@ mod tests {
 
     #[test]
     fn only_a_whole_seed_without_sparse_patterns_asks_for_its_head() {
-        let whole = planned().params;
-        assert!(asks_head_first(&whole));
-        assert!(!asks_head_first(&SeedParams { since: Some("w".into()), ..whole.clone() }));
-        assert!(!asks_head_first(&SeedParams { sparse: Some("/a\n".into()), ..whole.clone() }));
-        assert!(!asks_head_first(&SeedParams { lfs: true, ..whole }), "LFS lands after the head");
+        let whole = planned();
+        let with = |params: SeedParams| Planned { params, ..planned() };
+        assert!(asks_head_first(&whole, "web/app"));
+        let delta = with(SeedParams { since: Some("w".into()), ..whole.params.clone() });
+        assert!(!asks_head_first(&delta, "web/app"));
+        let sparse = with(SeedParams { sparse: Some("/a\n".into()), ..whole.params.clone() });
+        assert!(!asks_head_first(&sparse, "web/app"));
+        // LFS whose files are not known (an older plan) lands after the head: no head first.
+        let lfs = with(SeedParams { lfs: true, ..whole.params });
+        assert!(!asks_head_first(&lfs, "web/app"), "LFS lands after the head");
+    }
+
+    #[test]
+    fn only_lfs_that_can_reach_the_head_keeps_a_seed_from_its_head() {
+        let lfs_in = |files: &[&str]| Planned {
+            params: SeedParams { lfs: true, ..planned().params },
+            lfs_attributes: files.iter().map(|file| (*file).to_owned()).collect(),
+            ..planned()
+        };
+        // An LFS folder off the chat's path (`extensions/models`) leaves the head alone.
+        assert!(asks_head_first(&lfs_in(&["extensions/models/.gitattributes"]), ""));
+        assert!(asks_head_first(&lfs_in(&["extensions/models/.gitattributes"]), "src/app"));
+        assert!(asks_head_first(&lfs_in(&["src/app/assets/.gitattributes"]), "src/app"));
+        // The root's, one on the chat's path, or one in a head folder's harness folders can name
+        // a head file.
+        for (file, subpath) in [
+            (".gitattributes", ""),
+            (".gitattributes", "src/app"),
+            ("src/.gitattributes", "src/app"),
+            ("src/app/.gitattributes", "src/app"),
+            (".claude/skills/.gitattributes", ""),
+            ("src/.github/.gitattributes", "src/app"),
+        ] {
+            let planned = lfs_in(&["extensions/models/.gitattributes", file]);
+            assert!(!asks_head_first(&planned, subpath), "{file} at {subpath:?}");
+        }
+        // A folder below the chat's that is not a harness folder is not in its head.
+        assert!(asks_head_first(&lfs_in(&["src/.gitattributes"]), ""));
+        assert!(asks_head_first(&lfs_in(&["src/app/x/.gitattributes"]), "src/app"));
     }
 
     #[test]

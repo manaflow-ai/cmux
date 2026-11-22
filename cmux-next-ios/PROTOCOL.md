@@ -88,6 +88,47 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   and would make a debug build hold the identity key phones pin for the
   release build.
 
+## Build spaces (API 0.16.0)
+
+Two dev builds of the app and Mac host (say tags `a` and `b`), signed in as the
+same person, never see or touch each other's data on the service, and never see
+nightly or stable data. Each build is in a **build space**:
+
+- A dev build sends `X-Cmux-Build-Space: dev:<slug>` on every HTTP request and
+  on the signaling WebSocket upgrade. `<slug>` is the dev tag's slug
+  (`scripts/lib/mobile-attach.sh`: lowercase letters, digits and inner dashes,
+  at most 64), so the value matches
+  `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`. `dev:default` is refused:
+  `default` is the stable instance's reserved tag.
+- Stable and nightly builds send nothing: the stable space `""`, where every
+  row and hub that predates build spaces stays.
+- A malformed value is refused with `400 build_space.invalid` before anything
+  else; it never falls back to the stable space.
+- Only the dev, test and local Workers (`ENVIRONMENT` `dev`, `test`, `local`)
+  serve dev spaces. Every other Worker, production included, and one whose
+  environment is missing or misspelled, refuses them with
+  `403 build_space.not_allowed`: production holds only stable data, so a dev
+  build pointed at it fails on its first request instead of reading or writing
+  a person's real devices. Dev builds use the dev Worker or a local one.
+
+What a space scopes: the device registry (`/v1/devices`, `/v1/me/devices`,
+`/v1/me/macs`, `/v1/teams/:teamId/macs`, bootstrap), push registrations and
+notify targets, team prefs, the reply mailbox, and the user hub. A device id
+held by another space is never found (404). Each build keeps its own id, and a
+device id is one install of one build, so `POST /v1/devices` of an id the
+caller holds in another space moves that device, with its push registration,
+into the caller's space: the other space's hub drops it (presence `removed`,
+its socket closed with 4002) and it is listed only in the new space. This is
+how a dev build that registered before build spaces (its row is in stable) or
+whose dev tag changed keeps working. An id another user holds in another space
+is refused with `409 build_space.device_conflict` and left alone. A
+dev space's hub is named `dev:<slug>|user:<owner key>`; the stable hub keeps
+`user:<owner key>`, so presence, `hello`, signaling admission and turn push
+coalescing never cross spaces. `DELETE /v1/me` from a dev build purges only its
+space; from a stable build it purges every space (the account is deleted).
+Cloud attention pushes go only to stable phones. Wire shapes do not change:
+no response carries the space.
+
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
 The production Worker `cmux-mobile-api-prod` accepts only the production Stack
@@ -103,13 +144,16 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob),
+`build_space.invalid` (400), `build_space.not_allowed` (403) and
+`build_space.device_conflict` (409) ("Build spaces", 0.16.0), `store.schema_outdated` (503, 0.16.0: the
+Worker was deployed before its database migration; the message names it), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?, machineId?, siblingDeviceIds?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,machineId?,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`). `machineId` (added 2026-10-21, "Machine id" above; every Mac list, `hello` and `presence` carries it, and omits the key for a Mac that has none) is a Mac's only: 32 lowercase hex digits, else `400`; omitted keeps the stored one. `siblingDeviceIds` (with `machineId`, at most 16 UUIDs) are the device ids of other cmux builds found on the same Mac (their `device-id` files): each that is a Mac of the caller with no machine id yet gets this one, so a deleted build's record is listed as that computer's; another owner's device, a phone or a Mac that reported its own machine id is never changed |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
@@ -201,8 +245,8 @@ device: a newer connection closes the older with code 4000 `replaced` (no
 offline presence in between); a Mac re-registered into another team is
 closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
-- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId}}` (`machineId` added 2026-10-21; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId,quietMs?}]}` (the user's own Macs in the socket's team; `quietMs`: "Mac freshness" below)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId,quietMs?}}` (`machineId` added 2026-10-21; `quietMs` added 2026-11-21, "Mac freshness" below; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
@@ -364,6 +408,75 @@ sender's user (same `sub` in the same Stack project), or the reply direction of 
 is bound to the two devices of its first admitted signal. Since 0.10.0 the hub is the sender's own, so another
 user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
 (never `offline`, which would confirm it exists).
+
+### Mac freshness (added 2026-11-21, backward compatible)
+
+`online` says the Mac's signaling socket is open. A Mac that sleeps keeps it
+half open, so `online` can stay true for minutes. Every Mac listing (`hello`,
+`presence`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, and so
+`POST /v1/me/bootstrap`) now also carries `quietMs` for an online Mac: how
+many ms ago the hub last heard that socket, from its connect or its last
+application `ping` ("Connection setup"). The hub keeps the ping's time
+without waking, so this costs nothing per ping.
+
+- `quietMs` is relative to the hub's clock when it answered, so the phone's
+  clock does not matter. Absent when the Mac is offline, and from a hub that
+  predates it. Clients that do not know it ignore it.
+- The Mac host pings every 15 s. A Mac with `quietMs` under 18000 (the
+  link's `FRESH_WITHIN`, the hub's `FRESH_MS`) is awake: dial it now. One
+  past it is online but probably asleep.
+- A `presence` frame is sent only when a Mac connects, disconnects, or
+  changes its registration, never per ping. So `quietMs` in a frame is its
+  age at send time; it says nothing about later silence. The phone reads a
+  fresh listing (the next `hello` or Mac route) to learn it again.
+- The hub's `online` and its rules for closing sockets do not change.
+
+### Link stats (`link_stat`; added 2026-11-21, backward compatible)
+
+The phone reports which path its link to a Mac takes and how it performs,
+on its signaling socket, so production can see path, RTT, loss and setup
+time (`cmux-mobile-link/src/link_stat.rs`). Phone to service only; nothing
+is forwarded, and the service never answers it.
+
+```json
+{"type":"link_stat","v":1,"transport":"wireguard","path":"turn-tls","reason":"first",
+ "setupMs":812,"marks":{"signaling_open":120,"dial_start":130,"link_ready":700,"first_pong":812},
+ "rtt":{"n":3,"p50":41,"p95":77,"max":80},"pings":3,"lost":0,"switches":1,
+ "net":"cellular","upS":2,"lib":"0.1.0"}
+```
+
+- `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
+  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+- `reason`: `first` (once the link's first ping is answered, or 5 s after it
+  came up), `periodic` (every 60 s while up), `path` (the path changed; at
+  most one per 10 s, a change inside that only counts in `switches`), `end`
+  (the link closed; `end` is then `app`, `keepalive`, `transport` or `other`).
+- `setupMs` and `marks` (first stat only): ms from the app's `connect` to the
+  first pong (else `link_ready`), and the dial's step marks from a fixed list.
+- `rtt`: the link's ping round trips since the last stat (nearest-rank p50 and
+  p95, max; absent with no sample). `pings`: pings sent since the last stat;
+  `lost`: pings neither answered nor waiting, counted once (a pong that comes
+  after its ping was counted lost does not take it back). `switches`: path
+  changes since the link came up. `net`: `cellular` or `other` (the app's last
+  `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
+  It names no user, device, session or address.
+
+The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
+socket's text rate limit, and drops silently (no error frame: a session-less
+error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
+one within 5 s of the socket's last (an `end` stat excepted). It writes one
+Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
+against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
+`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
+hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
+reads them back.
+
+A Worker older than the frame answers it `{"type":"error","code":"bad_request",
+"message":"unknown frame type"}` without `sessionId`. The phone takes that
+answer, within 30 s of a stat it sent, as the refusal of the stat: it never
+reaches a dial, and that socket sends no more stats.
 
 ## Link (inside either transport)
 
@@ -948,6 +1061,16 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+`bundle_id` (string; added 2026-11-17) is the phone app's bundle id as the
+phone states it in its `auth` args (`bundleId`, 1 to 155 ASCII letters,
+digits, `.` and `-`; the phone app sends `Bundle.main.bundleIdentifier`). hostd
+forwards it for phones only and drops a malformed one without refusing the
+link. It is a claim, not a proof: the app reads it only to auto-approve its own
+tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
+to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
+auto-approve"). An older phone sends none, an older hostd forwards none, and
+the app then asks as before.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
@@ -1346,6 +1469,16 @@ answers it on that Mac by typing into the terminal (`send`) while
 `read-screen` shows the question; see SECURITY.md "Answering a terminal
 agent's question from the phone".
 
+A Claude Code terminal's approval (its PermissionRequest hook, for any tool but
+AskUserQuestion and ExitPlanMode) rides the same way: the `list-notifications`
+row carries `approval` `{harness: "claude", tool, command?, target?,
+description?}` while the agent waits on it (memory only; cmux-tui
+`agent_hook_live_approval`, `session.journal.append` `live_approval`). The
+Feed shows it as a permission card with Allow once (types `1`) and Deny
+(Escape), sent only after its own `list-notifications` request still carries
+it and `read-screen` shows its dialog at the bottom of the screen; see SECURITY.md "Answering a terminal agent's
+approval from the phone".
+
 ### Phone actions
 
 | Identifier | Kind | Options | Delivery |
@@ -1414,9 +1547,10 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
 `sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
-phones; `box` is base64url of at most 3072 characters (hostd trims the content
-to fit, and skips a phone whose box still would not). When every paired phone
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). One request
+carries at most 20 boxes (a bound on its body, not on phones); `box` is
+base64url of at most 3072 characters (hostd trims the content to fit, and
+skips a phone whose box still would not). When every paired phone
 has a push key the Mac sends no content fields, also when one box failed or
 its identity key has not arrived (those phones get the generic banner from
 the ids alone); a phone without a push key gets the v2 payload built from the
@@ -1430,6 +1564,26 @@ key, fills in the v2 content, category and thread, and keeps the v3 object
 (`cmuxMobileSealed`) beside them; the app opens that box again before any
 button acts. If it can't open it, the generic banner and no buttons stay. A
 push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+#### More than 20 phones: a lead and batches (API 0.16.0)
+
+There is no cap on how many phones get a push. The Worker sends a notify to
+every push registration of the Mac's owner that wants the kind and has not
+muted the Mac. A Mac with more than 20 boxes splits one event:
+
+- The **lead** is the notify as above with the first 20 boxes, plus
+  `batchedPhones: ["<phone device id>", ...]` (at most 10000), the phones
+  whose boxes come in batches. The Worker sends the lead to every target but
+  those phones. A Worker that takes batches answers with `batches: true`.
+- Each **batch** carries the routing ids, the next at most 20 boxes and
+  `batch: n` (1, 2, ...; at most 500). The Worker sends it only to the targets
+  it has a box for, never checks the turn-end window again (the lead did),
+  and counts it in its own rate bucket (`<mac>:batch:<n>`), so a phone past
+  the first 20 gets pushes at the same rate as the rest.
+- hostd posts the batches after the lead, and only when the lead's answer
+  has `batches: true` and no `coalesced: true`: an older Worker ignores
+  `batch` and would push a batch to every phone again. A malformed `batch`
+  or `batchedPhones` is refused (400), never dropped.
 
 ### Reply mailbox
 

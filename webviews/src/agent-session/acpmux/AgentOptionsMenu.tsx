@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from "react";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon } from "./ComposerPickers";
@@ -31,6 +32,7 @@ export function AgentOptionsMenu({
   const [open, setOpen] = useState(false);
   const label = t("picker.options");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const shortcut = useShortcut(SHORTCUT_ACTIONS.composerAgentOptions);
   if (options.length === 0) return null;
   const only = options.length === 1 ? options[0] : undefined;
   const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;
@@ -43,6 +45,7 @@ export function AgentOptionsMenu({
           label={label}
           /* tooltip-allow: the chip names one option or reads Options; the tooltip lists every current choice */
           title={tooltip}
+          data-tooltip-shortcut={shortcut}
           aria-haspopup="menu"
           data-menu="options"
         >

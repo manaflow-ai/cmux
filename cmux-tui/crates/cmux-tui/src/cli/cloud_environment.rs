@@ -106,7 +106,9 @@ fn launch_backend(args: &[String]) -> Result<Option<String>, String> {
 
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
-    let [scope, noun, rest @ ..] = words.as_slice() else { return None };
+    let [scope, noun, rest @ ..] = words.as_slice() else {
+        return None;
+    };
     if scope != "cloud" || noun != "env" {
         return None;
     }
@@ -186,7 +188,7 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
     };
     // A failed read cannot prevent an explicit set from repairing malformed
     // state. set() independently enforces permissions and I/O failures.
-    let previous = switching.then(|| resolver.resolve(None).ok()).flatten();
+    let previous = switching.then(|| resolver.resolve_persisted().ok()).flatten();
     let selection = match command {
         Command::Get => resolver.resolve(
             std::env::var("CMUX_NEXT_CLOUD_BACKEND")
@@ -194,7 +196,8 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
                 .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok())
                 .as_deref(),
         )?,
-        Command::GetPersisted => resolver.resolve(None)?,
+        // The picker's own choice: never a launch seed or the dev build's tag file (backend.json).
+        Command::GetPersisted => resolver.resolve_persisted()?,
         Command::GetBackend(backend) => resolver.resolve(Some(&backend))?,
         Command::CheckCreate { backend, .. } => resolver.resolve(Some(&backend))?,
         Command::Set(environment) => resolver.set(environment)?,

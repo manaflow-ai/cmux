@@ -34,7 +34,7 @@ import Testing
         #expect(status.detail == "Couldn't refresh · last known")
         let empty = try #require(status.empty)
         #expect(empty.title == "Couldn't load conversations")
-        #expect(empty.message == "Studio didn't answer. It tries again on its own.")
+        #expect(empty.message == "Can't reach Studio right now. It reconnects on its own.")
     }
 
     @Test func anUnnamedMacStartsASentenceCapitalized() throws {

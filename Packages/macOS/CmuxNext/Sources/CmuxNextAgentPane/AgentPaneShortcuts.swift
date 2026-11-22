@@ -15,7 +15,9 @@ public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
         // The chat header's tools and "..." menu (AgentPaneModel.headerActions).
         "splitRight", "splitDown", "splitBrowserRight", "openDiffViewer", "renameTab", "palette.toggleTabPin",
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
-    ]
+        // The composer bar's controls: their chips' tooltips show the keys.
+        "agentPane.switchModel",
+    ] + AgentComposerControl.allCases.map(\.actionID)
 
     public var labels: [String: String] = [:]
 

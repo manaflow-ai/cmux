@@ -39,6 +39,11 @@ case " \$* " in
 esac
 STUB
 chmod +x "$TMP/bin/git"
+# The host's go (ensure_go uses it and fetches nothing) and the Go pin it reads.
+printf '#!/bin/bash\necho "go $*" >> "%s/go-calls"\n' "$TMP" > "$TMP/bin/go"
+chmod +x "$TMP/bin/go"
+mkdir -p "$TMP/work/cmux-tui/crates/cmux-tailnet"
+cp "$ROOT/cmux-tui/crates/cmux-tailnet/go-version" "$TMP/work/cmux-tui/crates/cmux-tailnet/go-version"
 run() { (cd "$TMP/work" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$ROOT/scripts/ci/cmux-tui-rust-check.sh" "${ARGS[@]}") 2>&1; }
 fail() { echo "FAIL: $*"; exit 1; }
 ARGS=(fmt)
@@ -55,11 +60,16 @@ grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run --workspace --locked -
 # cmux-tailnet's build script runs Go: its caches stay in the checkout's .build, and
 # its module cache is writable, so the step's cleanup can remove it.
 ! grep -v -q '^-modcacherw .*/work/.build/go-path/pkg/mod .*/work/.build/go-cache$' "$TMP/goenv" || fail "go env: $(cat "$TMP/goenv")"
+# Every mode that builds the workspace gets Go first (cmux-tailnet's build script needs it).
+grep -q "^go version$" "$TMP/go-calls" || fail "all mode did not set up Go"
+rm -f "$TMP/go-calls"
 rm -f "$TMP/calls" "$TMP/goenv"
 # CMUX_RUST_CHECK_FAIL_FAST=1 stops clippy at its first red crate too.
 ARGS=(clippy)
 run CMUX_CI_STEP_KEY=k CMUX_RUST_CHECK_FAIL_FAST=1 >/dev/null || fail "fail-fast clippy refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "fail-fast clippy: $(cat "$TMP/calls")"
+grep -q "^go version$" "$TMP/go-calls" || fail "clippy mode did not set up Go"
+rm -f "$TMP/go-calls"
 rm -f "$TMP/calls" "$TMP/goenv"
 # terminal: only the terminal stack's crates (ghostty-vt's VT, tmux regress and
 # kitty suites, the PTY, sizing, encode and client crates), no fmt, clippy or doc tests.
@@ -67,6 +77,7 @@ ARGS=(terminal)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing -p cmux-terminal-client -p cmux-encode --locked --profile ci --no-tests=fail$' "$TMP/calls" || fail "terminal: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | clippy | --doc|--workspace' "$TMP/calls" || fail "terminal mode ran more than the terminal crates: $(cat "$TMP/calls")"
+[[ ! -e "$TMP/go-calls" ]] || fail "terminal mode set up Go (its crates do not build cmux-tailnet)"
 rm -f "$TMP/calls"
 ARGS=(terminal 'tmux_conformance')
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode with a filter refused"
@@ -156,11 +167,12 @@ grep -q 'error: the crate scope is one argument' <<<"$out" || fail "a fourth arg
 rm -rf "$TMP/work/.build/cmux-tui-rust-target/debug"
 # api-compat: cmux-tui-spec.yml's protocol compat check, the same cargo command. Its crate
 # needs only serde, so no ghostty-next checkout; it takes no filter and returns nothing.
-rm -f "$TMP/calls" "$TMP/git-calls"
+rm -f "$TMP/calls" "$TMP/git-calls" "$TMP/go-calls"
 ARGS=(api-compat)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "api-compat mode refused"
 [[ "$(cat "$TMP/calls")" == *"/.build/cmux-tui-rust-target run --locked -p cmux-api-compat --bin api-compat-check" ]] || fail "api-compat: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | clippy | nextest | --write' "$TMP/calls" || fail "api-compat ran more than the check: $(cat "$TMP/calls")"
+[[ ! -e "$TMP/go-calls" ]] || fail "api-compat set up Go (cmux-api-compat does not build cmux-tailnet)"
 ! grep -q submodule "$TMP/git-calls" 2>/dev/null || fail "api-compat checked out ghostty-next: $(cat "$TMP/git-calls")"
 rm -f "$TMP/calls" "$TMP/git-calls"
 # api-compat-write: the --write form, which rewrites the snapshot and the wire ledger, then packs
@@ -213,6 +225,7 @@ grep -q 'runs only on Linux' <<<"$out" || fail "panic off-Linux refusal: $out"
 out=$(run CMUX_CI_STEP_KEY=k) || fail "panic mode refused or red: $out"
 [[ "$(cat "$TMP/calls")" == *"/.build/cmux-tui-rust-target clippy --workspace --lib --bins --locked --message-format=json -- -W clippy::unwrap_used -W clippy::indexing_slicing" ]] || fail "panic clippy: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | nextest |-D warnings|--all-targets' "$TMP/calls" || fail "panic mode ran more than the ratchet's clippy: $(cat "$TMP/calls")"
+grep -q "^go version$" "$TMP/go-calls" || fail "panic mode did not set up Go"
 grep -q '/work/cmux-tui --flags$' "$TMP/ratchet-calls" || fail "panic flags: $(cat "$TMP/ratchet-calls")"
 grep -q '/work/cmux-tui --clippy-json .*/work/.build/artifacts/panic-clippy.jsonl$' "$TMP/ratchet-calls" || fail "panic ratchet: $(cat "$TMP/ratchet-calls")"
 grep -q 'cmux-tui-rust-check: green' <<<"$out" || fail "panic summary: $out"
@@ -229,9 +242,13 @@ ARGS=(panic 'cmux_link::')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "panic accepted a filter"
 [[ ! -e "$TMP/calls" ]] || fail "cargo ran for a panic filter"
 rm -rf "$TMP/work/scripts" "$TMP/ratchet-calls"
-# One Go pin: the screen mode's checksummed download covers the version the macOS
-# job of cmux-tui.yml installs (crates/cmux-tailnet/go-version).
+# One Go pin: ensure_go's checksummed download covers the version the macOS
+# job of cmux-tui.yml installs (crates/cmux-tailnet/go-version), on every fleet OS and arch,
+# each with its own OS's tarball.
 go_version=$(tr -d '[:space:]' <"$ROOT/cmux-tui/crates/cmux-tailnet/go-version")
-grep -q "^      $go_version-arm64) " "$ROOT/scripts/ci/cmux-tui-rust-check.sh" || fail "no pinned sha256 for Go $go_version (cmux-tailnet/go-version)"
+for pin in Darwin-arm64:darwin-arm64 Darwin-x86_64:darwin-amd64 Linux-x86_64:linux-amd64 Linux-aarch64:linux-arm64; do
+  grep -q "^      $go_version-${pin%%:*}) platform=${pin#*:} sum=[0-9a-f]\{64\} ;;$" "$ROOT/scripts/ci/cmux-tui-rust-check.sh" \
+    || fail "no pinned sha256 for Go $go_version on ${pin%%:*} (cmux-tailnet/go-version)"
+done
 grep -q "go-version-file: cmux-tui/crates/cmux-tailnet/go-version" "$ROOT/.github/workflows/cmux-tui.yml" || fail "cmux-tui.yml's macOS job does not install cmux-tailnet's Go"
 printf 'cmux-tui-rust-check tests: ok\n'

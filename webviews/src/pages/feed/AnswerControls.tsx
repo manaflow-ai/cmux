@@ -10,6 +10,7 @@ import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
 import { Answers, approveScopes, choiceIssues, closedStatus, draftChoice, isOneTap, SCOPE_LABEL } from "./model";
 import type { ViewItem } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** How much room the controls get: under a request in a list, or the Inbox detail (every field). */
 export type FeedDensity = "inline" | "detail";
@@ -205,17 +206,20 @@ function ChoiceControls({ item, store, snap, strings, disabled }: ControlProps) 
               {question.options.map((option) => {
                 const selected = selection.selected.includes(option.id);
                 return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className="feed-chip"
-                    aria-pressed={selected}
-                    title={option.description}
-                    disabled={disabled}
-                    onClick={() => store.toggleChoice(item.id, question, option.id, oneTap)}
-                  >
-                    {option.label}
-                  </button>
+                  <WithFacts key={option.id} facts={[{ value: option.description ?? "" }]}>
+                    {(facts) => (
+                      <button
+                        {...facts}
+                        type="button"
+                        className="feed-chip"
+                        aria-pressed={selected}
+                        disabled={disabled}
+                        onClick={() => store.toggleChoice(item.id, question, option.id, oneTap)}
+                      >
+                        {option.label}
+                      </button>
+                    )}
+                  </WithFacts>
                 );
               })}
             </div>

@@ -10,35 +10,40 @@ import Observation
 /// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
-    private(set) var previewFeatures = false
+    private(set) var previewFeatures = false; private(set) var liveTree = false
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
     private(set) var sidebarPreviewVariant = AgentPaneSidebarPreviewVariant.card
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
     private(set) var diffColors = "theme"
+    /// Settings > Advanced > Experiments, every `experiments.*` switch (CmuxConfigSnapshot.experimentSwitches).
+    private(set) var experiments: [String: Bool] = [:]
     /// The chat's look (`agentPane.display.*` and the Markdown viewer keys it follows).
     private(set) var display = AgentPaneDisplaySetting.fallback
     private var displayObservation: Task<Void, Never>?
-    private var previewObservation: Task<Void, Never>?
+    private let fontFaces = ChatFontFaces.Loader()
+    private var previewObservation: Task<Void, Never>?; private var liveTreeObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
     private var reasoningSliderObservation: Task<Void, Never>?
     private var sidebarPreviewVariantObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
+    private var experimentsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
-        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
+        for task in [previewObservation, liveTreeObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation, experimentsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
         AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? SessionSettings.promptSuggestionsDefault }
         // `agentPane.needsYou.enabled` (App Store): read as each new agent page is made.
         AgentPaneTunables.needsYouInstalled = { [weak settings] in settings?.snapshot.agentPaneNeedsYouEnabled ?? false }
-        previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
+        previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }; liveTreeObservation = observe({ settings.snapshot.liveTree }, push: push) { $0.liveTree = $1 }
+        experimentsObservation = observe({ settings.snapshot.experimentSwitches }, push: push) { $0.experiments = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
         composerObservation = Task { [weak self] in
@@ -81,12 +86,11 @@ final class AgentPanePageSettings {
     private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
-            for await value in ObservationStream({ AgentPaneDisplaySetting(
-                fileRoot: settings.fileRoot,
-                managedHarnessPlacement: settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
-                    settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
-                }
-            ) }) {
+            for await (inputs, lookRoot) in ObservationStream({ (settings.chatDisplayInputs, settings.applied.root) }) {
+                guard let fontFaces = self?.fontFaces else { return }
+                let value = await AgentPaneDisplaySetting.read(fileRoot: inputs.root, lookRoot: lookRoot,
+                                                               managedHarnessPlacement: inputs.managedHarnessPlacement,
+                                                               fontFaces: fontFaces)
                 guard let self, value != display else { continue }
                 display = value
                 push()
@@ -124,7 +128,7 @@ final class AgentPanePageSettings {
 
     /// Gives `view` the current values (the view pushes only a change).
     func apply(to view: AgentPaneView) {
-        view.previewFeatures = previewFeatures
+        view.previewFeatures = previewFeatures; view.liveTree = liveTree
         view.editedFiles = editedFiles
         view.zoom = zoom
         sidebarPreviewVariant.push(to: view)
@@ -133,5 +137,6 @@ final class AgentPanePageSettings {
         // `sessions.allowFullAccess`, read per frame by the transport: a change applies at the next mode switch.
         view.model.transport.allowsFullAccess = { [weak self] in self?.settings?.snapshot.sessions.allowsFullAccess ?? true }
         view.pushDisplay(display)
+        view.pushExperiments(experiments)
     }
 }

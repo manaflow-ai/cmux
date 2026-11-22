@@ -6,7 +6,10 @@ nonisolated extension AcpmuxPaneMethods {
     /// exactly as the pane sends them (`webviews/src/agent-session/acpmux`). This is the pane's own
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
+        // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed` (cmux#46563).
+        // schemas/agent-pane/initialize-params.json lists every initialize the page sends; refused,
+        // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b).
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
@@ -32,6 +35,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
+        // `known`: the digest of the usage answer the page holds; acpmux answers `unchanged` while it is current.
+        "_acpmux/usage": (["known"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
@@ -52,8 +57,11 @@ nonisolated extension AcpmuxPaneMethods {
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
         // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
         // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // `afterSeq`: a reconnect that holds the chat's rows asks only the records after them
+        // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
+        // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -69,8 +77,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        // A list is read page by page (`limit`, then each page's `nextCursor` as `cursor`).
-        "_acpmux/process/list": (["sessionId", "limit", "cursor"], []),
+        // The page holds the running ones and the newest ended (`recent`, `endedWithin`) and the
+        // processes of the calls its transcript shows (`calls`); a daemon without them is
+        // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
+        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent", "endedWithin", "calls"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
@@ -103,12 +113,25 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
         "_acpmux/models": (["refresh", "localOnly"], []),
+        "catalog.get": ([], []),
+        "catalog.refresh": ([], []),
+        // Only the live-tree read: `waitLogs: false` answers from the session list at once.
+        "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
+        // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
+        // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
+        // Placement names are local display labels; the optional source lets the page filter
+        // targets for a chat without exposing a host URL or session identity.
+        "_acpmux/move_targets": (["source", "sourceKind"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
+        "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
@@ -144,7 +167,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
-        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
         "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),

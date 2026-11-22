@@ -4,6 +4,8 @@ import { FreestyleClient } from "./client.js";
  */
 export interface Customer {
     customerId: string;
+    /** Customer ID in your Stripe account. An identity reference only; no billing behavior. */
+    stripeCustomerId?: string;
     emails?: Array<{
         address: string;
         verified?: boolean;

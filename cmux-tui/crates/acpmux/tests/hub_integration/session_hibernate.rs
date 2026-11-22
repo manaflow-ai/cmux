@@ -17,14 +17,15 @@ use std::path::{Path, PathBuf};
 const IDLE: Duration = acpmux::hub::IDLE_CHILD;
 
 /// The fake harness under a shell: `$dir/broken` makes its start fail (exit 3); `$dir/slow_exit`
-/// makes it ignore SIGTERM, so each stop waits out its grace; else it appends its own pid to
+/// makes the harness ignore SIGTERM, so each stop waits out its grace, while its stand-in MCP
+/// server (started before the trap) still ends at the SIGTERM; else it appends its own pid to
 /// `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`.
 const HARNESS: &str = r#"d=$1; f=$2
 [ -e "$d/broken" ] && exit 3
-[ -e "$d/slow_exit" ] && trap '' TERM
 echo $$ >> "$d/harness"
 sleep 100000 </dev/null >/dev/null 2>&1 &
 echo $! >> "$d/sidecar"
+[ -e "$d/slow_exit" ] && trap '' TERM
 exec python3 "$f""#;
 
 pub(super) struct Rig {
@@ -206,12 +207,16 @@ async fn an_idle_session_hibernates_after_two_minutes_even_while_shown() {
 
 /// Idle sessions whose harnesses are slow to end hibernate together, not one after another: the
 /// idle pass ended them serially, so at 1,000 idle agents it took minutes and most stayed live
-/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace.
+/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace before
+/// the SIGKILL; its stand-in MCP server ends at the SIGTERM. One after another, each harness ends
+/// before the next one is told to stop; together, the stops are told while the first harness
+/// still waits out its grace. Read from that order, not from wall time: a loaded suite stretches
+/// the pass's own reads (`ps`) and this test's polling (2.09 s for 8 in a full run, 0.83 s alone),
+/// never the order.
 #[cfg(unix)]
 #[tokio::test]
 async fn idle_sessions_hibernate_at_once_not_one_after_another() {
     const N: usize = 8;
-    const GRACE: Duration = Duration::from_millis(300);
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     std::fs::write(r.dir.join("slow_exit"), "").unwrap();
     let mut ids = Vec::new();
@@ -221,16 +226,60 @@ async fn idle_sessions_hibernate_at_once_not_one_after_another() {
         ids.push(id);
     }
     r.until("every harness started", || r.pids("harness").len() == N).await;
+    let (harnesses, sidecars) = (r.pids("harness"), r.pids("sidecar"));
+    assert_eq!(sidecars.len(), N);
     let began = std::time::Instant::now();
     r.clock.advance(IDLE + Duration::from_secs(1));
+    // When each process was first seen ended: a server at its SIGTERM, a harness at its SIGKILL.
+    let mut told: Vec<Option<Duration>> = vec![None; N];
+    let mut ended: Vec<Option<Duration>> = vec![None; N];
+    let deadline = began + Duration::from_secs(20);
+    while ended.iter().any(Option::is_none) {
+        assert!(std::time::Instant::now() < deadline, "a harness outlived its hibernation");
+        let all: Vec<u32> = sidecars.iter().chain(&harnesses).copied().collect();
+        let running = tokio::task::spawn_blocking(move || running_of(&all)).await.unwrap();
+        let at = began.elapsed();
+        for (seen, pids) in [(&mut told, &sidecars), (&mut ended, &harnesses)] {
+            for (slot, pid) in seen.iter_mut().zip(pids) {
+                if slot.is_none() && !running.contains(pid) {
+                    *slot = Some(at);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let first_end = ended.iter().flatten().min().copied().unwrap();
+    let told_in_grace = told.iter().flatten().filter(|t| **t < first_end).count();
+    eprintln!(
+        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told before the \
+         first ended at {first_end:?}"
+    );
+    // One after another, no stop is told before the harness before it ended: one at most. Most
+    // of them, not all: under a loaded suite the pass's reads spread the stops (602 to 813 ms in
+    // a full run, the first end at 985 ms), and a pass two or four at a time still fails here.
+    assert!(
+        told_in_grace > N / 2,
+        "{told_in_grace} of {N} slow harnesses were told to stop before the first one ended \
+         (at {first_end:?}): they stop one after another (told {told:?}, ended {ended:?})"
+    );
     r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
         .await;
-    let took = began.elapsed();
-    // One after another is N graces (2.4 s); together, about one.
-    assert!(took < GRACE * (N as u32) / 2, "{N} idle harnesses took {took:?} to hibernate");
-    for pid in r.pids("harness") {
-        r.until("a harness outlived its hibernation", || !alive(pid)).await;
-    }
+}
+
+/// Which of `pids` run, in one `ps` (a zombie, ended but not reaped yet, does not).
+#[cfg(unix)]
+fn running_of(pids: &[u32]) -> Vec<u32> {
+    let list = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let out = std::process::Command::new("ps").args(["-o", "pid=,stat=", "-p", &list]).output();
+    let out = out.unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let pid = words.next()?.parse().ok()?;
+            (!words.next()?.starts_with('Z')).then_some(pid)
+        })
+        .collect()
 }
 
 /// A running turn (its tool call included), a queued prompt and a pending permission each keep

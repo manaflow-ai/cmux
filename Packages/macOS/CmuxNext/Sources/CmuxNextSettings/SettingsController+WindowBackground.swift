@@ -35,6 +35,29 @@ extension SettingsController {
         }
     }
 
+    /// The Plain Backgrounds edit for the person's Opacity or Material write (#44894): a window they
+    /// ask to see through (opacity under 1, or a blur) draws only with `ui.reducedBackgrounds` off,
+    /// so that write turns it off too instead of saving a value the window never draws. Off is the
+    /// default, so the key goes; a theme file that turns it on gets an explicit `false` over it.
+    /// None for an agent or palette caller, a managed key, Plain Backgrounds already off, or a
+    /// write that leaves the window opaque.
+    func plainBackgroundsOffEdits(writing path: [String], value: JSONValue?,
+                                  by writer: SettingWriter) -> [(path: [String], value: JSONValue?)] {
+        let key = ReducedBackgroundsSetting.configPath.joined(separator: ".")
+        guard writer == .user, snapshot.reducedBackgrounds, managedKeys[key] == nil, let value,
+              Self.asksForSeeThrough(path, value) else { return [] }
+        return [(ReducedBackgroundsSetting.configPath, setsInThemeFile(key) ? .bool(false) : nil)]
+    }
+
+    /// Whether writing `value` at `path` asks for a window the desktop shows through.
+    nonisolated static func asksForSeeThrough(_ path: [String], _ value: JSONValue) -> Bool {
+        switch path {
+        case WindowBackgroundSetting.opacityPath: (value.doubleValue ?? 1) < 1
+        case WindowBackgroundSetting.materialPath: value.stringValue.map { $0 != "none" } ?? false
+        default: false
+        }
+    }
+
     /// The linked edits for a write, read against the file as it is now.
     func windowBackgroundLinkedEdits(writing path: [String], value: JSONValue?) async throws -> [(path: [String], value: JSONValue?)] {
         let keys = [WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath]
