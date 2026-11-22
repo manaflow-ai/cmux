@@ -114,6 +114,10 @@ impl Hub {
         let awaiting_first_delta = AtomicBool::new(false);
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
+        // The last stderr line of this agent that says why it would die, for its `exited` record
+        // (`exit_reason.rs`). Kept here, in entry order: the hub's stderr tail may not have
+        // taken the host's last lines yet when its exit entry comes through.
+        let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
@@ -151,6 +155,12 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
+                    if let Some(line) = text.as_ref().and_then(Value::as_str).map(str::trim)
+                        && super::exit_reason::explains_exit(line)
+                    {
+                        *last_stderr.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(line.to_owned());
+                    }
                     return tap_hub
                         .append_logged(
                             &tap_session,
@@ -184,8 +194,11 @@ impl Hub {
                             if intentional { "stopped" } else { "exited" },
                             if hibernating {
                                 json!({"code": code, "hibernated": true})
-                            } else {
+                            } else if intentional {
                                 json!({"code": code})
+                            } else {
+                                let last = last_stderr.lock().unwrap_or_else(|e| e.into_inner());
+                                super::exit_reason::exited_data(code, last.as_deref())
                             },
                             host_seq,
                         )
