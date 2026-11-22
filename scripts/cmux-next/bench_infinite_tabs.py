@@ -249,6 +249,8 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--settle", type=float, default=45, help="seconds before each measured phase")
     parser.add_argument("--measure", type=float, default=30, help="idle seconds of CPU and wakeups in each phase")
     parser.add_argument("--config", default="{}", help="cmux.json settings merged over the run's own")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=holder")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
@@ -264,10 +266,14 @@ def run(argv: list[str]) -> int:
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
-    pid, sock, scratch = bm.launch(bundle, config)
+    if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
+        raise SystemExit("bench-infinite-tabs: --env takes NAME=VALUE")
+    extra_env = dict(pair.split("=", 1) for pair in args.env)
+    pid, sock, scratch = bm.launch(bundle, config, extra_env=extra_env)
     app = bm.App(bundle, sock)
     report = {"app": bundle, "config": config, "phases": {}, "wakes": [],
-              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb}}
+              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb},
+              "env": extra_env}
     made: list[dict] = []
     tally = {"workspace_refused": 0, "tab_asked": 0, "tab_refused": 0}
     status = 1
