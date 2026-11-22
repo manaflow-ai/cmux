@@ -158,6 +158,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -2741,16 +2742,21 @@ export function NewTabScreen(props: Props) {
                   {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                   {row.type === "action" && !!row.keycaps?.length && (
                     <span className="nt-row-shortcut" data-popup-skip>
-                      {row.keycaps.map((cap, index) => (
-                        <kbd key={index}>{cap}</kbd>
+                      {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
+                        <React.Fragment key={strokeIndex}>
+                          {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
+                          {stroke.map((cap, index) => (
+                            <kbd key={index}>{cap}</kbd>
+                          ))}
+                        </React.Fragment>
                       ))}
                     </span>
                   )}
-                  {/* Return's row says so: ↩ at its end. The prompt for the chip's agent is no row, so a
+                  {/* Return's row says so: a "return" cap at its end. The prompt for the chip's agent is no row, so a
                     highlighted row is never the prompt: no highlight, Return sends to the agent. */}
                   {index === current && (
                     <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                      ↩
+                      {keycapLegend("↩")}
                     </kbd>
                   )}
                 </div>
