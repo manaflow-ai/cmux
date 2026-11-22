@@ -315,6 +315,14 @@
     "CI_DEPLOY_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset sends every Cloud VM image roll job to cmux-gcp-deploy-jit-x64, one-job JIT VMs gha-runners makes on demand (cap 4, one kept warm; never one host); `1` restores the roll's earlier labels (cmux-gcp-lane-build-x64 on plan attempt 1, RUNNER_POOLS linux_4 or linux_8, vars.LINUX_RUNNER for the bake)",
       "after_minutes": 10
+    },
+    "CI_PR_CONTROL_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset (or anything but `1`) sends feat-cmux-next's and main's PR and issue bot jobs (risk evidence, merge freeze, labels, triage, PR status...) to cmux-gcp-pr-control-jit-x64, one-job JIT VMs the cmuxterm-hq runner_pool reconciler makes on demand under a warm floor (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default. That is the Blacksmith overflow (Leo, 2026-11-19: \"stop ... relying on it\")",
+      "after_minutes": 10
+    },
+    "CI_REPAIR_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
+      "after_minutes": 10
     }
   },
   "nightly_workflow_marker": "nightly",
