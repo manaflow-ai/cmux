@@ -48,7 +48,7 @@ never shown to anyone. The class itself is `TeamHub`.
 | Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | `cmux-mobile-api` in each database |
 | Local wrangler name | `cnx-ios-api-local` | `cmux-mobile-api-local` (never deployed) |
 | npm package | `cnx-ios-api` | `cmux-mobile-api` |
-| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal`; the App Store app is `com.cmux.app` (dev and prod accept both) |
+| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight and the App Store submission are cmux INTERNAL, `dev.cmux.app.internal`; the AppStore configuration builds `com.cmux.app`, not the submission record (dev and prod accept both) |
 | Rate limit namespaces | 4101-4105 (dev), 4201-4205 (prod) | unchanged (numeric ids, no names) |
 
 Rate limit namespaces are numbers, the TURN key and the APNs key are shared team
